@@ -102,6 +102,17 @@ final class GitHubRequestTests: XCTestCase {
         }
     }
 
+    func testGraphQLErrorCopyJoinsGitHubMessagesAsSentences() {
+        let error = GitHubReadError.graphQL([
+            GitHubGraphQLErrorPayload(message: "Field 'x' doesn't exist", type: nil, path: nil),
+            GitHubGraphQLErrorPayload(message: "Something went wrong. ", type: nil, path: nil)
+        ])
+        XCTAssertEqual(
+            error.errorDescription,
+            "GitHub returned an error: Field 'x' doesn't exist. Something went wrong."
+        )
+    }
+
     func testQueryUsesDirectCIAndNoCommitHistory() {
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("statusCheckRollup"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("headRefOid"))

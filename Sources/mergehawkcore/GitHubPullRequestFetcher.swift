@@ -1432,7 +1432,7 @@ struct GitHubPullRequestFetcher: Sendable {
     private func validate(errors: [GitHubGraphQLErrorPayload]?) throws {
         guard let errors, !errors.isEmpty else { return }
         if errors.contains(where: { $0.type == "VALIDATION" }) {
-            throw GitHubReadError.validation(errors.map(\.message).joined(separator: "; "))
+            throw GitHubReadError.validation(GitHubReadError.sentences(errors.map(\.message)))
         }
         if errors.contains(where: { error in
             ["UNAUTHORIZED", "UNAUTHENTICATED"].contains(error.type?.uppercased() ?? "")
