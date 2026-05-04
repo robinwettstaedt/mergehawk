@@ -28,6 +28,26 @@ type DashboardState = {
   events: PrEvent[];
   syncedAt: string | null;
   source?: string;
+  account?: {
+    login: string;
+    avatarUrl?: string;
+  } | null;
+  auth?: AuthState;
+};
+
+type AuthState = {
+  configured: boolean;
+  status: "signed_out" | "signing_in" | "signed_in";
+  error?: string | null;
+  account?: {
+    login: string;
+    avatarUrl?: string;
+  } | null;
+  flow?: {
+    userCode: string;
+    verificationUri: string;
+    expiresAt: string;
+  } | null;
 };
 
 declare global {
@@ -35,6 +55,9 @@ declare global {
     vcDash?: {
       getState: () => Promise<DashboardState>;
       refresh: () => Promise<DashboardState>;
+      getAuthState: () => Promise<AuthState>;
+      startSignIn: () => Promise<AuthState>;
+      signOut: () => Promise<AuthState>;
       onState: (callback: (state: DashboardState) => void) => () => void;
     };
   }
@@ -43,13 +66,19 @@ declare global {
 const fallbackState: DashboardState = {
   pullRequests: [],
   events: [],
-  syncedAt: null
+  syncedAt: null,
+  account: null,
+  auth: {
+    configured: false,
+    status: "signed_out"
+  }
 };
 
 function App() {
   const [state, setState] = useState<DashboardState>(fallbackState);
   const [selectedView, setSelectedView] = useState("Needs Attention");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     window.vcDash?.getState().then(setState);
@@ -74,6 +103,32 @@ function App() {
     }
   }
 
+  async function startSignIn() {
+    setAuthError(null);
+    try {
+      const auth = await window.vcDash?.startSignIn();
+      if (auth) {
+        setState((current) => ({ ...current, auth, account: auth.account ?? current.account }));
+      }
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function signOut() {
+    const auth = await window.vcDash?.signOut();
+    if (auth) {
+      setState((current) => ({
+        ...current,
+        pullRequests: [],
+        events: [],
+        auth,
+        account: null,
+        source: "mock"
+      }));
+    }
+  }
+
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -81,6 +136,7 @@ function App() {
           <h1>VC Dash</h1>
           <p>{state.events.length} updates need attention</p>
         </div>
+        <AuthPanel auth={state.auth} error={authError} onSignIn={startSignIn} onSignOut={signOut} />
         <nav>
           {["Needs Attention", "My PRs", "Review Requests", "Assigned", "Recent"].map((view) => (
             <button
@@ -139,6 +195,49 @@ function App() {
         </div>
       </section>
     </main>
+  );
+}
+
+function AuthPanel({
+  auth,
+  error,
+  onSignIn,
+  onSignOut
+}: {
+  auth?: AuthState;
+  error: string | null;
+  onSignIn: () => void;
+  onSignOut: () => void;
+}) {
+  if (auth?.status === "signed_in") {
+    return (
+      <section className="auth-panel">
+        <span className="eyebrow">GitHub</span>
+        <strong>{auth.account?.login}</strong>
+        <button onClick={onSignOut}>Sign Out</button>
+      </section>
+    );
+  }
+
+  if (auth?.status === "signing_in" && auth.flow) {
+    return (
+      <section className="auth-panel">
+        <span className="eyebrow">GitHub Sign In</span>
+        <strong className="user-code">{auth.flow.userCode}</strong>
+        <a href={auth.flow.verificationUri}>{auth.flow.verificationUri}</a>
+        <small>Expires {new Date(auth.flow.expiresAt).toLocaleTimeString()}</small>
+      </section>
+    );
+  }
+
+  return (
+    <section className="auth-panel">
+      <span className="eyebrow">GitHub</span>
+      <button onClick={onSignIn}>Sign In</button>
+      {!auth?.configured ? <small className="error">Set GITHUB_CLIENT_ID before signing in.</small> : null}
+      {auth?.error ? <small className="error">{auth.error}</small> : null}
+      {error ? <small className="error">{error}</small> : null}
+    </section>
   );
 }
 
