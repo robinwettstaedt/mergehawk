@@ -1,54 +1,69 @@
 # vc-dash
 
-Rough MVP for a local GitHub PR dashboard with intentional notifications.
+Native macOS menu bar dashboard for scanning GitHub pull requests and intentional notifications.
 
 ## Current state
 
-- Electron shell with a menu bar/tray process.
-- React dashboard for PR status scanning.
-- Local sync engine with first-sync silent baseline behavior.
-- Notification event detection for comments, reviews, failed CI, and changes requested.
-- GitHub OAuth device flow using direct GitHub API calls.
-- Encrypted local token storage through Electron safe storage.
-- Direct GitHub GraphQL client.
-- Mock PR source for local UI work.
+- SwiftPM project with a macOS 14+ AppKit/SwiftUI menu bar app.
+- `LSUIElement`-style accessory behavior at runtime with no Dock presence.
+- Native `NSStatusItem` menu populated with SwiftUI-hosted dashboard rows.
+- Compact menu tabs for `Notifications` and `My PRs`.
+- SwiftUI Settings window with General, GitHub, Notifications, Display, and About panes.
+- First-sync silent baseline behavior.
+- Event detection for new comments, new reviews, failed CI, and changes requested.
+- Notification preferences for in-menu and macOS notifications.
+- GitHub PAT validation through REST `/user`.
+- GitHub PR fetching through GraphQL search.
+- PAT storage in macOS Keychain.
+- Mock PR source when no token is configured.
+
+OAuth device flow, auto-updates, widgets, multi-account support, and extra PR tabs are deferred.
 
 ## Run
 
-Install dependencies first:
+Build and launch the native menu bar app:
 
 ```sh
-npm install
+swift run VCDash
 ```
 
-Start the renderer:
+Without GitHub credentials, VC Dash uses mock PR data. The first refresh establishes a silent baseline; a later refresh can show mock activity.
+
+Build a local `.app` bundle with `LSUIElement`:
 
 ```sh
-npm run dev
+scripts/build-app-bundle.sh
+open .build/VCDash.app
 ```
 
-In a second terminal, start Electron:
+## Sign In With A Personal Access Token
 
-```sh
-npm run electron:dev
-```
+1. Create a GitHub fine-grained personal access token.
+2. Grant repository access for the repositories VC Dash should monitor.
+3. Include read permissions for metadata, pull requests, issues, and actions where applicable.
+4. Launch the app with `swift run VCDash`.
+5. Open the status item menu, click **Settings**, then open **GitHub**.
+6. Paste only the token value, for example `github_pat_...`, with no surrounding text.
+7. Click **Connect**.
 
-Without GitHub credentials, the app uses mock PR data. To use the built-in sign-in flow, create a GitHub OAuth app, enable device flow for it, then start Electron with its client id:
-
-```sh
-GITHUB_CLIENT_ID=your-oauth-client-id npm run electron:dev
-```
-
-The app will show a GitHub device code, open `https://github.com/login/device`, poll until authorization completes, store the access token encrypted in the Electron user data directory, and then sync your PRs.
-
-The temporary env-token path still works for debugging:
-
-```sh
-GITHUB_TOKEN=ghp_your-token GITHUB_LOGIN=your-login npm run electron:dev
-```
+VC Dash validates the token by fetching the current GitHub user, stores it in Keychain, and then syncs PRs.
 
 ## Test
 
+SwiftPM package validation:
+
 ```sh
-npm test
+swift test
+```
+
+Core behavior tests:
+
+```sh
+swift run VCDashCoreTestRunner
+```
+
+Build the app:
+
+```sh
+swift build --product VCDash
 ```
