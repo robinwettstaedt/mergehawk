@@ -42,10 +42,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         item.view = hostingView
         menu.addItem(item)
 
+        menu.addItem(spacerItem(height: 6))
         menu.addItem(actionItem("Settings", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(actionItem("About VC Dash", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(actionItem("Quit", action: #selector(quit), keyEquivalent: "q"))
+    }
+
+    private func spacerItem(height: CGFloat) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.view = NSView(frame: NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: height))
+        return item
     }
 
     private func actionItem(_ title: String, action: Selector, keyEquivalent: String) -> NSMenuItem {
