@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VCDashCore
 
@@ -32,6 +33,18 @@ struct MenuRootView: View {
             if controller.isRefreshing {
                 ProgressView()
                     .controlSize(.small)
+            } else {
+                Button {
+                    controller.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Refresh")
+                .accessibilityLabel("Refresh")
             }
         }
         .padding(14)
@@ -181,37 +194,93 @@ private struct PullRequestRow: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(pullRequest.repo)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("#\(pullRequest.number)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text(pullRequest.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-                HStack(spacing: 6) {
-                    CIStatusIndicator(ciState: pullRequest.ciState)
-                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                    if isAttention {
-                        StatusPill(text: "new", kind: .attention)
+        ZStack(alignment: .bottomTrailing) {
+            Button(action: action) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(pullRequest.repo)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("#\(pullRequest.number)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(pullRequest.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        CIStatusIndicator(ciState: pullRequest.ciState)
+                        ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
+                        CommentCountIndicator(count: pullRequest.commentCount)
+                        if isAttention {
+                            StatusPill(text: "new", kind: .attention)
+                        }
+                        Spacer(minLength: 28)
                     }
                 }
+                .padding(10)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isAttention ? Color.blue : Color.clear, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .padding(10)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isAttention ? Color.blue : Color.clear, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .buttonStyle(.plain)
+
+            PullRequestLinkCopyButton(url: pullRequest.url)
+                .padding(.trailing, 8)
+                .padding(.bottom, 8)
+        }
+    }
+}
+
+struct PullRequestLinkCopyButton: View {
+    let url: URL
+
+    var body: some View {
+        Button {
+            copyToPasteboard(url)
+        } label: {
+            Image(systemName: "doc.on.doc")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 22, height: 22)
         }
         .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("Copy PR link")
+        .accessibilityLabel("Copy PR link")
+    }
+
+    static func clipboardString(for url: URL) -> String {
+        url.absoluteString
+    }
+
+    private func copyToPasteboard(_ url: URL) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(Self.clipboardString(for: url), forType: .string)
+    }
+}
+
+struct CommentCountIndicator: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "bubble.left")
+                .font(.system(size: 11, weight: .semibold))
+            Text("\(count)")
+                .font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityLabel(Self.label(for: count))
+        .help(Self.label(for: count))
+    }
+
+    static func label(for count: Int) -> String {
+        "\(count) comment\(count == 1 ? "" : "s")"
     }
 }
 
