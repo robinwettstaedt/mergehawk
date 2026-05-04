@@ -43,11 +43,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(item)
 
         menu.addItem(.separator())
-        menu.addItem(actionItem("Refresh", action: #selector(refresh), keyEquivalent: "r"))
+        menu.addItem(Self.makeRefreshItem(target: self, action: #selector(refresh)))
         menu.addItem(actionItem("Settings...", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(actionItem("About VC Dash", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(actionItem("Quit VC Dash", action: #selector(quit), keyEquivalent: "q"))
+    }
+
+    static func makeRefreshItem(target: AnyObject, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: "Refresh", action: action, keyEquivalent: "r")
+        item.target = target
+        return item
     }
 
     private func actionItem(_ title: String, action: Selector, keyEquivalent: String) -> NSMenuItem {
@@ -58,6 +64,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func refresh() {
         controller.refresh()
+        DispatchQueue.main.async { [weak self] in
+            self?.statusItem.button?.performClick(nil)
+        }
     }
 
     @objc private func showSettings() {
