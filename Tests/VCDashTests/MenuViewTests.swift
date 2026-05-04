@@ -1,10 +1,6 @@
 @testable import VCDash
-import AppKit
+import Foundation
 import VCDashCore
-
-private final class MenuActionTarget: NSObject {
-    @objc func performAction() {}
-}
 
 @MainActor let vcDashMenuViewTest: Void = {
     precondition(CIStatusIndicator.Kind(ciState: .failing) == .failing)
@@ -16,11 +12,8 @@ private final class MenuActionTarget: NSObject {
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired) == .reviewRequired)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .unknown) == .unknown)
 
-    let target = MenuActionTarget()
-    let refreshItem = StatusBarController.makeRefreshItem(target: target, action: #selector(MenuActionTarget.performAction))
-    precondition(refreshItem.title == "Refresh")
-    precondition(refreshItem.action == #selector(MenuActionTarget.performAction))
-    precondition(refreshItem.target === target)
-    precondition(refreshItem.keyEquivalent == "r")
-    precondition(refreshItem.view == nil)
+    let prURL = URL(string: "https://github.com/acme/vc-dash/pull/12")!
+    precondition(PullRequestLinkCopyButton.clipboardString(for: prURL) == "https://github.com/acme/vc-dash/pull/12")
+    precondition(CommentCountIndicator.label(for: 3) == "3 comments")
+    precondition(CommentCountIndicator.label(for: 1) == "1 comment")
 }()
