@@ -27,6 +27,7 @@ type DashboardState = {
   pullRequests: PullRequest[];
   events: PrEvent[];
   syncedAt: string | null;
+  source?: string;
 };
 
 declare global {
@@ -96,6 +97,7 @@ function App() {
         </button>
         <span className="sync-time">
           {state.syncedAt ? `Last sync ${new Date(state.syncedAt).toLocaleTimeString()}` : "Not synced yet"}
+          {state.source ? ` · ${state.source}` : ""}
         </span>
       </aside>
 
