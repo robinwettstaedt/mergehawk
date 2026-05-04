@@ -1,24 +1,43 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createGitHubClient } from "../src/main/githubClient.mjs";
 import { createMockPullRequestSource } from "../src/main/mockPullRequestSource.mjs";
 import { createSyncEngine } from "../src/main/syncEngine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? "http://127.0.0.1:5173";
-const mockSource = createMockPullRequestSource();
-const syncEngine = createSyncEngine({ fetchPullRequests: mockSource.fetchPullRequests });
+const pullRequestSource = createPullRequestSource();
+const syncEngine = createSyncEngine({ fetchPullRequests: pullRequestSource.fetchPullRequests });
 
 let mainWindow;
 let tray;
 let latestState = {
   pullRequests: [],
   events: [],
-  syncedAt: null
+  syncedAt: null,
+  source: pullRequestSource.source
 };
+
+function createPullRequestSource() {
+  if (process.env.GITHUB_TOKEN && process.env.GITHUB_LOGIN) {
+    const client = createGitHubClient({ token: process.env.GITHUB_TOKEN });
+    return {
+      source: "github",
+      fetchPullRequests: () => client.fetchPullRequests({ login: process.env.GITHUB_LOGIN })
+    };
+  }
+
+  const mockSource = createMockPullRequestSource();
+  return {
+    source: "mock",
+    fetchPullRequests: mockSource.fetchPullRequests
+  };
+}
 
 async function runSync({ notify = true } = {}) {
   latestState = await syncEngine.sync();
+  latestState.source = pullRequestSource.source;
   updateTray();
   mainWindow?.webContents.send("dashboard:state", latestState);
 
