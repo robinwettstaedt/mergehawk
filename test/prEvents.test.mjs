@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { defaultNotificationPreferences, filterPrEvents } from "../src/shared/prEvents.mjs";
 import { detectPrEvents } from "../src/shared/prEvents.mjs";
 
 test("first sync baselines without events", () => {
@@ -45,4 +46,16 @@ test("detects new activity and newly failing CI on authored PR", () => {
     events.map((event) => event.type),
     ["new_comment", "new_review", "ci_failed", "changes_requested"]
   );
+});
+
+test("filters events through default notification preferences", () => {
+  const events = [
+    { type: "new_comment", prId: "1" },
+    { type: "review_requested", prId: "1" },
+    { type: "assigned", prId: "1" }
+  ];
+
+  assert.deepEqual(filterPrEvents(events, defaultNotificationPreferences), [
+    { type: "new_comment", prId: "1" }
+  ]);
 });
