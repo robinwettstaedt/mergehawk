@@ -196,8 +196,8 @@ private struct PullRequestRow: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
                 HStack(spacing: 6) {
-                    StatusPill(text: pullRequest.ciState.rawValue, kind: pullRequest.ciState == .failing ? .bad : .neutral)
-                    StatusPill(text: pullRequest.reviewDecision.rawValue.replacingOccurrences(of: "_", with: " "), kind: pullRequest.reviewDecision == .changesRequested ? .bad : .neutral)
+                    CIStatusIndicator(ciState: pullRequest.ciState)
+                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                     if isAttention {
                         StatusPill(text: "new", kind: .attention)
                     }
@@ -212,6 +212,149 @@ private struct PullRequestRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct CIStatusIndicator: View {
+    enum Kind: Equatable {
+        case failing
+        case running
+        case successful
+        case unknown
+
+        init(ciState: CIState) {
+            switch ciState {
+            case .failing:
+                self = .failing
+            case .pending:
+                self = .running
+            case .passing:
+                self = .successful
+            case .unknown:
+                self = .unknown
+            }
+        }
+    }
+
+    let ciState: CIState
+
+    var body: some View {
+        Circle()
+            .fill(kind.color)
+            .frame(width: 10, height: 10)
+            .accessibilityLabel(kind.label)
+            .help(kind.label)
+    }
+
+    private var kind: Kind {
+        Kind(ciState: ciState)
+    }
+}
+
+private extension CIStatusIndicator.Kind {
+    var color: Color {
+        switch self {
+        case .failing:
+            .red
+        case .running:
+            .orange
+        case .successful:
+            .green
+        case .unknown:
+            .secondary
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .failing:
+            "CI failing"
+        case .running:
+            "CI running"
+        case .successful:
+            "CI successful"
+        case .unknown:
+            "CI status unknown"
+        }
+    }
+}
+
+struct ReviewDecisionIndicator: View {
+    enum Kind: Equatable {
+        case approved
+        case changesRequested
+        case reviewRequired
+        case unknown
+
+        init(reviewDecision: ReviewDecision) {
+            switch reviewDecision {
+            case .approved:
+                self = .approved
+            case .changesRequested:
+                self = .changesRequested
+            case .reviewRequired:
+                self = .reviewRequired
+            case .unknown:
+                self = .unknown
+            }
+        }
+    }
+
+    let reviewDecision: ReviewDecision
+
+    var body: some View {
+        Image(systemName: kind.symbolName)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(kind.color)
+            .font(.caption.weight(.semibold))
+            .frame(width: 16, height: 16)
+            .accessibilityLabel(kind.label)
+            .help(kind.label)
+    }
+
+    private var kind: Kind {
+        Kind(reviewDecision: reviewDecision)
+    }
+}
+
+private extension ReviewDecisionIndicator.Kind {
+    var symbolName: String {
+        switch self {
+        case .approved:
+            "checkmark.seal.fill"
+        case .changesRequested:
+            "exclamationmark.triangle.fill"
+        case .reviewRequired:
+            "eye.fill"
+        case .unknown:
+            "questionmark.diamond.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .approved:
+            .green
+        case .changesRequested:
+            .red
+        case .reviewRequired:
+            .orange
+        case .unknown:
+            .secondary
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .approved:
+            "Review approved"
+        case .changesRequested:
+            "Changes requested"
+        case .reviewRequired:
+            "Review required"
+        case .unknown:
+            "Review status unknown"
+        }
     }
 }
 

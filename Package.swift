@@ -26,6 +26,11 @@ let package = Package(
             name: "SmokeTests",
             dependencies: ["VCDashCore"],
             path: "Tests/SmokeTests"
+        ),
+        .testTarget(
+            name: "VCDashTests",
+            dependencies: ["VCDash", "VCDashCore"],
+            path: "Tests/VCDashTests"
         )
     ]
 )

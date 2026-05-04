@@ -36,6 +36,20 @@ scripts/build-app-bundle.sh
 open .build/VCDash.app
 ```
 
+Update the locally installed app bundle and restart it:
+
+```sh
+scripts/update-installed-app.sh
+```
+
+By default this updates `/Applications/VC Dash.app` if present, then
+`~/Applications/VC Dash.app` if present, otherwise it installs to
+`~/Applications/VC Dash.app`. To update a specific bundle:
+
+```sh
+APP_PATH="/path/to/VC Dash.app" scripts/update-installed-app.sh
+```
+
 ## Sign In With A Personal Access Token
 
 1. Create a GitHub fine-grained personal access token.
