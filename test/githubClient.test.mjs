@@ -71,3 +71,29 @@ test("fetches pull requests through separate GitHub GraphQL searches", async () 
     }
   ]);
 });
+
+test("fetches authenticated GitHub user through REST", async () => {
+  const requests = [];
+  const client = createGitHubClient({
+    token: "gho_test",
+    fetcher: async (url, options) => {
+      requests.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          login: "rw",
+          avatar_url: "https://avatars.githubusercontent.com/u/1",
+          html_url: "https://github.com/rw"
+        })
+      };
+    }
+  });
+
+  assert.deepEqual(await client.fetchViewer(), {
+    login: "rw",
+    avatarUrl: "https://avatars.githubusercontent.com/u/1",
+    profileUrl: "https://github.com/rw"
+  });
+  assert.equal(requests[0].url, "https://api.github.com/user");
+  assert.equal(requests[0].options.headers.authorization, "Bearer gho_test");
+});
