@@ -1,3 +1,14 @@
+export const defaultNotificationPreferences = {
+  new_comment: true,
+  new_review: true,
+  ci_failed: true,
+  changes_requested: true,
+  ready_to_merge: true,
+  review_requested: false,
+  assigned: false,
+  ci_passed: false
+};
+
 export function detectPrEvents({ previous, current }) {
   if (!previous) {
     return [];
@@ -40,4 +51,8 @@ export function detectPrEvents({ previous, current }) {
   }
 
   return events;
+}
+
+export function filterPrEvents(events, preferences) {
+  return events.filter((event) => preferences[event.type] === true);
 }
