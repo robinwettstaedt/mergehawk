@@ -61,9 +61,21 @@ export function createGitHubClient({ token, fetcher = fetch }) {
   }
 
   async function fetchPullRequests({ login }) {
-    const query = `is:open is:pr author:${login} assignee:${login} user-review-requested:${login}`;
-    const data = await graphql(pullRequestSearchQuery, { query });
-    return data.search.nodes.map((node) => normalizePullRequest(node, login));
+    const queries = [
+      `is:open is:pr author:${login}`,
+      `is:open is:pr assignee:${login}`,
+      `is:open is:pr user-review-requested:${login}`
+    ];
+    const pullRequests = new Map();
+
+    for (const query of queries) {
+      const data = await graphql(pullRequestSearchQuery, { query });
+      for (const node of data.search.nodes) {
+        pullRequests.set(node.id, normalizePullRequest(node, login));
+      }
+    }
+
+    return [...pullRequests.values()];
   }
 
   return {
