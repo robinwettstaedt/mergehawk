@@ -8,6 +8,8 @@ Rough MVP for a local GitHub PR dashboard with intentional notifications.
 - React dashboard for PR status scanning.
 - Local sync engine with first-sync silent baseline behavior.
 - Notification event detection for comments, reviews, failed CI, and changes requested.
+- GitHub OAuth device flow using direct GitHub API calls.
+- Encrypted local token storage through Electron safe storage.
 - Direct GitHub GraphQL client.
 - Mock PR source for local UI work.
 
@@ -31,13 +33,19 @@ In a second terminal, start Electron:
 npm run electron:dev
 ```
 
-Without GitHub credentials, the app uses mock PR data. To fetch real GitHub data in this rough MVP:
+Without GitHub credentials, the app uses mock PR data. To use the built-in sign-in flow, create a GitHub OAuth app, enable device flow for it, then start Electron with its client id:
 
 ```sh
-GITHUB_TOKEN=ghp_your_token GITHUB_LOGIN=your-login npm run electron:dev
+GITHUB_CLIENT_ID=your-oauth-client-id npm run electron:dev
 ```
 
-The planned production path is OAuth device flow plus macOS Keychain storage; the temporary env-token path exists only to make the MVP usable before auth UI is implemented.
+The app will show a GitHub device code, open `https://github.com/login/device`, poll until authorization completes, store the access token encrypted in the Electron user data directory, and then sync your PRs.
+
+The temporary env-token path still works for debugging:
+
+```sh
+GITHUB_TOKEN=ghp_your-token GITHUB_LOGIN=your-login npm run electron:dev
+```
 
 ## Test
 
