@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist-electron/main/index.js",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "electron:dev": "electron .",
+    "electron:dev": "ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .",
     "build": "tsc -p tsconfig.json && vite build",
     "test": "node --test"
   },
