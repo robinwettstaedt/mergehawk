@@ -3,51 +3,45 @@ import SwiftUI
 import VCDashCore
 
 struct MenuRootView: View {
+    enum Layout {
+        static let width: CGFloat = 420
+        static let height: CGFloat = 650
+        static let topBarHeight: CGFloat = 45
+    }
+
     @ObservedObject var controller: DashboardController
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            tabSwitcher
+            topBar
             Divider()
             content
-                .frame(minHeight: 260, maxHeight: 340)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 420)
+        .frame(width: Self.Layout.width, height: Self.Layout.height)
         .background(.regularMaterial)
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(controller.hasAttention ? Color.red : Color.green)
-                .frame(width: 10, height: 10)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(controller.accountLabel)
-                    .font(.headline)
-                Text("\(controller.sourceLabel) · \(syncText)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if controller.isRefreshing {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Button {
-                    controller.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 22, height: 22)
+    private var topBar: some View {
+        HStack(alignment: .center, spacing: 12) {
+            tabSwitcher
+            Spacer(minLength: 10)
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(controller.hasAttention ? Color.red : Color.green)
+                        .frame(width: 10, height: 10)
+                    refreshControl
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Refresh")
-                .accessibilityLabel("Refresh")
+                Text("updated \(syncText)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
-        .padding(14)
+        .padding(.leading, 8)
+        .padding(.trailing, 14)
+        .frame(height: Self.Layout.topBarHeight)
     }
 
     private var tabSwitcher: some View {
@@ -57,8 +51,28 @@ struct MenuRootView: View {
             }
         }
         .pickerStyle(.segmented)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
+        .frame(width: 196)
+    }
+
+    @ViewBuilder
+    private var refreshControl: some View {
+        if controller.isRefreshing {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 22, height: 22)
+        } else {
+            Button {
+                controller.refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Refresh")
+            .accessibilityLabel("Refresh")
+        }
     }
 
     @ViewBuilder
@@ -77,7 +91,7 @@ struct MenuRootView: View {
 
     private var syncText: String {
         guard let syncedAt = controller.state.syncedAt else {
-            return "Not synced"
+            return "never"
         }
         return syncedAt.formatted(date: .omitted, time: .shortened)
     }
