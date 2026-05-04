@@ -78,8 +78,31 @@ export function createGitHubClient({ token, fetcher = fetch }) {
     return [...pullRequests.values()];
   }
 
+  async function fetchViewer() {
+    const response = await fetcher("https://api.github.com/user", {
+      method: "GET",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+        "x-github-api-version": "2022-11-28"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub user request failed with status ${response.status}`);
+    }
+
+    const user = await response.json();
+    return {
+      login: user.login,
+      avatarUrl: user.avatar_url,
+      profileUrl: user.html_url
+    };
+  }
+
   return {
-    fetchPullRequests
+    fetchPullRequests,
+    fetchViewer
   };
 }
 
