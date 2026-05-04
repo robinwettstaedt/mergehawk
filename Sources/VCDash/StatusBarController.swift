@@ -36,7 +36,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let root = MenuRootView(controller: controller)
         let hostingView = NSHostingView(rootView: root)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 420, height: 445)
+        hostingView.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
 
         let item = NSMenuItem()
         item.view = hostingView
