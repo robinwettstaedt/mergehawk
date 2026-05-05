@@ -40,13 +40,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let settingsWindow {
             window = settingsWindow
         } else {
+            let size = SettingsTab.defaultWindowSize
             window = SettingsWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 600, height: 440),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
             window.title = "VC Dash Settings"
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
             window.contentView = NSHostingView(rootView: SettingsRootView(controller: controller))
             window.isReleasedWhenClosed = false
             window.collectionBehavior = [.moveToActiveSpace]

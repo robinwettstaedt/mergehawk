@@ -105,6 +105,7 @@ struct Runner {
             reviewDecision: "REVIEW_REQUIRED",
             comments: .init(totalCount: 2),
             reviews: .init(totalCount: 1),
+            reviewThreads: .init(nodes: [.init(isResolved: true), .init(isResolved: false)]),
             repository: .init(nameWithOwner: "acme/vc-dash"),
             commits: .init(nodes: [.init(commit: .init(statusCheckRollup: .init(state: "FAILURE")))]),
             author: .init(login: "rw")
@@ -118,7 +119,7 @@ struct Runner {
             repo: "acme/vc-dash",
             ciState: .failing,
             reviewDecision: .reviewRequired,
-            commentCount: 2,
+            commentCount: 3,
             reviewCount: 1,
             isMine: true,
             author: "rw",
