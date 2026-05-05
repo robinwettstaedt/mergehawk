@@ -5,17 +5,15 @@ enum SettingsTab: String, CaseIterable, Hashable {
     case general
     case github
     case notifications
-    case display
     case about
 
-    static let defaultWindowSize = CGSize(width: 600, height: 520)
+    static let defaultWindowSize = CGSize(width: 460, height: 560)
 
     var title: String {
         switch self {
         case .general: "General"
         case .github: "GitHub"
         case .notifications: "Notifications"
-        case .display: "Display"
         case .about: "About"
         }
     }
@@ -25,7 +23,6 @@ enum SettingsTab: String, CaseIterable, Hashable {
         case .general: "gearshape"
         case .github: "person.crop.circle.badge.checkmark"
         case .notifications: "bell"
-        case .display: "menubar.rectangle"
         case .about: "info.circle"
         }
     }
@@ -38,8 +35,8 @@ struct SettingsRootView: View {
     var body: some View {
         VStack(spacing: 0) {
             SettingsTabBar(selection: $selection)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
+                .padding(.top, SettingsTabLayout.topPadding)
+                .padding(.bottom, SettingsTabLayout.bottomPadding)
 
             Divider()
 
@@ -50,6 +47,7 @@ struct SettingsRootView: View {
             width: SettingsTab.defaultWindowSize.width,
             height: SettingsTab.defaultWindowSize.height
         )
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     @ViewBuilder
@@ -61,37 +59,50 @@ struct SettingsRootView: View {
             GitHubSettingsView(controller: controller)
         case .notifications:
             NotificationSettingsView(controller: controller)
-        case .display:
-            DisplaySettingsView()
         case .about:
             AboutSettingsView()
         }
     }
 }
 
+enum SettingsTabLayout {
+    static let topPadding: CGFloat = 8
+    static let bottomPadding: CGFloat = 10
+    static let titleToTabsSpacing: CGFloat = 8
+    static let tabSpacing: CGFloat = 8
+    static let tabWidth: CGFloat = 72
+    static let tabHeight: CGFloat = 58
+    static let titleSize: CGFloat = 14
+    static let iconSize: CGFloat = 18
+    static let iconHeight: CGFloat = 20
+    static let labelSize: CGFloat = 11
+}
+
 private struct SettingsTabBar: View {
     @Binding var selection: SettingsTab
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: SettingsTabLayout.titleToTabsSpacing) {
             Text(selection.title)
-                .font(.title3.weight(.semibold))
+                .font(.system(size: SettingsTabLayout.titleSize, weight: .semibold))
                 .foregroundStyle(.primary)
 
-            HStack(spacing: 8) {
+            HStack(spacing: SettingsTabLayout.tabSpacing) {
                 ForEach(SettingsTab.allCases, id: \.self) { tab in
                     Button {
                         selection = tab
                     } label: {
-                        VStack(spacing: 5) {
+                        VStack(spacing: 4) {
                             Image(systemName: tab.systemImage)
-                                .font(.system(size: 25, weight: .semibold))
-                                .frame(height: 28)
+                                .font(.system(size: SettingsTabLayout.iconSize, weight: .semibold))
+                                .frame(height: SettingsTabLayout.iconHeight)
                             Text(tab.title)
-                                .font(.callout.weight(.semibold))
+                                .font(.system(size: SettingsTabLayout.labelSize, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
                         }
                         .foregroundStyle(selection == tab ? Color.accentColor : .secondary)
-                        .frame(width: 92, height: 74)
+                        .frame(width: SettingsTabLayout.tabWidth, height: SettingsTabLayout.tabHeight)
                         .background {
                             if selection == tab {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -231,18 +242,6 @@ private struct NotificationSettingsView: View {
     }
 }
 
-private struct DisplaySettingsView: View {
-    var body: some View {
-        Form {
-            Toggle("Show attention count in menu bar", isOn: .constant(true))
-                .disabled(true)
-            Toggle("Use compact rows", isOn: .constant(true))
-                .disabled(true)
-        }
-        .formStyle(.grouped)
-    }
-}
-
 private struct AboutSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -250,8 +249,10 @@ private struct AboutSettingsView: View {
                 .font(.title2.weight(.semibold))
             Text("Native macOS menu bar dashboard for GitHub pull requests.")
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
