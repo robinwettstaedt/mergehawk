@@ -53,6 +53,20 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
     }
 
+    public struct ReviewThreadConnection: Decodable, Equatable, Sendable {
+        public struct Node: Decodable, Equatable, Sendable {
+            public let isResolved: Bool
+            public init(isResolved: Bool) {
+                self.isResolved = isResolved
+            }
+        }
+
+        public let nodes: [Node]
+        public init(nodes: [Node]) {
+            self.nodes = nodes
+        }
+    }
+
     public let id: String
     public let title: String
     public let number: Int
@@ -62,6 +76,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let reviewDecision: String?
     public let comments: Count
     public let reviews: Count
+    public let reviewThreads: ReviewThreadConnection
     public let repository: Repository
     public let commits: CommitConnection?
     public let author: User?
@@ -76,6 +91,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         reviewDecision: String?,
         comments: Count,
         reviews: Count,
+        reviewThreads: ReviewThreadConnection,
         repository: Repository,
         commits: CommitConnection?,
         author: User?
@@ -89,6 +105,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.reviewDecision = reviewDecision
         self.comments = comments
         self.reviews = reviews
+        self.reviewThreads = reviewThreads
         self.repository = repository
         self.commits = commits
         self.author = author
@@ -98,6 +115,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
 public enum GitHubPullRequestNormalizer {
     public static func normalize(_ node: GitHubPullRequestNode, login: String) -> PullRequest {
         let rollupState = node.commits?.nodes.last?.commit.statusCheckRollup?.state ?? "UNKNOWN"
+        let unresolvedReviewThreadCount = node.reviewThreads.nodes.filter { !$0.isResolved }.count
         return PullRequest(
             id: node.id,
             title: node.title,
@@ -106,7 +124,7 @@ public enum GitHubPullRequestNormalizer {
             repo: node.repository.nameWithOwner,
             ciState: normalizeCIState(rollupState),
             reviewDecision: normalizeReviewDecision(node.reviewDecision),
-            commentCount: node.comments.totalCount,
+            commentCount: node.comments.totalCount + unresolvedReviewThreadCount,
             reviewCount: node.reviews.totalCount,
             isMine: node.author?.login == login,
             author: node.author?.login ?? "unknown",
@@ -241,6 +259,11 @@ public final class GitHubClient: PullRequestSource {
               }
               reviews {
                 totalCount
+              }
+              reviewThreads(first: 100) {
+                nodes {
+                  isResolved
+                }
               }
               repository {
                 nameWithOwner

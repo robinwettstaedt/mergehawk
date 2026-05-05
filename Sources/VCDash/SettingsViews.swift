@@ -1,24 +1,115 @@
 import SwiftUI
 import VCDashCore
 
+enum SettingsTab: String, CaseIterable, Hashable {
+    case general
+    case github
+    case notifications
+    case display
+    case about
+
+    static let defaultWindowSize = CGSize(width: 600, height: 520)
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .github: "GitHub"
+        case .notifications: "Notifications"
+        case .display: "Display"
+        case .about: "About"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: "gearshape"
+        case .github: "person.crop.circle.badge.checkmark"
+        case .notifications: "bell"
+        case .display: "menubar.rectangle"
+        case .about: "info.circle"
+        }
+    }
+}
+
 struct SettingsRootView: View {
     @ObservedObject var controller: DashboardController
+    @State private var selection = SettingsTab.general
 
     var body: some View {
-        TabView {
-            GeneralSettingsView(controller: controller)
-                .tabItem { Label("General", systemImage: "gearshape") }
-            GitHubSettingsView(controller: controller)
-                .tabItem { Label("GitHub", systemImage: "person.crop.circle.badge.checkmark") }
-            NotificationSettingsView(controller: controller)
-                .tabItem { Label("Notifications", systemImage: "bell") }
-            DisplaySettingsView()
-                .tabItem { Label("Display", systemImage: "menubar.rectangle") }
-            AboutSettingsView()
-                .tabItem { Label("About", systemImage: "info.circle") }
+        VStack(spacing: 0) {
+            SettingsTabBar(selection: $selection)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+
+            Divider()
+
+            selectedPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 560, height: 380)
-        .padding(20)
+        .frame(
+            width: SettingsTab.defaultWindowSize.width,
+            height: SettingsTab.defaultWindowSize.height
+        )
+    }
+
+    @ViewBuilder
+    private var selectedPane: some View {
+        switch selection {
+        case .general:
+            GeneralSettingsView(controller: controller)
+        case .github:
+            GitHubSettingsView(controller: controller)
+        case .notifications:
+            NotificationSettingsView(controller: controller)
+        case .display:
+            DisplaySettingsView()
+        case .about:
+            AboutSettingsView()
+        }
+    }
+}
+
+private struct SettingsTabBar: View {
+    @Binding var selection: SettingsTab
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(selection.title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            HStack(spacing: 8) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    Button {
+                        selection = tab
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: tab.systemImage)
+                                .font(.system(size: 25, weight: .semibold))
+                                .frame(height: 28)
+                            Text(tab.title)
+                                .font(.callout.weight(.semibold))
+                        }
+                        .foregroundStyle(selection == tab ? Color.accentColor : .secondary)
+                        .frame(width: 92, height: 74)
+                        .background {
+                            if selection == tab {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color.secondary.opacity(0.12))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                                    }
+                            }
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(tab.title)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -29,7 +120,7 @@ private struct GeneralSettingsView: View {
         Form {
             LabeledContent("Source", value: controller.sourceLabel)
             LabeledContent("Account", value: controller.accountLabel)
-            Picker("Refresh", selection: $controller.refreshIntervalMinutes) {
+            Picker("Refresh Interval", selection: $controller.refreshIntervalMinutes) {
                 ForEach(controller.refreshIntervalOptions, id: \.self) { minutes in
                     Text("\(minutes) min").tag(minutes)
                 }
