@@ -2,7 +2,14 @@ import Foundation
 import VCDashCore
 
 struct PreferencesStore {
-    private let defaults = UserDefaults.standard
+    static let refreshIntervalMinuteOptions = [1, 2, 5, 10, 15]
+    static let defaultRefreshIntervalMinutes = 2
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     var notificationPreferences: NotificationPreferences {
         get {
@@ -18,6 +25,21 @@ struct PreferencesStore {
             defaults.set(newValue.newReview, forKey: "notifications.newReview")
             defaults.set(newValue.ciFailed, forKey: "notifications.ciFailed")
             defaults.set(newValue.changesRequested, forKey: "notifications.changesRequested")
+        }
+    }
+
+    var refreshIntervalMinutes: Int {
+        get {
+            let stored = defaults.integer(forKey: "refresh.intervalMinutes")
+            return Self.refreshIntervalMinuteOptions.contains(stored)
+                ? stored
+                : Self.defaultRefreshIntervalMinutes
+        }
+        set {
+            guard Self.refreshIntervalMinuteOptions.contains(newValue) else {
+                return
+            }
+            defaults.set(newValue, forKey: "refresh.intervalMinutes")
         }
     }
 
