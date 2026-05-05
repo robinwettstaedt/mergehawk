@@ -29,6 +29,12 @@ private struct GeneralSettingsView: View {
         Form {
             LabeledContent("Source", value: controller.sourceLabel)
             LabeledContent("Account", value: controller.accountLabel)
+            Picker("Refresh", selection: $controller.refreshIntervalMinutes) {
+                ForEach(controller.refreshIntervalOptions, id: \.self) { minutes in
+                    Text("\(minutes) min").tag(minutes)
+                }
+            }
+            .pickerStyle(.segmented)
             Button("Refresh Now") {
                 controller.refresh()
             }

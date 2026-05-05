@@ -21,20 +21,43 @@ final class DashboardController: ObservableObject {
             syncEngine?.updatePreferences(preferences)
         }
     }
+    @Published var refreshIntervalMinutes: Int {
+        didSet {
+            guard oldValue != refreshIntervalMinutes else {
+                return
+            }
+            preferencesStore.refreshIntervalMinutes = refreshIntervalMinutes
+            startAutomaticRefresh()
+        }
+    }
 
     var openSettingsWindow: (() -> Void)?
 
     private let tokenStore: TokenStore
-    private var preferencesStore = PreferencesStore()
+    private let automaticRefreshIntervalOverride: TimeInterval?
+    private var preferencesStore: PreferencesStore
     private let notificationClient = NotificationCenterClient()
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
+    private var automaticRefreshTask: Task<Void, Never>?
 
-    init(tokenStore: TokenStore = KeychainTokenStore()) {
+    init(
+        tokenStore: TokenStore = KeychainTokenStore(),
+        preferencesStore: PreferencesStore = PreferencesStore(),
+        automaticRefreshInterval: TimeInterval? = nil
+    ) {
         self.tokenStore = tokenStore
+        self.preferencesStore = preferencesStore
+        self.automaticRefreshIntervalOverride = automaticRefreshInterval
         self.preferences = preferencesStore.notificationPreferences
+        self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         notificationClient.requestAuthorization()
         configureInitialSource()
+        startAutomaticRefresh()
+    }
+
+    deinit {
+        automaticRefreshTask?.cancel()
     }
 
     var hasAttention: Bool {
@@ -51,6 +74,10 @@ final class DashboardController: ObservableObject {
 
     var sourceLabel: String {
         state.source == .github ? "GitHub" : "Mock"
+    }
+
+    var refreshIntervalOptions: [Int] {
+        PreferencesStore.refreshIntervalMinuteOptions
     }
 
     func refresh() {
@@ -156,6 +183,9 @@ final class DashboardController: ObservableObject {
         guard let syncEngine else {
             return
         }
+        guard !isRefreshing else {
+            return
+        }
         isRefreshing = true
         errorMessage = nil
         do {
@@ -166,5 +196,34 @@ final class DashboardController: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isRefreshing = false
+    }
+
+    private func startAutomaticRefresh() {
+        let automaticRefreshInterval = automaticRefreshIntervalOverride
+            ?? TimeInterval(refreshIntervalMinutes * 60)
+        guard automaticRefreshInterval > 0 else {
+            return
+        }
+
+        automaticRefreshTask?.cancel()
+        let intervalNanoseconds = UInt64(automaticRefreshInterval * 1_000_000_000)
+        automaticRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: intervalNanoseconds)
+                } catch {
+                    break
+                }
+
+                guard !Task.isCancelled else {
+                    break
+                }
+
+                guard let self else {
+                    break
+                }
+                await self.sync()
+            }
+        }
     }
 }
