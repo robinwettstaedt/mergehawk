@@ -71,6 +71,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let title: String
     public let number: Int
     public let url: String
+    public let createdAt: String
+    public let updatedAt: String
     public let isDraft: Bool
     public let mergeable: String?
     public let reviewDecision: String?
@@ -86,6 +88,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         title: String,
         number: Int,
         url: String,
+        createdAt: String,
+        updatedAt: String,
         isDraft: Bool,
         mergeable: String?,
         reviewDecision: String?,
@@ -100,6 +104,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.title = title
         self.number = number
         self.url = url
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
         self.isDraft = isDraft
         self.mergeable = mergeable
         self.reviewDecision = reviewDecision
@@ -113,6 +119,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
 }
 
 public enum GitHubPullRequestNormalizer {
+    private static let dateFormatter = ISO8601DateFormatter()
+
     public static func normalize(_ node: GitHubPullRequestNode, login: String) -> PullRequest {
         let rollupState = node.commits?.nodes.last?.commit.statusCheckRollup?.state ?? "UNKNOWN"
         let unresolvedReviewThreadCount = node.reviewThreads.nodes.filter { !$0.isResolved }.count
@@ -129,7 +137,9 @@ public enum GitHubPullRequestNormalizer {
             isMine: node.author?.login == login,
             author: node.author?.login ?? "unknown",
             mergeable: normalizeMergeableState(node.mergeable),
-            draft: node.isDraft
+            draft: node.isDraft,
+            createdAt: normalizeDate(node.createdAt),
+            updatedAt: normalizeDate(node.updatedAt)
         )
     }
 
@@ -168,6 +178,10 @@ public enum GitHubPullRequestNormalizer {
         default:
             .unknown
         }
+    }
+
+    public static func normalizeDate(_ date: String) -> Date {
+        dateFormatter.date(from: date) ?? Date(timeIntervalSince1970: 0)
     }
 }
 
@@ -251,6 +265,8 @@ public final class GitHubClient: PullRequestSource {
               title
               number
               url
+              createdAt
+              updatedAt
               isDraft
               mergeable
               reviewDecision

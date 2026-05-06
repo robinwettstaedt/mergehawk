@@ -9,6 +9,7 @@ struct Runner {
         try testPreferencesFilterEvents()
         try await testSyncBaselinesFirstFetchAndReportsPRs()
         try await testSyncEmitsFilteredEventsAfterBaseline()
+        try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
         try testNormalizesPullRequestSearchNodes()
         try testBuildsThreePullRequestSearchQueries()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
@@ -94,12 +95,32 @@ struct Runner {
         try expect(result.events.map(\.type) == [.newComment, .ciFailed])
     }
 
+    private static func testEmptyPullRequestSourceReportsNoneAndNoPullRequests() async throws {
+        let source = EmptyPullRequestSource()
+        let engine = SyncEngine(
+            source: source,
+            loginProvider: { "rw" },
+            accountProvider: { nil },
+            authStatusProvider: { .signedOut }
+        )
+
+        let result = try await engine.sync()
+
+        try expect(result.source == .none)
+        try expect(result.authStatus == .signedOut)
+        try expect(result.account?.login == "rw")
+        try expect(result.pullRequests.isEmpty)
+        try expect(result.events.isEmpty)
+    }
+
     private static func testNormalizesPullRequestSearchNodes() throws {
         let node = GitHubPullRequestNode(
             id: "PR_1",
             title: "Ship dashboard",
             number: 12,
             url: "https://github.com/acme/vc-dash/pull/12",
+            createdAt: "2026-05-01T12:00:00Z",
+            updatedAt: "2026-05-02T12:00:00Z",
             isDraft: false,
             mergeable: "MERGEABLE",
             reviewDecision: "REVIEW_REQUIRED",
@@ -124,7 +145,9 @@ struct Runner {
             isMine: true,
             author: "rw",
             mergeable: .mergeable,
-            draft: false
+            draft: false,
+            createdAt: Date(timeIntervalSince1970: 1_777_636_800),
+            updatedAt: Date(timeIntervalSince1970: 1_777_723_200)
         ))
     }
 

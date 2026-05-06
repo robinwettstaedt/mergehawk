@@ -5,6 +5,16 @@ public protocol PullRequestSource: AnyObject {
     func fetchPullRequests(login: String) async throws -> [PullRequest]
 }
 
+public final class EmptyPullRequestSource: PullRequestSource {
+    public let sourceKind: DashboardSource = .none
+
+    public init() {}
+
+    public func fetchPullRequests(login: String) async throws -> [PullRequest] {
+        []
+    }
+}
+
 public final class MockPullRequestSource: PullRequestSource {
     public let sourceKind: DashboardSource = .mock
     private var index = 0

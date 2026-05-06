@@ -43,6 +43,36 @@ struct PreferencesStore {
         }
     }
 
+    var pullRequestSortOption: DashboardController.PullRequestSortOption {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "pullRequests.sortOption"),
+                let option = DashboardController.PullRequestSortOption(rawValue: rawValue)
+            else {
+                return .createdDate
+            }
+            return option
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "pullRequests.sortOption")
+        }
+    }
+
+    var pullRequestFilterOption: DashboardController.PullRequestFilterOption {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "pullRequests.filterOption"),
+                let option = DashboardController.PullRequestFilterOption(rawValue: rawValue)
+            else {
+                return .all
+            }
+            return option
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "pullRequests.filterOption")
+        }
+    }
+
     private func value(for key: String, fallback: Bool) -> Bool {
         defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key)
     }
