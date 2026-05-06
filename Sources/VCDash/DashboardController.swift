@@ -11,6 +11,56 @@ final class DashboardController: ObservableObject {
         var id: String { rawValue }
     }
 
+    enum PullRequestSortOption: String, CaseIterable, Identifiable {
+        case createdDate
+        case updatedDate
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .createdDate:
+                "Created"
+            case .updatedDate:
+                "Updated"
+            }
+        }
+    }
+
+    enum PullRequestFilterOption: String, CaseIterable, Identifiable {
+        case all
+        case needsAttention
+        case draft
+        case ready
+        case changesRequested
+        case reviewRequired
+        case approved
+        case ciFailing
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .all:
+                "All"
+            case .needsAttention:
+                "Attention"
+            case .draft:
+                "Draft"
+            case .ready:
+                "Ready"
+            case .changesRequested:
+                "Changes requested"
+            case .reviewRequired:
+                "Review required"
+            case .approved:
+                "Approved"
+            case .ciFailing:
+                "CI failing"
+            }
+        }
+    }
+
     @Published private(set) var state: DashboardState = .empty
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
@@ -28,6 +78,16 @@ final class DashboardController: ObservableObject {
             }
             preferencesStore.refreshIntervalMinutes = refreshIntervalMinutes
             startAutomaticRefresh()
+        }
+    }
+    @Published var pullRequestSortOption: PullRequestSortOption {
+        didSet {
+            preferencesStore.pullRequestSortOption = pullRequestSortOption
+        }
+    }
+    @Published var pullRequestFilterOption: PullRequestFilterOption {
+        didSet {
+            preferencesStore.pullRequestFilterOption = pullRequestFilterOption
         }
     }
     @Published private(set) var startsAtLogin: Bool
@@ -55,6 +115,8 @@ final class DashboardController: ObservableObject {
         self.automaticRefreshIntervalOverride = automaticRefreshInterval
         self.preferences = preferencesStore.notificationPreferences
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
+        self.pullRequestSortOption = preferencesStore.pullRequestSortOption
+        self.pullRequestFilterOption = preferencesStore.pullRequestFilterOption
         self.startsAtLogin = self.launchAtLoginService.isEnabled
         notificationClient.requestAuthorization()
         configureInitialSource()
@@ -74,15 +136,69 @@ final class DashboardController: ObservableObject {
     }
 
     var accountLabel: String {
-        state.account?.login ?? "Mock data"
+        state.account?.login ?? "Not signed in"
     }
 
     var sourceLabel: String {
-        state.source == .github ? "GitHub" : "Mock"
+        switch state.source {
+        case .none:
+            return "None"
+        case .github:
+            return "GitHub"
+        case .mock:
+            return "Mock"
+        }
     }
 
     var refreshIntervalOptions: [Int] {
         PreferencesStore.refreshIntervalMinuteOptions
+    }
+
+    var sortedMyPullRequests: [PullRequest] {
+        let mine = state.pullRequests.filter(\.isMine)
+        return Self.sorted(
+            Self.filtered(mine, by: pullRequestFilterOption, events: state.events),
+            by: pullRequestSortOption
+        )
+    }
+
+    static func filtered(
+        _ pullRequests: [PullRequest],
+        by option: PullRequestFilterOption,
+        events: [PullRequestEvent]
+    ) -> [PullRequest] {
+        let attentionIds = Set(events.map(\.prId))
+        return pullRequests.filter { pr in
+            switch option {
+            case .all:
+                true
+            case .needsAttention:
+                attentionIds.contains(pr.id)
+            case .draft:
+                pr.draft
+            case .ready:
+                !pr.draft
+            case .changesRequested:
+                pr.reviewDecision == .changesRequested
+            case .reviewRequired:
+                pr.reviewDecision == .reviewRequired
+            case .approved:
+                pr.reviewDecision == .approved
+            case .ciFailing:
+                pr.ciState == .failing
+            }
+        }
+    }
+
+    static func sorted(_ pullRequests: [PullRequest], by option: PullRequestSortOption) -> [PullRequest] {
+        pullRequests.sorted { lhs, rhs in
+            switch option {
+            case .createdDate:
+                compare(lhs, rhs, by: \.createdAt)
+            case .updatedDate:
+                compare(lhs, rhs, by: \.updatedAt)
+            }
+        }
     }
 
     func refresh() {
@@ -118,7 +234,7 @@ final class DashboardController: ObservableObject {
             errorMessage = error.localizedDescription
         }
         account = nil
-        configureMockSource()
+        configureSignedOutSource()
         refresh()
     }
 
@@ -163,12 +279,12 @@ final class DashboardController: ObservableObject {
                 )
                 refresh()
             } else {
-                configureMockSource()
+                configureSignedOutSource()
                 refresh()
             }
         } catch {
             errorMessage = error.localizedDescription
-            configureMockSource()
+            configureSignedOutSource()
             refresh()
         }
     }
@@ -184,13 +300,13 @@ final class DashboardController: ObservableObject {
         )
     }
 
-    private func configureMockSource() {
-        let mock = MockPullRequestSource()
+    private func configureSignedOutSource() {
+        let source = EmptyPullRequestSource()
         syncEngine = SyncEngine(
-            source: mock,
+            source: source,
             preferences: preferences,
             loginProvider: { "rw" },
-            accountProvider: { GitHubAccount(login: "rw") },
+            accountProvider: { nil },
             authStatusProvider: { .signedOut }
         )
     }
@@ -242,4 +358,24 @@ final class DashboardController: ObservableObject {
             }
         }
     }
+
+    private static func compare<Value: Comparable>(
+        _ lhs: PullRequest,
+        _ rhs: PullRequest,
+        by value: (PullRequest) -> Value
+    ) -> Bool {
+        let lhsValue = value(lhs)
+        let rhsValue = value(rhs)
+        if lhsValue != rhsValue {
+            return lhsValue > rhsValue
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        if lhs.repo != rhs.repo {
+            return lhs.repo < rhs.repo
+        }
+        return lhs.number > rhs.number
+    }
+
 }

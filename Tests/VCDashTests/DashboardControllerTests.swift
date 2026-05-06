@@ -2,6 +2,21 @@
 import Foundation
 import VCDashCore
 
+@MainActor let vcDashSignedOutStartsEmptyTest: Void = {
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        automaticRefreshInterval: 0
+    )
+
+    waitUntil(timeout: 1.0) {
+        controller.state.syncedAt != nil
+    }
+
+    precondition(controller.state.authStatus == .signedOut)
+    precondition(controller.state.pullRequests.isEmpty)
+    precondition(controller.state.events.isEmpty)
+}()
+
 @MainActor let vcDashAutomaticRefreshTest: Void = {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),

@@ -24,14 +24,21 @@ struct MenuRootView: View {
 
     private var topBar: some View {
         HStack(alignment: .center, spacing: 12) {
-            tabSwitcher
+            if controller.state.authStatus == .signedIn {
+                tabSwitcher
+            } else {
+                Text("VC Dash")
+                    .font(.headline)
+            }
             Spacer(minLength: 10)
             VStack(alignment: .trailing, spacing: 3) {
                 HStack(spacing: 10) {
                     Circle()
                         .fill(controller.hasAttention ? Color.red : Color.green)
                         .frame(width: 10, height: 10)
-                    refreshControl
+                    if controller.state.authStatus == .signedIn {
+                        refreshControl
+                    }
                 }
                 Text("updated \(syncText)")
                     .font(.caption2)
@@ -77,15 +84,19 @@ struct MenuRootView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch controller.selectedTab {
-        case .notifications:
-            NotificationListView(controller: controller)
-        case .myPRs:
-            PullRequestListView(
-                controller: controller,
-                pullRequests: controller.state.pullRequests.filter(\.isMine),
-                emptyText: "No authored PRs."
-            )
+        if controller.state.authStatus == .signedOut {
+            GitHubTokenSignInView(controller: controller)
+        } else {
+            switch controller.selectedTab {
+            case .notifications:
+                NotificationListView(controller: controller)
+            case .myPRs:
+                PullRequestListView(
+                    controller: controller,
+                    pullRequests: controller.sortedMyPullRequests,
+                    emptyText: "No authored PRs."
+                )
+            }
         }
     }
 
@@ -121,26 +132,286 @@ private struct NotificationListView: View {
     }
 }
 
+struct GitHubTokenSignInView: View {
+    enum Copy {
+        static let title = "Connect GitHub"
+        static let fieldPrompt = "github_pat_..."
+        static let buttonTitle = "Connect"
+        static let pasteHelp = "Paste token"
+    }
+
+    @ObservedObject var controller: DashboardController
+    @State private var token = ""
+    @FocusState private var tokenFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(Self.Copy.title)
+                    .font(.headline)
+                Text("Paste a fine-grained personal access token to start syncing pull requests.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                SecureField(Self.Copy.fieldPrompt, text: $token)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($tokenFieldFocused)
+                    .onSubmit {
+                        connect()
+                    }
+
+                Button {
+                    pasteToken()
+                } label: {
+                    Image(systemName: "doc.on.clipboard")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(Self.Copy.pasteHelp)
+                .accessibilityLabel(Self.Copy.pasteHelp)
+                .keyboardShortcut("v", modifiers: .command)
+            }
+
+            HStack(spacing: 10) {
+                Button(Self.Copy.buttonTitle) {
+                    connect()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || controller.isRefreshing)
+
+                if controller.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            if let error = controller.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                tokenFieldFocused = true
+            }
+        }
+    }
+
+    private func connect() {
+        Task {
+            await controller.signInWithToken(token)
+            if controller.state.authStatus == .signedIn {
+                token = ""
+            }
+        }
+    }
+
+    private func pasteToken() {
+        token = Self.tokenString(from: NSPasteboard.general) ?? token
+        tokenFieldFocused = true
+    }
+
+    static func tokenString(from pasteboard: NSPasteboard) -> String? {
+        pasteboard.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 private struct PullRequestListView: View {
     @ObservedObject var controller: DashboardController
     let pullRequests: [PullRequest]
     let emptyText: String
+    @State private var isSortMenuOpen = false
+    @State private var isFilterMenuOpen = false
 
     var body: some View {
-        if pullRequests.isEmpty {
+        if !hasAuthoredPullRequests {
             EmptyMenuState(text: emptyText)
         } else {
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(pullRequests) { pr in
-                        PullRequestRow(pullRequest: pr, isAttention: controller.state.events.contains { $0.prId == pr.id }) {
-                            controller.open(pr.url)
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Spacer()
+                        filterButton
+                        sortButton
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+
+                    ScrollView {
+                        if pullRequests.isEmpty {
+                            EmptyMenuState(text: "No matching PRs.")
+                                .frame(minHeight: 520)
+                        } else {
+                            LazyVStack(spacing: 8) {
+                                ForEach(pullRequests) { pr in
+                                    PullRequestRow(pullRequest: pr, isAttention: controller.state.events.contains { $0.prId == pr.id }) {
+                                        controller.open(pr.url)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 12)
                         }
                     }
                 }
-                .padding(12)
+
+                if isFilterMenuOpen {
+                    filterMenu
+                        .padding(.top, 38)
+                        .padding(.trailing, 86)
+                }
+
+                if isSortMenuOpen {
+                    sortMenu
+                        .padding(.top, 38)
+                        .padding(.trailing, 12)
+                }
             }
         }
+    }
+
+    private var hasAuthoredPullRequests: Bool {
+        controller.state.pullRequests.contains(where: \.isMine)
+    }
+
+    private var filterButton: some View {
+        optionButton(
+            symbolName: "line.3.horizontal.decrease",
+            title: controller.pullRequestFilterOption.label,
+            isOpen: isFilterMenuOpen,
+            help: "Filter pull requests"
+        ) {
+            isSortMenuOpen = false
+            isFilterMenuOpen.toggle()
+        }
+    }
+
+    private var sortButton: some View {
+        optionButton(
+            symbolName: "arrow.up.arrow.down",
+            title: controller.pullRequestSortOption.label,
+            isOpen: isSortMenuOpen,
+            help: "Sort pull requests"
+        ) {
+            isFilterMenuOpen = false
+            isSortMenuOpen.toggle()
+        }
+    }
+
+    private func optionButton(
+        symbolName: String,
+        title: String,
+        isOpen: Bool,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .lineLimit(1)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(isOpen ? Color.accentColor : Color.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var filterMenu: some View {
+        optionMenu(width: 156) {
+            ForEach(DashboardController.PullRequestFilterOption.allCases) { option in
+                optionMenuButton(
+                    title: option.label,
+                    isSelected: controller.pullRequestFilterOption == option,
+                    width: 156
+                ) {
+                    controller.pullRequestFilterOption = option
+                    isFilterMenuOpen = false
+                }
+            }
+        }
+    }
+
+    private var sortMenu: some View {
+        optionMenu(width: 132) {
+            ForEach(DashboardController.PullRequestSortOption.allCases) { option in
+                optionMenuButton(
+                    title: option.label,
+                    isSelected: controller.pullRequestSortOption == option,
+                    width: 132
+                ) {
+                    controller.pullRequestSortOption = option
+                    isSortMenuOpen = false
+                }
+            }
+        }
+    }
+
+    private func optionMenu<Content: View>(width: CGFloat, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            content()
+        }
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .shadow(radius: 8, y: 3)
+        .zIndex(1)
+    }
+
+    private func optionMenuButton(
+        title: String,
+        isSelected: Bool,
+        width: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: isSelected ? "checkmark" : "")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 12)
+                Text(title)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .frame(width: width, height: 24, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

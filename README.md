@@ -15,7 +15,7 @@ Native macOS menu bar dashboard for scanning GitHub pull requests and intentiona
 - GitHub PAT validation through REST `/user`.
 - GitHub PR fetching through GraphQL search.
 - PAT storage in macOS Keychain.
-- Mock PR source when no token is configured.
+- Inline GitHub PAT sign-in when no token is configured.
 
 OAuth device flow, auto-updates, widgets, multi-account support, and extra PR tabs are deferred.
 
@@ -27,7 +27,7 @@ Build and launch the native menu bar app:
 swift run VCDash
 ```
 
-Without GitHub credentials, VC Dash uses mock PR data. The first refresh establishes a silent baseline; a later refresh can show mock activity.
+Without GitHub credentials, VC Dash shows an inline GitHub token form in the menu and does not display pull request data.
 
 Build a local `.app` bundle with `LSUIElement`:
 
@@ -56,7 +56,7 @@ APP_PATH="/path/to/VC Dash.app" scripts/update-installed-app.sh
 2. Grant repository access for the repositories VC Dash should monitor.
 3. Include read permissions for metadata, pull requests, issues, and actions where applicable.
 4. Launch the app with `swift run VCDash`.
-5. Open the status item menu, click **Settings**, then open **GitHub**.
+5. Open the status item menu.
 6. Paste only the token value, for example `github_pat_...`, with no surrounding text.
 7. Click **Connect**.
 
