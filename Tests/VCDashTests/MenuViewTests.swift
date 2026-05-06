@@ -25,6 +25,15 @@ import VCDashCore
     pasteboard.setString("  github_pat_test  ", forType: .string)
     precondition(GitHubTokenSignInView.tokenString(from: pasteboard) == "github_pat_test")
 
+    var dropdownState = PullRequestMenuDropdownState()
+    precondition(dropdownState.openMenu == nil)
+    dropdownState.toggle(.filter)
+    precondition(dropdownState.openMenu == .filter)
+    dropdownState.toggle(.sort)
+    precondition(dropdownState.openMenu == .sort)
+    dropdownState.dismiss()
+    precondition(dropdownState.openMenu == nil)
+
     let older = PullRequest(
         id: "older",
         title: "Older PR",

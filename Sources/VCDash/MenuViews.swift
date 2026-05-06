@@ -2,6 +2,23 @@ import AppKit
 import SwiftUI
 import VCDashCore
 
+enum PullRequestMenuDropdown: Equatable {
+    case filter
+    case sort
+}
+
+struct PullRequestMenuDropdownState: Equatable {
+    var openMenu: PullRequestMenuDropdown?
+
+    mutating func toggle(_ menu: PullRequestMenuDropdown) {
+        openMenu = openMenu == menu ? nil : menu
+    }
+
+    mutating func dismiss() {
+        openMenu = nil
+    }
+}
+
 struct MenuRootView: View {
     enum Layout {
         static let width: CGFloat = 420
@@ -231,11 +248,14 @@ struct GitHubTokenSignInView: View {
 }
 
 private struct PullRequestListView: View {
+    enum Layout {
+        static let controlsHeight: CGFloat = 40
+    }
+
     @ObservedObject var controller: DashboardController
     let pullRequests: [PullRequest]
     let emptyText: String
-    @State private var isSortMenuOpen = false
-    @State private var isFilterMenuOpen = false
+    @State private var dropdownState = PullRequestMenuDropdownState()
 
     var body: some View {
         if !hasAuthoredPullRequests {
@@ -270,16 +290,22 @@ private struct PullRequestListView: View {
                     }
                 }
 
-                if isFilterMenuOpen {
+                if dropdownState.openMenu != nil {
+                    outsideDropdownDismissArea
+                }
+
+                if dropdownState.openMenu == .filter {
                     filterMenu
                         .padding(.top, 38)
                         .padding(.trailing, 86)
+                        .zIndex(3)
                 }
 
-                if isSortMenuOpen {
+                if dropdownState.openMenu == .sort {
                     sortMenu
                         .padding(.top, 38)
                         .padding(.trailing, 12)
+                        .zIndex(3)
                 }
             }
         }
@@ -289,15 +315,27 @@ private struct PullRequestListView: View {
         controller.state.pullRequests.contains(where: \.isMine)
     }
 
+    private var outsideDropdownDismissArea: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: Layout.controlsHeight)
+                .allowsHitTesting(false)
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dropdownState.dismiss()
+                }
+        }
+    }
+
     private var filterButton: some View {
         optionButton(
             symbolName: "line.3.horizontal.decrease",
             title: controller.pullRequestFilterOption.label,
-            isOpen: isFilterMenuOpen,
+            isOpen: dropdownState.openMenu == .filter,
             help: "Filter pull requests"
         ) {
-            isSortMenuOpen = false
-            isFilterMenuOpen.toggle()
+            dropdownState.toggle(.filter)
         }
     }
 
@@ -305,11 +343,10 @@ private struct PullRequestListView: View {
         optionButton(
             symbolName: "arrow.up.arrow.down",
             title: controller.pullRequestSortOption.label,
-            isOpen: isSortMenuOpen,
+            isOpen: dropdownState.openMenu == .sort,
             help: "Sort pull requests"
         ) {
-            isFilterMenuOpen = false
-            isSortMenuOpen.toggle()
+            dropdownState.toggle(.sort)
         }
     }
 
@@ -355,7 +392,7 @@ private struct PullRequestListView: View {
                     width: 156
                 ) {
                     controller.pullRequestFilterOption = option
-                    isFilterMenuOpen = false
+                    dropdownState.dismiss()
                 }
             }
         }
@@ -370,7 +407,7 @@ private struct PullRequestListView: View {
                     width: 132
                 ) {
                     controller.pullRequestSortOption = option
-                    isSortMenuOpen = false
+                    dropdownState.dismiss()
                 }
             }
         }
