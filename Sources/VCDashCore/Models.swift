@@ -34,6 +34,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let author: String
     public let mergeable: MergeableState
     public let draft: Bool
+    public let createdAt: Date
+    public let updatedAt: Date
 
     public init(
         id: String,
@@ -48,7 +50,9 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         isMine: Bool,
         author: String,
         mergeable: MergeableState,
-        draft: Bool
+        draft: Bool,
+        createdAt: Date = Date(timeIntervalSince1970: 0),
+        updatedAt: Date = Date(timeIntervalSince1970: 0)
     ) {
         self.id = id
         self.title = title
@@ -63,6 +67,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.author = author
         self.mergeable = mergeable
         self.draft = draft
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -117,6 +123,7 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
 }
 
 public enum DashboardSource: String, Codable, Equatable, Sendable {
+    case none
     case mock
     case github
 }
@@ -150,7 +157,7 @@ public struct DashboardState: Codable, Equatable, Sendable {
         pullRequests: [],
         events: [],
         syncedAt: nil,
-        source: .mock,
+        source: .none,
         account: nil,
         authStatus: .signedOut
     )
