@@ -129,6 +129,10 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
+            Toggle("Start at login", isOn: Binding(
+                get: { controller.startsAtLogin },
+                set: { controller.setStartsAtLogin($0) }
+            ))
             LabeledContent("Source", value: controller.sourceLabel)
             LabeledContent("Account", value: controller.accountLabel)
             Picker("Refresh Interval", selection: $controller.refreshIntervalMinutes) {
