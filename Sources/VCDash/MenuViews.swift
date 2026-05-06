@@ -133,17 +133,44 @@ private struct NotificationListView: View {
         if events.isEmpty {
             EmptyMenuState(text: "No new notifications.")
         } else {
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(events) { event in
-                        if let pr = controller.state.pullRequests.first(where: { $0.id == event.prId }) {
-                            NotificationRow(event: event, pullRequest: pr) {
-                                controller.open(pr.url)
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    Button("Clear All") {
+                        controller.dismissAllEvents()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 20)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 0)
+
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(events) { event in
+                            if let pr = controller.state.pullRequests.first(where: { $0.id == event.prId }) {
+                                NotificationRow(event: event, pullRequest: pr) {
+                                    controller.open(pr.url)
+                                } onDismiss: {
+                                    controller.dismissEvent(event)
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
                 }
-                .padding(12)
             }
         }
     }
@@ -456,28 +483,53 @@ private struct NotificationRow: View {
     let event: PullRequestEvent
     let pullRequest: PullRequest
     let action: () -> Void
+    let onDismiss: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: iconName)
-                    .foregroundStyle(iconColor)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                    Text("\(pullRequest.repo)#\(pullRequest.number) · \(pullRequest.title)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+        ZStack(alignment: .topLeading) {
+            Button(action: action) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: iconName)
+                        .foregroundStyle(iconColor)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                        Text("\(pullRequest.repo)#\(pullRequest.number) · \(pullRequest.title)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer()
                 }
-                Spacer()
+                .padding(10)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .padding(10)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .buttonStyle(.plain)
+
+            if isHovered {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .frame(width: 22, height: 22)
+                        .background(.regularMaterial, in: Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.16), radius: 4, y: 1)
+                }
+                .buttonStyle(.plain)
+                .offset(x: -6, y: -6)
+                .help("Dismiss")
+                .accessibilityLabel("Dismiss notification")
+            }
         }
-        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 
     private var title: String {
