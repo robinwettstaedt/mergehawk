@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-debug}"
+DEFAULT_CODE_SIGN_IDENTITY="VC Dash Local Code Signing"
+CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
 APP_DIR="$ROOT_DIR/.build/VCDash.app"
 EXECUTABLE="$ROOT_DIR/.build/arm64-apple-macosx/$CONFIGURATION/VCDash"
 
@@ -48,5 +50,13 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+if [[ -z "$CODE_SIGN_IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"$DEFAULT_CODE_SIGN_IDENTITY\""; then
+  CODE_SIGN_IDENTITY="$DEFAULT_CODE_SIGN_IDENTITY"
+fi
+
+if [[ -n "$CODE_SIGN_IDENTITY" ]]; then
+  codesign --force --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+fi
 
 echo "$APP_DIR"

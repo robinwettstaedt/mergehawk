@@ -24,6 +24,25 @@ import VCDashCore
     }
 }()
 
+@MainActor let vcDashStartAtLoginTest: Void = {
+    let launchAtLoginService = FakeLaunchAtLoginService(isEnabled: false)
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        launchAtLoginService: launchAtLoginService,
+        automaticRefreshInterval: 0
+    )
+
+    precondition(controller.startsAtLogin == false)
+
+    controller.setStartsAtLogin(true)
+    precondition(controller.startsAtLogin == true)
+    precondition(launchAtLoginService.requestedValues == [true])
+
+    controller.setStartsAtLogin(false)
+    precondition(controller.startsAtLogin == false)
+    precondition(launchAtLoginService.requestedValues == [true, false])
+}()
+
 @MainActor
 private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
     let deadline = Date().addingTimeInterval(timeout)
@@ -34,4 +53,19 @@ private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
         RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
     }
     preconditionFailure("Timed out waiting for condition")
+}
+
+@MainActor
+private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
+    private(set) var requestedValues: [Bool] = []
+    var isEnabled: Bool
+
+    init(isEnabled: Bool) {
+        self.isEnabled = isEnabled
+    }
+
+    func setEnabled(_ isEnabled: Bool) throws {
+        requestedValues.append(isEnabled)
+        self.isEnabled = isEnabled
+    }
 }

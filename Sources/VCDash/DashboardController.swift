@@ -30,12 +30,14 @@ final class DashboardController: ObservableObject {
             startAutomaticRefresh()
         }
     }
+    @Published private(set) var startsAtLogin: Bool
 
     var openSettingsWindow: (() -> Void)?
 
     private let tokenStore: TokenStore
     private let automaticRefreshIntervalOverride: TimeInterval?
     private var preferencesStore: PreferencesStore
+    private let launchAtLoginService: LaunchAtLoginServicing
     private let notificationClient = NotificationCenterClient()
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
@@ -44,13 +46,16 @@ final class DashboardController: ObservableObject {
     init(
         tokenStore: TokenStore = KeychainTokenStore(),
         preferencesStore: PreferencesStore = PreferencesStore(),
+        launchAtLoginService: LaunchAtLoginServicing? = nil,
         automaticRefreshInterval: TimeInterval? = nil
     ) {
         self.tokenStore = tokenStore
         self.preferencesStore = preferencesStore
+        self.launchAtLoginService = launchAtLoginService ?? LaunchAtLoginService()
         self.automaticRefreshIntervalOverride = automaticRefreshInterval
         self.preferences = preferencesStore.notificationPreferences
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
+        self.startsAtLogin = self.launchAtLoginService.isEnabled
         notificationClient.requestAuthorization()
         configureInitialSource()
         startAutomaticRefresh()
@@ -119,6 +124,17 @@ final class DashboardController: ObservableObject {
 
     func showSettings() {
         openSettingsWindow?()
+    }
+
+    func setStartsAtLogin(_ startsAtLogin: Bool) {
+        errorMessage = nil
+        do {
+            try launchAtLoginService.setEnabled(startsAtLogin)
+            self.startsAtLogin = launchAtLoginService.isEnabled
+        } catch {
+            self.startsAtLogin = launchAtLoginService.isEnabled
+            errorMessage = error.localizedDescription
+        }
     }
 
     func open(_ url: URL) {
