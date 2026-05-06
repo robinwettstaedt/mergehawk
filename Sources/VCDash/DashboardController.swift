@@ -257,6 +257,14 @@ final class DashboardController: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    func dismissEvent(_ event: PullRequestEvent) {
+        state.events.removeAll { $0.id == event.id }
+    }
+
+    func dismissAllEvents() {
+        state.events.removeAll()
+    }
+
     private func configureInitialSource() {
         do {
             if let token = try tokenStore.load() {
