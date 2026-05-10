@@ -21,3 +21,16 @@ struct LaunchAtLoginService: LaunchAtLoginServicing {
         }
     }
 }
+
+@MainActor
+final class InMemoryLaunchAtLoginService: LaunchAtLoginServicing {
+    private(set) var isEnabled: Bool
+
+    init(isEnabled: Bool = false) {
+        self.isEnabled = isEnabled
+    }
+
+    func setEnabled(_ isEnabled: Bool) throws {
+        self.isEnabled = isEnabled
+    }
+}
