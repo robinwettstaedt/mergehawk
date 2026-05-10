@@ -5,3 +5,5 @@ dist-electron
 dist-renderer
 .DS_Store
 *.log
+.worktrees/
+.verification/

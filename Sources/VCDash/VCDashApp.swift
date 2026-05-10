@@ -15,7 +15,7 @@ struct VCDashApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let controller = DashboardController()
+    let controller = DashboardController(launchConfiguration: .current())
     private var statusBarController: StatusBarController?
     private var settingsWindow: NSWindow?
 
