@@ -9,7 +9,9 @@ particular, distinguish in-app notifications from macOS local notifications.
 ## Isolated Agent Workspaces
 
 Parallel agents should work from isolated git worktrees so they do not change
-the same checkout or interrupt the user's local workspace.
+the same checkout or interrupt the user's local workspace. Prefer starting the
+Codex thread in the intended worktree so the Codex UI is attached to the right
+checkout from the beginning.
 
 Before implementation work, check whether the current checkout is already a
 linked worktree:
@@ -20,14 +22,15 @@ common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
 if [ "$git_dir" != "$common_dir" ]; then
   echo "already in linked worktree"
 else
-  echo "primary checkout; create or switch to an isolated worktree before editing"
+  echo "primary checkout; confirm before implementation"
 fi
 ```
 
 If the agent is already in a linked worktree, use that checkout directly and do
-not create another worktree. If the agent is in the primary checkout, create or
-switch to an isolated worktree before editing unless the user explicitly asks to
-work in the primary checkout.
+not create another worktree. If the agent is in the primary checkout, do not
+automatically create a worktree. Before implementation, tell the user that the
+thread is attached to the primary checkout and ask whether to continue there,
+restart in a prepared worktree, or explicitly have the agent create a worktree.
 
 Before editing, require a clean starting point:
 
@@ -38,15 +41,17 @@ git status --short
 If the worktree contains uncommitted changes that are not part of the current
 task, stop and ask the user how to proceed.
 
-Base new isolated worktrees on `origin/main` unless the user specifies a
-different base branch or commit. For Linear issues, start the branch name with
-the issue identifier, for example:
+When the user explicitly asks the agent to create a new isolated worktree, base
+it on `origin/main` unless the user specifies a different base branch or commit.
+For Linear issues, start the branch name with the issue identifier and use a
+readable slug derived from the issue title, for example:
 
 ```text
 MER-12-update-something-in-the-app
 ```
 
-Recommended local fallback layout:
+Recommended local fallback layout when the agent is asked to create the
+worktree:
 
 ```text
 .worktrees/<branch-name>
@@ -81,13 +86,20 @@ When the user asks an agent to work on a Linear issue:
 2. Ask clarifying questions before editing when the scope, acceptance criteria,
    or desired product behavior is ambiguous.
 3. Confirm the checkout/worktree state described above.
-4. Move the Linear issue to `In Progress` when implementation begins.
-5. Implement the issue in the isolated worktree.
-6. Self-verify with the relevant checks in this document until the work is ready
+4. Move the Linear issue to `In Progress` when active work begins. For a
+   request to work on an issue, intake, brainstorming, and planning count as
+   active work. Do not move state for read-only requests such as summarizing or
+   inspecting an issue.
+5. Use `mergehawk-brainstorming` next by default. Skip brainstorming only when
+   the issue is tiny/mechanical or already contains a concrete approved plan
+   with no unresolved product, UX, scope, or implementation questions.
+6. Implement the issue in the confirmed worktree or explicitly approved primary
+   checkout.
+7. Self-verify with the relevant checks in this document until the work is ready
    for user review.
-7. Report the change, validation results, and any review artifacts back to the
+8. Report the change, validation results, and any review artifacts back to the
    user.
-8. Wait for user approval before opening a pull request unless the user has
+9. Wait for user approval before opening a pull request unless the user has
    already explicitly asked for a PR.
 
 For UI-heavy changes, leave the isolated mocked app slot open when useful and
