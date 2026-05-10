@@ -2,14 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="VC Dash.app"
-PROCESS_NAME="VCDash"
+APP_NAME="${APP_NAME:-VC Dash.app}"
+PROCESS_NAME="${PROCESS_NAME:-${APP_EXECUTABLE_NAME:-VCDash}}"
+BUNDLE_ID="${BUNDLE_ID:-com.vcdash.app}"
 APP_PATH="${APP_PATH:-}"
 RESTART="${RESTART:-1}"
 
 cd "$ROOT_DIR"
 
-build_output="$(CONFIGURATION="${CONFIGURATION:-debug}" scripts/build-app-bundle.sh)"
+build_output="$(CONFIGURATION="${CONFIGURATION:-debug}" APP_NAME="$APP_NAME" BUNDLE_ID="$BUNDLE_ID" APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-VCDash}" LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}" LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}" scripts/build-app-bundle.sh)"
 printf '%s\n' "$build_output"
 built_app="$(printf '%s\n' "$build_output" | tail -n 1)"
 
@@ -25,7 +26,7 @@ if [[ -z "$APP_PATH" ]]; then
 fi
 
 if [[ "$RESTART" == "1" ]]; then
-  osascript -e 'tell application "VC Dash" to quit' >/dev/null 2>&1 || true
+  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
   pkill -x "$PROCESS_NAME" >/dev/null 2>&1 || true
 fi
 

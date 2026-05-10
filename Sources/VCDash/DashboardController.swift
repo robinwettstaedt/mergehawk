@@ -96,9 +96,10 @@ final class DashboardController: ObservableObject {
 
     private let tokenStore: TokenStore
     private let automaticRefreshIntervalOverride: TimeInterval?
+    private let launchConfiguration: LaunchConfiguration
     private var preferencesStore: PreferencesStore
     private let launchAtLoginService: LaunchAtLoginServicing
-    private let notificationClient = NotificationCenterClient()
+    private let notificationClient: NotificationPosting
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
@@ -107,18 +108,31 @@ final class DashboardController: ObservableObject {
         tokenStore: TokenStore = KeychainTokenStore(),
         preferencesStore: PreferencesStore = PreferencesStore(),
         launchAtLoginService: LaunchAtLoginServicing? = nil,
+        launchConfiguration: LaunchConfiguration = LaunchConfiguration.current(),
+        notificationClient: NotificationPosting? = nil,
         automaticRefreshInterval: TimeInterval? = nil
     ) {
         self.tokenStore = tokenStore
         self.preferencesStore = preferencesStore
-        self.launchAtLoginService = launchAtLoginService ?? LaunchAtLoginService()
+        self.launchConfiguration = launchConfiguration
+        self.launchAtLoginService = launchAtLoginService
+            ?? (launchConfiguration.usesMockData ? InMemoryLaunchAtLoginService() : LaunchAtLoginService())
+        if let notificationClient {
+            self.notificationClient = notificationClient
+        } else if launchConfiguration.usesMockData || launchConfiguration.notificationLogPath != nil {
+            self.notificationClient = RecordingNotificationClient(logPath: launchConfiguration.notificationLogPath)
+        } else if launchConfiguration.suppressesMacOSNotifications {
+            self.notificationClient = NoOpNotificationClient()
+        } else {
+            self.notificationClient = NotificationCenterClient()
+        }
         self.automaticRefreshIntervalOverride = automaticRefreshInterval
         self.preferences = preferencesStore.notificationPreferences
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestFilterOption = preferencesStore.pullRequestFilterOption
         self.startsAtLogin = self.launchAtLoginService.isEnabled
-        notificationClient.requestAuthorization()
+        self.notificationClient.requestAuthorization()
         configureInitialSource()
         startAutomaticRefresh()
     }
@@ -266,6 +280,12 @@ final class DashboardController: ObservableObject {
     }
 
     private func configureInitialSource() {
+        if launchConfiguration.usesMockData {
+            configureMockSource()
+            refresh()
+            return
+        }
+
         do {
             if let token = try tokenStore.load() {
                 let client = GitHubClient(token: token)
@@ -316,6 +336,18 @@ final class DashboardController: ObservableObject {
             loginProvider: { "rw" },
             accountProvider: { nil },
             authStatusProvider: { .signedOut }
+        )
+    }
+
+    private func configureMockSource() {
+        let account = GitHubAccount(login: "agent-fixture")
+        self.account = account
+        syncEngine = SyncEngine(
+            source: MockPullRequestSource(),
+            preferences: preferences,
+            loginProvider: { account.login },
+            accountProvider: { account },
+            authStatusProvider: { .signedIn }
         )
     }
 

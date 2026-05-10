@@ -5,8 +5,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-debug}"
 DEFAULT_CODE_SIGN_IDENTITY="VC Dash Local Code Signing"
 CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
-APP_DIR="$ROOT_DIR/.build/VCDash.app"
+APP_NAME="${APP_NAME:-VC Dash.app}"
+APP_BUNDLE_NAME="${APP_NAME%.app}"
+BUNDLE_ID="${BUNDLE_ID:-com.vcdash.app}"
+APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-VCDash}"
+APP_DIR="${APP_DIR:-$ROOT_DIR/.build/$APP_NAME}"
 EXECUTABLE="$ROOT_DIR/.build/arm64-apple-macosx/$CONFIGURATION/VCDash"
+LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}"
+LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}"
 
 cd "$ROOT_DIR"
 mkdir -p "$ROOT_DIR/.build/clang-module-cache" "$ROOT_DIR/.build/swiftpm-cache"
@@ -16,7 +22,33 @@ swift build --disable-sandbox --product VCDash ${CONFIGURATION:+--configuration 
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
-cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/VCDash"
+if [[ -n "$LAUNCH_ARGUMENTS$LAUNCH_ENVIRONMENT" ]]; then
+  cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME.bin"
+  /usr/bin/python3 - "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME" "$APP_EXECUTABLE_NAME.bin" "$LAUNCH_ARGUMENTS" "$LAUNCH_ENVIRONMENT" <<'PY'
+import shlex
+import sys
+
+path, binary_name, launch_args, launch_environment = sys.argv[1:]
+args = shlex.split(launch_args)
+environment = {}
+for assignment in shlex.split(launch_environment):
+    if "=" in assignment:
+        key, value = assignment.split("=", 1)
+        environment[key] = value
+
+lines = ["#!/usr/bin/env bash", "set -euo pipefail"]
+for key, value in environment.items():
+    lines.append(f"export {key}={shlex.quote(value)}")
+quoted_args = " ".join(shlex.quote(arg) for arg in args)
+lines.append(f'exec "$(dirname "$0")/{binary_name}" {quoted_args} "$@"')
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write("\n".join(lines) + "\n")
+PY
+  chmod +x "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME"
+else
+  cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME"
+fi
 
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -26,13 +58,13 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>VCDash</string>
+  <string>__APP_EXECUTABLE_NAME__</string>
   <key>CFBundleIdentifier</key>
-  <string>com.vcdash.app</string>
+  <string>__BUNDLE_ID__</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>VC Dash</string>
+  <string>__APP_BUNDLE_NAME__</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -50,6 +82,31 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+/usr/bin/python3 - "$APP_DIR/Contents/Info.plist" "$APP_EXECUTABLE_NAME" "$BUNDLE_ID" "$APP_BUNDLE_NAME" "$LAUNCH_ARGUMENTS" "$LAUNCH_ENVIRONMENT" <<'PY'
+import plistlib
+import shlex
+import sys
+
+path, executable_name, bundle_id, app_name, launch_args, launch_environment = sys.argv[1:]
+with open(path, "rb") as handle:
+    plist = plistlib.load(handle)
+
+plist["CFBundleExecutable"] = executable_name
+plist["CFBundleIdentifier"] = bundle_id
+plist["CFBundleName"] = app_name
+
+environment = {}
+for assignment in shlex.split(launch_environment):
+    if "=" in assignment:
+        key, value = assignment.split("=", 1)
+        environment[key] = value
+if environment:
+    plist["LSEnvironment"] = environment
+
+with open(path, "wb") as handle:
+    plistlib.dump(plist, handle, sort_keys=False)
+PY
 
 if [[ -z "$CODE_SIGN_IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"$DEFAULT_CODE_SIGN_IDENTITY\""; then
   CODE_SIGN_IDENTITY="$DEFAULT_CODE_SIGN_IDENTITY"
