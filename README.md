@@ -2,6 +2,8 @@
 
 Native macOS menu bar dashboard for scanning GitHub pull requests and intentional notifications.
 
+Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
+
 ## Current state
 
 - SwiftPM project with a macOS 14+ AppKit/SwiftUI menu bar app.

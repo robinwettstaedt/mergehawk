@@ -58,6 +58,23 @@ import VCDashCore
     precondition(launchAtLoginService.requestedValues == [true, false])
 }()
 
+@MainActor let vcDashMockModeStartsSignedInWithoutTokenTest: Void = {
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+        automaticRefreshInterval: 0
+    )
+
+    waitUntil(timeout: 1.0) {
+        controller.state.syncedAt != nil
+    }
+
+    precondition(controller.state.authStatus == .signedIn)
+    precondition(controller.state.source == .mock)
+    precondition(controller.state.account?.login == "agent-fixture")
+    precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_2"])
+}()
+
 @MainActor
 private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
     let deadline = Date().addingTimeInterval(timeout)
