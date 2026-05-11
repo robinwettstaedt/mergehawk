@@ -67,4 +67,4 @@ Scale the plan to the task. For small tasks, keep sections brief. For nuanced ta
 
 ## Approval Gate
 
-After presenting the plan, ask the user to approve or revise it before implementation unless they already explicitly asked to proceed after planning. If the user requests changes, revise the plan and ask again.
+After presenting the plan, ask the user to approve or revise it before implementation. If the user requests changes, revise the plan and ask again. 
