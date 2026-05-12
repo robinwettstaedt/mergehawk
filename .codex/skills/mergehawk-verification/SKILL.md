@@ -5,7 +5,7 @@ description: Use during and after implementing a MergeHawk issue to verify meani
 
 # MergeHawk Verification
 
-Use this during implementation after meaningful slices, and after implementation before telling the user the work is ready for review.
+Use this during implementation after meaningful slices, and after implementation before telling the user the work is ready for review. When code changed, run `mergehawk-simplification` before final verification.
 
 ## Goal
 
@@ -59,6 +59,8 @@ The slot app opens as a real macOS app on the user's machine, usually at:
 ```
 
 Leave the slot app open for user review when useful. State the exact app name and what state it is showing. Do not replace or relaunch the user's normal installed app.
+
+Do not run `scripts/update-installed-app.sh` as part of normal verification. The normal installed app update is reserved for an explicit user-requested final local integration check after verification passes.
 
 ## Blocked Verification
 
