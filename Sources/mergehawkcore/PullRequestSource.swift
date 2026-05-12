@@ -5,6 +5,10 @@ public protocol PullRequestSource: AnyObject {
     func fetchPullRequests(login: String) async throws -> [PullRequest]
 }
 
+public protocol SourceCatalogProviding: AnyObject {
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog
+}
+
 public final class EmptyPullRequestSource: PullRequestSource {
     public let sourceKind: DashboardSource = .none
 
@@ -127,5 +131,23 @@ public final class MockPullRequestSource: PullRequestSource {
         let snapshot = snapshots[min(index, snapshots.count - 1)]
         index += 1
         return snapshot
+    }
+}
+
+extension MockPullRequestSource: SourceCatalogProviding {
+    public func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        mockSourceCatalog(accountLogin: accountLogin)
+    }
+
+    public func mockSourceCatalog(accountLogin: String?) -> SourceCatalog {
+        SourceCatalog(
+            repositories: [
+                RepositorySource(owner: "agent-fixture", name: "sandbox"),
+                RepositorySource(owner: "example", name: "app"),
+                RepositorySource(owner: "example", name: "mergehawk"),
+                RepositorySource(owner: "example", name: "web")
+            ],
+            accountLogin: accountLogin
+        )
     }
 }

@@ -62,6 +62,91 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertEqual(notificationClient.records.map(\.eventType), ["new_comment", "ci_failed"])
     }
 
+    func testMacOSLocalNotificationsCanBeDisabled() async {
+        let suiteName = "mergehawk-macos-local-disabled-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        var mutablePreferencesStore = PreferencesStore(defaults: defaults)
+        mutablePreferencesStore.macOSLocalNotificationsEnabled = false
+        let preferencesStore = mutablePreferencesStore
+
+        let notificationClient = RecordingNotificationClient()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: preferencesStore,
+                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+                notificationClient: notificationClient,
+                automaticRefreshInterval: 0
+            )
+        }
+
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.state.syncedAt != nil
+            }
+        }
+
+        await MainActor.run {
+            controller.refresh()
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        await MainActor.run {
+            XCTAssertFalse(controller.state.events.isEmpty)
+        }
+        XCTAssertTrue(notificationClient.records.isEmpty)
+    }
+
+    func testSourcePreferencesSuppressInAppNotifications() async {
+        let suiteName = "mergehawk-source-notifications-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        var mutablePreferencesStore = PreferencesStore(defaults: defaults)
+        mutablePreferencesStore.sourcePreferences = SourcePreferences(
+            owners: [
+                "example": OwnerSourcePreferences(
+                    notifications: false,
+                    myPullRequests: true,
+                    reviewRequests: true
+                )
+            ],
+            repositories: [:]
+        )
+        let preferencesStore = mutablePreferencesStore
+
+        let notificationClient = RecordingNotificationClient()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: preferencesStore,
+                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+                notificationClient: notificationClient,
+                automaticRefreshInterval: 0
+            )
+        }
+
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.state.syncedAt != nil
+            }
+        }
+
+        await MainActor.run {
+            controller.refresh()
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        await MainActor.run {
+            XCTAssertTrue(controller.state.events.isEmpty)
+        }
+        XCTAssertTrue(notificationClient.records.isEmpty)
+    }
+
     func testRecordingNotificationClientWritesJsonLines() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mergehawk-notifications-\(UUID().uuidString)")

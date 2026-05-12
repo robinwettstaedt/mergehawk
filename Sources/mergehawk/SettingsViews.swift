@@ -5,15 +5,17 @@ enum SettingsTab: String, CaseIterable, Hashable {
     case general
     case github
     case notifications
+    case sources
     case about
 
-    static let defaultWindowSize = CGSize(width: 460, height: 560)
+    static let defaultWindowSize = CGSize(width: 560, height: 580)
 
     var title: String {
         switch self {
         case .general: "General"
         case .github: "GitHub"
         case .notifications: "Notifications"
+        case .sources: "Sources"
         case .about: "About"
         }
     }
@@ -23,6 +25,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
         case .general: "gearshape"
         case .github: "person.crop.circle.badge.checkmark"
         case .notifications: "bell"
+        case .sources: "tray.full"
         case .about: "info.circle"
         }
     }
@@ -31,6 +34,11 @@ enum SettingsTab: String, CaseIterable, Hashable {
 struct SettingsRootView: View {
     @ObservedObject var controller: DashboardController
     @State private var selection = SettingsTab.general
+
+    init(controller: DashboardController, selection: SettingsTab = .general) {
+        self.controller = controller
+        self._selection = State(initialValue: selection)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,6 +67,8 @@ struct SettingsRootView: View {
             GitHubSettingsView(controller: controller)
         case .notifications:
             NotificationSettingsView(controller: controller)
+        case .sources:
+            SourcesSettingsView(controller: controller)
         case .about:
             AboutSettingsView()
         }
@@ -70,7 +80,7 @@ enum SettingsTabLayout {
     static let bottomPadding: CGFloat = 10
     static let titleToTabsSpacing: CGFloat = 8
     static let tabSpacing: CGFloat = 8
-    static let tabWidth: CGFloat = 72
+    static let tabWidth: CGFloat = 76
     static let tabHeight: CGFloat = 58
     static let titleSize: CGFloat = 14
     static let iconSize: CGFloat = 18
@@ -225,6 +235,7 @@ private struct NotificationSettingsView: View {
 
     var body: some View {
         Form {
+            Toggle("macOS local notifications", isOn: $controller.macOSLocalNotificationsEnabled)
             Toggle("New comments", isOn: Binding(
                 get: { controller.preferences.newComment },
                 set: { controller.preferences.newComment = $0 }
@@ -243,6 +254,216 @@ private struct NotificationSettingsView: View {
             ))
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct SourcesSettingsView: View {
+    @ObservedObject var controller: DashboardController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Sources")
+                    .font(.headline)
+                Spacer()
+                if controller.isRefreshingSources {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 20, height: 20)
+                }
+                Button {
+                    controller.refreshSources()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(controller.isRefreshingSources || controller.state.authStatus != .signedIn)
+                .help("Refresh sources")
+                .accessibilityLabel("Refresh sources")
+            }
+
+            SourceHeaderRow()
+
+            if controller.sourceCatalog.owners.isEmpty {
+                Text(controller.state.authStatus == .signedIn ? "No sources found." : "Sign in to GitHub to manage sources.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(controller.sourceCatalog.owners) { owner in
+                            OwnerSourceSettingsSection(
+                                owner: owner,
+                                controller: controller
+                            )
+                            Divider()
+                        }
+                    }
+                }
+            }
+
+            if let error = controller.sourceErrorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            controller.refreshSources()
+        }
+    }
+}
+
+private struct SourceHeaderRow: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Owner / Repository")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Notifications")
+                .frame(width: SourceSettingsLayout.columnWidth)
+            Text("My PRs")
+                .frame(width: SourceSettingsLayout.columnWidth)
+            Text("Reviews")
+                .frame(width: SourceSettingsLayout.columnWidth)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.trailing, 4)
+    }
+}
+
+private enum SourceSettingsLayout {
+    static let columnWidth: CGFloat = 84
+    static let rowHeight: CGFloat = 34
+}
+
+private struct OwnerSourceSettingsSection: View {
+    let owner: OwnerSource
+    @ObservedObject var controller: DashboardController
+    @State private var isExpanded = false
+
+    var body: some View {
+        if owner.repositories.isEmpty {
+            OwnerSourceSettingsRow(owner: owner.owner, controller: controller)
+                .padding(.vertical, 4)
+        } else {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(owner.repositories) { repository in
+                        RepositorySourceSettingsRow(
+                            repository: repository,
+                            controller: controller
+                        )
+                    }
+                }
+            } label: {
+                OwnerSourceSettingsRow(owner: owner.owner, controller: controller)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
+
+private struct OwnerSourceSettingsRow: View {
+    let owner: String
+    @ObservedObject var controller: DashboardController
+
+    var body: some View {
+        let preferences = controller.sourcePreferences.ownerPreferences(for: owner)
+        HStack(spacing: 8) {
+            Text(owner)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Toggle("", isOn: ownerBinding(\.notifications))
+                .labelsHidden()
+                .frame(width: SourceSettingsLayout.columnWidth)
+            Toggle("", isOn: ownerBinding(\.myPullRequests))
+                .labelsHidden()
+                .frame(width: SourceSettingsLayout.columnWidth)
+            Toggle("", isOn: ownerBinding(\.reviewRequests))
+                .labelsHidden()
+                .frame(width: SourceSettingsLayout.columnWidth)
+        }
+        .frame(height: SourceSettingsLayout.rowHeight)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(owner), notifications \(preferences.notifications ? "on" : "off"), My PRs \(preferences.myPullRequests ? "on" : "off"), reviews \(preferences.reviewRequests ? "on" : "off")")
+    }
+
+    private func ownerBinding(_ keyPath: WritableKeyPath<OwnerSourcePreferences, Bool>) -> Binding<Bool> {
+        Binding {
+            controller.sourcePreferences.ownerPreferences(for: owner)[keyPath: keyPath]
+        } set: { value in
+            var preferences = controller.sourcePreferences.ownerPreferences(for: owner)
+            preferences[keyPath: keyPath] = value
+            controller.setOwnerPreferences(owner: owner, preferences: preferences)
+        }
+    }
+}
+
+private struct RepositorySourceSettingsRow: View {
+    let repository: RepositorySource
+    @ObservedObject var controller: DashboardController
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(repository.identity.name)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.leading, 18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            overridePicker(binding: repositoryBinding(\.notifications))
+            overridePicker(binding: repositoryBinding(\.myPullRequests))
+            overridePicker(binding: repositoryBinding(\.reviewRequests))
+        }
+        .frame(height: SourceSettingsLayout.rowHeight)
+    }
+
+    private func overridePicker(binding: Binding<SourceOverride>) -> some View {
+        Picker("", selection: binding) {
+            ForEach(SourceOverride.allCases, id: \.self) { option in
+                Text(option.settingsLabel).tag(option)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: SourceSettingsLayout.columnWidth)
+    }
+
+    private func repositoryBinding(
+        _ keyPath: WritableKeyPath<RepositorySourcePreferences, SourceOverride>
+    ) -> Binding<SourceOverride> {
+        Binding {
+            controller.sourcePreferences.repositoryPreferences(for: repository.identity.nameWithOwner)[keyPath: keyPath]
+        } set: { value in
+            var preferences = controller.sourcePreferences.repositoryPreferences(for: repository.identity.nameWithOwner)
+            preferences[keyPath: keyPath] = value
+            controller.setRepositoryPreferences(
+                repo: repository.identity.nameWithOwner,
+                preferences: preferences
+            )
+        }
+    }
+}
+
+private extension SourceOverride {
+    var settingsLabel: String {
+        switch self {
+        case .inherit:
+            "Inherit"
+        case .enabled:
+            "On"
+        case .disabled:
+            "Off"
+        }
     }
 }
 
