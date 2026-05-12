@@ -1,5 +1,5 @@
 import SwiftUI
-import VCDashCore
+import mergehawkcore
 
 enum SettingsTab: String, CaseIterable, Hashable {
     case general
@@ -176,7 +176,7 @@ private struct GitHubSettingsView: View {
                         .onSubmit {
                             connect()
                         }
-                    Text("Fine-grained PATs need read access for metadata, pull requests, issues, and actions on the repositories VC Dash monitors.")
+                    Text("Fine-grained PATs need read access for metadata, pull requests, issues, and actions on the repositories MergeHawk monitors.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -249,7 +249,7 @@ private struct NotificationSettingsView: View {
 private struct AboutSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("VC Dash")
+            Text("MergeHawk")
                 .font(.title2.weight(.semibold))
             Text("Native macOS menu bar dashboard for GitHub pull requests.")
                 .foregroundStyle(.secondary)

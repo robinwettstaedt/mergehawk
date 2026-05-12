@@ -1,5 +1,5 @@
 import Foundation
-import VCDashCore
+import mergehawkcore
 
 @main
 struct Runner {
@@ -13,7 +13,7 @@ struct Runner {
         try testNormalizesPullRequestSearchNodes()
         try testBuildsThreePullRequestSearchQueries()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
-        print("VCDashCore tests passed")
+        print("mergehawkcore tests passed")
     }
 
     private static func testFirstSyncBaselinesWithoutEvents() throws {
@@ -118,7 +118,7 @@ struct Runner {
             id: "PR_1",
             title: "Ship dashboard",
             number: 12,
-            url: "https://github.com/acme/vc-dash/pull/12",
+            url: "https://github.com/acme/mergehawk/pull/12",
             createdAt: "2026-05-01T12:00:00Z",
             updatedAt: "2026-05-02T12:00:00Z",
             isDraft: false,
@@ -127,7 +127,7 @@ struct Runner {
             comments: .init(totalCount: 2),
             reviews: .init(totalCount: 1),
             reviewThreads: .init(nodes: [.init(isResolved: true), .init(isResolved: false)]),
-            repository: .init(nameWithOwner: "acme/vc-dash"),
+            repository: .init(nameWithOwner: "acme/mergehawk"),
             commits: .init(nodes: [.init(commit: .init(statusCheckRollup: .init(state: "FAILURE")))]),
             author: .init(login: "rw")
         )
@@ -136,8 +136,8 @@ struct Runner {
             id: "PR_1",
             title: "Ship dashboard",
             number: 12,
-            url: URL(string: "https://github.com/acme/vc-dash/pull/12")!,
-            repo: "acme/vc-dash",
+            url: URL(string: "https://github.com/acme/mergehawk/pull/12")!,
+            repo: "acme/mergehawk",
             ciState: .failing,
             reviewDecision: .reviewRequired,
             commentCount: 3,
@@ -206,8 +206,8 @@ private extension PullRequest {
         id: String = "PR_1",
         title: String = "Build tray app",
         number: Int = 1,
-        url: URL = URL(string: "https://github.com/acme/vc-dash/pull/1")!,
-        repo: String = "acme/vc-dash",
+        url: URL = URL(string: "https://github.com/acme/mergehawk/pull/1")!,
+        repo: String = "acme/mergehawk",
         ciState: CIState = .passing,
         reviewDecision: ReviewDecision = .reviewRequired,
         commentCount: Int = 0,

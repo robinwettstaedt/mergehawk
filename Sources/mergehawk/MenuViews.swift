@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import VCDashCore
+import mergehawkcore
 
 enum PullRequestMenuDropdown: Equatable {
     case filter
@@ -44,7 +44,7 @@ struct MenuRootView: View {
             if controller.state.authStatus == .signedIn {
                 tabSwitcher
             } else {
-                Text("VC Dash")
+                Text("MergeHawk")
                     .font(.headline)
             }
             Spacer(minLength: 10)

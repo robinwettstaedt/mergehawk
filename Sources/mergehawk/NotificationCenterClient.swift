@@ -1,6 +1,6 @@
 import Foundation
 import UserNotifications
-import VCDashCore
+import mergehawkcore
 
 protocol NotificationPosting {
     func requestAuthorization()
@@ -28,7 +28,7 @@ enum NotificationContentBuilder {
     }
 
     static func summaryTitle(for events: [PullRequestEvent]) -> String {
-        events.count == 1 ? title(for: events[0]) : "\(events.count) VC Dash updates"
+        events.count == 1 ? title(for: events[0]) : "\(events.count) MergeHawk updates"
     }
 
     static func summaryBody(for events: [PullRequestEvent], pullRequests: [PullRequest]) -> String {
@@ -54,7 +54,7 @@ enum NotificationContentBuilder {
             return "\(pr.repo)#\(pr.number): \(pr.title)"
         }
         let repos = events.compactMap { prsById[$0.prId]?.repo }
-        return repos.isEmpty ? "Open VC Dash for details." : repos.prefix(3).joined(separator: ", ")
+        return repos.isEmpty ? "Open MergeHawk for details." : repos.prefix(3).joined(separator: ", ")
     }
 }
 
@@ -86,7 +86,7 @@ final class NotificationCenterClient: NotificationPosting {
         content.sound = .default
 
         let request = UNNotificationRequest(
-            identifier: "vc-dash-\(UUID().uuidString)",
+            identifier: "mergehawk-\(UUID().uuidString)",
             content: content,
             trigger: nil
         )

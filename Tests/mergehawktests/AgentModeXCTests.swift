@@ -1,27 +1,27 @@
-@testable import VCDash
+@testable import mergehawk
 import Foundation
-import VCDashCore
+import mergehawkcore
 import XCTest
 
 final class AgentModeXCTests: XCTestCase {
     func testLaunchConfigurationAcceptsMockFlagAndEnvironment() {
         XCTAssertEqual(
             LaunchConfiguration.current(
-                arguments: ["VCDash", "--mock"],
+                arguments: ["mergehawk", "--mock"],
                 environment: [:]
             ),
             LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true)
         )
         XCTAssertEqual(
             LaunchConfiguration.current(
-                arguments: ["VCDash"],
-                environment: ["VC_DASH_MOCK_MODE": "true"]
+                arguments: ["mergehawk"],
+                environment: ["MERGEHAWK_MOCK_MODE": "true"]
             ),
             LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true)
         )
         XCTAssertEqual(
             LaunchConfiguration.current(
-                arguments: ["VCDash", "--suppress-macos-notifications"],
+                arguments: ["mergehawk", "--suppress-macos-notifications"],
                 environment: [:]
             ),
             LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true)
@@ -64,15 +64,15 @@ final class AgentModeXCTests: XCTestCase {
 
     func testRecordingNotificationClientWritesJsonLines() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("vc-dash-notifications-\(UUID().uuidString)")
+            .appendingPathComponent("mergehawk-notifications-\(UUID().uuidString)")
         let logURL = directory.appendingPathComponent("notifications.jsonl")
         let client = RecordingNotificationClient(logPath: logURL.path)
         let pullRequest = PullRequest(
             id: "PR_1",
             title: "Make mock notifications testable",
             number: 42,
-            url: URL(string: "https://github.com/example/vc-dash/pull/42")!,
-            repo: "example/vc-dash",
+            url: URL(string: "https://github.com/example/mergehawk/pull/42")!,
+            repo: "example/mergehawk",
             ciState: .failing,
             reviewDecision: .reviewRequired,
             commentCount: 3,
@@ -90,7 +90,7 @@ final class AgentModeXCTests: XCTestCase {
 
         let payload = try String(contentsOf: logURL)
         XCTAssertTrue(payload.contains(#""eventType":"ci_failed""#))
-        XCTAssertTrue(payload.contains(#""repository":"example\/vc-dash""#))
+        XCTAssertTrue(payload.contains(#""repository":"example\/mergehawk""#))
     }
 
     private func waitUntil(timeout: TimeInterval, condition: () async -> Bool) async {

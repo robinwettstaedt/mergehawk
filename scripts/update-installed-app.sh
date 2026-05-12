@@ -2,15 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="${APP_NAME:-VC Dash.app}"
-PROCESS_NAME="${PROCESS_NAME:-${APP_EXECUTABLE_NAME:-VCDash}}"
-BUNDLE_ID="${BUNDLE_ID:-com.vcdash.app}"
+APP_NAME="${APP_NAME:-MergeHawk.app}"
+PROCESS_NAME="${PROCESS_NAME:-${APP_EXECUTABLE_NAME:-mergehawk}}"
+BUNDLE_ID="${BUNDLE_ID:-com.mergehawk.app}"
 APP_PATH="${APP_PATH:-}"
 RESTART="${RESTART:-1}"
 
 cd "$ROOT_DIR"
 
-build_output="$(CONFIGURATION="${CONFIGURATION:-debug}" APP_NAME="$APP_NAME" BUNDLE_ID="$BUNDLE_ID" APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-VCDash}" LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}" LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}" scripts/build-app-bundle.sh)"
+build_output="$(CONFIGURATION="${CONFIGURATION:-debug}" APP_NAME="$APP_NAME" BUNDLE_ID="$BUNDLE_ID" APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-mergehawk}" LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}" LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}" scripts/build-app-bundle.sh)"
 printf '%s\n' "$build_output"
 built_app="$(printf '%s\n' "$build_output" | tail -n 1)"
 

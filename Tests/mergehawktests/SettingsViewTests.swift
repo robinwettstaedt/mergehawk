@@ -1,7 +1,7 @@
-@testable import VCDash
+@testable import mergehawk
 import CoreGraphics
 
-let vcDashSettingsTabsTest: Void = {
+let mergehawkSettingsTabsTest: Void = {
     precondition(SettingsTab.allCases.map(\.title) == [
         "General",
         "GitHub",
