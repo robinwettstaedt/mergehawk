@@ -60,6 +60,13 @@ The slot app opens as a real macOS app on the user's machine, usually at:
 
 Leave the slot app open for user review when useful. State the exact app name and what state it is showing. Do not replace or relaunch the user's normal installed app.
 
+The slot must be inspectable by the user through LaunchServices, not only by
+directly executing a binary. After running `scripts/run-agent-app.sh`, confirm
+that `open ~/Applications/MergeHawk\ <ISSUE-ID>.app` succeeds and that the
+app bundle's `CFBundleExecutable` points to a real Mach-O executable. Mock-mode
+isolation should come from `LSEnvironment` in `Info.plist`, not from making the
+bundle executable a shell wrapper.
+
 Do not run `scripts/update-installed-app.sh` as part of normal verification. The normal installed app update is reserved for an explicit user-requested final local integration check after verification passes.
 
 ## Blocked Verification

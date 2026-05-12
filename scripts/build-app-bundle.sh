@@ -22,7 +22,7 @@ swift build --disable-sandbox --product mergehawk ${CONFIGURATION:+--configurati
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
-if [[ -n "$LAUNCH_ARGUMENTS$LAUNCH_ENVIRONMENT" ]]; then
+if [[ -n "$LAUNCH_ARGUMENTS" ]]; then
   cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME.bin"
   /usr/bin/python3 - "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME" "$APP_EXECUTABLE_NAME.bin" "$LAUNCH_ARGUMENTS" "$LAUNCH_ENVIRONMENT" <<'PY'
 import shlex
