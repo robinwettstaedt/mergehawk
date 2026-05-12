@@ -129,15 +129,18 @@ fix(MER-12): correct notification filtering
 chore(MER-12): update verification tooling
 ```
 
-Include the implementation summary, Linear issue id, validation results, and
-review evidence. Do not commit generated screenshots or local verification
+Include only durable PR context: implementation summary, Linear issue id,
+validation results, and blocked or skipped verification that future reviewers
+need to understand. Do not commit generated screenshots or local verification
 artifacts unless the user explicitly asks for versioned fixtures. Attach useful
-screenshots to the PR body/comment when possible; `.verification/<ISSUE-ID>/`
-paths are local-only and not durable PR evidence.
+screenshots to the PR body/comment when possible. Do not mention local-only
+paths such as `.verification/<ISSUE-ID>/`, `.build/`, local app slots, or local
+slot cleanup in the PR body.
 
-In the same turn as PR creation, close the isolated slot app by default. Then
-move the Linear issue from `In Progress` to `In Review`. Leave `Done` for the
-human reviewer after review or merge.
+In the same turn as PR creation, tear down the isolated slot app by default and
+report the cleanup in the Codex thread handoff summary, not in the durable PR
+description. Then move the Linear issue from `In Progress` to `In Review`.
+Leave `Done` for the human reviewer after review or merge.
 
 Never merge pull requests, enable auto-merge, or push directly to default or
 protected branches unless the user explicitly confirms that action in the
