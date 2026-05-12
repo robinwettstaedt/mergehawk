@@ -1,266 +1,127 @@
 # Agent Workflow
 
-This document describes how coding agents should verify VC Dash changes without
-replacing the user's normal installed app or requiring real GitHub credentials.
+This document is the source-of-truth reference for the MergeHawk agent workflow.
+The operational instructions live in repo skills under `.codex/skills/`.
 
 Read [docs/glossary.md](glossary.md) before changing product wording. In
 particular, distinguish in-app notifications from macOS local notifications.
 
-## Isolated Agent Workspaces
+## Skill Sequence
 
-Parallel agents should work from isolated git worktrees so they do not change
-the same checkout or interrupt the user's local workspace.
+For active MergeHawk Linear issue work, use these skills in order:
 
-Before implementation work, check whether the current checkout is already a
-linked worktree:
+1. `mergehawk-issue-intake`
+2. `mergehawk-brainstorming`
+3. `mergehawk-planning`
+4. implementation using normal Codex coding behavior and the approved plan
+5. `mergehawk-simplification`
+6. `mergehawk-verification`
+7. `mergehawk-pr-handoff`
 
-```sh
-git_dir="$(git rev-parse --path-format=absolute --git-dir)"
-common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
-if [ "$git_dir" != "$common_dir" ]; then
-  echo "already in linked worktree"
-else
-  echo "primary checkout; create or switch to an isolated worktree before editing"
-fi
-```
+Implementation is intentionally not its own skill. Use normal codebase judgment,
+the approved plan, and the repo instructions in `AGENTS.md`.
 
-If the agent is already in a linked worktree, use that checkout directly and do
-not create another worktree. If the agent is in the primary checkout, create or
-switch to an isolated worktree before editing unless the user explicitly asks to
-work in the primary checkout.
+## Issue Intake
 
-Before editing, require a clean starting point:
+Use `mergehawk-issue-intake` when the user asks to work on a MergeHawk Linear
+issue such as `MER-12`, including terse prompts that only mention the issue id.
 
-```sh
-git status --short
-```
+The intake phase fetches the issue, confirms it belongs to MergeHawk, establishes
+branch/slot/artifact naming, checks git/worktree state, moves active work to
+`In Progress`, and routes to brainstorming by default.
 
-If the worktree contains uncommitted changes that are not part of the current
-task, stop and ask the user how to proceed.
+Worktree policy:
 
-Base new isolated worktrees on `origin/main` unless the user specifies a
-different base branch or commit. For Linear issues, start the branch name with
-the issue identifier, for example:
+- Prefer starting the Codex thread in the intended worktree so the Codex UI is
+  attached to the right checkout from the beginning.
+- If already in a clean linked worktree, use it directly.
+- If in the primary checkout, do not automatically create a worktree. Before
+  implementation, ask whether to continue there, restart in a prepared worktree,
+  or explicitly have the agent create a worktree.
+- If the user explicitly asks the agent to create a worktree, base it on
+  `origin/main` unless the user specifies another base.
 
-```text
-MER-12-update-something-in-the-app
-```
+Naming:
 
-Recommended local fallback layout:
+- Branch: `<ISSUE-ID>-<short-readable-title-slug>`, for example
+  `MER-12-update-settings-refresh`.
+- App slot: `<ISSUE-ID>`, for example `MER-12`.
+- Review artifacts: `.verification/<ISSUE-ID>/`.
 
-```text
-.worktrees/<branch-name>
-```
+## Brainstorming And Planning
 
-Example:
+Use `mergehawk-brainstorming` for most issues after intake. Skip it only when
+the issue is tiny/mechanical or already contains a concrete approved plan with
+no unresolved product, UX, scope, or implementation questions.
 
-```sh
-git fetch origin main
-git worktree add .worktrees/MER-12-update-something -b MER-12-update-something origin/main
-cd .worktrees/MER-12-update-something
-scripts/verify.sh
-```
+Brainstorming clarifies user intent, tradeoffs, UX/copy, scope, edge cases, and
+acceptance criteria. It must not edit code. It ends with an approved design
+direction and routes to `mergehawk-planning`.
 
-Each parallel agent should use its own agent slot if it needs an installed app
-bundle. For Linear issues, use the issue identifier as the slot name:
+Use `mergehawk-planning` to turn the approved direction into a concrete
+implementation and verification plan before coding. Planning must not edit code.
+It should name likely files/components, verification commands, UI review needs,
+risks, and assumptions. After approval, implement normally, then run
+`mergehawk-simplification` before final verification.
 
-```sh
-scripts/run-agent-app.sh --slot MER-12 --mock --no-open
-```
+## Simplification
 
-Do not run `scripts/update-installed-app.sh` from parallel agent workspaces
-unless the user explicitly asks for a final installed-app integration check.
-Build output, verification screenshots, and `.verification/` review evidence
-are local to the worktree where the agent runs.
+Use `mergehawk-simplification` after implementation and before final
+verification. It reviews recently changed code, usually via `git diff`, and
+preserves behavior while removing unnecessary complexity.
 
-## Linear Issue Workflow
+Treat MergeHawk as a greenfield project. Avoid speculative fallbacks,
+backwards-compatibility paths, migration layers, broad defensive guards,
+unrequested configuration, and premature abstractions unless required by the
+issue, existing behavior, or a concrete current failure mode.
 
-When the user asks an agent to work on a Linear issue:
+## Verification
 
-1. Fetch and read the requested issue before implementation.
-2. Ask clarifying questions before editing when the scope, acceptance criteria,
-   or desired product behavior is ambiguous.
-3. Confirm the checkout/worktree state described above.
-4. Move the Linear issue to `In Progress` when implementation begins.
-5. Implement the issue in the isolated worktree.
-6. Self-verify with the relevant checks in this document until the work is ready
-   for user review.
-7. Report the change, validation results, and any review artifacts back to the
-   user.
-8. Wait for user approval before opening a pull request unless the user has
-   already explicitly asked for a PR.
+Use `mergehawk-verification` during implementation after meaningful slices and
+after implementation before telling the user the work is ready for review.
 
-For UI-heavy changes, leave the isolated mocked app slot open when useful and
-tell the user which slot app to review. Do not create routine Linear workpad
-comments; use Linear comments only when the user asks, or when a blocker needs
-to be recorded outside the Codex thread.
-
-## Default Verification
-
-For most code changes, run:
+For most code changes, final verification includes:
 
 ```sh
 scripts/verify.sh
 ```
 
-This runs:
+This runs `swift test`, `swift run VCDashCoreTestRunner`,
+`swift build --product VCDash`, and app bundle creation through
+`scripts/build-app-bundle.sh`. It does not replace or launch the user's normal
+installed app.
 
-- `swift test`
-- `swift run VCDashCoreTestRunner`
-- `swift build --product VCDash`
-- `.app` bundle creation through `scripts/build-app-bundle.sh`
-
-`scripts/verify.sh` does not replace or launch the user's normal installed app.
-
-## Visual Verification
-
-For UI changes, run:
+For UI, copy, menu layout, filtering, sorting, notification presentation, or
+visual state changes, run:
 
 ```sh
 scripts/verify-ui.sh
 ```
 
-This renders mocked menu states to:
+This renders mocked UI screenshots to `.build/verification/ui`.
 
-```text
-.build/verification/ui
-```
-
-Current artifacts include:
-
-- `menu-notifications.png`
-- `menu-my-prs.png`
-
-Agents should inspect these screenshots when changing menu layout, copy, colors,
-spacing, filtering, sorting, or in-app notification presentation.
-
-## Interactive UI Verification
-
-Use interactive UI verification when static screenshot artifacts are
-insufficient, especially for changes involving app launch behavior, navigation,
-menu interactions, window state, permissions, timers, refresh behavior, or other
-runtime-only UI states.
-
-Run an isolated mocked app slot:
+When static screenshots are insufficient, run an isolated mocked app slot:
 
 ```sh
 scripts/run-agent-app.sh --slot MER-12 --mock --open
 ```
 
-Then use the available screen inspection or screenshot tools to verify the
-running app. Prefer Codex computer-use tools when available. Record the
-verification signal in the task summary, including what was opened, what state
-was inspected, and any relevant screenshot artifact path when one was captured.
-Place ad hoc screenshots and review evidence under an issue- or task-specific
-directory in `.verification/`, for example:
+Prefer Codex computer-use tools for interactive visual verification when
+available. Put ad hoc screenshots and review evidence under
+`.verification/<ISSUE-ID>/`. Leave the slot app open for user review when useful
+and state the exact app name, usually `~/Applications/VC Dash <ISSUE-ID>.app`.
 
-```text
-.verification/MER-12/
-```
+Do not run `scripts/update-installed-app.sh` as part of normal verification.
+Only run it when the user explicitly asks for a final local installed-app
+integration check.
 
-The slot app opens as a real macOS app on the user's machine, usually at:
+## PR Handoff
 
-```text
-~/Applications/VC Dash <slot>.app
-```
+Use `mergehawk-pr-handoff` only after the user approves verified work for PR
+handoff, or when the user explicitly asks to create or update a PR.
 
-It is isolated by app name, bundle id, process name, mock-mode launch
-environment, and agent-slot artifact directory. It is not hidden from the user.
-When useful for review, leave the slot app open and state the exact app name in
-the response.
-
-If interactive verification is blocked because computer-use tools are
-unavailable, the app does not launch, or screenshots cannot be captured, report
-exactly what was skipped and why. When possible, leave the isolated slot app
-open for the user to inspect manually.
-
-## Mock Mode
-
-Mock mode starts the app with fixture data instead of real provider credentials
-or network calls.
-
-Mock mode:
-
-- starts signed in as `agent-fixture`
-- avoids reading a GitHub personal access token
-- avoids GitHub network calls
-- avoids macOS credential prompts
-- shows fixture PRs
-- shows fixture in-app notifications
-- suppresses real macOS local notification delivery
-- can record would-have-posted macOS local notification payloads to JSONL
-
-Run mock mode directly with:
-
-```sh
-VC_DASH_MOCK_MODE=1 swift run VCDash --mock
-```
-
-## Agent Slots
-
-When an agent needs an installed `.app` bundle, use an agent slot instead of
-`scripts/update-installed-app.sh`.
-
-Example:
-
-```sh
-scripts/run-agent-app.sh --slot MER-12 --mock --open
-```
-
-To build and install the slot bundle without opening it:
-
-```sh
-scripts/run-agent-app.sh --slot MER-12 --mock --no-open
-```
-
-For `MER-12`, this installs:
-
-```text
-~/Applications/VC Dash MER-12.app
-```
-
-The slot bundle uses:
-
-- app name: `VC Dash MER-12.app`
-- bundle id: `com.vcdash.app.MER-12`
-- executable name: `VCDash-MER-12`
-- artifact directory: `.build/agent-slots/MER-12`
-
-This lets multiple agents work from different checkouts without replacing the
-normal app bundle or killing the normal `VCDash` process.
-
-## macOS Local Notification Payload Artifacts
-
-Mock slot runs suppress real macOS local notification delivery. They still
-exercise the formatting path and record payloads to:
-
-```text
-.build/agent-slots/<slot>/notifications.jsonl
-```
-
-Use this artifact to verify macOS local notification titles, bodies, event
-types, PR ids, PR titles, and repositories.
-
-This is separate from in-app notifications, which are rendered in the app UI and
-covered by `scripts/verify-ui.sh`.
-
-## Pull Request Handoff
-
-After the user approves the completed work, open a pull request with `gh` when
-asked. Include:
-
-- a concise summary of the implementation
-- the Linear issue identifier
-- validation commands and results
-- relevant UI artifact paths or screenshots when they helped verify the change
-
-Do not commit generated screenshots or local verification artifacts unless the
-user explicitly asks for versioned fixtures. If screenshots are useful for PR
-review, attach them to the PR body or a PR comment, or reference their local
-artifact paths in the handoff summary. Put ad hoc PR-review screenshots under
-`.verification/<issue-or-task>/` so they remain ignored by git.
-
-Use semantic PR titles with the Linear issue identifier as the scope:
+Use `gh` for GitHub actions. Open or update a PR targeting `main` with a
+semantic PR title scoped to the Linear issue:
 
 ```text
 feat(MER-12): add something to the app
@@ -268,24 +129,16 @@ fix(MER-12): correct notification filtering
 chore(MER-12): update verification tooling
 ```
 
-In the same turn as PR creation, close the isolated slot app by default. For a
-slot named `MER-12`, close:
+Include the implementation summary, Linear issue id, validation results, and
+review evidence. Do not commit generated screenshots or local verification
+artifacts unless the user explicitly asks for versioned fixtures. Attach useful
+screenshots to the PR body/comment when possible; `.verification/<ISSUE-ID>/`
+paths are local-only and not durable PR evidence.
 
-```text
-VC Dash MER-12.app
-```
+In the same turn as PR creation, close the isolated slot app by default. Then
+move the Linear issue from `In Progress` to `In Review`. Leave `Done` for the
+human reviewer after review or merge.
 
-Then move the Linear issue from `In Progress` to `In Review`. Leave the final
-move to `Done` for the human reviewer after the PR is reviewed or merged.
-
-## Final Local App Update
-
-The normal installed app update is reserved for final local integration checks.
-Only run this when the user explicitly asks to update the normal installed app.
-After verification passes, run:
-
-```sh
-scripts/update-installed-app.sh
-```
-
-This rebuilds, replaces, and reopens the user's normal installed app bundle.
+Never merge pull requests, enable auto-merge, or push directly to default or
+protected branches unless the user explicitly confirms that action in the
+current turn.
