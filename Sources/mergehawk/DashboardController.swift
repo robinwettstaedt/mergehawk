@@ -7,6 +7,7 @@ final class DashboardController: ObservableObject {
     enum MenuTab: String, CaseIterable, Identifiable {
         case notifications = "Notifications"
         case myPRs = "My PRs"
+        case reviewRequests = "Review Requests"
 
         var id: String { rawValue }
     }
@@ -61,6 +62,25 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    enum ReviewRequestFilterOption: String, CaseIterable, Identifiable {
+        case direct
+        case team
+        case all
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .direct:
+                "Direct"
+            case .team:
+                "Team"
+            case .all:
+                "All"
+            }
+        }
+    }
+
     @Published private(set) var state: DashboardState = .empty
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
@@ -88,6 +108,11 @@ final class DashboardController: ObservableObject {
     @Published var pullRequestFilterOption: PullRequestFilterOption {
         didSet {
             preferencesStore.pullRequestFilterOption = pullRequestFilterOption
+        }
+    }
+    @Published var reviewRequestFilterOption: ReviewRequestFilterOption {
+        didSet {
+            preferencesStore.reviewRequestFilterOption = reviewRequestFilterOption
         }
     }
     @Published private(set) var startsAtLogin: Bool
@@ -131,6 +156,7 @@ final class DashboardController: ObservableObject {
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestFilterOption = preferencesStore.pullRequestFilterOption
+        self.reviewRequestFilterOption = preferencesStore.reviewRequestFilterOption
         self.startsAtLogin = self.launchAtLoginService.isEnabled
         self.notificationClient.requestAuthorization()
         configureInitialSource()
@@ -176,6 +202,13 @@ final class DashboardController: ObservableObject {
         )
     }
 
+    var sortedReviewRequests: [PullRequest] {
+        Self.sorted(
+            Self.filteredReviewRequests(state.pullRequests, by: reviewRequestFilterOption),
+            by: pullRequestSortOption
+        )
+    }
+
     static func filtered(
         _ pullRequests: [PullRequest],
         by option: PullRequestFilterOption,
@@ -200,6 +233,22 @@ final class DashboardController: ObservableObject {
                 pr.reviewDecision == .approved
             case .ciFailing:
                 pr.ciState == .failing
+            }
+        }
+    }
+
+    static func filteredReviewRequests(
+        _ pullRequests: [PullRequest],
+        by option: ReviewRequestFilterOption
+    ) -> [PullRequest] {
+        pullRequests.filter { pr in
+            switch option {
+            case .direct:
+                pr.reviewRequestKind.includesDirect
+            case .team:
+                pr.reviewRequestKind.includesTeam
+            case .all:
+                pr.reviewRequestKind != .none
             }
         }
     }

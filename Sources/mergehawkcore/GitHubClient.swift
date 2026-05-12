@@ -67,6 +67,48 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
     }
 
+    public struct ReviewRequestConnection: Decodable, Equatable, Sendable {
+        public struct Node: Decodable, Equatable, Sendable {
+            public let requestedReviewer: RequestedReviewer?
+            public init(requestedReviewer: RequestedReviewer?) {
+                self.requestedReviewer = requestedReviewer
+            }
+        }
+
+        public let nodes: [Node]
+        public init(nodes: [Node]) {
+            self.nodes = nodes
+        }
+    }
+
+    public struct RequestedReviewer: Decodable, Equatable, Sendable {
+        public struct Organization: Decodable, Equatable, Sendable {
+            public let login: String
+            public init(login: String) {
+                self.login = login
+            }
+        }
+
+        public let typeName: String
+        public let login: String?
+        public let slug: String?
+        public let organization: Organization?
+
+        public init(typeName: String, login: String? = nil, slug: String? = nil, organization: Organization? = nil) {
+            self.typeName = typeName
+            self.login = login
+            self.slug = slug
+            self.organization = organization
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case typeName = "__typename"
+            case login
+            case slug
+            case organization
+        }
+    }
+
     public let id: String
     public let title: String
     public let number: Int
@@ -79,6 +121,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let comments: Count
     public let reviews: Count
     public let reviewThreads: ReviewThreadConnection
+    public let reviewRequests: ReviewRequestConnection
     public let repository: Repository
     public let commits: CommitConnection?
     public let author: User?
@@ -96,6 +139,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         comments: Count,
         reviews: Count,
         reviewThreads: ReviewThreadConnection,
+        reviewRequests: ReviewRequestConnection = .init(nodes: []),
         repository: Repository,
         commits: CommitConnection?,
         author: User?
@@ -112,6 +156,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.comments = comments
         self.reviews = reviews
         self.reviewThreads = reviewThreads
+        self.reviewRequests = reviewRequests
         self.repository = repository
         self.commits = commits
         self.author = author
@@ -121,7 +166,11 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
 public enum GitHubPullRequestNormalizer {
     private static let dateFormatter = ISO8601DateFormatter()
 
-    public static func normalize(_ node: GitHubPullRequestNode, login: String) -> PullRequest {
+    public static func normalize(
+        _ node: GitHubPullRequestNode,
+        login: String,
+        isReviewRequestResult: Bool = false
+    ) -> PullRequest {
         let rollupState = node.commits?.nodes.last?.commit.statusCheckRollup?.state ?? "UNKNOWN"
         let unresolvedReviewThreadCount = node.reviewThreads.nodes.filter { !$0.isResolved }.count
         return PullRequest(
@@ -134,6 +183,11 @@ public enum GitHubPullRequestNormalizer {
             reviewDecision: normalizeReviewDecision(node.reviewDecision),
             commentCount: node.comments.totalCount + unresolvedReviewThreadCount,
             reviewCount: node.reviews.totalCount,
+            reviewRequestKind: normalizeReviewRequestKind(
+                node.reviewRequests,
+                login: login,
+                isReviewRequestResult: isReviewRequestResult
+            ),
             isMine: node.author?.login == login,
             author: node.author?.login ?? "unknown",
             mergeable: normalizeMergeableState(node.mergeable),
@@ -169,6 +223,31 @@ public enum GitHubPullRequestNormalizer {
         }
     }
 
+    public static func normalizeReviewRequestKind(
+        _ reviewRequests: GitHubPullRequestNode.ReviewRequestConnection,
+        login: String,
+        isReviewRequestResult: Bool
+    ) -> ReviewRequestKind {
+        let reviewers = reviewRequests.nodes.compactMap(\.requestedReviewer)
+        let hasDirectRequest = reviewers.contains { reviewer in
+            reviewer.typeName == "User" && reviewer.login == login
+        }
+        let hasTeamRequest = reviewers.contains { reviewer in
+            reviewer.typeName == "Team"
+        } && isReviewRequestResult
+
+        switch (hasDirectRequest, hasTeamRequest) {
+        case (true, true):
+            return .directAndTeam
+        case (true, false):
+            return .direct
+        case (false, true):
+            return .team
+        case (false, false):
+            return .none
+        }
+    }
+
     public static func normalizeMergeableState(_ mergeable: String?) -> MergeableState {
         switch mergeable {
         case "MERGEABLE":
@@ -188,6 +267,11 @@ public enum GitHubPullRequestNormalizer {
 public final class GitHubClient: PullRequestSource {
     public let sourceKind: DashboardSource = .github
 
+    private struct PullRequestSearch {
+        let query: String
+        let isReviewRequestResult: Bool
+    }
+
     private let token: String
     private let session: URLSession
     private let decoder = JSONDecoder()
@@ -198,11 +282,7 @@ public final class GitHubClient: PullRequestSource {
     }
 
     public static func pullRequestSearchQueries(login: String) -> [String] {
-        [
-            "is:open is:pr author:\(login)",
-            "is:open is:pr assignee:\(login)",
-            "is:open is:pr user-review-requested:\(login)"
-        ]
+        pullRequestSearches(login: login).map(\.query)
     }
 
     public func fetchViewer() async throws -> GitHubAccount {
@@ -224,17 +304,29 @@ public final class GitHubClient: PullRequestSource {
 
     public func fetchPullRequests(login: String) async throws -> [PullRequest] {
         var pullRequests: [String: PullRequest] = [:]
-        for query in Self.pullRequestSearchQueries(login: login) {
-            let data = try await graphql(query: Self.pullRequestSearchQuery, variables: ["query": query])
+        for search in Self.pullRequestSearches(login: login) {
+            let data = try await graphql(query: Self.pullRequestSearchQuery, variables: ["query": search.query])
             let payload = try decoder.decode(GraphQLResponse<PullRequestSearchData>.self, from: data)
             if let errors = payload.errors, !errors.isEmpty {
                 throw GitHubClientError.graphQLErrors(errors.map(\.message).joined(separator: "; "))
             }
             for node in payload.data?.search.nodes ?? [] {
-                pullRequests[node.id] = GitHubPullRequestNormalizer.normalize(node, login: login)
+                pullRequests[node.id] = GitHubPullRequestNormalizer.normalize(
+                    node,
+                    login: login,
+                    isReviewRequestResult: search.isReviewRequestResult
+                )
             }
         }
         return Array(pullRequests.values)
+    }
+
+    private static func pullRequestSearches(login: String) -> [PullRequestSearch] {
+        [
+            PullRequestSearch(query: "is:open is:pr author:\(login)", isReviewRequestResult: false),
+            PullRequestSearch(query: "is:open is:pr assignee:\(login)", isReviewRequestResult: false),
+            PullRequestSearch(query: "is:open is:pr review-requested:\(login)", isReviewRequestResult: true)
+        ]
     }
 
     private func graphql(query: String, variables: [String: String]) async throws -> Data {
@@ -279,6 +371,22 @@ public final class GitHubClient: PullRequestSource {
               reviewThreads(first: 100) {
                 nodes {
                   isResolved
+                }
+              }
+              reviewRequests(first: 100) {
+                nodes {
+                  requestedReviewer {
+                    __typename
+                    ... on User {
+                      login
+                    }
+                    ... on Team {
+                      slug
+                      organization {
+                        login
+                      }
+                    }
+                  }
                 }
               }
               repository {
