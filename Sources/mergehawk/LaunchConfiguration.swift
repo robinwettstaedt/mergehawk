@@ -10,19 +10,19 @@ struct LaunchConfiguration: Equatable {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> LaunchConfiguration {
         let usesMockData = arguments.contains("--mock")
-            || truthy(environment["VC_DASH_MOCK_MODE"])
-            || truthy(environment["VC_DASH_USE_MOCKS"])
+            || truthy(environment["MERGEHAWK_MOCK_MODE"])
+            || truthy(environment["MERGEHAWK_USE_MOCKS"])
         let suppressesMacOSNotifications = arguments.contains("--disable-notifications")
             || arguments.contains("--suppress-macos-notifications")
-            || truthy(environment["VC_DASH_DISABLE_NOTIFICATIONS"])
-            || truthy(environment["VC_DASH_SUPPRESS_MACOS_NOTIFICATIONS"])
+            || truthy(environment["MERGEHAWK_DISABLE_NOTIFICATIONS"])
+            || truthy(environment["MERGEHAWK_SUPPRESS_MACOS_NOTIFICATIONS"])
             || usesMockData
 
         return LaunchConfiguration(
             usesMockData: usesMockData,
             suppressesMacOSNotifications: suppressesMacOSNotifications,
             notificationLogPath: value(after: "--notification-log", in: arguments)
-                ?? environment["VC_DASH_NOTIFICATION_LOG"]
+                ?? environment["MERGEHAWK_NOTIFICATION_LOG"]
         )
     }
 

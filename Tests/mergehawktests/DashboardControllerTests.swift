@@ -1,8 +1,8 @@
-@testable import VCDash
+@testable import mergehawk
 import Foundation
-import VCDashCore
+import mergehawkcore
 
-@MainActor let vcDashSignedOutStartsEmptyTest: Void = {
+@MainActor let mergehawkSignedOutStartsEmptyTest: Void = {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0
@@ -17,7 +17,7 @@ import VCDashCore
     precondition(controller.state.events.isEmpty)
 }()
 
-@MainActor let vcDashAutomaticRefreshTest: Void = {
+@MainActor let mergehawkAutomaticRefreshTest: Void = {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0.05
@@ -39,7 +39,7 @@ import VCDashCore
     }
 }()
 
-@MainActor let vcDashStartAtLoginTest: Void = {
+@MainActor let mergehawkStartAtLoginTest: Void = {
     let launchAtLoginService = FakeLaunchAtLoginService(isEnabled: false)
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
@@ -58,7 +58,7 @@ import VCDashCore
     precondition(launchAtLoginService.requestedValues == [true, false])
 }()
 
-@MainActor let vcDashMockModeStartsSignedInWithoutTokenTest: Void = {
+@MainActor let mergehawkMockModeStartsSignedInWithoutTokenTest: Void = {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
         launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),

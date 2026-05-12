@@ -1,8 +1,8 @@
-@testable import VCDash
+@testable import mergehawk
 import Foundation
 
-let vcDashRefreshIntervalPreferencesTest: Void = {
-    let suiteName = "vc-dash-refresh-interval-test-\(UUID().uuidString)"
+let mergehawkRefreshIntervalPreferencesTest: Void = {
+    let suiteName = "mergehawk-refresh-interval-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defer {
         defaults.removePersistentDomain(forName: suiteName)
@@ -18,8 +18,8 @@ let vcDashRefreshIntervalPreferencesTest: Void = {
     precondition(store.refreshIntervalMinutes == 2)
 }()
 
-let vcDashPullRequestSortPreferencesTest: Void = {
-    let suiteName = "vc-dash-pr-sort-test-\(UUID().uuidString)"
+let mergehawkPullRequestSortPreferencesTest: Void = {
+    let suiteName = "mergehawk-pr-sort-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defer {
         defaults.removePersistentDomain(forName: suiteName)
@@ -35,8 +35,8 @@ let vcDashPullRequestSortPreferencesTest: Void = {
     precondition(store.pullRequestSortOption == .createdDate)
 }()
 
-let vcDashPullRequestFilterPreferencesTest: Void = {
-    let suiteName = "vc-dash-pr-filter-test-\(UUID().uuidString)"
+let mergehawkPullRequestFilterPreferencesTest: Void = {
+    let suiteName = "mergehawk-pr-filter-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defer {
         defaults.removePersistentDomain(forName: suiteName)

@@ -56,7 +56,7 @@ If screenshots are useful for PR review, attach them to the PR body or a PR comm
 In the same turn as PR creation, close the isolated slot app by default. For `MER-12`, close:
 
 ```text
-VC Dash MER-12.app
+MergeHawk MER-12.app
 ```
 
 Do not remove worktrees or local artifacts unless the user explicitly asks.

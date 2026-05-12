@@ -10,7 +10,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/run-agent-app.sh --slot <name> [--mock] [--open|--no-open]
 
-Builds and installs a slot-specific VC Dash app bundle so multiple agents can
+Builds and installs a slot-specific MergeHawk app bundle so multiple agents can
 work from different checkouts without replacing the user's normal app bundle.
 
 Examples:
@@ -56,20 +56,20 @@ if [[ -z "$SLOT" ]]; then
 fi
 
 SAFE_SLOT="$(printf '%s' "$SLOT" | tr -c '[:alnum:]_-' '-')"
-APP_NAME="VC Dash $SAFE_SLOT.app"
-APP_EXECUTABLE_NAME="VCDash-$SAFE_SLOT"
-BUNDLE_ID="com.vcdash.app.$SAFE_SLOT"
+APP_NAME="MergeHawk $SAFE_SLOT.app"
+APP_EXECUTABLE_NAME="mergehawk-$SAFE_SLOT"
+BUNDLE_ID="com.mergehawk.app.$SAFE_SLOT"
 APP_PATH="$HOME/Applications/$APP_NAME"
 ARTIFACT_DIR="$ROOT_DIR/.build/agent-slots/$SAFE_SLOT"
 LAUNCH_ARGUMENTS=""
-LAUNCH_ENVIRONMENT="VC_DASH_SUPPRESS_MACOS_NOTIFICATIONS=1 VC_DASH_NOTIFICATION_LOG=$ARTIFACT_DIR/notifications.jsonl"
+LAUNCH_ENVIRONMENT="MERGEHAWK_SUPPRESS_MACOS_NOTIFICATIONS=1 MERGEHAWK_NOTIFICATION_LOG=$ARTIFACT_DIR/notifications.jsonl"
 
 mkdir -p "$ARTIFACT_DIR"
 rm -f "$ARTIFACT_DIR/notifications.jsonl"
 
 if [[ "$MOCK" == "1" ]]; then
   LAUNCH_ARGUMENTS="--mock"
-  LAUNCH_ENVIRONMENT="$LAUNCH_ENVIRONMENT VC_DASH_MOCK_MODE=1"
+  LAUNCH_ENVIRONMENT="$LAUNCH_ENVIRONMENT MERGEHAWK_MOCK_MODE=1"
 fi
 
 cd "$ROOT_DIR"

@@ -1,21 +1,21 @@
-@testable import VCDash
+@testable import mergehawk
 
-let vcDashLaunchConfigurationTest: Void = {
+let mergehawkLaunchConfigurationTest: Void = {
     precondition(
         LaunchConfiguration.current(
-            arguments: ["VCDash", "--mock"],
+            arguments: ["mergehawk", "--mock"],
             environment: [:]
         ) == LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true)
     )
     precondition(
         LaunchConfiguration.current(
-            arguments: ["VCDash"],
-            environment: ["VC_DASH_MOCK_MODE": "true"]
+            arguments: ["mergehawk"],
+            environment: ["MERGEHAWK_MOCK_MODE": "true"]
         ) == LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true)
     )
     precondition(
         LaunchConfiguration.current(
-            arguments: ["VCDash", "--suppress-macos-notifications"],
+            arguments: ["mergehawk", "--suppress-macos-notifications"],
             environment: [:]
         ) == LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true)
     )

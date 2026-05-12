@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import VCDashCore
+import mergehawkcore
 
 @MainActor
 final class DashboardController: ObservableObject {

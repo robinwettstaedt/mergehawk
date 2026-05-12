@@ -55,7 +55,7 @@ For macOS local notification behavior, inspect:
 The slot app opens as a real macOS app on the user's machine, usually at:
 
 ```text
-~/Applications/VC Dash <ISSUE-ID>.app
+~/Applications/MergeHawk <ISSUE-ID>.app
 ```
 
 Leave the slot app open for user review when useful. State the exact app name and what state it is showing. Do not replace or relaunch the user's normal installed app.
