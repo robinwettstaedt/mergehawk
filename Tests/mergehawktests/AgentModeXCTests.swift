@@ -49,7 +49,7 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertEqual(controller.state.authStatus, .signedIn)
             XCTAssertEqual(controller.state.source, .mock)
             XCTAssertEqual(controller.state.account?.login, "agent-fixture")
-            XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_2"])
+            XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_2", "PR_3"])
             XCTAssertFalse(controller.startsAtLogin)
         }
 

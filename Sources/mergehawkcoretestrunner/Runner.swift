@@ -11,6 +11,7 @@ struct Runner {
         try await testSyncEmitsFilteredEventsAfterBaseline()
         try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
         try testNormalizesPullRequestSearchNodes()
+        try testNormalizesReviewRequestKinds()
         try testBuildsThreePullRequestSearchQueries()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
         print("mergehawkcore tests passed")
@@ -155,8 +156,50 @@ struct Runner {
         try expect(GitHubClient.pullRequestSearchQueries(login: "rw") == [
             "is:open is:pr author:rw",
             "is:open is:pr assignee:rw",
-            "is:open is:pr user-review-requested:rw"
+            "is:open is:pr review-requested:rw"
         ])
+    }
+
+    private static func testNormalizesReviewRequestKinds() throws {
+        let directNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [
+            .init(typeName: "User", login: "rw")
+        ])
+        let teamNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [
+            .init(typeName: "Team", slug: "developers", organization: .init(login: "acme"))
+        ])
+        let directAndTeamNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [
+            .init(typeName: "User", login: "rw"),
+            .init(typeName: "Team", slug: "developers", organization: .init(login: "acme"))
+        ])
+        let noneNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [])
+
+        try expect(
+            GitHubPullRequestNormalizer.normalize(
+                directNode,
+                login: "rw",
+                isReviewRequestResult: true
+            ).reviewRequestKind == .direct
+        )
+        try expect(
+            GitHubPullRequestNormalizer.normalize(
+                teamNode,
+                login: "rw",
+                isReviewRequestResult: true
+            ).reviewRequestKind == .team
+        )
+        try expect(
+            GitHubPullRequestNormalizer.normalize(
+                directAndTeamNode,
+                login: "rw",
+                isReviewRequestResult: true
+            ).reviewRequestKind == .directAndTeam
+        )
+        try expect(
+            GitHubPullRequestNormalizer.normalize(
+                noneNode,
+                login: "rw"
+            ).reviewRequestKind == .none
+        )
     }
 
     private static func testInMemoryTokenStoreHandlesMissingStoreLoadAndClear() throws {
@@ -185,6 +228,29 @@ private struct TestFailure: Error, CustomStringConvertible {
 
     var description: String {
         "Test failed at \(file):\(line)"
+    }
+}
+
+private extension GitHubPullRequestNode {
+    static func reviewRequestFixture(reviewers: [RequestedReviewer]) -> GitHubPullRequestNode {
+        GitHubPullRequestNode(
+            id: "PR_REVIEW",
+            title: "Review requested",
+            number: 21,
+            url: "https://github.com/acme/mergehawk/pull/21",
+            createdAt: "2026-05-01T12:00:00Z",
+            updatedAt: "2026-05-02T12:00:00Z",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            reviewDecision: "REVIEW_REQUIRED",
+            comments: .init(totalCount: 0),
+            reviews: .init(totalCount: 0),
+            reviewThreads: .init(nodes: []),
+            reviewRequests: .init(nodes: reviewers.map { .init(requestedReviewer: $0) }),
+            repository: .init(nameWithOwner: "acme/mergehawk"),
+            commits: .init(nodes: []),
+            author: .init(login: "teammate")
+        )
     }
 }
 

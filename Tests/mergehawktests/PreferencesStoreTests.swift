@@ -51,3 +51,20 @@ let mergehawkPullRequestFilterPreferencesTest: Void = {
     defaults.set("unsupported", forKey: "pullRequests.filterOption")
     precondition(store.pullRequestFilterOption == .all)
 }()
+
+let mergehawkReviewRequestFilterPreferencesTest: Void = {
+    let suiteName = "mergehawk-review-request-filter-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    var store = PreferencesStore(defaults: defaults)
+    precondition(store.reviewRequestFilterOption == .direct)
+
+    store.reviewRequestFilterOption = .team
+    precondition(store.reviewRequestFilterOption == .team)
+
+    defaults.set("unsupported", forKey: "reviewRequests.filterOption")
+    precondition(store.reviewRequestFilterOption == .direct)
+}()
