@@ -1,9 +1,9 @@
-@testable import VCDash
+@testable import mergehawk
 import AppKit
 import Foundation
-import VCDashCore
+import mergehawkcore
 
-@MainActor let vcDashMenuViewTest: Void = {
+@MainActor let mergehawkMenuViewTest: Void = {
     precondition(CIStatusIndicator.Kind(ciState: .failing) == .failing)
     precondition(CIStatusIndicator.Kind(ciState: .pending) == .running)
     precondition(CIStatusIndicator.Kind(ciState: .passing) == .successful)
@@ -13,14 +13,14 @@ import VCDashCore
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired) == .reviewRequired)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .unknown) == .unknown)
 
-    let prURL = URL(string: "https://github.com/acme/vc-dash/pull/12")!
-    precondition(PullRequestLinkCopyButton.clipboardString(for: prURL) == "https://github.com/acme/vc-dash/pull/12")
+    let prURL = URL(string: "https://github.com/acme/mergehawk/pull/12")!
+    precondition(PullRequestLinkCopyButton.clipboardString(for: prURL) == "https://github.com/acme/mergehawk/pull/12")
     precondition(CommentCountIndicator.label(for: 3) == "3 comments")
     precondition(CommentCountIndicator.label(for: 1) == "1 comment")
     precondition(GitHubTokenSignInView.Copy.title == "Connect GitHub")
     precondition(GitHubTokenSignInView.Copy.fieldPrompt == "github_pat_...")
 
-    let pasteboard = NSPasteboard(name: NSPasteboard.Name("vc-dash-menu-view-test"))
+    let pasteboard = NSPasteboard(name: NSPasteboard.Name("mergehawk-menu-view-test"))
     pasteboard.clearContents()
     pasteboard.setString("  github_pat_test  ", forType: .string)
     precondition(GitHubTokenSignInView.tokenString(from: pasteboard) == "github_pat_test")
@@ -38,8 +38,8 @@ import VCDashCore
         id: "older",
         title: "Older PR",
         number: 1,
-        url: URL(string: "https://github.com/acme/vc-dash/pull/1")!,
-        repo: "acme/vc-dash",
+        url: URL(string: "https://github.com/acme/mergehawk/pull/1")!,
+        repo: "acme/mergehawk",
         ciState: .passing,
         reviewDecision: .approved,
         commentCount: 0,
@@ -55,8 +55,8 @@ import VCDashCore
         id: "newer",
         title: "Newer PR",
         number: 2,
-        url: URL(string: "https://github.com/acme/vc-dash/pull/2")!,
-        repo: "acme/vc-dash",
+        url: URL(string: "https://github.com/acme/mergehawk/pull/2")!,
+        repo: "acme/mergehawk",
         ciState: .failing,
         reviewDecision: .changesRequested,
         commentCount: 2,
@@ -72,8 +72,8 @@ import VCDashCore
         id: "draft",
         title: "Draft PR",
         number: 3,
-        url: URL(string: "https://github.com/acme/vc-dash/pull/3")!,
-        repo: "acme/vc-dash",
+        url: URL(string: "https://github.com/acme/mergehawk/pull/3")!,
+        repo: "acme/mergehawk",
         ciState: .pending,
         reviewDecision: .reviewRequired,
         commentCount: 0,

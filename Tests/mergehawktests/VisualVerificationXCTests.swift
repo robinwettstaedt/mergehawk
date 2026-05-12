@@ -1,14 +1,14 @@
-@testable import VCDash
+@testable import mergehawk
 import AppKit
 import SwiftUI
-import VCDashCore
+import mergehawkcore
 import XCTest
 
 final class VisualVerificationXCTests: XCTestCase {
     func testWritesMockMenuScreenshots() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard let outputPath = environment["VC_DASH_UI_ARTIFACT_DIR"], !outputPath.isEmpty else {
-            throw XCTSkip("Set VC_DASH_UI_ARTIFACT_DIR to write UI verification artifacts.")
+        guard let outputPath = environment["MERGEHAWK_UI_ARTIFACT_DIR"], !outputPath.isEmpty else {
+            throw XCTSkip("Set MERGEHAWK_UI_ARTIFACT_DIR to write UI verification artifacts.")
         }
 
         let outputURL = URL(fileURLWithPath: outputPath)

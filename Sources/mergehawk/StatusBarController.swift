@@ -44,7 +44,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(spacerItem(height: 6))
         menu.addItem(actionItem("Settings", action: #selector(showSettings), keyEquivalent: ","))
-        menu.addItem(actionItem("About VC Dash", action: #selector(showAbout), keyEquivalent: ""))
+        menu.addItem(actionItem("About MergeHawk", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(actionItem("Quit", action: #selector(quit), keyEquivalent: "q"))
     }

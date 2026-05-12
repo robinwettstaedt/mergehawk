@@ -1,5 +1,5 @@
 import Foundation
-import VCDashCore
+import mergehawkcore
 
 struct PreferencesStore {
     static let refreshIntervalMinuteOptions = [1, 2, 5, 10, 15]
