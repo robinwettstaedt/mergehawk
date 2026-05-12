@@ -72,6 +72,12 @@ final class VisualVerificationXCTests: XCTestCase {
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
                 to: outputURL.appendingPathComponent("menu-review-requests-all.png")
             )
+
+            try render(
+                SettingsRootView(controller: controller, selection: .sources),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-sources.png")
+            )
         }
     }
 

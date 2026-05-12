@@ -83,6 +83,40 @@ import mergehawkcore
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2", "PR_3"])
 }()
 
+@MainActor let mergehawkSourcePreferencesFilterDashboardListsTest: Void = {
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+        automaticRefreshInterval: 0
+    )
+
+    waitUntil(timeout: 1.0) {
+        controller.state.syncedAt != nil
+    }
+
+    controller.setOwnerPreferences(
+        owner: "example",
+        preferences: OwnerSourcePreferences(
+            notifications: true,
+            myPullRequests: false,
+            reviewRequests: true
+        )
+    )
+    precondition(controller.sortedMyPullRequests.isEmpty)
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2"])
+
+    controller.setRepositoryPreferences(
+        repo: "example/app",
+        preferences: RepositorySourcePreferences(
+            notifications: .inherit,
+            myPullRequests: .inherit,
+            reviewRequests: .disabled
+        )
+    )
+    controller.reviewRequestFilterOption = .all
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3"])
+}()
+
 @MainActor
 private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
     let deadline = Date().addingTimeInterval(timeout)
