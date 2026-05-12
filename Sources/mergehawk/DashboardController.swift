@@ -115,6 +115,23 @@ final class DashboardController: ObservableObject {
             preferencesStore.reviewRequestFilterOption = reviewRequestFilterOption
         }
     }
+    @Published var sourcePreferences: SourcePreferences {
+        didSet {
+            preferencesStore.sourcePreferences = sourcePreferences
+        }
+    }
+    @Published var sourceCatalog: SourceCatalog {
+        didSet {
+            preferencesStore.sourceCatalog = sourceCatalog
+        }
+    }
+    @Published var macOSLocalNotificationsEnabled: Bool {
+        didSet {
+            preferencesStore.macOSLocalNotificationsEnabled = macOSLocalNotificationsEnabled
+        }
+    }
+    @Published private(set) var isRefreshingSources = false
+    @Published private(set) var sourceErrorMessage: String?
     @Published private(set) var startsAtLogin: Bool
 
     var openSettingsWindow: (() -> Void)?
@@ -125,6 +142,7 @@ final class DashboardController: ObservableObject {
     private var preferencesStore: PreferencesStore
     private let launchAtLoginService: LaunchAtLoginServicing
     private let notificationClient: NotificationPosting
+    private var sourceCatalogProvider: SourceCatalogProviding?
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
@@ -157,6 +175,9 @@ final class DashboardController: ObservableObject {
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestFilterOption = preferencesStore.pullRequestFilterOption
         self.reviewRequestFilterOption = preferencesStore.reviewRequestFilterOption
+        self.sourcePreferences = preferencesStore.sourcePreferences
+        self.sourceCatalog = preferencesStore.sourceCatalog
+        self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
         self.startsAtLogin = self.launchAtLoginService.isEnabled
         self.notificationClient.requestAuthorization()
         configureInitialSource()
@@ -195,7 +216,9 @@ final class DashboardController: ObservableObject {
     }
 
     var sortedMyPullRequests: [PullRequest] {
-        let mine = state.pullRequests.filter(\.isMine)
+        let mine = state.pullRequests.filter { pr in
+            pr.isMine && sourcePreferences.allowsMyPullRequests(for: pr.repo)
+        }
         return Self.sorted(
             Self.filtered(mine, by: pullRequestFilterOption, events: state.events),
             by: pullRequestSortOption
@@ -204,7 +227,10 @@ final class DashboardController: ObservableObject {
 
     var sortedReviewRequests: [PullRequest] {
         Self.sorted(
-            Self.filteredReviewRequests(state.pullRequests, by: reviewRequestFilterOption),
+            Self.filteredReviewRequests(
+                state.pullRequests.filter { sourcePreferences.allowsReviewRequests(for: $0.repo) },
+                by: reviewRequestFilterOption
+            ),
             by: pullRequestSortOption
         )
     }
@@ -284,6 +310,7 @@ final class DashboardController: ObservableObject {
             try tokenStore.store(trimmed)
             account = viewer
             configureGitHubSource(token: trimmed, account: viewer)
+            await fetchSourceCatalog()
             await sync()
         } catch {
             errorMessage = error.localizedDescription
@@ -297,6 +324,9 @@ final class DashboardController: ObservableObject {
             errorMessage = error.localizedDescription
         }
         account = nil
+        sourceCatalogProvider = nil
+        sourceCatalog = .empty
+        sourceErrorMessage = nil
         configureSignedOutSource()
         refresh()
     }
@@ -316,6 +346,22 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    func setOwnerPreferences(owner: String, preferences: OwnerSourcePreferences) {
+        sourcePreferences.owners[owner] = preferences
+        trimVisibleEvents()
+    }
+
+    func setRepositoryPreferences(repo: String, preferences: RepositorySourcePreferences) {
+        sourcePreferences.repositories[repo] = preferences
+        trimVisibleEvents()
+    }
+
+    func refreshSources() {
+        Task {
+            await fetchSourceCatalog()
+        }
+    }
+
     func open(_ url: URL) {
         NSWorkspace.shared.open(url)
     }
@@ -328,6 +374,15 @@ final class DashboardController: ObservableObject {
         state.events.removeAll()
     }
 
+    private func trimVisibleEvents() {
+        state.events.removeAll { event in
+            guard let pullRequest = state.pullRequests.first(where: { $0.id == event.prId }) else {
+                return false
+            }
+            return !sourcePreferences.allowsNotifications(for: pullRequest.repo)
+        }
+    }
+
     private func configureInitialSource() {
         if launchConfiguration.usesMockData {
             configureMockSource()
@@ -338,6 +393,7 @@ final class DashboardController: ObservableObject {
         do {
             if let token = try tokenStore.load() {
                 let client = GitHubClient(token: token)
+                sourceCatalogProvider = client
                 syncEngine = SyncEngine(
                     source: client,
                     preferences: preferences,
@@ -352,9 +408,13 @@ final class DashboardController: ObservableObject {
                         return viewer.login
                     },
                     accountProvider: { [weak self] in self?.account },
-                    authStatusProvider: { .signedIn }
+                    authStatusProvider: { .signedIn },
+                    sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
                 )
-                refresh()
+                Task {
+                    await sync()
+                    await fetchSourceCatalog()
+                }
             } else {
                 configureSignedOutSource()
                 refresh()
@@ -368,36 +428,64 @@ final class DashboardController: ObservableObject {
 
     private func configureGitHubSource(token: String, account: GitHubAccount) {
         let client = GitHubClient(token: token)
+        sourceCatalogProvider = client
         syncEngine = SyncEngine(
             source: client,
             preferences: preferences,
             loginProvider: { account.login },
             accountProvider: { account },
-            authStatusProvider: { .signedIn }
+            authStatusProvider: { .signedIn },
+            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
         )
     }
 
     private func configureSignedOutSource() {
+        sourceCatalog = .empty
+        sourceCatalogProvider = nil
         let source = EmptyPullRequestSource()
         syncEngine = SyncEngine(
             source: source,
             preferences: preferences,
             loginProvider: { "rw" },
             accountProvider: { nil },
-            authStatusProvider: { .signedOut }
+            authStatusProvider: { .signedOut },
+            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
         )
     }
 
     private func configureMockSource() {
         let account = GitHubAccount(login: "agent-fixture")
         self.account = account
+        let source = MockPullRequestSource()
+        sourceCatalogProvider = source
+        sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
         syncEngine = SyncEngine(
-            source: MockPullRequestSource(),
+            source: source,
             preferences: preferences,
             loginProvider: { account.login },
             accountProvider: { account },
-            authStatusProvider: { .signedIn }
+            authStatusProvider: { .signedIn },
+            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
         )
+    }
+
+    private func fetchSourceCatalog() async {
+        guard let sourceCatalogProvider else {
+            return
+        }
+        guard !isRefreshingSources else {
+            return
+        }
+        isRefreshingSources = true
+        sourceErrorMessage = nil
+        do {
+            sourceCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
+                accountLogin: account?.login ?? state.account?.login
+            )
+        } catch {
+            sourceErrorMessage = error.localizedDescription
+        }
+        isRefreshingSources = false
     }
 
     private func sync() async {
@@ -412,7 +500,9 @@ final class DashboardController: ObservableObject {
         do {
             let nextState = try await syncEngine.sync()
             state = nextState
-            notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
+            if macOSLocalNotificationsEnabled {
+                notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -264,7 +264,7 @@ public enum GitHubPullRequestNormalizer {
     }
 }
 
-public final class GitHubClient: PullRequestSource {
+public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
     public let sourceKind: DashboardSource = .github
 
     private struct PullRequestSearch {
@@ -321,6 +321,22 @@ public final class GitHubClient: PullRequestSource {
         return Array(pullRequests.values)
     }
 
+    public func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        var page = 1
+        var repositories: [RepositorySource] = []
+
+        while true {
+            let pageRepositories = try await fetchRepositoriesPage(page: page)
+            repositories.append(contentsOf: pageRepositories)
+            guard pageRepositories.count == 100 else {
+                break
+            }
+            page += 1
+        }
+
+        return SourceCatalog(repositories: repositories, accountLogin: accountLogin)
+    }
+
     private static func pullRequestSearches(login: String) -> [PullRequestSearch] {
         [
             PullRequestSearch(query: "is:open is:pr author:\(login)", isReviewRequestResult: false),
@@ -339,6 +355,29 @@ public final class GitHubClient: PullRequestSource {
         let (data, response) = try await session.data(for: request)
         try validate(response, endpoint: "GitHub GraphQL")
         return data
+    }
+
+    private func fetchRepositoriesPage(page: Int) async throws -> [RepositorySource] {
+        var components = URLComponents(string: "https://api.github.com/user/repos")!
+        components.queryItems = [
+            URLQueryItem(name: "visibility", value: "all"),
+            URLQueryItem(name: "affiliation", value: "owner,collaborator,organization_member"),
+            URLQueryItem(name: "sort", value: "full_name"),
+            URLQueryItem(name: "per_page", value: "100"),
+            URLQueryItem(name: "page", value: "\(page)")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
+        request.addValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response, endpoint: "GitHub repositories")
+        return try decoder.decode([GitHubRepositoryResponse].self, from: data).map { repository in
+            RepositorySource(owner: repository.owner.login, name: repository.name)
+        }
     }
 
     private func validate(_ response: URLResponse, endpoint: String) throws {
@@ -457,4 +496,13 @@ private struct ViewerResponse: Decodable {
         case avatarUrl = "avatar_url"
         case profileUrl = "html_url"
     }
+}
+
+private struct GitHubRepositoryResponse: Decodable {
+    struct Owner: Decodable {
+        let login: String
+    }
+
+    let name: String
+    let owner: Owner
 }

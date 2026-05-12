@@ -1,6 +1,6 @@
 ---
 name: mergehawk-pr-handoff
-description: Use after user approval of verified MergeHawk issue work to prepare commits, push the branch, open or update a GitHub pull request, attach review evidence, close the issue app slot, and move the Linear issue to In Review.
+description: Use after user approval of verified MergeHawk issue work to prepare commits, push the branch, open or update a GitHub pull request, attach review evidence, tear down the issue app slot, and move the Linear issue to In Review.
 ---
 
 # MergeHawk PR Handoff
@@ -51,15 +51,20 @@ Include in the PR body:
 
 If screenshots are useful for PR review, attach them to the PR body or a PR comment when possible. Do not rely on `.verification/<ISSUE-ID>/` paths as durable PR evidence; those paths are local to the current worktree and may disappear when the worktree is removed. If attachment is not possible, mention that local screenshots were captured but are not included in the PR. Do not commit generated screenshots by default.
 
-## App Slot Cleanup
+## App Slot Teardown
 
-In the same turn as PR creation, close the isolated slot app by default. For `MER-12`, close:
+In the same turn as PR creation or update, tear down the isolated slot app by
+default. For `MER-12`, run:
 
-```text
-MergeHawk MER-12.app
+```sh
+scripts/teardown-agent-app.sh --slot MER-12
 ```
 
-Do not remove worktrees or local artifacts unless the user explicitly asks.
+This quits the slot app, removes `~/Applications/MergeHawk MER-12.app`, and
+removes `.build/agent-slots/MER-12/`. Report any teardown failure explicitly.
+
+Do not remove worktrees, `.verification/<ISSUE-ID>/`, or other review artifacts
+unless the user explicitly asks.
 
 ## Linear Handoff
 
@@ -81,6 +86,7 @@ Linear issue:
 Validation:
 Review artifacts:
 Slot app closed:
+Slot app removed:
 Linear state:
 Merge status: ready for human review; not merged
 ```

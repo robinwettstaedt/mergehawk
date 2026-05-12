@@ -6,6 +6,7 @@ public final class SyncEngine {
     private let accountProvider: () async throws -> GitHubAccount?
     private let authStatusProvider: () -> AuthStatus
     private var preferences: NotificationPreferences
+    private let sourcePreferencesProvider: () -> SourcePreferences
     private var snapshots: [String: PullRequest] = [:]
 
     public init(
@@ -13,13 +14,15 @@ public final class SyncEngine {
         preferences: NotificationPreferences = .defaults,
         loginProvider: @escaping () async throws -> String,
         accountProvider: @escaping () async throws -> GitHubAccount? = { nil },
-        authStatusProvider: @escaping () -> AuthStatus = { .signedOut }
+        authStatusProvider: @escaping () -> AuthStatus = { .signedOut },
+        sourcePreferencesProvider: @escaping () -> SourcePreferences = { .defaults }
     ) {
         self.source = source
         self.preferences = preferences
         self.loginProvider = loginProvider
         self.accountProvider = accountProvider
         self.authStatusProvider = authStatusProvider
+        self.sourcePreferencesProvider = sourcePreferencesProvider
     }
 
     public func updatePreferences(_ preferences: NotificationPreferences) {
@@ -29,11 +32,15 @@ public final class SyncEngine {
     public func sync() async throws -> DashboardState {
         let login = try await loginProvider()
         let pullRequests = try await source.fetchPullRequests(login: login)
+        let sourcePreferences = sourcePreferencesProvider()
         var events: [PullRequestEvent] = []
 
         for current in pullRequests {
             let detected = PRActivityDetector.detect(previous: snapshots[current.id], current: current)
-            events.append(contentsOf: PRActivityDetector.filter(detected, preferences: preferences))
+            let allowedEvents = PRActivityDetector
+                .filter(detected, preferences: preferences)
+                .filter { _ in sourcePreferences.allowsNotifications(for: current.repo) }
+            events.append(contentsOf: allowedEvents)
             snapshots[current.id] = current
         }
 
