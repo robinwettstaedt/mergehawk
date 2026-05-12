@@ -7,8 +7,10 @@ struct Runner {
         try testFirstSyncBaselinesWithoutEvents()
         try testDetectsNewActivityAndAuthoredPRStateTransitions()
         try testPreferencesFilterEvents()
+        try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
         try await testSyncBaselinesFirstFetchAndReportsPRs()
         try await testSyncEmitsFilteredEventsAfterBaseline()
+        try await testSyncFiltersEventsBySourcePreferences()
         try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
         try testNormalizesPullRequestSearchNodes()
         try testNormalizesReviewRequestKinds()
@@ -71,6 +73,34 @@ struct Runner {
         try expect(PRActivityDetector.filter(events, preferences: preferences).map(\.type) == [.newComment, .ciFailed])
     }
 
+    private static func testSourcePreferencesResolveOwnerAndRepositoryOverrides() throws {
+        let preferences = SourcePreferences(
+            owners: [
+                "work": OwnerSourcePreferences(
+                    notifications: false,
+                    myPullRequests: true,
+                    reviewRequests: false
+                )
+            ],
+            repositories: [
+                "work/critical": RepositorySourcePreferences(
+                    notifications: .enabled,
+                    myPullRequests: .disabled,
+                    reviewRequests: .inherit
+                )
+            ]
+        )
+
+        try expect(preferences.allowsNotifications(for: "work/app") == false)
+        try expect(preferences.allowsMyPullRequests(for: "work/app") == true)
+        try expect(preferences.allowsReviewRequests(for: "work/app") == false)
+        try expect(preferences.allowsNotifications(for: "work/critical") == true)
+        try expect(preferences.allowsMyPullRequests(for: "work/critical") == false)
+        try expect(preferences.allowsReviewRequests(for: "work/critical") == false)
+        try expect(preferences.allowsNotifications(for: "personal/tool") == true)
+        try expect(preferences.allowsMyPullRequests(for: "malformed") == true)
+    }
+
     private static func testSyncBaselinesFirstFetchAndReportsPRs() async throws {
         let source = SequencePullRequestSource(snapshots: [[.fixture(id: "1", isMine: true)]])
         let engine = SyncEngine(source: source, loginProvider: { "rw" })
@@ -94,6 +124,33 @@ struct Runner {
         let result = try await engine.sync()
 
         try expect(result.events.map(\.type) == [.newComment, .ciFailed])
+    }
+
+    private static func testSyncFiltersEventsBySourcePreferences() async throws {
+        let source = SequencePullRequestSource(snapshots: [
+            [.fixture(id: "1", repo: "work/app", commentCount: 0, isMine: true)],
+            [.fixture(id: "1", repo: "work/app", commentCount: 1, isMine: true)]
+        ])
+        let sourcePreferences = SourcePreferences(
+            owners: [
+                "work": OwnerSourcePreferences(
+                    notifications: false,
+                    myPullRequests: true,
+                    reviewRequests: true
+                )
+            ],
+            repositories: [:]
+        )
+        let engine = SyncEngine(
+            source: source,
+            loginProvider: { "rw" },
+            sourcePreferencesProvider: { sourcePreferences }
+        )
+
+        _ = try await engine.sync()
+        let result = try await engine.sync()
+
+        try expect(result.events.isEmpty)
     }
 
     private static func testEmptyPullRequestSourceReportsNoneAndNoPullRequests() async throws {

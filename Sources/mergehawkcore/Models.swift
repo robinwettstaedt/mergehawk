@@ -100,6 +100,193 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public struct RepositoryIdentity: Codable, Equatable, Hashable, Comparable, Sendable {
+    public let owner: String
+    public let name: String
+
+    public var nameWithOwner: String {
+        "\(owner)/\(name)"
+    }
+
+    public init(owner: String, name: String) {
+        self.owner = owner
+        self.name = name
+    }
+
+    public init?(nameWithOwner: String) {
+        let parts = nameWithOwner.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2 else {
+            return nil
+        }
+        self.owner = String(parts[0])
+        self.name = String(parts[1])
+    }
+
+    public static func < (lhs: RepositoryIdentity, rhs: RepositoryIdentity) -> Bool {
+        if lhs.owner.localizedCaseInsensitiveCompare(rhs.owner) != .orderedSame {
+            return lhs.owner.localizedCaseInsensitiveCompare(rhs.owner) == .orderedAscending
+        }
+        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    }
+}
+
+public struct RepositorySource: Identifiable, Codable, Equatable, Comparable, Sendable {
+    public var id: String { identity.nameWithOwner }
+    public let identity: RepositoryIdentity
+
+    public init(identity: RepositoryIdentity) {
+        self.identity = identity
+    }
+
+    public init(owner: String, name: String) {
+        self.identity = RepositoryIdentity(owner: owner, name: name)
+    }
+
+    public static func < (lhs: RepositorySource, rhs: RepositorySource) -> Bool {
+        lhs.identity < rhs.identity
+    }
+}
+
+public struct OwnerSource: Identifiable, Codable, Equatable, Comparable, Sendable {
+    public var id: String { owner }
+    public let owner: String
+    public let repositories: [RepositorySource]
+
+    public init(owner: String, repositories: [RepositorySource]) {
+        self.owner = owner
+        self.repositories = repositories.sorted()
+    }
+
+    public static func < (lhs: OwnerSource, rhs: OwnerSource) -> Bool {
+        lhs.owner.localizedCaseInsensitiveCompare(rhs.owner) == .orderedAscending
+    }
+}
+
+public struct SourceCatalog: Codable, Equatable, Sendable {
+    public var owners: [OwnerSource]
+
+    public static let empty = SourceCatalog(owners: [])
+
+    public init(owners: [OwnerSource]) {
+        self.owners = owners.sorted()
+    }
+
+    public init(repositories: [RepositorySource], accountLogin: String? = nil) {
+        var repositoriesByOwner = Dictionary(grouping: repositories, by: \.identity.owner)
+        if let accountLogin, !accountLogin.isEmpty {
+            repositoriesByOwner[accountLogin] = repositoriesByOwner[accountLogin] ?? []
+        }
+        self.init(owners: repositoriesByOwner.map { owner, repositories in
+            OwnerSource(owner: owner, repositories: repositories)
+        })
+    }
+}
+
+public enum SourceOverride: String, Codable, CaseIterable, Equatable, Sendable {
+    case inherit
+    case enabled
+    case disabled
+
+    public func resolved(default defaultValue: Bool) -> Bool {
+        switch self {
+        case .inherit:
+            defaultValue
+        case .enabled:
+            true
+        case .disabled:
+            false
+        }
+    }
+}
+
+public struct OwnerSourcePreferences: Codable, Equatable, Sendable {
+    public var notifications: Bool
+    public var myPullRequests: Bool
+    public var reviewRequests: Bool
+
+    public static let defaults = OwnerSourcePreferences(
+        notifications: true,
+        myPullRequests: true,
+        reviewRequests: true
+    )
+
+    public init(notifications: Bool, myPullRequests: Bool, reviewRequests: Bool) {
+        self.notifications = notifications
+        self.myPullRequests = myPullRequests
+        self.reviewRequests = reviewRequests
+    }
+}
+
+public struct RepositorySourcePreferences: Codable, Equatable, Sendable {
+    public var notifications: SourceOverride
+    public var myPullRequests: SourceOverride
+    public var reviewRequests: SourceOverride
+
+    public static let defaults = RepositorySourcePreferences(
+        notifications: .inherit,
+        myPullRequests: .inherit,
+        reviewRequests: .inherit
+    )
+
+    public init(
+        notifications: SourceOverride,
+        myPullRequests: SourceOverride,
+        reviewRequests: SourceOverride
+    ) {
+        self.notifications = notifications
+        self.myPullRequests = myPullRequests
+        self.reviewRequests = reviewRequests
+    }
+}
+
+public struct SourcePreferences: Codable, Equatable, Sendable {
+    public var owners: [String: OwnerSourcePreferences]
+    public var repositories: [String: RepositorySourcePreferences]
+
+    public static let defaults = SourcePreferences(owners: [:], repositories: [:])
+
+    public init(
+        owners: [String: OwnerSourcePreferences],
+        repositories: [String: RepositorySourcePreferences]
+    ) {
+        self.owners = owners
+        self.repositories = repositories
+    }
+
+    public func allowsNotifications(for repo: String) -> Bool {
+        resolved(repo: repo).notifications
+    }
+
+    public func allowsMyPullRequests(for repo: String) -> Bool {
+        resolved(repo: repo).myPullRequests
+    }
+
+    public func allowsReviewRequests(for repo: String) -> Bool {
+        resolved(repo: repo).reviewRequests
+    }
+
+    public func ownerPreferences(for owner: String) -> OwnerSourcePreferences {
+        owners[owner] ?? .defaults
+    }
+
+    public func repositoryPreferences(for repo: String) -> RepositorySourcePreferences {
+        repositories[repo] ?? .defaults
+    }
+
+    private func resolved(repo: String) -> OwnerSourcePreferences {
+        guard let identity = RepositoryIdentity(nameWithOwner: repo) else {
+            return .defaults
+        }
+        let ownerPreference = ownerPreferences(for: identity.owner)
+        let repoPreference = repositoryPreferences(for: identity.nameWithOwner)
+        return OwnerSourcePreferences(
+            notifications: repoPreference.notifications.resolved(default: ownerPreference.notifications),
+            myPullRequests: repoPreference.myPullRequests.resolved(default: ownerPreference.myPullRequests),
+            reviewRequests: repoPreference.reviewRequests.resolved(default: ownerPreference.reviewRequests)
+        )
+    }
+}
+
 public enum PullRequestEventType: String, Codable, Equatable, Sendable {
     case newComment = "new_comment"
     case newReview = "new_review"
