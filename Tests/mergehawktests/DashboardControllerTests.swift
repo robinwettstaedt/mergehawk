@@ -72,7 +72,15 @@ import mergehawkcore
     precondition(controller.state.authStatus == .signedIn)
     precondition(controller.state.source == .mock)
     precondition(controller.state.account?.login == "agent-fixture")
-    precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_2"])
+    precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_2", "PR_3"])
+    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_1"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2"])
+
+    controller.reviewRequestFilterOption = .team
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3"])
+
+    controller.reviewRequestFilterOption = .all
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2", "PR_3"])
 }()
 
 @MainActor

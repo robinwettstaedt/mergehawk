@@ -48,9 +48,26 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewDecision: .approved,
                     commentCount: 4,
                     reviewCount: 2,
+                    reviewRequestKind: .direct,
                     isMine: false,
                     author: "teammate",
                     mergeable: .unknown,
+                    draft: false
+                ),
+                PullRequest(
+                    id: "PR_3",
+                    title: "Tighten billing retry copy",
+                    number: 31,
+                    url: URL(string: "https://github.com/example/web/pull/31")!,
+                    repo: "example/web",
+                    ciState: .passing,
+                    reviewDecision: .reviewRequired,
+                    commentCount: 1,
+                    reviewCount: 0,
+                    reviewRequestKind: .team,
+                    isMine: false,
+                    author: "designer",
+                    mergeable: .mergeable,
                     draft: false
                 )
             ],
@@ -80,8 +97,25 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewDecision: .approved,
                     commentCount: 4,
                     reviewCount: 2,
+                    reviewRequestKind: .direct,
                     isMine: false,
                     author: "teammate",
+                    mergeable: .mergeable,
+                    draft: false
+                ),
+                PullRequest(
+                    id: "PR_3",
+                    title: "Tighten billing retry copy",
+                    number: 31,
+                    url: URL(string: "https://github.com/example/web/pull/31")!,
+                    repo: "example/web",
+                    ciState: .passing,
+                    reviewDecision: .reviewRequired,
+                    commentCount: 1,
+                    reviewCount: 0,
+                    reviewRequestKind: .team,
+                    isMine: false,
+                    author: "designer",
                     mergeable: .mergeable,
                     draft: false
                 )

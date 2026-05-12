@@ -75,7 +75,7 @@ struct MenuRootView: View {
             }
         }
         .pickerStyle(.segmented)
-        .frame(width: 196)
+        .frame(width: 292)
     }
 
     @ViewBuilder
@@ -110,8 +110,12 @@ struct MenuRootView: View {
             case .myPRs:
                 PullRequestListView(
                     controller: controller,
-                    pullRequests: controller.sortedMyPullRequests,
-                    emptyText: "No authored PRs."
+                    mode: .authored
+                )
+            case .reviewRequests:
+                PullRequestListView(
+                    controller: controller,
+                    mode: .reviewRequests
                 )
             }
         }
@@ -279,13 +283,17 @@ private struct PullRequestListView: View {
         static let controlsHeight: CGFloat = 40
     }
 
+    enum Mode {
+        case authored
+        case reviewRequests
+    }
+
     @ObservedObject var controller: DashboardController
-    let pullRequests: [PullRequest]
-    let emptyText: String
+    let mode: Mode
     @State private var dropdownState = PullRequestMenuDropdownState()
 
     var body: some View {
-        if !hasAuthoredPullRequests {
+        if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
         } else {
             ZStack(alignment: .topTrailing) {
@@ -306,7 +314,11 @@ private struct PullRequestListView: View {
                         } else {
                             LazyVStack(spacing: 8) {
                                 ForEach(pullRequests) { pr in
-                                    PullRequestRow(pullRequest: pr, isAttention: controller.state.events.contains { $0.prId == pr.id }) {
+                                    PullRequestRow(
+                                        pullRequest: pr,
+                                        isAttention: controller.state.events.contains { $0.prId == pr.id },
+                                        showsReviewRequestKind: mode == .reviewRequests
+                                    ) {
                                         controller.open(pr.url)
                                     }
                                 }
@@ -338,8 +350,31 @@ private struct PullRequestListView: View {
         }
     }
 
-    private var hasAuthoredPullRequests: Bool {
-        controller.state.pullRequests.contains(where: \.isMine)
+    private var pullRequests: [PullRequest] {
+        switch mode {
+        case .authored:
+            controller.sortedMyPullRequests
+        case .reviewRequests:
+            controller.sortedReviewRequests
+        }
+    }
+
+    private var hasSourcePullRequests: Bool {
+        switch mode {
+        case .authored:
+            controller.state.pullRequests.contains(where: \.isMine)
+        case .reviewRequests:
+            controller.state.pullRequests.contains { $0.reviewRequestKind != .none }
+        }
+    }
+
+    private var emptyText: String {
+        switch mode {
+        case .authored:
+            "No authored PRs."
+        case .reviewRequests:
+            "No review requests."
+        }
     }
 
     private var outsideDropdownDismissArea: some View {
@@ -358,11 +393,20 @@ private struct PullRequestListView: View {
     private var filterButton: some View {
         optionButton(
             symbolName: "line.3.horizontal.decrease",
-            title: controller.pullRequestFilterOption.label,
+            title: filterButtonTitle,
             isOpen: dropdownState.openMenu == .filter,
             help: "Filter pull requests"
         ) {
             dropdownState.toggle(.filter)
+        }
+    }
+
+    private var filterButtonTitle: String {
+        switch mode {
+        case .authored:
+            controller.pullRequestFilterOption.label
+        case .reviewRequests:
+            controller.reviewRequestFilterOption.label
         }
     }
 
@@ -410,16 +454,33 @@ private struct PullRequestListView: View {
         .accessibilityLabel(help)
     }
 
+    @ViewBuilder
     private var filterMenu: some View {
-        optionMenu(width: 156) {
-            ForEach(DashboardController.PullRequestFilterOption.allCases) { option in
-                optionMenuButton(
-                    title: option.label,
-                    isSelected: controller.pullRequestFilterOption == option,
-                    width: 156
-                ) {
-                    controller.pullRequestFilterOption = option
-                    dropdownState.dismiss()
+        switch mode {
+        case .authored:
+            optionMenu(width: 156) {
+                ForEach(DashboardController.PullRequestFilterOption.allCases) { option in
+                    optionMenuButton(
+                        title: option.label,
+                        isSelected: controller.pullRequestFilterOption == option,
+                        width: 156
+                    ) {
+                        controller.pullRequestFilterOption = option
+                        dropdownState.dismiss()
+                    }
+                }
+            }
+        case .reviewRequests:
+            optionMenu(width: 112) {
+                ForEach(DashboardController.ReviewRequestFilterOption.allCases) { option in
+                    optionMenuButton(
+                        title: option.label,
+                        isSelected: controller.reviewRequestFilterOption == option,
+                        width: 112
+                    ) {
+                        controller.reviewRequestFilterOption = option
+                        dropdownState.dismiss()
+                    }
                 }
             }
         }
@@ -565,6 +626,7 @@ private struct NotificationRow: View {
 private struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
+    var showsReviewRequestKind = false
     let action: () -> Void
 
     var body: some View {
@@ -587,6 +649,9 @@ private struct PullRequestRow: View {
                         CIStatusIndicator(ciState: pullRequest.ciState)
                         ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                         CommentCountIndicator(count: pullRequest.commentCount)
+                        if showsReviewRequestKind {
+                            ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
+                        }
                         if isAttention {
                             StatusPill(text: "new", kind: .attention)
                         }
@@ -606,6 +671,44 @@ private struct PullRequestRow: View {
             PullRequestLinkCopyButton(url: pullRequest.url)
                 .padding(.trailing, 8)
                 .padding(.bottom, 8)
+        }
+    }
+}
+
+private struct ReviewRequestKindPill: View {
+    let kind: ReviewRequestKind
+
+    var body: some View {
+        if kind != .none {
+            StatusPill(text: label, kind: .neutral)
+                .help(accessibilityLabel)
+                .accessibilityLabel(accessibilityLabel)
+        }
+    }
+
+    private var label: String {
+        switch kind {
+        case .none:
+            ""
+        case .direct:
+            "direct"
+        case .team:
+            "team"
+        case .directAndTeam:
+            "direct+team"
+        }
+    }
+
+    private var accessibilityLabel: String {
+        switch kind {
+        case .none:
+            "No review request"
+        case .direct:
+            "Direct review request"
+        case .team:
+            "Team review request"
+        case .directAndTeam:
+            "Direct and team review request"
         }
     }
 }

@@ -73,6 +73,21 @@ struct PreferencesStore {
         }
     }
 
+    var reviewRequestFilterOption: DashboardController.ReviewRequestFilterOption {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "reviewRequests.filterOption"),
+                let option = DashboardController.ReviewRequestFilterOption(rawValue: rawValue)
+            else {
+                return .direct
+            }
+            return option
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "reviewRequests.filterOption")
+        }
+    }
+
     private func value(for key: String, fallback: Bool) -> Bool {
         defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key)
     }

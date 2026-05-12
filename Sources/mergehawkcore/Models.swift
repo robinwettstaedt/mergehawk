@@ -14,6 +14,31 @@ public enum ReviewDecision: String, Codable, Equatable, Sendable {
     case unknown
 }
 
+public enum ReviewRequestKind: String, Codable, Equatable, Sendable {
+    case none
+    case direct
+    case team
+    case directAndTeam = "direct_and_team"
+
+    public var includesDirect: Bool {
+        switch self {
+        case .direct, .directAndTeam:
+            true
+        case .none, .team:
+            false
+        }
+    }
+
+    public var includesTeam: Bool {
+        switch self {
+        case .team, .directAndTeam:
+            true
+        case .none, .direct:
+            false
+        }
+    }
+}
+
 public enum MergeableState: String, Codable, Equatable, Sendable {
     case mergeable
     case conflicting
@@ -30,6 +55,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let reviewDecision: ReviewDecision
     public let commentCount: Int
     public let reviewCount: Int
+    public let reviewRequestKind: ReviewRequestKind
     public let isMine: Bool
     public let author: String
     public let mergeable: MergeableState
@@ -47,6 +73,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         reviewDecision: ReviewDecision,
         commentCount: Int,
         reviewCount: Int,
+        reviewRequestKind: ReviewRequestKind = .none,
         isMine: Bool,
         author: String,
         mergeable: MergeableState,
@@ -63,6 +90,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.reviewDecision = reviewDecision
         self.commentCount = commentCount
         self.reviewCount = reviewCount
+        self.reviewRequestKind = reviewRequestKind
         self.isMine = isMine
         self.author = author
         self.mergeable = mergeable
