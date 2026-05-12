@@ -1,4 +1,4 @@
-# vc-dash
+# MergeHawk
 
 Native macOS menu bar dashboard for scanning GitHub pull requests and intentional notifications.
 
@@ -26,16 +26,16 @@ OAuth device flow, auto-updates, widgets, multi-account support, and extra PR ta
 Build and launch the native menu bar app:
 
 ```sh
-swift run VCDash
+swift run mergehawk
 ```
 
-Without GitHub credentials, VC Dash shows an inline GitHub token form in the menu and does not display pull request data.
+Without GitHub credentials, MergeHawk shows an inline GitHub token form in the menu and does not display pull request data.
 
 Build a local `.app` bundle with `LSUIElement`:
 
 ```sh
 scripts/build-app-bundle.sh
-open .build/VCDash.app
+open .build/MergeHawk.app
 ```
 
 Update the locally installed app bundle and restart it:
@@ -44,25 +44,25 @@ Update the locally installed app bundle and restart it:
 scripts/update-installed-app.sh
 ```
 
-By default this updates `/Applications/VC Dash.app` if present, then
-`~/Applications/VC Dash.app` if present, otherwise it installs to
-`~/Applications/VC Dash.app`. To update a specific bundle:
+By default this updates `/Applications/MergeHawk.app` if present, then
+`~/Applications/MergeHawk.app` if present, otherwise it installs to
+`~/Applications/MergeHawk.app`. To update a specific bundle:
 
 ```sh
-APP_PATH="/path/to/VC Dash.app" scripts/update-installed-app.sh
+APP_PATH="/path/to/MergeHawk.app" scripts/update-installed-app.sh
 ```
 
 ## Sign In With A Personal Access Token
 
 1. Create a GitHub fine-grained personal access token.
-2. Grant repository access for the repositories VC Dash should monitor.
+2. Grant repository access for the repositories MergeHawk should monitor.
 3. Include read permissions for metadata, pull requests, issues, and actions where applicable.
-4. Launch the app with `swift run VCDash`.
+4. Launch the app with `swift run mergehawk`.
 5. Open the status item menu.
 6. Paste only the token value, for example `github_pat_...`, with no surrounding text.
 7. Click **Connect**.
 
-VC Dash validates the token by fetching the current GitHub user, stores it in Keychain, and then syncs PRs.
+MergeHawk validates the token by fetching the current GitHub user, stores it in Keychain, and then syncs PRs.
 
 ## Test
 
@@ -75,11 +75,11 @@ swift test
 Core behavior tests:
 
 ```sh
-swift run VCDashCoreTestRunner
+swift run mergehawkcoretestrunner
 ```
 
 Build the app:
 
 ```sh
-swift build --product VCDash
+swift build --product mergehawk
 ```

@@ -3,34 +3,34 @@
 import PackageDescription
 
 let package = Package(
-    name: "vc-dash",
+    name: "mergehawk",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .library(name: "VCDashCore", targets: ["VCDashCore"]),
-        .executable(name: "VCDash", targets: ["VCDash"]),
-        .executable(name: "VCDashCoreTestRunner", targets: ["VCDashCoreTestRunner"])
+        .library(name: "mergehawkcore", targets: ["mergehawkcore"]),
+        .executable(name: "mergehawk", targets: ["mergehawk"]),
+        .executable(name: "mergehawkcoretestrunner", targets: ["mergehawkcoretestrunner"])
     ],
     targets: [
-        .target(name: "VCDashCore"),
+        .target(name: "mergehawkcore"),
         .executableTarget(
-            name: "VCDash",
-            dependencies: ["VCDashCore"]
+            name: "mergehawk",
+            dependencies: ["mergehawkcore"]
         ),
         .executableTarget(
-            name: "VCDashCoreTestRunner",
-            dependencies: ["VCDashCore"]
+            name: "mergehawkcoretestrunner",
+            dependencies: ["mergehawkcore"]
         ),
         .testTarget(
             name: "SmokeTests",
-            dependencies: ["VCDashCore"],
+            dependencies: ["mergehawkcore"],
             path: "Tests/SmokeTests"
         ),
         .testTarget(
-            name: "VCDashTests",
-            dependencies: ["VCDash", "VCDashCore"],
-            path: "Tests/VCDashTests"
+            name: "mergehawktests",
+            dependencies: ["mergehawk", "mergehawkcore"],
+            path: "Tests/mergehawktests"
         )
     ]
 )

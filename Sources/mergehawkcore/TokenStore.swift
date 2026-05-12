@@ -25,7 +25,7 @@ public final class KeychainTokenStore: TokenStore {
     private let service: String
     private let account: String
 
-    public init(service: String = "com.vcdash.github", account: String = "pat") {
+    public init(service: String = "com.mergehawk.github", account: String = "pat") {
         self.service = service
         self.account = account
     }

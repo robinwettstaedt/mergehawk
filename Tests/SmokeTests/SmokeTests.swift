@@ -1,5 +1,5 @@
-import VCDashCore
+import mergehawkcore
 
-let vcDashSmokeTest: Void = {
+let mergehawkSmokeTest: Void = {
     precondition(NotificationPreferences.defaults.newComment)
 }()

@@ -86,8 +86,8 @@ For most code changes, final verification includes:
 scripts/verify.sh
 ```
 
-This runs `swift test`, `swift run VCDashCoreTestRunner`,
-`swift build --product VCDash`, and app bundle creation through
+This runs `swift test`, `swift run mergehawkcoretestrunner`,
+`swift build --product mergehawk`, and app bundle creation through
 `scripts/build-app-bundle.sh`. It does not replace or launch the user's normal
 installed app.
 
@@ -109,7 +109,7 @@ scripts/run-agent-app.sh --slot MER-12 --mock --open
 Prefer Codex computer-use tools for interactive visual verification when
 available. Put ad hoc screenshots and review evidence under
 `.verification/<ISSUE-ID>/`. Leave the slot app open for user review when useful
-and state the exact app name, usually `~/Applications/VC Dash <ISSUE-ID>.app`.
+and state the exact app name, usually `~/Applications/MergeHawk <ISSUE-ID>.app`.
 
 Do not run `scripts/update-installed-app.sh` as part of normal verification.
 Only run it when the user explicitly asks for a final local installed-app

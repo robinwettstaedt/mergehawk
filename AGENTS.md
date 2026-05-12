@@ -1,4 +1,4 @@
-# vc-dash agent instructions
+# MergeHawk agent instructions
 
 - For active MergeHawk Linear issue work, use the repo skills in `.codex/skills/` phase by phase: `mergehawk-issue-intake`, `mergehawk-brainstorming`, `mergehawk-planning`, `mergehawk-simplification`, `mergehawk-verification`, and `mergehawk-pr-handoff`.
 - Use the shared vocabulary in `docs/glossary.md` when discussing product behavior with the user, writing docs, naming tests, or creating agent task summaries.

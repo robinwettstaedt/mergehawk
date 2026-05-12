@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 @main
-struct VCDashApp: App {
+struct mergehawkApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "VC Dash Settings"
+            window.title = "MergeHawk Settings"
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.contentView = NSHostingView(rootView: SettingsRootView(controller: controller))

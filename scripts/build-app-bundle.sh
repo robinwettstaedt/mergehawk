@@ -3,14 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-debug}"
-DEFAULT_CODE_SIGN_IDENTITY="VC Dash Local Code Signing"
+DEFAULT_CODE_SIGN_IDENTITY="MergeHawk Local Code Signing"
 CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
-APP_NAME="${APP_NAME:-VC Dash.app}"
+APP_NAME="${APP_NAME:-MergeHawk.app}"
 APP_BUNDLE_NAME="${APP_NAME%.app}"
-BUNDLE_ID="${BUNDLE_ID:-com.vcdash.app}"
-APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-VCDash}"
+BUNDLE_ID="${BUNDLE_ID:-com.mergehawk.app}"
+APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-mergehawk}"
 APP_DIR="${APP_DIR:-$ROOT_DIR/.build/$APP_NAME}"
-EXECUTABLE="$ROOT_DIR/.build/arm64-apple-macosx/$CONFIGURATION/VCDash"
+EXECUTABLE="$ROOT_DIR/.build/arm64-apple-macosx/$CONFIGURATION/mergehawk"
 LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}"
 LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}"
 
@@ -18,7 +18,7 @@ cd "$ROOT_DIR"
 mkdir -p "$ROOT_DIR/.build/clang-module-cache" "$ROOT_DIR/.build/swiftpm-cache"
 export CLANG_MODULE_CACHE_PATH="$ROOT_DIR/.build/clang-module-cache"
 export SWIFTPM_CACHE_PATH="$ROOT_DIR/.build/swiftpm-cache"
-swift build --disable-sandbox --product VCDash ${CONFIGURATION:+--configuration "$CONFIGURATION"}
+swift build --disable-sandbox --product mergehawk ${CONFIGURATION:+--configuration "$CONFIGURATION"}
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
@@ -76,7 +76,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <key>LSUIElement</key>
   <true/>
   <key>NSUserNotificationUsageDescription</key>
-  <string>VC Dash sends notifications for pull request comments, reviews, failed CI, and changes requested.</string>
+  <string>MergeHawk sends notifications for pull request comments, reviews, failed CI, and changes requested.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>
