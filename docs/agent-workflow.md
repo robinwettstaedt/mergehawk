@@ -110,6 +110,17 @@ Prefer Codex computer-use tools for interactive visual verification when
 available. Put ad hoc screenshots and review evidence under
 `.verification/<ISSUE-ID>/`. Leave the slot app open for user review when useful
 and state the exact app name, usually `~/Applications/MergeHawk <ISSUE-ID>.app`.
+Confirm the slot can be opened through LaunchServices, not only by directly
+executing a binary. The installed app's `CFBundleExecutable` must point to a
+real Mach-O executable, and mock-mode isolation should come from `LSEnvironment`
+in `Info.plist`; agents should not create slot bundles whose executable is a
+shell wrapper.
+
+For macOS local notification behavior in mocked slots, inspect:
+
+```text
+.build/agent-slots/<ISSUE-ID>/notifications.jsonl
+```
 
 Do not run `scripts/update-installed-app.sh` as part of normal verification.
 Only run it when the user explicitly asks for a final local installed-app
@@ -137,10 +148,18 @@ screenshots to the PR body/comment when possible. Do not mention local-only
 paths such as `.verification/<ISSUE-ID>/`, `.build/`, local app slots, or local
 slot cleanup in the PR body.
 
-In the same turn as PR creation, tear down the isolated slot app by default and
-report the cleanup in the Codex thread handoff summary, not in the durable PR
-description. Then move the Linear issue from `In Progress` to `In Review`.
-Leave `Done` for the human reviewer after review or merge.
+In the same turn as PR creation, tear down the isolated slot app by default:
+
+```sh
+scripts/teardown-agent-app.sh --slot MER-12
+```
+
+Report the cleanup in the Codex thread handoff summary, not in the durable PR
+description. The teardown removes the installed slot app and its
+`.build/agent-slots/<ISSUE-ID>/` directory, but it must not remove worktrees or
+`.verification/<ISSUE-ID>/` review artifacts unless the user explicitly asks.
+Then move the Linear issue from `In Progress` to `In Review`. Leave `Done` for
+the human reviewer after review or merge.
 
 Never merge pull requests, enable auto-merge, or push directly to default or
 protected branches unless the user explicitly confirms that action in the
