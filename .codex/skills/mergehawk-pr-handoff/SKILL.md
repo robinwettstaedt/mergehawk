@@ -46,10 +46,13 @@ Include in the PR body:
 - concise implementation summary
 - Linear issue identifier
 - validation commands and results
-- UI artifact paths or screenshots when they helped verify the change
 - blocked or skipped verification, if any
 
-If screenshots are useful for PR review, attach them to the PR body or a PR comment when possible. Do not rely on `.verification/<ISSUE-ID>/` paths as durable PR evidence; those paths are local to the current worktree and may disappear when the worktree is removed. If attachment is not possible, mention that local screenshots were captured but are not included in the PR. Do not commit generated screenshots by default.
+Only include review evidence that will remain accessible to future PR readers.
+Attach screenshots to the PR body or a PR comment when they are useful for
+review. Do not mention local-only paths such as `.verification/<ISSUE-ID>/`,
+`.build/`, local app slots, or local slot cleanup in the PR body. Do not commit
+generated screenshots by default.
 
 ## App Slot Teardown
 
@@ -90,3 +93,8 @@ Slot app removed:
 Linear state:
 Merge status: ready for human review; not merged
 ```
+
+The handoff summary is the right place for local operational details such as
+slot teardown, local artifact paths, and cleanup status. Keep those details out
+of the durable GitHub PR description unless they describe a user-facing or
+reviewable code change.
