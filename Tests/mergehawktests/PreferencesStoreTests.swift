@@ -44,13 +44,14 @@ let mergehawkPullRequestFilterPreferencesTest: Void = {
     }
 
     var store = PreferencesStore(defaults: defaults)
-    precondition(store.pullRequestFilterOption == .all)
+    precondition(store.selectedPullRequestFilters == [])
 
-    store.pullRequestFilterOption = .needsAttention
-    precondition(store.pullRequestFilterOption == .needsAttention)
+    store.selectedPullRequestFilters = [.needsAttention, .ciFailing]
+    precondition(store.selectedPullRequestFilters == [.needsAttention, .ciFailing])
+    precondition(defaults.stringArray(forKey: "pullRequests.filterOptions") == ["needsAttention", "ciFailing"])
 
-    defaults.set("unsupported", forKey: "pullRequests.filterOption")
-    precondition(store.pullRequestFilterOption == .all)
+    defaults.set(["unsupported", "all", "draft"], forKey: "pullRequests.filterOptions")
+    precondition(store.selectedPullRequestFilters == [.draft])
 }()
 
 let mergehawkReviewRequestFilterPreferencesTest: Void = {
@@ -61,13 +62,39 @@ let mergehawkReviewRequestFilterPreferencesTest: Void = {
     }
 
     var store = PreferencesStore(defaults: defaults)
-    precondition(store.reviewRequestFilterOption == .direct)
+    precondition(store.selectedReviewRequestFilters == [])
 
-    store.reviewRequestFilterOption = .draft
-    precondition(store.reviewRequestFilterOption == .draft)
+    store.selectedReviewRequestFilters = [.direct, .draft]
+    precondition(store.selectedReviewRequestFilters == [.direct, .draft])
+    precondition(defaults.stringArray(forKey: "reviewRequests.filterOptions") == ["direct", "draft"])
 
+    defaults.set(["unsupported", "all", "ready"], forKey: "reviewRequests.filterOptions")
+    precondition(store.selectedReviewRequestFilters == [.ready])
+}()
+
+let mergehawkSingleSelectFilterPreferencesMigrationTest: Void = {
+    let suiteName = "mergehawk-filter-migration-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    var store = PreferencesStore(defaults: defaults)
+
+    defaults.set("changesRequested", forKey: "pullRequests.filterOption")
+    defaults.set("team", forKey: "reviewRequests.filterOption")
+    precondition(store.selectedPullRequestFilters == [.changesRequested])
+    precondition(store.selectedReviewRequestFilters == [.team])
+
+    defaults.set("all", forKey: "pullRequests.filterOption")
+    defaults.set("all", forKey: "reviewRequests.filterOption")
+    precondition(store.selectedPullRequestFilters == [])
+    precondition(store.selectedReviewRequestFilters == [])
+
+    defaults.set("unsupported", forKey: "pullRequests.filterOption")
     defaults.set("unsupported", forKey: "reviewRequests.filterOption")
-    precondition(store.reviewRequestFilterOption == .direct)
+    precondition(store.selectedPullRequestFilters == [])
+    precondition(store.selectedReviewRequestFilters == [])
 }()
 
 let mergehawkSourcePreferencesStoreTest: Void = {
