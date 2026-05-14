@@ -179,7 +179,7 @@ struct Runner {
             url: "https://github.com/acme/mergehawk/pull/12",
             createdAt: "2026-05-01T12:00:00Z",
             updatedAt: "2026-05-02T12:00:00Z",
-            isDraft: false,
+            isDraft: true,
             mergeable: "MERGEABLE",
             reviewDecision: "REVIEW_REQUIRED",
             comments: .init(totalCount: 2),
@@ -203,7 +203,7 @@ struct Runner {
             isMine: true,
             author: "rw",
             mergeable: .mergeable,
-            draft: false,
+            draft: true,
             createdAt: Date(timeIntervalSince1970: 1_777_636_800),
             updatedAt: Date(timeIntervalSince1970: 1_777_723_200)
         ))

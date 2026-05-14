@@ -73,6 +73,20 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-review-requests-all.png")
             )
 
+            controller.reviewRequestFilterOption = .draft
+            try render(
+                MenuRootView(controller: controller),
+                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
+                to: outputURL.appendingPathComponent("menu-review-requests-draft.png")
+            )
+
+            controller.reviewRequestFilterOption = .ready
+            try render(
+                MenuRootView(controller: controller),
+                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
+                to: outputURL.appendingPathComponent("menu-review-requests-ready.png")
+            )
+
             try render(
                 SettingsRootView(controller: controller, selection: .sources),
                 size: SettingsTab.defaultWindowSize,
