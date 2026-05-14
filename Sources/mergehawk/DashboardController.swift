@@ -63,9 +63,9 @@ final class DashboardController: ObservableObject {
     }
 
     enum ReviewRequestFilterOption: String, CaseIterable, Identifiable {
+        case all
         case direct
         case team
-        case all
         case draft
         case ready
 
@@ -73,12 +73,12 @@ final class DashboardController: ObservableObject {
 
         var label: String {
             switch self {
+            case .all:
+                "All"
             case .direct:
                 "Direct"
             case .team:
                 "Team"
-            case .all:
-                "All"
             case .draft:
                 "Draft"
             case .ready:
@@ -111,14 +111,14 @@ final class DashboardController: ObservableObject {
             preferencesStore.pullRequestSortOption = pullRequestSortOption
         }
     }
-    @Published var pullRequestFilterOption: PullRequestFilterOption {
+    @Published var selectedPullRequestFilters: Set<PullRequestFilterOption> {
         didSet {
-            preferencesStore.pullRequestFilterOption = pullRequestFilterOption
+            preferencesStore.selectedPullRequestFilters = selectedPullRequestFilters
         }
     }
-    @Published var reviewRequestFilterOption: ReviewRequestFilterOption {
+    @Published var selectedReviewRequestFilters: Set<ReviewRequestFilterOption> {
         didSet {
-            preferencesStore.reviewRequestFilterOption = reviewRequestFilterOption
+            preferencesStore.selectedReviewRequestFilters = selectedReviewRequestFilters
         }
     }
     @Published var sourcePreferences: SourcePreferences {
@@ -179,8 +179,8 @@ final class DashboardController: ObservableObject {
         self.preferences = preferencesStore.notificationPreferences
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
-        self.pullRequestFilterOption = preferencesStore.pullRequestFilterOption
-        self.reviewRequestFilterOption = preferencesStore.reviewRequestFilterOption
+        self.selectedPullRequestFilters = preferencesStore.selectedPullRequestFilters
+        self.selectedReviewRequestFilters = preferencesStore.selectedReviewRequestFilters
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.sourceCatalog = preferencesStore.sourceCatalog
         self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
@@ -226,7 +226,7 @@ final class DashboardController: ObservableObject {
             pr.isMine && sourcePreferences.allowsMyPullRequests(for: pr.repo)
         }
         return Self.sorted(
-            Self.filtered(mine, by: pullRequestFilterOption, events: state.events),
+            Self.filtered(mine, by: selectedPullRequestFilters, events: state.events),
             by: pullRequestSortOption
         )
     }
@@ -235,7 +235,7 @@ final class DashboardController: ObservableObject {
         Self.sorted(
             Self.filteredReviewRequests(
                 state.pullRequests.filter { sourcePreferences.allowsReviewRequests(for: $0.repo) },
-                by: reviewRequestFilterOption
+                by: selectedReviewRequestFilters
             ),
             by: pullRequestSortOption
         )
@@ -243,49 +243,79 @@ final class DashboardController: ObservableObject {
 
     static func filtered(
         _ pullRequests: [PullRequest],
-        by option: PullRequestFilterOption,
+        by selectedFilters: Set<PullRequestFilterOption>,
         events: [PullRequestEvent]
     ) -> [PullRequest] {
+        let selectedFilters = selectedFilters.subtracting([.all])
+        guard !selectedFilters.isEmpty else {
+            return pullRequests
+        }
         let attentionIds = Set(events.map(\.prId))
         return pullRequests.filter { pr in
-            switch option {
-            case .all:
-                true
-            case .needsAttention:
-                attentionIds.contains(pr.id)
-            case .draft:
-                pr.draft
-            case .ready:
-                !pr.draft
-            case .changesRequested:
-                pr.reviewDecision == .changesRequested
-            case .reviewRequired:
-                pr.reviewDecision == .reviewRequired
-            case .approved:
-                pr.reviewDecision == .approved
-            case .ciFailing:
-                pr.ciState == .failing
+            selectedFilters.contains { option in
+                matches(pr, option: option, attentionIds: attentionIds)
             }
+        }
+    }
+
+    private static func matches(
+        _ pr: PullRequest,
+        option: PullRequestFilterOption,
+        attentionIds: Set<String>
+    ) -> Bool {
+        switch option {
+        case .all:
+            true
+        case .needsAttention:
+            attentionIds.contains(pr.id)
+        case .draft:
+            pr.draft
+        case .ready:
+            !pr.draft
+        case .changesRequested:
+            pr.reviewDecision == .changesRequested
+        case .reviewRequired:
+            pr.reviewDecision == .reviewRequired
+        case .approved:
+            pr.reviewDecision == .approved
+        case .ciFailing:
+            pr.ciState == .failing
         }
     }
 
     static func filteredReviewRequests(
         _ pullRequests: [PullRequest],
-        by option: ReviewRequestFilterOption
+        by selectedFilters: Set<ReviewRequestFilterOption>
     ) -> [PullRequest] {
-        pullRequests.filter { pr in
-            switch option {
-            case .direct:
-                pr.reviewRequestKind.includesDirect
-            case .team:
-                pr.reviewRequestKind.includesTeam
-            case .all:
-                pr.reviewRequestKind != .none
-            case .draft:
-                pr.reviewRequestKind != .none && pr.draft
-            case .ready:
-                pr.reviewRequestKind != .none && !pr.draft
+        let selectedFilters = selectedFilters.subtracting([.all])
+        return pullRequests.filter { pr in
+            guard pr.reviewRequestKind != .none else {
+                return false
             }
+            guard !selectedFilters.isEmpty else {
+                return true
+            }
+            return selectedFilters.contains { option in
+                matchesReviewRequest(pr, option: option)
+            }
+        }
+    }
+
+    private static func matchesReviewRequest(
+        _ pr: PullRequest,
+        option: ReviewRequestFilterOption
+    ) -> Bool {
+        switch option {
+        case .direct:
+            pr.reviewRequestKind.includesDirect
+        case .team:
+            pr.reviewRequestKind.includesTeam
+        case .all:
+            true
+        case .draft:
+            pr.draft
+        case .ready:
+            !pr.draft
         }
     }
 
