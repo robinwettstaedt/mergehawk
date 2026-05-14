@@ -40,7 +40,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     isMine: true,
                     author: "rw",
                     mergeable: .mergeable,
-                    draft: false
+                    draft: true
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -72,7 +72,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     isMine: false,
                     author: "designer",
                     mergeable: .mergeable,
-                    draft: false
+                    draft: true
                 )
             ],
             [
@@ -89,7 +89,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     isMine: true,
                     author: "rw",
                     mergeable: .mergeable,
-                    draft: false
+                    draft: true
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -121,7 +121,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     isMine: false,
                     author: "designer",
                     mergeable: .mergeable,
-                    draft: false
+                    draft: true
                 )
             ]
         ]
