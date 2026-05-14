@@ -649,6 +649,11 @@ private struct PullRequestRow: View {
                         CIStatusIndicator(ciState: pullRequest.ciState)
                         ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                         CommentCountIndicator(count: pullRequest.commentCount)
+                        if pullRequest.draft {
+                            StatusPill(text: "Draft", kind: .neutral)
+                                .help("Draft PR")
+                                .accessibilityLabel("Draft PR")
+                        }
                         if showsReviewRequestKind {
                             ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
                         }

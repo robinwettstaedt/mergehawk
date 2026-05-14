@@ -63,8 +63,8 @@ let mergehawkReviewRequestFilterPreferencesTest: Void = {
     var store = PreferencesStore(defaults: defaults)
     precondition(store.reviewRequestFilterOption == .direct)
 
-    store.reviewRequestFilterOption = .team
-    precondition(store.reviewRequestFilterOption == .team)
+    store.reviewRequestFilterOption = .draft
+    precondition(store.reviewRequestFilterOption == .draft)
 
     defaults.set("unsupported", forKey: "reviewRequests.filterOption")
     precondition(store.reviewRequestFilterOption == .direct)
