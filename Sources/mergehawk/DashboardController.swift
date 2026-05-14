@@ -66,6 +66,8 @@ final class DashboardController: ObservableObject {
         case direct
         case team
         case all
+        case draft
+        case ready
 
         var id: String { rawValue }
 
@@ -77,6 +79,10 @@ final class DashboardController: ObservableObject {
                 "Team"
             case .all:
                 "All"
+            case .draft:
+                "Draft"
+            case .ready:
+                "Ready"
             }
         }
     }
@@ -275,6 +281,10 @@ final class DashboardController: ObservableObject {
                 pr.reviewRequestKind.includesTeam
             case .all:
                 pr.reviewRequestKind != .none
+            case .draft:
+                pr.reviewRequestKind != .none && pr.draft
+            case .ready:
+                pr.reviewRequestKind != .none && !pr.draft
             }
         }
     }
