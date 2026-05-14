@@ -59,28 +59,35 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-review-requests.png")
             )
 
-            controller.reviewRequestFilterOption = .team
+            controller.selectedReviewRequestFilters = [.team]
             try render(
                 MenuRootView(controller: controller),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
                 to: outputURL.appendingPathComponent("menu-review-requests-team.png")
             )
 
-            controller.reviewRequestFilterOption = .all
+            controller.selectedReviewRequestFilters = []
             try render(
                 MenuRootView(controller: controller),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
                 to: outputURL.appendingPathComponent("menu-review-requests-all.png")
             )
 
-            controller.reviewRequestFilterOption = .draft
+            controller.selectedReviewRequestFilters = [.direct, .team]
+            try render(
+                MenuRootView(controller: controller),
+                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
+                to: outputURL.appendingPathComponent("menu-review-requests-multiple.png")
+            )
+
+            controller.selectedReviewRequestFilters = [.draft]
             try render(
                 MenuRootView(controller: controller),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
                 to: outputURL.appendingPathComponent("menu-review-requests-draft.png")
             )
 
-            controller.reviewRequestFilterOption = .ready
+            controller.selectedReviewRequestFilters = [.ready]
             try render(
                 MenuRootView(controller: controller),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
