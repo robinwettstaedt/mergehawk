@@ -76,10 +76,10 @@ import mergehawkcore
     precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_1"])
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2"])
 
-    controller.reviewRequestFilterOption = .team
+    controller.selectedReviewRequestFilters = [.team]
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3"])
 
-    controller.reviewRequestFilterOption = .all
+    controller.selectedReviewRequestFilters = []
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2", "PR_3"])
 }()
 
@@ -113,7 +113,7 @@ import mergehawkcore
             reviewRequests: .disabled
         )
     )
-    controller.reviewRequestFilterOption = .all
+    controller.selectedReviewRequestFilters = []
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3"])
 }()
 

@@ -404,10 +404,32 @@ private struct PullRequestListView: View {
     private var filterButtonTitle: String {
         switch mode {
         case .authored:
-            controller.pullRequestFilterOption.label
+            pullRequestFilterButtonTitle
         case .reviewRequests:
-            controller.reviewRequestFilterOption.label
+            reviewRequestFilterButtonTitle
         }
+    }
+
+    private var pullRequestFilterButtonTitle: String {
+        let filters = controller.selectedPullRequestFilters.subtracting([.all])
+        if filters.isEmpty {
+            return DashboardController.PullRequestFilterOption.all.label
+        }
+        if filters.count == 1, let filter = filters.first {
+            return filter.label
+        }
+        return "\(filters.count) filters"
+    }
+
+    private var reviewRequestFilterButtonTitle: String {
+        let filters = controller.selectedReviewRequestFilters.subtracting([.all])
+        if filters.isEmpty {
+            return DashboardController.ReviewRequestFilterOption.all.label
+        }
+        if filters.count == 1, let filter = filters.first {
+            return filter.label
+        }
+        return "\(filters.count) filters"
     }
 
     private var sortButton: some View {
@@ -462,11 +484,10 @@ private struct PullRequestListView: View {
                 ForEach(DashboardController.PullRequestFilterOption.allCases) { option in
                     optionMenuButton(
                         title: option.label,
-                        isSelected: controller.pullRequestFilterOption == option,
+                        isSelected: pullRequestFilterIsSelected(option),
                         width: 156
                     ) {
-                        controller.pullRequestFilterOption = option
-                        dropdownState.dismiss()
+                        togglePullRequestFilter(option)
                     }
                 }
             }
@@ -475,14 +496,51 @@ private struct PullRequestListView: View {
                 ForEach(DashboardController.ReviewRequestFilterOption.allCases) { option in
                     optionMenuButton(
                         title: option.label,
-                        isSelected: controller.reviewRequestFilterOption == option,
+                        isSelected: reviewRequestFilterIsSelected(option),
                         width: 112
                     ) {
-                        controller.reviewRequestFilterOption = option
-                        dropdownState.dismiss()
+                        toggleReviewRequestFilter(option)
                     }
                 }
             }
+        }
+    }
+
+    private func pullRequestFilterIsSelected(_ option: DashboardController.PullRequestFilterOption) -> Bool {
+        option == .all
+            ? controller.selectedPullRequestFilters.subtracting([.all]).isEmpty
+            : controller.selectedPullRequestFilters.contains(option)
+    }
+
+    private func reviewRequestFilterIsSelected(_ option: DashboardController.ReviewRequestFilterOption) -> Bool {
+        option == .all
+            ? controller.selectedReviewRequestFilters.subtracting([.all]).isEmpty
+            : controller.selectedReviewRequestFilters.contains(option)
+    }
+
+    private func togglePullRequestFilter(_ option: DashboardController.PullRequestFilterOption) {
+        guard option != .all else {
+            controller.selectedPullRequestFilters = []
+            return
+        }
+
+        if controller.selectedPullRequestFilters.contains(option) {
+            controller.selectedPullRequestFilters.remove(option)
+        } else {
+            controller.selectedPullRequestFilters.insert(option)
+        }
+    }
+
+    private func toggleReviewRequestFilter(_ option: DashboardController.ReviewRequestFilterOption) {
+        guard option != .all else {
+            controller.selectedReviewRequestFilters = []
+            return
+        }
+
+        if controller.selectedReviewRequestFilters.contains(option) {
+            controller.selectedReviewRequestFilters.remove(option)
+        } else {
+            controller.selectedReviewRequestFilters.insert(option)
         }
     }
 
