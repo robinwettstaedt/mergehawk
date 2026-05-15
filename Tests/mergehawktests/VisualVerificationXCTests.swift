@@ -39,60 +39,28 @@ final class VisualVerificationXCTests: XCTestCase {
 
         try await MainActor.run {
             controller.selectedTab = .notifications
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-notifications.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications.png"))
 
             controller.selectedTab = .myPRs
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-my-prs.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
 
             controller.selectedTab = .reviewRequests
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-review-requests.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
 
             controller.selectedReviewRequestFilters = [.team]
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-review-requests-team.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-team.png"))
 
             controller.selectedReviewRequestFilters = []
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-review-requests-all.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-all.png"))
 
             controller.selectedReviewRequestFilters = [.direct, .team]
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-review-requests-multiple.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-multiple.png"))
 
             controller.selectedReviewRequestFilters = [.draft]
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-review-requests-draft.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-draft.png"))
 
             controller.selectedReviewRequestFilters = [.ready]
-            try render(
-                MenuRootView(controller: controller),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-                to: outputURL.appendingPathComponent("menu-review-requests-ready.png")
-            )
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-ready.png"))
 
             try render(
                 SettingsRootView(controller: controller, selection: .sources),
@@ -111,6 +79,16 @@ final class VisualVerificationXCTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("Timed out waiting for condition")
+    }
+
+    @MainActor
+    private func renderMenu(controller: DashboardController, to url: URL) throws {
+        try render(
+            MenuRootView(controller: controller)
+                .background(.regularMaterial),
+            size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
+            to: url
+        )
     }
 
     @MainActor
