@@ -139,10 +139,12 @@ final class DashboardController: ObservableObject {
     @Published private(set) var isRefreshingSources = false
     @Published private(set) var sourceErrorMessage: String?
     @Published private(set) var startsAtLogin: Bool
+    @Published private(set) var authMethod: GitHubAuthMethod = .oauth
 
     var openSettingsWindow: (() -> Void)?
 
     private let tokenStore: TokenStore
+    private let oauthSignIn: GitHubOAuthSigningIn
     private let automaticRefreshIntervalOverride: TimeInterval?
     private let launchConfiguration: LaunchConfiguration
     private var preferencesStore: PreferencesStore
@@ -159,9 +161,11 @@ final class DashboardController: ObservableObject {
         launchAtLoginService: LaunchAtLoginServicing? = nil,
         launchConfiguration: LaunchConfiguration = LaunchConfiguration.current(),
         notificationClient: NotificationPosting? = nil,
-        automaticRefreshInterval: TimeInterval? = nil
+        automaticRefreshInterval: TimeInterval? = nil,
+        oauthSignIn: GitHubOAuthSigningIn? = nil
     ) {
         self.tokenStore = tokenStore
+        self.oauthSignIn = oauthSignIn ?? BrowserGitHubOAuthSignIn(tokenStore: tokenStore)
         self.preferencesStore = preferencesStore
         self.launchConfiguration = launchConfiguration
         self.launchAtLoginService = launchAtLoginService
@@ -347,9 +351,31 @@ final class DashboardController: ObservableObject {
         do {
             let client = GitHubClient(token: trimmed)
             let viewer = try await client.fetchViewer()
-            try tokenStore.store(trimmed)
+            try tokenStore.clearOAuthTokens()
+            try tokenStore.storePAT(trimmed)
             account = viewer
-            configureGitHubSource(token: trimmed, account: viewer)
+            configureGitHubSource(tokenProvider: { trimmed }, account: viewer, authMethod: .pat)
+            await fetchSourceCatalog()
+            await sync()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func signInWithGitHub() async {
+        errorMessage = nil
+
+        do {
+            _ = try await oauthSignIn.signIn()
+            try tokenStore.clearPAT()
+            let client = makeOAuthGitHubClient()
+            let viewer = try await client.fetchViewer()
+            account = viewer
+            configureGitHubSource(
+                tokenProvider: makeOAuthAccessTokenProvider(),
+                account: viewer,
+                authMethod: .oauth
+            )
             await fetchSourceCatalog()
             await sync()
         } catch {
@@ -364,6 +390,7 @@ final class DashboardController: ObservableObject {
             errorMessage = error.localizedDescription
         }
         account = nil
+        authMethod = .oauth
         sourceCatalogProvider = nil
         sourceCatalog = .empty
         sourceErrorMessage = nil
@@ -431,30 +458,8 @@ final class DashboardController: ObservableObject {
         }
 
         do {
-            if let token = try tokenStore.load() {
-                let client = GitHubClient(token: token)
-                sourceCatalogProvider = client
-                syncEngine = SyncEngine(
-                    source: client,
-                    preferences: preferences,
-                    loginProvider: { [weak self] in
-                        if let login = self?.account?.login {
-                            return login
-                        }
-                        let viewer = try await client.fetchViewer()
-                        await MainActor.run {
-                            self?.account = viewer
-                        }
-                        return viewer.login
-                    },
-                    accountProvider: { [weak self] in self?.account },
-                    authStatusProvider: { .signedIn },
-                    sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
-                )
-                Task {
-                    await sync()
-                    await fetchSourceCatalog()
-                }
+            if try tokenStore.loadOAuthTokens() != nil {
+                configureStoredOAuthSource()
             } else {
                 configureSignedOutSource()
                 refresh()
@@ -466,20 +471,65 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    private func configureGitHubSource(token: String, account: GitHubAccount) {
-        let client = GitHubClient(token: token)
+    private func configureStoredOAuthSource() {
+        configureStoredGitHubSource(client: makeOAuthGitHubClient(), authMethod: .oauth)
+    }
+
+    private func configureStoredGitHubSource(client: GitHubClient, authMethod: GitHubAuthMethod) {
+        configureGitHubSource(
+            client: client,
+            authMethod: authMethod,
+            loginProvider: { [weak self] in
+                if let login = self?.account?.login {
+                    return login
+                }
+                let viewer = try await client.fetchViewer()
+                await MainActor.run {
+                    self?.account = viewer
+                }
+                return viewer.login
+            },
+            accountProvider: { [weak self] in self?.account }
+        )
+        Task {
+            await sync()
+            await fetchSourceCatalog()
+        }
+    }
+
+    private func configureGitHubSource(
+        tokenProvider: @escaping @Sendable () async throws -> String,
+        account: GitHubAccount,
+        authMethod: GitHubAuthMethod
+    ) {
+        configureGitHubSource(
+            client: GitHubClient(tokenProvider: tokenProvider),
+            authMethod: authMethod,
+            loginProvider: { account.login },
+            accountProvider: { account }
+        )
+    }
+
+    private func configureGitHubSource(
+        client: GitHubClient,
+        authMethod: GitHubAuthMethod,
+        loginProvider: @escaping () async throws -> String,
+        accountProvider: @escaping () async throws -> GitHubAccount?
+    ) {
         sourceCatalogProvider = client
+        self.authMethod = authMethod
         syncEngine = SyncEngine(
             source: client,
             preferences: preferences,
-            loginProvider: { account.login },
-            accountProvider: { account },
+            loginProvider: loginProvider,
+            accountProvider: accountProvider,
             authStatusProvider: { .signedIn },
             sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
         )
     }
 
     private func configureSignedOutSource() {
+        authMethod = .oauth
         sourceCatalog = .empty
         sourceCatalogProvider = nil
         let source = EmptyPullRequestSource()
@@ -496,6 +546,7 @@ final class DashboardController: ObservableObject {
     private func configureMockSource() {
         let account = GitHubAccount(login: "agent-fixture")
         self.account = account
+        authMethod = .oauth
         let source = MockPullRequestSource()
         sourceCatalogProvider = source
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
@@ -507,6 +558,24 @@ final class DashboardController: ObservableObject {
             authStatusProvider: { .signedIn },
             sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
         )
+    }
+
+    private func makeOAuthGitHubClient() -> GitHubClient {
+        GitHubClient(tokenProvider: makeOAuthAccessTokenProvider())
+    }
+
+    private func makeOAuthAccessTokenProvider() -> @Sendable () async throws -> String {
+        let tokenStore = tokenStore
+        let refresher = OAuthTokenRefresher(
+            tokenStore: tokenStore,
+            defaultCredentials: MergeHawkAuthDefaults.clientCredentials
+        )
+        return {
+            guard let tokens = try await refresher.refreshIfNeeded(host: MergeHawkAuthDefaults.githubHost) else {
+                throw GitHubOAuthError.missingStoredCredentials
+            }
+            return tokens.accessToken
+        }
     }
 
     private func fetchSourceCatalog() async {
@@ -523,7 +592,11 @@ final class DashboardController: ObservableObject {
                 accountLogin: account?.login ?? state.account?.login
             )
         } catch {
-            sourceErrorMessage = error.localizedDescription
+            if isAuthenticationFailure(error) {
+                handleAuthenticationFailure(error)
+            } else {
+                sourceErrorMessage = error.localizedDescription
+            }
         }
         isRefreshingSources = false
     }
@@ -544,9 +617,42 @@ final class DashboardController: ObservableObject {
                 notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if isAuthenticationFailure(error) {
+                handleAuthenticationFailure(error)
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
         isRefreshing = false
+    }
+
+    private func isAuthenticationFailure(_ error: Error) -> Bool {
+        if let error = error as? GitHubClientError {
+            switch error {
+            case .authRefreshFailed:
+                return true
+            case .httpFailure, .graphQLErrors:
+                break
+            }
+        }
+        if let error = error as? GitHubOAuthError {
+            switch error {
+            case .missingStoredCredentials:
+                return true
+            case .missingClientCredentials:
+                break
+            }
+        }
+        return false
+    }
+
+    private func handleAuthenticationFailure(_ error: Error) {
+        try? tokenStore.clearOAuthTokens()
+        account = nil
+        sourceCatalog = .empty
+        sourceErrorMessage = nil
+        configureSignedOutSource()
+        errorMessage = error.localizedDescription
     }
 
     private func startAutomaticRefresh() {

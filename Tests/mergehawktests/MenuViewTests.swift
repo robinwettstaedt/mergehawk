@@ -18,13 +18,9 @@ import mergehawkcore
     precondition(PullRequestLinkCopyButton.clipboardString(for: prURL) == "https://github.com/acme/mergehawk/pull/12")
     precondition(CommentCountIndicator.label(for: 3) == "3 comments")
     precondition(CommentCountIndicator.label(for: 1) == "1 comment")
-    precondition(GitHubTokenSignInView.Copy.title == "Connect GitHub")
-    precondition(GitHubTokenSignInView.Copy.fieldPrompt == "github_pat_...")
-
-    let pasteboard = NSPasteboard(name: NSPasteboard.Name("mergehawk-menu-view-test"))
-    pasteboard.clearContents()
-    pasteboard.setString("  github_pat_test  ", forType: .string)
-    precondition(GitHubTokenSignInView.tokenString(from: pasteboard) == "github_pat_test")
+    precondition(GitHubSignInView.Copy.title == "Connect GitHub")
+    precondition(GitHubSignInView.Copy.buttonTitle == "Sign in with GitHub")
+    precondition(GitHubSignInView.Copy.permissionText.contains("only reads GitHub data"))
 
     var dropdownState = PullRequestMenuDropdownState()
     precondition(dropdownState.openMenu == nil)

@@ -101,7 +101,7 @@ struct MenuRootView: View {
     @ViewBuilder
     private var content: some View {
         if controller.state.authStatus == .signedOut {
-            GitHubTokenSignInView(controller: controller)
+            GitHubSignInView(controller: controller)
         } else {
             switch controller.selectedTab {
             case .notifications:
@@ -179,17 +179,14 @@ private struct NotificationListView: View {
     }
 }
 
-struct GitHubTokenSignInView: View {
+struct GitHubSignInView: View {
     enum Copy {
         static let title = "Connect GitHub"
-        static let fieldPrompt = "github_pat_..."
-        static let buttonTitle = "Connect"
-        static let pasteHelp = "Paste token"
+        static let buttonTitle = "Sign in with GitHub"
+        static let permissionText = "MergeHawk requests GitHub OAuth access for PRs and notifications. It only reads GitHub data."
     }
 
     @ObservedObject var controller: DashboardController
-    @State private var token = ""
-    @FocusState private var tokenFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -198,32 +195,10 @@ struct GitHubTokenSignInView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(Self.Copy.title)
                     .font(.headline)
-                Text("Paste a fine-grained personal access token to start syncing pull requests.")
+                Text(Self.Copy.permissionText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 8) {
-                SecureField(Self.Copy.fieldPrompt, text: $token)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($tokenFieldFocused)
-                    .onSubmit {
-                        connect()
-                    }
-
-                Button {
-                    pasteToken()
-                } label: {
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(Self.Copy.pasteHelp)
-                .accessibilityLabel(Self.Copy.pasteHelp)
-                .keyboardShortcut("v", modifiers: .command)
             }
 
             HStack(spacing: 10) {
@@ -231,7 +206,7 @@ struct GitHubTokenSignInView: View {
                     connect()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || controller.isRefreshing)
+                .disabled(controller.isRefreshing)
 
                 if controller.isRefreshing {
                     ProgressView()
@@ -250,30 +225,12 @@ struct GitHubTokenSignInView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                tokenFieldFocused = true
-            }
-        }
     }
 
     private func connect() {
         Task {
-            await controller.signInWithToken(token)
-            if controller.state.authStatus == .signedIn {
-                token = ""
-            }
+            await controller.signInWithGitHub()
         }
-    }
-
-    private func pasteToken() {
-        token = Self.tokenString(from: NSPasteboard.general) ?? token
-        tokenFieldFocused = true
-    }
-
-    static func tokenString(from pasteboard: NSPasteboard) -> String? {
-        pasteboard.string(forType: .string)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

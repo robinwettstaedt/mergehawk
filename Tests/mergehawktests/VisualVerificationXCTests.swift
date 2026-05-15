@@ -38,6 +38,21 @@ final class VisualVerificationXCTests: XCTestCase {
         }
 
         try await MainActor.run {
+            let signedOutController = DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+            try renderMenu(
+                controller: signedOutController,
+                to: outputURL.appendingPathComponent("menu-signed-out.png")
+            )
+            try render(
+                SettingsRootView(controller: signedOutController, selection: .github),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-github-signed-out.png")
+            )
+
             controller.selectedTab = .notifications
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications.png"))
 

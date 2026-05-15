@@ -162,6 +162,7 @@ private struct GeneralSettingsView: View {
 private struct GitHubSettingsView: View {
     @ObservedObject var controller: DashboardController
     @State private var token = ""
+    @State private var showsTokenFallback = false
     @FocusState private var tokenFieldFocused: Bool
 
     var body: some View {
@@ -172,32 +173,58 @@ private struct GitHubSettingsView: View {
                         .font(.headline)
                     Text(controller.accountLabel)
                         .foregroundStyle(.secondary)
+                    Text(controller.authMethod.rawValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Button("Sign Out", role: .destructive) {
                     controller.signOut()
                 }
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Personal access token")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("GitHub OAuth")
                         .font(.headline)
-                    SecureField("github_pat_...", text: $token)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($tokenFieldFocused)
-                        .onSubmit {
-                            connect()
-                        }
-                    Text("Fine-grained PATs need read access for metadata, pull requests, issues, and actions on the repositories MergeHawk monitors.")
+                    Text("Sign in through GitHub.com. MergeHawk requests broad OAuth repository access so it can read private PRs, but the app only performs read API calls.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    HStack {
+                        Button {
+                            connectWithGitHub()
+                        } label: {
+                            Text("Sign in with GitHub")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .frame(height: 28)
+                                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(controller.isRefreshing)
+                        Spacer()
+                    }
                 }
 
-                HStack {
-                    Button("Connect") {
-                        connect()
+                DisclosureGroup("Use personal access token", isExpanded: $showsTokenFallback) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SecureField("github_pat_...", text: $token)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($tokenFieldFocused)
+                            .onSubmit {
+                                connectWithToken()
+                            }
+                        Text("Advanced fallback for restricted workplaces or debugging. Fine-grained PATs need read access for metadata, pull requests, issues, and actions on the repositories MergeHawk monitors.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Connect with token") {
+                            connectWithToken()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Spacer()
+                    .padding(.top, 8)
                 }
             }
 
@@ -212,7 +239,7 @@ private struct GitHubSettingsView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            if controller.state.authStatus != .signedIn {
+            if controller.state.authStatus != .signedIn, showsTokenFallback {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     tokenFieldFocused = true
                 }
@@ -220,7 +247,13 @@ private struct GitHubSettingsView: View {
         }
     }
 
-    private func connect() {
+    private func connectWithGitHub() {
+        Task {
+            await controller.signInWithGitHub()
+        }
+    }
+
+    private func connectWithToken() {
         Task {
             await controller.signInWithToken(token)
             if controller.state.authStatus == .signedIn {
