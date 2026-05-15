@@ -47,16 +47,19 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
 
-            controller.reviewRequestFilterOption = .team
+            controller.selectedReviewRequestFilters = [.team]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-team.png"))
 
-            controller.reviewRequestFilterOption = .all
+            controller.selectedReviewRequestFilters = []
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-all.png"))
 
-            controller.reviewRequestFilterOption = .draft
+            controller.selectedReviewRequestFilters = [.direct, .team]
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-multiple.png"))
+
+            controller.selectedReviewRequestFilters = [.draft]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-draft.png"))
 
-            controller.reviewRequestFilterOption = .ready
+            controller.selectedReviewRequestFilters = [.ready]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-ready.png"))
 
             try render(

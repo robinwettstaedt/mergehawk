@@ -85,34 +85,78 @@ struct PreferencesStore {
         }
     }
 
-    var pullRequestFilterOption: DashboardController.PullRequestFilterOption {
+    var selectedPullRequestFilters: Set<DashboardController.PullRequestFilterOption> {
         get {
-            guard
-                let rawValue = defaults.string(forKey: "pullRequests.filterOption"),
-                let option = DashboardController.PullRequestFilterOption(rawValue: rawValue)
-            else {
-                return .all
+            if defaults.object(forKey: "pullRequests.filterOptions") != nil {
+                return pullRequestFilters(from: defaults.stringArray(forKey: "pullRequests.filterOptions") ?? [])
             }
-            return option
+            return migratedPullRequestFilters()
         }
         set {
-            defaults.set(newValue.rawValue, forKey: "pullRequests.filterOption")
+            defaults.set(
+                orderedRawValues(from: newValue, options: DashboardController.PullRequestFilterOption.allCases),
+                forKey: "pullRequests.filterOptions"
+            )
         }
     }
 
-    var reviewRequestFilterOption: DashboardController.ReviewRequestFilterOption {
+    var selectedReviewRequestFilters: Set<DashboardController.ReviewRequestFilterOption> {
         get {
-            guard
-                let rawValue = defaults.string(forKey: "reviewRequests.filterOption"),
-                let option = DashboardController.ReviewRequestFilterOption(rawValue: rawValue)
-            else {
-                return .direct
+            if defaults.object(forKey: "reviewRequests.filterOptions") != nil {
+                return reviewRequestFilters(from: defaults.stringArray(forKey: "reviewRequests.filterOptions") ?? [])
             }
-            return option
+            return migratedReviewRequestFilters()
         }
         set {
-            defaults.set(newValue.rawValue, forKey: "reviewRequests.filterOption")
+            defaults.set(
+                orderedRawValues(from: newValue, options: DashboardController.ReviewRequestFilterOption.allCases),
+                forKey: "reviewRequests.filterOptions"
+            )
         }
+    }
+
+    private func migratedPullRequestFilters() -> Set<DashboardController.PullRequestFilterOption> {
+        guard
+            let rawValue = defaults.string(forKey: "pullRequests.filterOption"),
+            let option = DashboardController.PullRequestFilterOption(rawValue: rawValue),
+            option != .all
+        else {
+            return []
+        }
+        return [option]
+    }
+
+    private func migratedReviewRequestFilters() -> Set<DashboardController.ReviewRequestFilterOption> {
+        guard
+            let rawValue = defaults.string(forKey: "reviewRequests.filterOption"),
+            let option = DashboardController.ReviewRequestFilterOption(rawValue: rawValue),
+            option != .all
+        else {
+            return []
+        }
+        return [option]
+    }
+
+    private func pullRequestFilters(
+        from rawValues: [String]
+    ) -> Set<DashboardController.PullRequestFilterOption> {
+        Set(rawValues.compactMap(DashboardController.PullRequestFilterOption.init(rawValue:))).subtracting([.all])
+    }
+
+    private func reviewRequestFilters(
+        from rawValues: [String]
+    ) -> Set<DashboardController.ReviewRequestFilterOption> {
+        Set(rawValues.compactMap(DashboardController.ReviewRequestFilterOption.init(rawValue:))).subtracting([.all])
+    }
+
+    private func orderedRawValues<Option: RawRepresentable & Equatable & Hashable>(
+        from selectedOptions: Set<Option>,
+        options: [Option]
+    ) -> [String] where Option.RawValue == String {
+        options
+            .filter { selectedOptions.contains($0) }
+            .filter { $0.rawValue != "all" }
+            .map(\.rawValue)
     }
 
     private func value(for key: String, fallback: Bool) -> Bool {
