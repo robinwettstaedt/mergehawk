@@ -93,7 +93,6 @@ struct MenuRootView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .keyboardShortcut("r", modifiers: .command)
             .help("Refresh")
             .accessibilityLabel("Refresh")
         }

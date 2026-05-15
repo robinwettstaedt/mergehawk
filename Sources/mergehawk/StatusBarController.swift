@@ -6,6 +6,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = StatusBarMenu()
     private let controller: DashboardController
+    private weak var refreshMenuItemView: RefreshMenuItemView?
     private var observation: NSKeyValueObservation?
 
     init(controller: DashboardController) {
@@ -14,7 +15,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         super.init()
         menu.delegate = self
         menu.refreshKeyHandler = { [weak self] in
-            self?.controller.refresh()
+            self?.performKeyboardRefresh()
         }
         statusItem.menu = menu
         updateStatusButton()
@@ -33,6 +34,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.performKeyEquivalent(with: event)
     }
 
+    func refreshMenuItemIsSelectedForTesting() -> Bool {
+        refreshMenuItemView?.isSelectedForTesting == true
+    }
+
     func updateStatusButton() {
         guard let button = statusItem.button else {
             return
@@ -46,7 +51,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         updateStatusButton()
         menu.removeAllItems()
 
-        let hostingView = MenuRootHostingView(controller: controller)
+        let hostingView = MenuRootHostingView(controller: controller) { [weak self] in
+            self?.performKeyboardRefresh()
+        }
         hostingView.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
 
         let item = NSMenuItem()
@@ -66,6 +73,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let view = RefreshMenuItemView(target: self, action: #selector(refresh))
         view.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: FooterActionLayout.rowHeight)
         item.view = view
+        refreshMenuItemView = view
         return item
     }
 
@@ -92,6 +100,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         controller.refresh()
     }
 
+    private func performKeyboardRefresh() {
+        refreshMenuItemView?.showKeyboardSelection()
+        controller.refresh()
+    }
+
     @objc private func showSettings() {
         controller.showSettings()
     }
@@ -108,9 +121,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
 private final class MenuRootHostingView: NSHostingView<MenuRootView> {
     private let controller: DashboardController
+    private let refreshKeyHandler: () -> Void
 
-    init(controller: DashboardController) {
+    init(controller: DashboardController, refreshKeyHandler: @escaping () -> Void) {
         self.controller = controller
+        self.refreshKeyHandler = refreshKeyHandler
         super.init(rootView: MenuRootView(controller: controller))
     }
 
@@ -143,7 +158,7 @@ private final class MenuRootHostingView: NSHostingView<MenuRootView> {
             super.keyDown(with: event)
             return
         }
-        controller.refresh()
+        refreshKeyHandler()
     }
 }
 
@@ -173,6 +188,7 @@ private enum FooterActionLayout {
     static let titleLeading: CGFloat = 14
     static let shortcutTrailing: CGFloat = 20
     static let shortcutWidthPadding: CGFloat = 8
+    static let keyboardSelectionDuration: TimeInterval = 0.2
 }
 
 func isRefreshKeyEvent(_ event: NSEvent) -> Bool {
@@ -185,13 +201,15 @@ private final class RefreshMenuItemView: NSControl {
     private let shortcutField = NSTextField(labelWithString: "⌘R")
     private var isHovering = false {
         didSet {
-            guard oldValue != isHovering else {
-                return
-            }
-            updateColors()
-            needsDisplay = true
+            updateSelectionAppearance(from: oldValue, to: isHovering)
         }
     }
+    private var isKeyboardSelecting = false {
+        didSet {
+            updateSelectionAppearance(from: oldValue, to: isKeyboardSelecting)
+        }
+    }
+    private var keyboardSelectionResetWorkItem: DispatchWorkItem?
 
     init(target: AnyObject, action: Selector) {
         super.init(frame: .zero)
@@ -231,9 +249,22 @@ private final class RefreshMenuItemView: NSControl {
         sendAction(action, to: target)
     }
 
+    func showKeyboardSelection() {
+        keyboardSelectionResetWorkItem?.cancel()
+        isKeyboardSelecting = true
+        let resetWorkItem = DispatchWorkItem { [weak self] in
+            self?.isKeyboardSelecting = false
+        }
+        keyboardSelectionResetWorkItem = resetWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + FooterActionLayout.keyboardSelectionDuration,
+            execute: resetWorkItem
+        )
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard isHovering else {
+        guard isSelected else {
             return
         }
         NSColor.selectedContentBackgroundColor.setFill()
@@ -277,8 +308,24 @@ private final class RefreshMenuItemView: NSControl {
     }
 
     private func updateColors() {
-        titleField.textColor = isHovering ? .selectedMenuItemTextColor : .labelColor
-        shortcutField.textColor = isHovering ? .selectedMenuItemTextColor : .tertiaryLabelColor
+        titleField.textColor = isSelected ? .selectedMenuItemTextColor : .labelColor
+        shortcutField.textColor = isSelected ? .selectedMenuItemTextColor : .tertiaryLabelColor
+    }
+
+    private var isSelected: Bool {
+        isHovering || isKeyboardSelecting
+    }
+
+    var isSelectedForTesting: Bool {
+        isSelected
+    }
+
+    private func updateSelectionAppearance(from oldValue: Bool, to newValue: Bool) {
+        guard oldValue != newValue else {
+            return
+        }
+        updateColors()
+        needsDisplay = true
     }
 }
 
