@@ -186,9 +186,10 @@ private enum FooterActionLayout {
     static let selectionInsetY: CGFloat = 1
     static let selectionCornerRadius: CGFloat = 5
     static let titleLeading: CGFloat = 14
+    static let titleWidthPadding: CGFloat = 4
     static let shortcutTrailing: CGFloat = 20
     static let shortcutWidthPadding: CGFloat = 8
-    static let keyboardSelectionDuration: TimeInterval = 0.2
+    static let keyboardSelectionDuration: TimeInterval = 0.1
 }
 
 func isRefreshKeyEvent(_ event: NSEvent) -> Bool {
@@ -279,11 +280,12 @@ private final class RefreshMenuItemView: NSControl {
         super.layout()
         let titleSize = titleField.intrinsicContentSize
         let shortcutSize = shortcutField.intrinsicContentSize
+        let titleWidth = titleSize.width + FooterActionLayout.titleWidthPadding
         let shortcutWidth = shortcutSize.width + FooterActionLayout.shortcutWidthPadding
         titleField.frame = NSRect(
             x: FooterActionLayout.titleLeading,
             y: (bounds.height - titleSize.height) / 2,
-            width: min(titleSize.width, bounds.width - FooterActionLayout.titleLeading - FooterActionLayout.shortcutTrailing - shortcutWidth),
+            width: min(titleWidth, bounds.width - FooterActionLayout.titleLeading - FooterActionLayout.shortcutTrailing - shortcutWidth),
             height: titleSize.height
         )
         shortcutField.frame = NSRect(
