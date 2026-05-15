@@ -18,9 +18,14 @@ public struct OAuthTokenRefresher {
     }
 
     public func refreshIfNeeded(host: URL, force: Bool = false) async throws -> OAuthTokens? {
-        guard var tokens = try tokenStore.loadOAuthTokens() else {
+        guard let tokens = try tokenStore.loadOAuthTokens() else {
             return nil
         }
+        return try await refreshIfNeeded(tokens: tokens, host: host, force: force)
+    }
+
+    public func refreshIfNeeded(tokens storedTokens: OAuthTokens, host: URL, force: Bool = false) async throws -> OAuthTokens {
+        var tokens = storedTokens
         if tokens.refreshToken.isEmpty {
             return tokens
         }

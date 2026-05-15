@@ -37,6 +37,21 @@ struct PreferencesStore {
         }
     }
 
+    var authMethod: GitHubAuthMethod {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "auth.method"),
+                let method = GitHubAuthMethod(rawValue: rawValue)
+            else {
+                return .oauth
+            }
+            return method
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "auth.method")
+        }
+    }
+
     var sourcePreferences: SourcePreferences {
         get {
             decoded(for: "sources.preferences", fallback: .defaults)

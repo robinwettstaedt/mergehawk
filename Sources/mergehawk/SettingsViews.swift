@@ -173,7 +173,7 @@ private struct GitHubSettingsView: View {
                         .font(.headline)
                     Text(controller.accountLabel)
                         .foregroundStyle(.secondary)
-                    Text(controller.authMethod.rawValue)
+                    Text(controller.authMethod.label)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -206,7 +206,7 @@ private struct GitHubSettingsView: View {
                     }
                 }
 
-                DisclosureGroup("Use personal access token", isExpanded: $showsTokenFallback) {
+                DisclosureGroup(isExpanded: $showsTokenFallback) {
                     VStack(alignment: .leading, spacing: 8) {
                         SecureField("github_pat_...", text: $token)
                             .textFieldStyle(.roundedBorder)
@@ -225,6 +225,17 @@ private struct GitHubSettingsView: View {
                         .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     .padding(.top, 8)
+                } label: {
+                    Button {
+                        showsTokenFallback.toggle()
+                    } label: {
+                        Text("Use personal access token")
+                            .font(.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Use personal access token")
                 }
             }
 

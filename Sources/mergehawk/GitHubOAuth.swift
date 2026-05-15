@@ -3,8 +3,17 @@ import Foundation
 import mergehawkcore
 
 enum GitHubAuthMethod: String {
-    case oauth = "GitHub OAuth"
-    case pat = "Personal access token"
+    case oauth
+    case pat
+
+    var label: String {
+        switch self {
+        case .oauth:
+            "GitHub OAuth"
+        case .pat:
+            "Personal access token"
+        }
+    }
 }
 
 enum MergeHawkAuthDefaults {
@@ -47,6 +56,61 @@ struct BrowserGitHubOAuthSignIn: GitHubOAuthSigningIn {
             loopbackPort: MergeHawkAuthDefaults.loopbackPort,
             scope: MergeHawkAuthDefaults.scope
         )
+    }
+}
+
+@MainActor
+final class OAuthAccessTokenCache {
+    private let tokenStore: TokenStore
+    private let refresher: OAuthTokenRefresher
+    private let host: URL
+    private var cachedTokens: OAuthTokens?
+    private var loadedStoredTokens = false
+
+    init(
+        tokenStore: TokenStore,
+        credentials: OAuthClientCredentials = MergeHawkAuthDefaults.clientCredentials,
+        host: URL = MergeHawkAuthDefaults.githubHost
+    ) {
+        self.tokenStore = tokenStore
+        self.refresher = OAuthTokenRefresher(
+            tokenStore: tokenStore,
+            defaultCredentials: credentials
+        )
+        self.host = host
+    }
+
+    func store(_ tokens: OAuthTokens) {
+        cachedTokens = tokens
+        loadedStoredTokens = true
+    }
+
+    func clear() {
+        cachedTokens = nil
+        loadedStoredTokens = false
+    }
+
+    func accessToken() async throws -> String {
+        let tokens = try loadTokensIfNeeded()
+        let refreshedTokens = try await refresher.refreshIfNeeded(tokens: tokens, host: host)
+        cachedTokens = refreshedTokens
+        loadedStoredTokens = true
+        return refreshedTokens.accessToken
+    }
+
+    private func loadTokensIfNeeded() throws -> OAuthTokens {
+        if let cachedTokens {
+            return cachedTokens
+        }
+        guard !loadedStoredTokens else {
+            throw GitHubOAuthError.missingStoredCredentials
+        }
+        loadedStoredTokens = true
+        guard let tokens = try tokenStore.loadOAuthTokens() else {
+            throw GitHubOAuthError.missingStoredCredentials
+        }
+        cachedTokens = tokens
+        return tokens
     }
 }
 
