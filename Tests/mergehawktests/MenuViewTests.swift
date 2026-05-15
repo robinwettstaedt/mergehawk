@@ -35,6 +35,37 @@ import mergehawkcore
     dropdownState.dismiss()
     precondition(dropdownState.openMenu == nil)
 
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        automaticRefreshInterval: 0
+    )
+    let statusBarController = StatusBarController(controller: controller)
+    let statusMenuItems = statusBarController.rebuildMenuForTesting()
+    precondition(statusMenuItems.count == 6)
+    precondition(statusMenuItems[0].view != nil)
+    precondition(statusMenuItems[1].view != nil)
+    precondition(statusMenuItems[1].isSeparatorItem == false)
+    precondition(statusMenuItems[2].title == "Refresh")
+    precondition(statusMenuItems[2].keyEquivalent == "")
+    precondition(statusMenuItems[2].action == NSSelectorFromString("refresh"))
+    precondition(statusMenuItems[2].target as AnyObject? === statusBarController)
+    precondition(statusMenuItems[2].view != nil)
+    precondition(statusMenuItems[3].title == "Settings")
+    precondition(statusMenuItems[3].keyEquivalent == ",")
+    precondition(statusMenuItems[4].title == "About MergeHawk")
+    precondition(statusMenuItems[4].isSeparatorItem == false)
+    precondition(statusMenuItems[5].title == "Quit")
+    precondition(statusMenuItems[5].keyEquivalent == "q")
+    precondition(statusMenuItems.dropFirst(2).contains(where: \.isSeparatorItem) == false)
+
+    precondition(isRefreshKeyEvent(keyEvent(characters: "r", modifiers: .command)))
+    precondition(isRefreshKeyEvent(keyEvent(characters: "R", modifiers: .command)))
+    precondition(!isRefreshKeyEvent(keyEvent(characters: "r", modifiers: [])))
+    precondition(!isRefreshKeyEvent(keyEvent(characters: "q", modifiers: .command)))
+    precondition(!isRefreshKeyEvent(keyEvent(characters: "r", modifiers: [.command, .shift])))
+    precondition(statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: .command)))
+    precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: [])))
+
     let older = PullRequest(
         id: "older",
         title: "Older PR",
@@ -172,3 +203,18 @@ import mergehawkcore
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: .draft).map(\.id) == ["draft-direct"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: .ready).map(\.id) == ["direct", "team", "direct-team"])
 }()
+
+private func keyEvent(characters: String, modifiers: NSEvent.ModifierFlags) -> NSEvent {
+    NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifiers,
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: characters,
+        isARepeat: false,
+        keyCode: 0
+    )!
+}

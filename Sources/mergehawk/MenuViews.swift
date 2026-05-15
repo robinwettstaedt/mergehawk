@@ -36,7 +36,6 @@ struct MenuRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: Self.Layout.width, height: Self.Layout.height)
-        .background(.regularMaterial)
     }
 
     private var topBar: some View {
@@ -94,6 +93,7 @@ struct MenuRootView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .keyboardShortcut("r", modifiers: .command)
             .help("Refresh")
             .accessibilityLabel("Refresh")
         }
