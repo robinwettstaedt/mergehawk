@@ -184,7 +184,13 @@ private struct GitHubSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("GitHub OAuth")
                         .font(.headline)
-                    Text("Sign in through GitHub.com. MergeHawk requests broad OAuth repository access so it can read private PRs, but the app only performs read API calls.")
+                    (
+                        Text("Sign in through GitHub.com. MergeHawk requests broad OAuth repository access so it can read private PRs, but the app only performs ")
+                        + Text("read")
+                            .bold()
+                            .underline()
+                        + Text(" API calls.")
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -208,16 +214,42 @@ private struct GitHubSettingsView: View {
 
                 DisclosureGroup(isExpanded: $showsTokenFallback) {
                     VStack(alignment: .leading, spacing: 8) {
-                        SecureField("github_pat_...", text: $token)
+                        SecureField("github_pat_... or ghp_...", text: $token)
                             .textFieldStyle(.roundedBorder)
                             .focused($tokenFieldFocused)
                             .onSubmit {
                                 connectWithToken()
                             }
-                        Text("Advanced fallback for restricted workplaces or debugging. Fine-grained PATs need read access for metadata, pull requests, issues, and actions on the repositories MergeHawk monitors.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Advanced fallback for restricted workplaces or debugging.")
+                            (
+                                Text("MergeHawk only ever needs ")
+                                + Text("read access")
+                                    .bold()
+                                    .underline()
+                                + Text(" to your GitHub data.")
+                            )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Classic PAT:")
+                                Text("• Select repo")
+                                Text("• Select read:user")
+                                Text("• Select read:org")
+                            }
+                            .padding(.top, 4)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Fine-grained PAT:")
+                                Text("• Repository access for the repos MergeHawk monitors")
+                                Text("• Metadata: Read-only")
+                                Text("• Pull requests: Read-only")
+                                Text("• Issues: Read-only")
+                                Text("• Commit statuses: Read-only")
+                                Text("• Checks: Read-only")
+                            }
+                            .padding(.top, 4)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                         Button("Connect with token") {
                             connectWithToken()
                         }
@@ -229,14 +261,15 @@ private struct GitHubSettingsView: View {
                     Button {
                         showsTokenFallback.toggle()
                     } label: {
-                        Text("Use personal access token")
+                        Text("Use personal access token instead")
                             .font(.body)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Use personal access token")
+                    .accessibilityLabel("Use personal access token instead")
                 }
+                .padding(.top, 6)
             }
 
             if let error = controller.errorMessage {
