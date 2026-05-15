@@ -191,8 +191,9 @@ private enum FooterActionLayout {
     static let selectionCornerRadius: CGFloat = 5
     static let titleLeading: CGFloat = 14
     static let titleWidthPadding: CGFloat = 4
-    static let shortcutTrailing: CGFloat = 20
+    static let shortcutTrailing: CGFloat = 9
     static let shortcutWidthPadding: CGFloat = 8
+    static let shortcutKern: CGFloat = 2
     static let keyboardSelectionDuration: TimeInterval = 0.1
 }
 
@@ -337,7 +338,15 @@ private final class RefreshMenuItemView: NSControl {
 
     private func updateColors() {
         titleField.textColor = isSelected ? .selectedMenuItemTextColor : .labelColor
-        shortcutField.textColor = isSelected ? .selectedMenuItemTextColor : .tertiaryLabelColor
+        let shortcutColor: NSColor = isSelected ? .selectedMenuItemTextColor : .tertiaryLabelColor
+        shortcutField.attributedStringValue = NSAttributedString(
+            string: shortcutField.stringValue,
+            attributes: [
+                .font: shortcutField.font ?? NSFont.menuFont(ofSize: 0),
+                .foregroundColor: shortcutColor,
+                .kern: FooterActionLayout.shortcutKern
+            ]
+        )
     }
 
     private var isSelected: Bool {
