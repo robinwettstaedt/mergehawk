@@ -67,6 +67,8 @@ import mergehawkcore
     precondition(statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: .command)))
     precondition(statusBarController.refreshMenuItemIsSelectedForTesting())
     precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: [])))
+    precondition(statusBarController.performRefreshMenuItemKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: .command)))
+    precondition(!statusBarController.performRefreshMenuItemKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: [])))
 
     let older = PullRequest(
         id: "older",

@@ -38,6 +38,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         refreshMenuItemView?.isSelectedForTesting == true
     }
 
+    func performRefreshMenuItemKeyEquivalentForTesting(_ event: NSEvent) -> Bool {
+        refreshMenuItemView?.performKeyEquivalent(with: event) == true
+    }
+
     func updateStatusButton() {
         guard let button = statusItem.button else {
             return
@@ -247,7 +251,24 @@ private final class RefreshMenuItemView: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         sendAction(action, to: target)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard isRefreshKeyEvent(event) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        performKeyboardRefresh()
+        return true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isRefreshKeyEvent(event) else {
+            super.keyDown(with: event)
+            return
+        }
+        performKeyboardRefresh()
     }
 
     func showKeyboardSelection() {
@@ -261,6 +282,11 @@ private final class RefreshMenuItemView: NSControl {
             deadline: .now() + FooterActionLayout.keyboardSelectionDuration,
             execute: resetWorkItem
         )
+    }
+
+    private func performKeyboardRefresh() {
+        showKeyboardSelection()
+        sendAction(action, to: target)
     }
 
     override func draw(_ dirtyRect: NSRect) {
