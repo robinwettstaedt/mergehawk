@@ -7,10 +7,29 @@ PROCESS_NAME="${PROCESS_NAME:-${APP_EXECUTABLE_NAME:-mergehawk}}"
 BUNDLE_ID="${BUNDLE_ID:-com.mergehawk.app}"
 APP_PATH="${APP_PATH:-}"
 RESTART="${RESTART:-1}"
+LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}"
 
 cd "$ROOT_DIR"
 
-build_output="$(CONFIGURATION="${CONFIGURATION:-debug}" APP_NAME="$APP_NAME" BUNDLE_ID="$BUNDLE_ID" APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-mergehawk}" LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}" LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}" scripts/build-app-bundle.sh)"
+if [[ -f "$ROOT_DIR/.env.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env.local"
+  set +a
+fi
+
+append_launch_environment() {
+  local key="$1"
+  local value="${!key:-}"
+  if [[ -n "$value" && "$LAUNCH_ENVIRONMENT" != *"$key="* ]]; then
+    LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:+$LAUNCH_ENVIRONMENT }$key=$(printf '%q' "$value")"
+  fi
+}
+
+append_launch_environment "MERGEHAWK_GITHUB_OAUTH_CLIENT_ID"
+append_launch_environment "MERGEHAWK_GITHUB_OAUTH_CLIENT_SECRET"
+
+build_output="$(CONFIGURATION="${CONFIGURATION:-debug}" APP_NAME="$APP_NAME" BUNDLE_ID="$BUNDLE_ID" APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-mergehawk}" LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}" LAUNCH_ENVIRONMENT="$LAUNCH_ENVIRONMENT" scripts/build-app-bundle.sh)"
 printf '%s\n' "$build_output"
 built_app="$(printf '%s\n' "$build_output" | tail -n 1)"
 

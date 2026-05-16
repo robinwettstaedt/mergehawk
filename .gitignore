@@ -7,3 +7,4 @@ dist-renderer
 *.log
 .worktrees/
 .verification/
+.env.local

@@ -272,12 +272,20 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         let isReviewRequestResult: Bool
     }
 
-    private let token: String
+    private let tokenProvider: @Sendable () async throws -> String
     private let session: URLSession
     private let decoder = JSONDecoder()
 
     public init(token: String, session: URLSession = .shared) {
-        self.token = token
+        self.tokenProvider = { token }
+        self.session = session
+    }
+
+    public init(
+        session: URLSession = .shared,
+        tokenProvider: @escaping @Sendable () async throws -> String
+    ) {
+        self.tokenProvider = tokenProvider
         self.session = session
     }
 
@@ -289,7 +297,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         var request = URLRequest(url: URL(string: "https://api.github.com/user")!)
         request.httpMethod = "GET"
         request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
-        request.addValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
         request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
 
         let (data, response) = try await session.data(for: request)
@@ -348,7 +356,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
     private func graphql(query: String, variables: [String: String]) async throws -> Data {
         var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
         request.httpMethod = "POST"
-        request.addValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
         request.addValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try JSONEncoder().encode(GraphQLRequest(query: query, variables: variables))
 
@@ -370,7 +378,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
-        request.addValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
         request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
 
         let (data, response) = try await session.data(for: request)
@@ -385,6 +393,10 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             throw GitHubClientError.httpFailure(endpoint: endpoint, status: status)
         }
+    }
+
+    private func accessToken() async throws -> String {
+        try await tokenProvider()
     }
 
     private static let pullRequestSearchQuery = """
@@ -452,12 +464,19 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
 
 public enum GitHubClientError: Error, LocalizedError {
     case httpFailure(endpoint: String, status: Int)
+    case authRefreshFailed(status: Int, detail: String?)
     case graphQLErrors(String)
 
     public var errorDescription: String? {
         switch self {
         case .httpFailure(let endpoint, let status):
             "\(endpoint) request failed with status \(status)."
+        case .authRefreshFailed(let status, let detail):
+            if let detail, !detail.isEmpty {
+                "Authentication refresh failed (HTTP \(status)). \(detail) Please sign in again."
+            } else {
+                "Authentication refresh failed (HTTP \(status)). Please sign in again."
+            }
         case .graphQLErrors(let message):
             message
         }
