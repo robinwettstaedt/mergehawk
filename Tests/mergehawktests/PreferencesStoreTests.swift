@@ -161,3 +161,20 @@ let mergehawkMacOSLocalNotificationPreferenceTest: Void = {
     store.macOSLocalNotificationsEnabled = false
     precondition(store.macOSLocalNotificationsEnabled == false)
 }()
+
+let mergehawkAuthMethodPreferenceTest: Void = {
+    let suiteName = "mergehawk-auth-method-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    var store = PreferencesStore(defaults: defaults)
+    precondition(store.authMethod == .oauth)
+
+    store.authMethod = .pat
+    precondition(store.authMethod == .pat)
+
+    defaults.set("unsupported", forKey: "auth.method")
+    precondition(store.authMethod == .oauth)
+}()
