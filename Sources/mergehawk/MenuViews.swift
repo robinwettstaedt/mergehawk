@@ -24,6 +24,8 @@ struct MenuRootView: View {
         static let width: CGFloat = 420
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
+        static let tabSwitcherWidth: CGFloat = 324
+        static let tabSegmentWidth: CGFloat = tabSwitcherWidth / CGFloat(DashboardController.MenuTab.allCases.count)
     }
 
     @ObservedObject var controller: DashboardController
@@ -39,58 +41,34 @@ struct MenuRootView: View {
     }
 
     private var topBar: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 0) {
             if controller.state.authStatus == .signedIn {
                 tabSwitcher
             } else {
                 Text("MergeHawk")
                     .font(.headline)
             }
-            Spacer(minLength: 10)
-            VStack(alignment: .trailing, spacing: 3) {
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(controller.hasAttention ? Color.red : Color.green)
-                        .frame(width: 10, height: 10)
-                    if controller.state.authStatus == .signedIn {
-                        refreshControl
-                    }
-                }
-                Text("updated \(syncText)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Spacer(minLength: 0)
+            RefreshStatusControl(
+                indicatorColor: controller.hasAttention ? .red : .green,
+                isRefreshing: controller.isRefreshing,
+                updatedAt: controller.state.syncedAt,
+                action: controller.refresh,
+                isRefreshEnabled: controller.state.authStatus == .signedIn,
+                help: "Refresh",
+                accessibilityLabel: "Refresh",
+                timestampPrefix: "",
+                width: 40
+            )
         }
         .padding(.leading, 8)
-        .padding(.trailing, 14)
+        .padding(.trailing, 8)
         .frame(height: Self.Layout.topBarHeight)
     }
 
     private var tabSwitcher: some View {
         MenuTabSegmentedControl(selection: $controller.selectedTab)
-        .frame(width: 292)
-    }
-
-    @ViewBuilder
-    private var refreshControl: some View {
-        if controller.isRefreshing {
-            ProgressView()
-                .controlSize(.small)
-                .frame(width: 22, height: 22)
-        } else {
-            Button {
-                controller.refresh()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Refresh")
-            .accessibilityLabel("Refresh")
-        }
+        .frame(width: Self.Layout.tabSwitcherWidth)
     }
 
     @ViewBuilder
@@ -115,11 +93,72 @@ struct MenuRootView: View {
         }
     }
 
-    private var syncText: String {
-        guard let syncedAt = controller.state.syncedAt else {
+}
+
+struct RefreshStatusControl: View {
+    enum Layout {
+        static let width: CGFloat = 82
+    }
+
+    let indicatorColor: Color
+    let isRefreshing: Bool
+    let updatedAt: Date?
+    let action: () -> Void
+    let isRefreshEnabled: Bool
+    let help: String
+    let accessibilityLabel: String
+    var keyboardShortcut: KeyboardShortcut?
+    var timestampPrefix = "updated "
+    var width = Layout.width
+
+    var body: some View {
+        VStack(alignment: .center, spacing: 3) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(indicatorColor)
+                    .frame(width: 10, height: 10)
+                refreshControl
+            }
+            Text("\(timestampPrefix)\(updatedText)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .frame(width: width, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var refreshControl: some View {
+        if isRefreshing {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 22, height: 22)
+        } else {
+            let button = Button(action: action) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .disabled(!isRefreshEnabled)
+            .help(help)
+            .accessibilityLabel(accessibilityLabel)
+
+            if let keyboardShortcut {
+                button.keyboardShortcut(keyboardShortcut)
+            } else {
+                button
+            }
+        }
+    }
+
+    private var updatedText: String {
+        guard let updatedAt else {
             return "never"
         }
-        return syncedAt.formatted(date: .omitted, time: .shortened)
+        return updatedAt.formatted(date: .omitted, time: .shortened)
     }
 }
 
@@ -136,6 +175,7 @@ private struct MenuTabSegmentedControl: NSViewRepresentable {
         control.segmentStyle = .rounded
         control.controlSize = .regular
         for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
+            control.setWidth(MenuRootView.Layout.tabSegmentWidth, forSegment: index)
             control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
         }
         return control
@@ -145,6 +185,7 @@ private struct MenuTabSegmentedControl: NSViewRepresentable {
         context.coordinator.selection = $selection
         control.selectedSegment = DashboardController.MenuTab.allCases.firstIndex(of: selection) ?? 0
         for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
+            control.setWidth(MenuRootView.Layout.tabSegmentWidth, forSegment: index)
             control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
         }
     }
