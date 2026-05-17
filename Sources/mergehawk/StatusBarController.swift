@@ -17,6 +17,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.refreshKeyHandler = { [weak self] in
             self?.performKeyboardRefresh()
         }
+        menu.tabShortcutHandler = { [weak self] tab in
+            self?.selectKeyboardTab(tab) == true
+        }
         statusItem.menu = menu
         updateStatusButton()
     }
@@ -55,9 +58,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         updateStatusButton()
         menu.removeAllItems()
 
-        let hostingView = MenuRootHostingView(controller: controller) { [weak self] in
-            self?.performKeyboardRefresh()
-        }
+        let hostingView = MenuRootHostingView(
+            controller: controller,
+            refreshKeyHandler: { [weak self] in
+                self?.performKeyboardRefresh()
+            },
+            tabShortcutHandler: { [weak self] tab in
+                self?.selectKeyboardTab(tab) == true
+            }
+        )
         hostingView.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
 
         let item = NSMenuItem()
@@ -109,6 +118,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         controller.refresh()
     }
 
+    private func selectKeyboardTab(_ tab: DashboardController.MenuTab) -> Bool {
+        guard controller.state.authStatus == .signedIn else {
+            return false
+        }
+        controller.selectedTab = tab
+        return true
+    }
+
     @objc private func showSettings() {
         controller.showSettings()
     }
@@ -128,12 +145,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 }
 
 private final class MenuRootHostingView: NSHostingView<MenuRootView> {
-    private let controller: DashboardController
     private let refreshKeyHandler: () -> Void
+    private let tabShortcutHandler: (DashboardController.MenuTab) -> Bool
 
-    init(controller: DashboardController, refreshKeyHandler: @escaping () -> Void) {
-        self.controller = controller
+    init(
+        controller: DashboardController,
+        refreshKeyHandler: @escaping () -> Void,
+        tabShortcutHandler: @escaping (DashboardController.MenuTab) -> Bool
+    ) {
         self.refreshKeyHandler = refreshKeyHandler
+        self.tabShortcutHandler = tabShortcutHandler
         super.init(rootView: MenuRootView(controller: controller))
     }
 
@@ -162,23 +183,30 @@ private final class MenuRootHostingView: NSHostingView<MenuRootView> {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard isRefreshKeyEvent(event) else {
-            super.keyDown(with: event)
+        if let tab = menuTabShortcut(for: event), tabShortcutHandler(tab) {
             return
         }
-        refreshKeyHandler()
+        if isRefreshKeyEvent(event) {
+            refreshKeyHandler()
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 
 private final class StatusBarMenu: NSMenu {
     var refreshKeyHandler: (() -> Void)?
+    var tabShortcutHandler: ((DashboardController.MenuTab) -> Bool)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard isRefreshKeyEvent(event) else {
-            return super.performKeyEquivalent(with: event)
+        if let tab = menuTabShortcut(for: event), tabShortcutHandler?(tab) == true {
+            return true
         }
-        refreshKeyHandler?()
-        return true
+        if isRefreshKeyEvent(event) {
+            refreshKeyHandler?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -204,6 +232,18 @@ private enum FooterActionLayout {
 func isRefreshKeyEvent(_ event: NSEvent) -> Bool {
     let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     return modifiers == .command && event.charactersIgnoringModifiers?.lowercased() == "r"
+}
+
+func menuTabShortcut(for event: NSEvent) -> DashboardController.MenuTab? {
+    let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard modifiers == .command,
+          let characters = event.charactersIgnoringModifiers,
+          let index = Int(characters),
+          DashboardController.MenuTab.allCases.indices.contains(index - 1)
+    else {
+        return nil
+    }
+    return DashboardController.MenuTab.allCases[index - 1]
 }
 
 private final class RefreshMenuItemView: NSControl {
