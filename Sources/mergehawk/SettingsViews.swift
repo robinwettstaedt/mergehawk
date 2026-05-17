@@ -354,23 +354,16 @@ private struct SourcesSettingsView: View {
                 SourceSearchField(text: $sourceSearchText)
                     .frame(height: 26)
 
-                Button {
-                    controller.refreshSources()
-                } label: {
-                    if controller.isRefreshingSources {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .frame(width: 24, height: 26)
-                .disabled(controller.isRefreshingSources || controller.state.authStatus != .signedIn)
-                .help("Refresh sources")
-                .accessibilityLabel("Refresh sources")
+                RefreshStatusControl(
+                    indicatorColor: sourcesStatusColor,
+                    isRefreshing: controller.isRefreshingSources,
+                    updatedAt: controller.sourceCatalogSyncedAt,
+                    action: controller.refreshSources,
+                    isRefreshEnabled: controller.state.authStatus == .signedIn,
+                    help: "Refresh sources",
+                    accessibilityLabel: "Refresh sources",
+                    keyboardShortcut: KeyboardShortcut("r", modifiers: .command)
+                )
             }
             .padding(.bottom, 6)
 
@@ -418,6 +411,13 @@ private struct SourcesSettingsView: View {
         .onAppear {
             controller.refreshSources()
         }
+    }
+
+    private var sourcesStatusColor: Color {
+        guard controller.state.authStatus == .signedIn else {
+            return Color(nsColor: .secondaryLabelColor)
+        }
+        return controller.sourceErrorMessage == nil ? .green : .red
     }
 }
 

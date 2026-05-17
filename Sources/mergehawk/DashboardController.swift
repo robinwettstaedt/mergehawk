@@ -6,8 +6,8 @@ import mergehawkcore
 final class DashboardController: ObservableObject {
     enum MenuTab: String, CaseIterable, Identifiable {
         case notifications = "Notifications"
-        case myPRs = "My PRs"
-        case reviewRequests = "Review Requests"
+        case myPRs = "Authored"
+        case reviewRequests = "Requested"
 
         var id: String { rawValue }
     }
@@ -137,6 +137,7 @@ final class DashboardController: ObservableObject {
         }
     }
     @Published private(set) var isRefreshingSources = false
+    @Published private(set) var sourceCatalogSyncedAt: Date?
     @Published private(set) var sourceErrorMessage: String?
     @Published private(set) var startsAtLogin: Bool
     @Published private(set) var authMethod: GitHubAuthMethod = .oauth
@@ -563,6 +564,7 @@ final class DashboardController: ObservableObject {
         let source = MockPullRequestSource()
         sourceCatalogProvider = source
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
+        sourceCatalogSyncedAt = Date()
         syncEngine = SyncEngine(
             source: source,
             preferences: preferences,
@@ -602,6 +604,7 @@ final class DashboardController: ObservableObject {
             sourceCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
                 accountLogin: account?.login ?? state.account?.login
             )
+            sourceCatalogSyncedAt = Date()
         } catch {
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
