@@ -24,6 +24,12 @@ import mergehawkcore
     precondition(GitHubSignInView.Copy.title == "Connect GitHub")
     precondition(GitHubSignInView.Copy.buttonTitle == "Sign in with GitHub")
     precondition(GitHubSignInView.Copy.permissionText.contains("only reads GitHub data"))
+    let templateStatusIcon = StatusIcon.make(attention: false)
+    precondition(templateStatusIcon.isTemplate)
+    precondition(templateStatusIcon.size == NSSize(width: 26.5, height: 16))
+    let attentionStatusIcon = StatusIcon.make(attention: true)
+    precondition(!attentionStatusIcon.isTemplate)
+    precondition(attentionStatusIcon.size == NSSize(width: 29, height: 18))
 
     var dropdownState = PullRequestMenuDropdownState()
     precondition(dropdownState.openMenu == nil)
