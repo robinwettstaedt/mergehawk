@@ -16,7 +16,10 @@ let package = Package(
         .target(name: "mergehawkcore"),
         .executableTarget(
             name: "mergehawk",
-            dependencies: ["mergehawkcore"]
+            dependencies: ["mergehawkcore"],
+            resources: [
+                .process("Resources")
+            ]
         ),
         .executableTarget(
             name: "mergehawkcoretestrunner",
