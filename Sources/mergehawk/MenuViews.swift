@@ -68,12 +68,7 @@ struct MenuRootView: View {
     }
 
     private var tabSwitcher: some View {
-        Picker("", selection: $controller.selectedTab) {
-            ForEach(DashboardController.MenuTab.allCases) { tab in
-                Text(tab.rawValue).tag(tab)
-            }
-        }
-        .pickerStyle(.segmented)
+        MenuTabSegmentedControl(selection: $controller.selectedTab)
         .frame(width: 292)
     }
 
@@ -125,6 +120,59 @@ struct MenuRootView: View {
             return "never"
         }
         return syncedAt.formatted(date: .omitted, time: .shortened)
+    }
+}
+
+private struct MenuTabSegmentedControl: NSViewRepresentable {
+    @Binding var selection: DashboardController.MenuTab
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(
+            labels: DashboardController.MenuTab.allCases.map(\.rawValue),
+            trackingMode: .selectOne,
+            target: context.coordinator,
+            action: #selector(Coordinator.selectTab(_:))
+        )
+        control.segmentStyle = .rounded
+        control.controlSize = .regular
+        for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
+            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
+        }
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        control.selectedSegment = DashboardController.MenuTab.allCases.firstIndex(of: selection) ?? 0
+        for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
+            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<DashboardController.MenuTab>
+
+        init(selection: Binding<DashboardController.MenuTab>) {
+            self.selection = selection
+        }
+
+        @objc func selectTab(_ sender: NSSegmentedControl) {
+            guard DashboardController.MenuTab.allCases.indices.contains(sender.selectedSegment) else {
+                return
+            }
+            selection.wrappedValue = DashboardController.MenuTab.allCases[sender.selectedSegment]
+        }
+    }
+}
+
+enum MenuTabShortcutHint {
+    static func title(for tab: DashboardController.MenuTab) -> String {
+        let shortcutNumber = DashboardController.MenuTab.allCases.firstIndex(of: tab)! + 1
+        return "Shortcut: ⌘\(shortcutNumber)"
     }
 }
 
