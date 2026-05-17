@@ -422,27 +422,58 @@ private struct FooterSeparatorView: View {
 
 enum StatusIcon {
     static func make(attention: Bool) -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
-
-        let rect = NSRect(x: 2, y: 2, width: 14, height: 14)
-        NSColor.labelColor.setStroke()
-        let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
-        path.lineWidth = 1.8
-        path.stroke()
-
-        NSColor.labelColor.setFill()
-        NSBezierPath(rect: NSRect(x: 6, y: 6, width: 6, height: 1.8)).fill()
-        NSBezierPath(rect: NSRect(x: 6, y: 10, width: 6, height: 1.8)).fill()
-
-        if attention {
-            NSColor.systemRed.setFill()
-            NSBezierPath(ovalIn: NSRect(x: 12, y: 12, width: 5, height: 5)).fill()
+        if !attention {
+            return markImage(isTemplate: true)
         }
 
-        image.isTemplate = !attention
+        let size = NSSize(
+            width: Layout.markSize.width + Layout.badgeDiameter - Layout.badgeOverlap,
+            height: Layout.statusItemHeight
+        )
+        let image = NSImage(size: size, flipped: false) { rect in
+            let markRect = NSRect(
+                x: rect.minX,
+                y: rect.minY + (rect.height - Layout.markSize.height) / 2,
+                width: Layout.markSize.width,
+                height: Layout.markSize.height
+            )
+            markImage(isTemplate: false).draw(in: markRect)
+            NSColor.labelColor.setFill()
+            markRect.fill(using: .sourceIn)
+
+            NSColor.systemRed.setFill()
+            NSBezierPath(
+                ovalIn: NSRect(
+                    x: rect.minX + Layout.markSize.width - Layout.badgeOverlap,
+                    y: rect.minY + rect.height - Layout.badgeDiameter,
+                    width: Layout.badgeDiameter,
+                    height: Layout.badgeDiameter
+                )
+            ).fill()
+            return true
+        }
+
+        image.isTemplate = false
         return image
+    }
+
+    private static func markImage(isTemplate: Bool) -> NSImage {
+        guard let url = Bundle.module.url(
+            forResource: "MenuBarIconTemplate",
+            withExtension: "svg"
+        ), let image = NSImage(contentsOf: url) else {
+            preconditionFailure("MenuBarIconTemplate.svg must be bundled with mergehawk")
+        }
+
+        image.size = Layout.markSize
+        image.isTemplate = isTemplate
+        return image
+    }
+
+    private enum Layout {
+        static let markSize = NSSize(width: 26.5, height: 16)
+        static let statusItemHeight: CGFloat = 18
+        static let badgeDiameter: CGFloat = 5
+        static let badgeOverlap: CGFloat = 2.5
     }
 }
