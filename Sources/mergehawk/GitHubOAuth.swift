@@ -17,11 +17,19 @@ enum GitHubAuthMethod: String {
 }
 
 enum MergeHawkAuthDefaults {
+    static let appID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_OAUTH_APP_ID"] ?? ""
     static let clientID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_OAUTH_CLIENT_ID"] ?? ""
     static let clientSecret = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_OAUTH_CLIENT_SECRET"] ?? ""
     static let loopbackPort = 53683
     static let githubHost = URL(string: "https://github.com")!
     static let scope = "read:user read:org repo notifications"
+    static var authorizedAppSettingsURL: URL {
+        if appID.isEmpty {
+            URL(string: "https://github.com/settings/applications")!
+        } else {
+            URL(string: "https://github.com/settings/connections/applications/\(appID)")!
+        }
+    }
 
     static var clientCredentials: OAuthClientCredentials {
         OAuthClientCredentials(clientID: clientID, clientSecret: clientSecret)

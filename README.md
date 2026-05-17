@@ -10,7 +10,7 @@ Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
 - `LSUIElement`-style accessory behavior at runtime with no Dock presence.
 - Native `NSStatusItem` menu populated with SwiftUI-hosted dashboard rows.
 - Compact menu tabs for `Notifications` and `My PRs`.
-- SwiftUI Settings window with General, GitHub, Notifications, Display, and About panes.
+- SwiftUI Settings window with General, GitHub, Notifications, and Sources panes.
 - First-sync silent baseline behavior.
 - Event detection for new comments, new reviews, failed CI, and changes requested.
 - Notification preferences for in-menu and macOS notifications.
@@ -66,6 +66,7 @@ MergeHawk signs in through a GitHub OAuth App. Before validating real OAuth, cre
 8. Save the credentials in `.env.local`:
 
 ```sh
+MERGEHAWK_GITHUB_OAUTH_APP_ID="..."
 MERGEHAWK_GITHUB_OAUTH_CLIENT_ID="..."
 MERGEHAWK_GITHUB_OAUTH_CLIENT_SECRET="..."
 ```

@@ -7,7 +7,6 @@ let mergehawkSettingsTabsTest: Void = {
         "GitHub",
         "Notifications",
         "Sources",
-        "About",
     ])
     precondition(SettingsTab.github.systemImage == "person.crop.circle.badge.checkmark")
     precondition(SettingsTab.notifications.systemImage == "bell")
