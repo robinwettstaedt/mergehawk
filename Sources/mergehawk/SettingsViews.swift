@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import mergehawkcore
 
@@ -340,27 +341,33 @@ private struct NotificationSettingsView: View {
 
 private struct SourcesSettingsView: View {
     @ObservedObject var controller: DashboardController
+    @State private var sourceSearchText = ""
 
     var body: some View {
+        let filteredCatalog = SourceCatalogSearch.filteredCatalog(
+            controller.sourceCatalog,
+            query: sourceSearchText
+        )
+
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Sources")
-                    .font(.headline)
-                Spacer()
-                if controller.isRefreshingSources {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                        .frame(width: 20, height: 20)
-                }
+            HStack(spacing: 10) {
+                SourceSearchField(text: $sourceSearchText)
+                    .frame(height: 26)
+
                 Button {
                     controller.refreshSources()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 24, height: 24)
+                    if controller.isRefreshingSources {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .frame(width: 24, height: 26)
                 .disabled(controller.isRefreshingSources || controller.state.authStatus != .signedIn)
                 .help("Refresh sources")
                 .accessibilityLabel("Refresh sources")
@@ -374,10 +381,15 @@ private struct SourcesSettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
+            } else if filteredCatalog.owners.isEmpty {
+                Text("No sources match \"\(sourceSearchText.trimmingCharacters(in: .whitespacesAndNewlines))\".")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(controller.sourceCatalog.owners) { owner in
+                        ForEach(filteredCatalog.owners) { owner in
                             OwnerSourceSettingsSection(
                                 owner: owner,
                                 controller: controller
@@ -430,6 +442,68 @@ private struct GitHubOAuthAccessButton: View {
     }
 }
 
+private struct SourceSearchField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let searchField = NSSearchField()
+        searchField.placeholderString = "Search sources"
+        searchField.sendsSearchStringImmediately = true
+        searchField.delegate = context.coordinator
+        searchField.setAccessibilityLabel("Search sources")
+        return searchField
+    }
+
+    func updateNSView(_ searchField: NSSearchField, context: Context) {
+        if searchField.stringValue != text {
+            searchField.stringValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        private let text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let searchField = notification.object as? NSSearchField else {
+                return
+            }
+            text.wrappedValue = searchField.stringValue
+        }
+    }
+}
+
+enum SourceCatalogSearch {
+    static func filteredCatalog(_ catalog: SourceCatalog, query: String) -> SourceCatalog {
+        let searchText = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !searchText.isEmpty else {
+            return catalog
+        }
+
+        return SourceCatalog(owners: catalog.owners.compactMap { owner in
+            if owner.owner.range(of: searchText, options: [.caseInsensitive]) != nil {
+                return owner
+            }
+
+            let matchingRepositories = owner.repositories.filter { repository in
+                repository.identity.name.range(of: searchText, options: [.caseInsensitive]) != nil
+                    || repository.identity.nameWithOwner.range(of: searchText, options: [.caseInsensitive]) != nil
+            }
+            guard !matchingRepositories.isEmpty else {
+                return nil
+            }
+            return OwnerSource(owner: owner.owner, repositories: matchingRepositories)
+        })
+    }
+}
+
 private struct SourceHeaderRow: View {
     var body: some View {
         HStack(spacing: 8) {
@@ -451,6 +525,7 @@ private struct SourceHeaderRow: View {
 private enum SourceSettingsLayout {
     static let columnWidth: CGFloat = 84
     static let rowHeight: CGFloat = 34
+    static let disclosureHitSlop: CGFloat = 8
 }
 
 private struct OwnerSourceSettingsSection: View {
@@ -517,7 +592,9 @@ private struct OwnerSourceSettingsRow: View {
                 onOwnerTap()
             } label: {
                 ownerText
+                    .padding(.vertical, SourceSettingsLayout.disclosureHitSlop)
                     .contentShape(Rectangle())
+                    .padding(.vertical, -SourceSettingsLayout.disclosureHitSlop)
             }
             .buttonStyle(.plain)
         } else {
