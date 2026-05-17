@@ -115,7 +115,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(nil)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .credits: NSAttributedString(
+                string: "Native macOS menu bar dashboard for GitHub pull requests."
+            )
+        ])
     }
 
     @objc private func quit() {
