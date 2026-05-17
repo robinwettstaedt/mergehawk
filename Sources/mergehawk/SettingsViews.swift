@@ -6,7 +6,6 @@ enum SettingsTab: String, CaseIterable, Hashable {
     case github
     case notifications
     case sources
-    case about
 
     static let defaultWindowSize = CGSize(width: 560, height: 580)
 
@@ -16,7 +15,6 @@ enum SettingsTab: String, CaseIterable, Hashable {
         case .github: "GitHub"
         case .notifications: "Notifications"
         case .sources: "Sources"
-        case .about: "About"
         }
     }
 
@@ -26,7 +24,6 @@ enum SettingsTab: String, CaseIterable, Hashable {
         case .github: "person.crop.circle.badge.checkmark"
         case .notifications: "bell"
         case .sources: "tray.full"
-        case .about: "info.circle"
         }
     }
 }
@@ -69,8 +66,6 @@ struct SettingsRootView: View {
             NotificationSettingsView(controller: controller)
         case .sources:
             SourcesSettingsView(controller: controller)
-        case .about:
-            AboutSettingsView()
         }
     }
 }
@@ -168,18 +163,23 @@ private struct GitHubSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if controller.state.authStatus == .signedIn {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Signed in")
-                        .font(.headline)
-                    Text(controller.accountLabel)
-                        .foregroundStyle(.secondary)
-                    Text(controller.authMethod.label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+
+                VStack(spacing: 14) {
+                    VStack(spacing: 6) {
+                        Text("Signed in")
+                            .font(.headline)
+                        Text(controller.accountLabel)
+                            .foregroundStyle(.secondary)
+                        Text(controller.authMethod.label)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Sign Out", role: .destructive) {
+                        controller.signOut()
+                    }
                 }
-                Button("Sign Out", role: .destructive) {
-                    controller.signOut()
-                }
+                .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("GitHub OAuth")
@@ -278,9 +278,13 @@ private struct GitHubSettingsView: View {
                     .font(.caption)
             }
 
-            Spacer()
+            Spacer(minLength: 0)
+
+            GitHubOAuthAccessButton(controller: controller)
         }
-        .padding(20)
+        .padding(.top, 20)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             if controller.state.authStatus != .signedIn, showsTokenFallback {
@@ -361,6 +365,7 @@ private struct SourcesSettingsView: View {
                 .help("Refresh sources")
                 .accessibilityLabel("Refresh sources")
             }
+            .padding(.bottom, 6)
 
             SourceHeaderRow()
 
@@ -389,12 +394,39 @@ private struct SourcesSettingsView: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Spacer(minLength: 0)
+
+            GitHubOAuthAccessButton(controller: controller)
         }
-        .padding(20)
+        .padding(.top, 20)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             controller.refreshSources()
         }
+    }
+}
+
+private struct GitHubOAuthAccessButton: View {
+    @ObservedObject var controller: DashboardController
+
+    var body: some View {
+        Button {
+            controller.open(MergeHawkAuthDefaults.authorizedAppSettingsURL)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.right.square")
+                Text("Manage GitHub OAuth Access")
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color.accentColor)
+        }
+        .buttonStyle(.plain)
+        .disabled(controller.state.authStatus != .signedIn)
+        .help("Manage MergeHawk access in GitHub")
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -441,7 +473,13 @@ private struct OwnerSourceSettingsSection: View {
                     }
                 }
             } label: {
-                OwnerSourceSettingsRow(owner: owner.owner, controller: controller)
+                OwnerSourceSettingsRow(
+                    owner: owner.owner,
+                    controller: controller,
+                    onOwnerTap: {
+                        isExpanded.toggle()
+                    }
+                )
             }
             .padding(.vertical, 4)
         }
@@ -451,14 +489,12 @@ private struct OwnerSourceSettingsSection: View {
 private struct OwnerSourceSettingsRow: View {
     let owner: String
     @ObservedObject var controller: DashboardController
+    var onOwnerTap: (() -> Void)?
 
     var body: some View {
         let preferences = controller.sourcePreferences.ownerPreferences(for: owner)
         HStack(spacing: 8) {
-            Text(owner)
-                .font(.callout.weight(.medium))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ownerLabel
             Toggle("", isOn: ownerBinding(\.notifications))
                 .labelsHidden()
                 .frame(width: SourceSettingsLayout.columnWidth)
@@ -472,6 +508,28 @@ private struct OwnerSourceSettingsRow: View {
         .frame(height: SourceSettingsLayout.rowHeight)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(owner), notifications \(preferences.notifications ? "on" : "off"), My PRs \(preferences.myPullRequests ? "on" : "off"), reviews \(preferences.reviewRequests ? "on" : "off")")
+    }
+
+    @ViewBuilder
+    private var ownerLabel: some View {
+        if let onOwnerTap {
+            Button {
+                onOwnerTap()
+            } label: {
+                ownerText
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            ownerText
+        }
+    }
+
+    private var ownerText: some View {
+        Text(owner)
+            .font(.callout.weight(.medium))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func ownerBinding(_ keyPath: WritableKeyPath<OwnerSourcePreferences, Bool>) -> Binding<Bool> {
@@ -541,20 +599,5 @@ private extension SourceOverride {
         case .disabled:
             "Off"
         }
-    }
-}
-
-private struct AboutSettingsView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("MergeHawk")
-                .font(.title2.weight(.semibold))
-            Text("Native macOS menu bar dashboard for GitHub pull requests.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
