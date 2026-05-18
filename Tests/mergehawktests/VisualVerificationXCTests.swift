@@ -13,10 +13,15 @@ final class VisualVerificationXCTests: XCTestCase {
 
         let outputURL = URL(fileURLWithPath: outputPath)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
 
         let controller = await MainActor.run {
             DashboardController(
                 tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
                 automaticRefreshInterval: 0
             )
@@ -40,6 +45,7 @@ final class VisualVerificationXCTests: XCTestCase {
         try await MainActor.run {
             let signedOutController = DashboardController(
                 tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
                 automaticRefreshInterval: 0
             )
@@ -54,7 +60,11 @@ final class VisualVerificationXCTests: XCTestCase {
             )
 
             controller.selectedTab = .notifications
+            controller.selectedNotificationSubtab = .pullRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications.png"))
+
+            controller.selectedNotificationSubtab = .other
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-other.png"))
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
