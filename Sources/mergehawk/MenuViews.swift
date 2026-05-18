@@ -1108,7 +1108,7 @@ private struct PullRequestListView: View {
         .background(.ultraThinMaterial)
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .shadow(radius: 8, y: 3)
