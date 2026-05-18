@@ -61,7 +61,7 @@ struct CountSearchControl: View {
     let countLabel: String
     let placeholder: String
     let help: String
-    let expandedWidth: CGFloat
+    var expandedWidth: CGFloat?
     @State private var searchFieldFocused = false
 
     var body: some View {
@@ -119,7 +119,9 @@ struct CountSearchControl: View {
             }
         }
         .padding(.horizontal, 8)
-        .frame(width: expandedWidth, height: 24)
+        .frame(height: 24)
+        .frame(width: expandedWidth)
+        .frame(maxWidth: expandedWidth == nil ? .infinity : nil)
         .background(.ultraThinMaterial)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
@@ -769,7 +771,6 @@ struct GitHubSignInView: View {
 private struct PullRequestListView: View {
     enum Layout {
         static let controlsHeight: CGFloat = 40
-        static let searchFieldWidth: CGFloat = 236
     }
 
     enum Mode {
@@ -801,18 +802,7 @@ private struct PullRequestListView: View {
         } else {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        searchControls
-                        Spacer(minLength: 0)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                dismissTransientControls()
-                            }
-                        HStack(spacing: 8) {
-                            filterButton
-                            sortButton
-                        }
-                    }
+                    toolbarControls
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
                     .padding(.bottom, 6)
@@ -850,7 +840,7 @@ private struct PullRequestListView: View {
                 if dropdownState.openMenu == .filter {
                     filterMenu
                         .padding(.top, 40)
-                        .padding(.trailing, 86)
+                        .padding(.trailing, 110)
                         .zIndex(3)
                 }
 
@@ -907,12 +897,35 @@ private struct PullRequestListView: View {
             searchState: $searchState,
             countLabel: visibleCountLabel,
             placeholder: "Search PRs...",
-            help: "Search PRs",
-            expandedWidth: Layout.searchFieldWidth
+            help: "Search PRs"
         )
         .simultaneousGesture(TapGesture().onEnded {
             dropdownState.dismiss()
         })
+    }
+
+    @ViewBuilder
+    private var toolbarControls: some View {
+        if searchState.isExpanded {
+            HStack(spacing: 8) {
+                searchControls
+                filterButton
+                sortButton
+            }
+        } else {
+            HStack(spacing: 0) {
+                searchControls
+                Spacer(minLength: 0)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissTransientControls()
+                    }
+                HStack(spacing: 8) {
+                    filterButton
+                    sortButton
+                }
+            }
+        }
     }
 
     private var outsideDropdownDismissArea: some View {
