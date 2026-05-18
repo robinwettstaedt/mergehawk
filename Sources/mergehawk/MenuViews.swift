@@ -319,6 +319,7 @@ struct MenuRootView: View {
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
         static let tabSwitcherWidth: CGFloat = 324
+        static let tabSwitcherLeadingInset: CGFloat = 5
         static let notificationTabSegmentWidth: CGFloat = 64
         static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
     }
@@ -375,6 +376,7 @@ struct MenuRootView: View {
             attentionCount: controller.attentionCount
         )
         .frame(width: Self.Layout.tabSwitcherWidth)
+        .padding(.leading, Self.Layout.tabSwitcherLeadingInset)
     }
 
     @ViewBuilder
