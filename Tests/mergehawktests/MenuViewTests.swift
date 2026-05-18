@@ -47,14 +47,14 @@ import mergehawkcore
     dropdownState.dismiss()
     precondition(dropdownState.openMenu == nil)
 
-    precondition(PullRequestSearchPresentation.countLabel(for: 0) == "0 PRs")
-    precondition(PullRequestSearchPresentation.countLabel(for: 1) == "1 PR")
-    precondition(PullRequestSearchPresentation.countLabel(for: 9) == "9 PRs")
+    precondition(CountSearchPresentation.countLabel(for: 0, singular: "PR", plural: "PRs") == "0 PRs")
+    precondition(CountSearchPresentation.countLabel(for: 1, singular: "PR", plural: "PRs") == "1 PR")
+    precondition(CountSearchPresentation.countLabel(for: 9, singular: "PR", plural: "PRs") == "9 PRs")
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests.")
     precondition(PullRequestListCopy.noMatches == "No matching PRs.")
 
-    var searchState = PullRequestSearchState()
+    var searchState = ExpandableSearchState()
     precondition(!searchState.isExpanded)
     searchState.expand()
     precondition(searchState.isExpanded)

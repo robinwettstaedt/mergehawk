@@ -70,12 +70,12 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
             try renderMenu(
                 controller: controller,
-                initialAuthoredSearchState: PullRequestSearchState(isExpanded: true, query: "oauth"),
+                initialAuthoredSearchState: ExpandableSearchState(isExpanded: true, query: "oauth"),
                 to: outputURL.appendingPathComponent("menu-my-prs-search-oauth.png")
             )
             try renderMenu(
                 controller: controller,
-                initialAuthoredSearchState: PullRequestSearchState(isExpanded: true, query: "missing"),
+                initialAuthoredSearchState: ExpandableSearchState(isExpanded: true, query: "missing"),
                 to: outputURL.appendingPathComponent("menu-my-prs-search-empty.png")
             )
 
@@ -83,7 +83,7 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
             try renderMenu(
                 controller: controller,
-                initialReviewRequestSearchState: PullRequestSearchState(isExpanded: true, query: "billing"),
+                initialReviewRequestSearchState: ExpandableSearchState(isExpanded: true, query: "billing"),
                 to: outputURL.appendingPathComponent("menu-review-requests-search-billing.png")
             )
 
@@ -112,6 +112,15 @@ final class VisualVerificationXCTests: XCTestCase {
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources.png")
             )
+            try render(
+                SettingsRootView(
+                    controller: controller,
+                    selection: .sources,
+                    initialSourcesSearchState: ExpandableSearchState(isExpanded: true, query: "example")
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-sources-search-example.png")
+            )
         }
     }
 
@@ -129,8 +138,8 @@ final class VisualVerificationXCTests: XCTestCase {
     @MainActor
     private func renderMenu(
         controller: DashboardController,
-        initialAuthoredSearchState: PullRequestSearchState = PullRequestSearchState(),
-        initialReviewRequestSearchState: PullRequestSearchState = PullRequestSearchState(),
+        initialAuthoredSearchState: ExpandableSearchState = ExpandableSearchState(),
+        initialReviewRequestSearchState: ExpandableSearchState = ExpandableSearchState(),
         to url: URL
     ) throws {
         try render(
