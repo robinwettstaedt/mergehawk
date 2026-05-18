@@ -14,6 +14,7 @@ enum NotificationContentBuilder {
         }
 
         let prsById = Dictionary(uniqueKeysWithValues: pullRequests.map { ($0.id, $0) })
+        let clickRoute = NotificationClickRoute.route(events: events, pullRequests: pullRequests)
         return events.map { event in
             let pullRequest = prsById[event.prId]
             return NotificationRecord(
@@ -22,7 +23,9 @@ enum NotificationContentBuilder {
                 eventType: event.type.rawValue,
                 pullRequestId: event.prId,
                 pullRequestTitle: pullRequest?.title,
-                repository: pullRequest?.repo
+                repository: pullRequest?.repo,
+                clickAction: clickRoute.action,
+                clickPullRequestURL: clickRoute.pullRequestURLString
             )
         }
     }
@@ -58,6 +61,75 @@ enum NotificationContentBuilder {
     }
 }
 
+enum NotificationClickRoute: Equatable {
+    static let actionKey = "mergehawk.notificationClickAction"
+    static let pullRequestURLKey = "mergehawk.pullRequestURL"
+    static let openPullRequestAction = "open_pull_request"
+    static let openNotificationsAction = "open_notifications"
+
+    case openPullRequest(URL)
+    case openNotifications
+
+    var action: String {
+        switch self {
+        case .openPullRequest:
+            Self.openPullRequestAction
+        case .openNotifications:
+            Self.openNotificationsAction
+        }
+    }
+
+    var pullRequestURLString: String? {
+        switch self {
+        case .openPullRequest(let url):
+            url.absoluteString
+        case .openNotifications:
+            nil
+        }
+    }
+
+    var userInfo: [String: String] {
+        var userInfo = [Self.actionKey: action]
+        if let pullRequestURLString {
+            userInfo[Self.pullRequestURLKey] = pullRequestURLString
+        }
+        return userInfo
+    }
+
+    static func route(events: [PullRequestEvent], pullRequests: [PullRequest]) -> NotificationClickRoute {
+        guard events.count == 1,
+              let event = events.first,
+              let pullRequest = pullRequests.first(where: { $0.id == event.prId })
+        else {
+            return .openNotifications
+        }
+        return .openPullRequest(pullRequest.url)
+    }
+
+    init(userInfo: [AnyHashable: Any]) {
+        guard let action = userInfo[Self.actionKey] as? String else {
+            self = .openNotifications
+            return
+        }
+
+        switch action {
+        case Self.openPullRequestAction:
+            if let urlString = userInfo[Self.pullRequestURLKey] as? String,
+               let url = URL(string: urlString),
+               url.scheme != nil,
+               url.host != nil {
+                self = .openPullRequest(url)
+            } else {
+                self = .openNotifications
+            }
+        case Self.openNotificationsAction:
+            self = .openNotifications
+        default:
+            self = .openNotifications
+        }
+    }
+}
+
 struct NotificationRecord: Codable, Equatable {
     let title: String
     let body: String
@@ -65,6 +137,8 @@ struct NotificationRecord: Codable, Equatable {
     let pullRequestId: String
     let pullRequestTitle: String?
     let repository: String?
+    let clickAction: String
+    let clickPullRequestURL: String?
 }
 
 final class NotificationCenterClient: NotificationPosting {
@@ -84,6 +158,7 @@ final class NotificationCenterClient: NotificationPosting {
         content.title = NotificationContentBuilder.summaryTitle(for: events)
         content.body = NotificationContentBuilder.summaryBody(for: events, pullRequests: pullRequests)
         content.sound = .default
+        content.userInfo = NotificationClickRoute.route(events: events, pullRequests: pullRequests).userInfo
 
         let request = UNNotificationRequest(
             identifier: "mergehawk-\(UUID().uuidString)",
