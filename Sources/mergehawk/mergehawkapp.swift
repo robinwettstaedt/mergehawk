@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UserNotifications
 
 @main
 struct mergehawkApp: App {
@@ -21,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        UNUserNotificationCenter.current().delegate = self
         statusBarController = StatusBarController(controller: controller)
         controller.openSettingsWindow = { [weak self] in
             self?.showSettingsWindow()
@@ -60,6 +62,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.makeMain()
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor [weak self] in
+            self?.handleNotificationResponse(response)
+            completionHandler()
+        }
+    }
+
+    private func handleNotificationResponse(_ response: UNNotificationResponse) {
+        let userInfo = response.notification.request.content.userInfo
+        switch NotificationClickRoute(userInfo: userInfo) {
+        case .openPullRequest(let url):
+            controller.open(url)
+        case .openNotifications:
+            statusBarController?.showMenu(selecting: .notifications)
+        }
     }
 }
 
