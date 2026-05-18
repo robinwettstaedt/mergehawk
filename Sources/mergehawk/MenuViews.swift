@@ -19,6 +19,173 @@ struct PullRequestMenuDropdownState: Equatable {
     }
 }
 
+struct CountSearchPresentation {
+    static func countLabel(for count: Int, singular: String, plural: String) -> String {
+        count == 1 ? "1 \(singular)" : "\(count) \(plural)"
+    }
+}
+
+struct ExpandableSearchState: Equatable {
+    var isExpanded = false
+    var query = ""
+
+    var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasActiveQuery: Bool {
+        !trimmedQuery.isEmpty
+    }
+
+    mutating func expand() {
+        isExpanded = true
+    }
+
+    mutating func blur() {
+        if !hasActiveQuery {
+            isExpanded = false
+        }
+    }
+
+    mutating func handleEscape() {
+        if hasActiveQuery {
+            query = ""
+        } else {
+            isExpanded = false
+        }
+    }
+}
+
+struct CountSearchControl: View {
+    @Binding var searchState: ExpandableSearchState
+    let countLabel: String
+    let placeholder: String
+    let help: String
+    let expandedWidth: CGFloat
+    @FocusState private var searchFieldFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if searchState.isExpanded {
+                expandedSearchControls
+            } else {
+                MenuControlButton(
+                    symbolName: "magnifyingglass",
+                    title: countLabel,
+                    isOpen: false,
+                    help: help
+                ) {
+                    searchState.expand()
+                    DispatchQueue.main.async {
+                        searchFieldFocused = true
+                    }
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: searchState.isExpanded)
+        .onExitCommand {
+            searchState.handleEscape()
+            if !searchState.isExpanded {
+                searchFieldFocused = false
+            }
+        }
+    }
+
+    private var expandedSearchControls: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+            TextField(placeholder, text: $searchState.query)
+                .textFieldStyle(.plain)
+                .font(.caption)
+                .focused($searchFieldFocused)
+                .onChange(of: searchFieldFocused) { _, isFocused in
+                    if !isFocused {
+                        searchState.blur()
+                    }
+                }
+                .accessibilityLabel(help)
+            if searchState.hasActiveQuery {
+                Text(countLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(width: expandedWidth, height: 24)
+        .background(Color(nsColor: .textBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(searchFieldFocused ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct MenuControlButton: View {
+    let symbolName: String
+    let title: String
+    let isOpen: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .lineLimit(1)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(isOpen ? Color.accentColor : Color.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+enum PullRequestSearch {
+    static func filtered(_ pullRequests: [PullRequest], query: String) -> [PullRequest] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return pullRequests
+        }
+
+        return pullRequests.filter { pr in
+            matches(pr.title, query: query)
+                || matches(pr.repo, query: query)
+                || matches(pr.author, query: query)
+                || matches(pr.headRefName, query: query)
+        }
+    }
+
+    private static func matches(_ value: String, query: String) -> Bool {
+        value.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+}
+
+enum PullRequestListCopy {
+    static let emptyAuthored = "No authored PRs."
+    static let emptyReviewRequests = "No review requests."
+    static let noMatches = "No matching PRs."
+}
+
 struct MenuRootView: View {
     enum Layout {
         static let width: CGFloat = 420
@@ -30,6 +197,9 @@ struct MenuRootView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    var initialAuthoredSearchState = ExpandableSearchState()
+    var initialReviewRequestSearchState = ExpandableSearchState()
+    @State private var dismissTransientPRControlsSignal = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,6 +236,10 @@ struct MenuRootView: View {
         .padding(.leading, 8)
         .padding(.trailing, 8)
         .frame(height: Self.Layout.topBarHeight)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded {
+            dismissTransientPRControls()
+        })
     }
 
     private var tabSwitcher: some View {
@@ -87,15 +261,23 @@ struct MenuRootView: View {
             case .myPRs:
                 PullRequestListView(
                     controller: controller,
-                    mode: .authored
+                    mode: .authored,
+                    initialSearchState: initialAuthoredSearchState,
+                    dismissSignal: dismissTransientPRControlsSignal
                 )
             case .reviewRequests:
                 PullRequestListView(
                     controller: controller,
-                    mode: .reviewRequests
+                    mode: .reviewRequests,
+                    initialSearchState: initialReviewRequestSearchState,
+                    dismissSignal: dismissTransientPRControlsSignal
                 )
             }
         }
+    }
+
+    private func dismissTransientPRControls() {
+        dismissTransientPRControlsSignal += 1
     }
 
 }
@@ -464,6 +646,7 @@ struct GitHubSignInView: View {
 private struct PullRequestListView: View {
     enum Layout {
         static let controlsHeight: CGFloat = 40
+        static let searchFieldWidth: CGFloat = 244
     }
 
     enum Mode {
@@ -473,7 +656,21 @@ private struct PullRequestListView: View {
 
     @ObservedObject var controller: DashboardController
     let mode: Mode
+    let dismissSignal: Int
     @State private var dropdownState = PullRequestMenuDropdownState()
+    @State private var searchState = ExpandableSearchState()
+
+    init(
+        controller: DashboardController,
+        mode: Mode,
+        initialSearchState: ExpandableSearchState = ExpandableSearchState(),
+        dismissSignal: Int = 0
+    ) {
+        self.controller = controller
+        self.mode = mode
+        self.dismissSignal = dismissSignal
+        _searchState = State(initialValue: initialSearchState)
+    }
 
     var body: some View {
         if !hasSourcePullRequests {
@@ -481,22 +678,29 @@ private struct PullRequestListView: View {
         } else {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Spacer()
-                        filterButton
-                        sortButton
+                    HStack(spacing: 0) {
+                        searchControls
+                        Spacer(minLength: 0)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                dismissTransientControls()
+                            }
+                        HStack(spacing: 8) {
+                            filterButton
+                            sortButton
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
                     .padding(.bottom, 6)
 
                     ScrollView {
-                        if pullRequests.isEmpty {
-                            EmptyMenuState(text: "No matching PRs.")
+                        if visiblePullRequests.isEmpty {
+                            EmptyMenuState(text: PullRequestListCopy.noMatches)
                                 .frame(minHeight: 520)
                         } else {
                             LazyVStack(spacing: 8) {
-                                ForEach(pullRequests) { pr in
+                                ForEach(visiblePullRequests) { pr in
                                     PullRequestRow(
                                         pullRequest: pr,
                                         isAttention: controller.isUnreadPullRequest(pr),
@@ -510,6 +714,9 @@ private struct PullRequestListView: View {
                             .padding(.bottom, 12)
                         }
                     }
+                    .simultaneousGesture(TapGesture().onEnded {
+                        dismissTransientControls()
+                    })
                 }
 
                 if dropdownState.openMenu != nil {
@@ -518,19 +725,26 @@ private struct PullRequestListView: View {
 
                 if dropdownState.openMenu == .filter {
                     filterMenu
-                        .padding(.top, 38)
+                        .padding(.top, 40)
                         .padding(.trailing, 86)
                         .zIndex(3)
                 }
 
                 if dropdownState.openMenu == .sort {
                     sortMenu
-                        .padding(.top, 38)
+                        .padding(.top, 40)
                         .padding(.trailing, 12)
                         .zIndex(3)
                 }
             }
+            .onChange(of: dismissSignal) { _, _ in
+                dismissTransientControls()
+            }
         }
+    }
+
+    private var visiblePullRequests: [PullRequest] {
+        PullRequestSearch.filtered(pullRequests, query: searchState.query)
     }
 
     private var pullRequests: [PullRequest] {
@@ -545,19 +759,36 @@ private struct PullRequestListView: View {
     private var hasSourcePullRequests: Bool {
         switch mode {
         case .authored:
-            controller.state.pullRequests.contains(where: \.isMine)
+            !controller.sourceFilteredMyPullRequests.isEmpty
         case .reviewRequests:
-            controller.state.pullRequests.contains { $0.reviewRequestKind != .none }
+            controller.sourceFilteredReviewRequests.contains { $0.reviewRequestKind != .none }
         }
     }
 
     private var emptyText: String {
         switch mode {
         case .authored:
-            "No authored PRs."
+            PullRequestListCopy.emptyAuthored
         case .reviewRequests:
-            "No review requests."
+            PullRequestListCopy.emptyReviewRequests
         }
+    }
+
+    private var visibleCountLabel: String {
+        CountSearchPresentation.countLabel(for: visiblePullRequests.count, singular: "PR", plural: "PRs")
+    }
+
+    private var searchControls: some View {
+        CountSearchControl(
+            searchState: $searchState,
+            countLabel: visibleCountLabel,
+            placeholder: "Search PRs...",
+            help: "Search PRs",
+            expandedWidth: Layout.searchFieldWidth
+        )
+        .simultaneousGesture(TapGesture().onEnded {
+            dropdownState.dismiss()
+        })
     }
 
     private var outsideDropdownDismissArea: some View {
@@ -580,6 +811,7 @@ private struct PullRequestListView: View {
             isOpen: dropdownState.openMenu == .filter,
             help: "Filter pull requests"
         ) {
+            searchState.blur()
             dropdownState.toggle(.filter)
         }
     }
@@ -622,8 +854,14 @@ private struct PullRequestListView: View {
             isOpen: dropdownState.openMenu == .sort,
             help: "Sort pull requests"
         ) {
+            searchState.blur()
             dropdownState.toggle(.sort)
         }
+    }
+
+    private func dismissTransientControls() {
+        dropdownState.dismiss()
+        searchState.blur()
     }
 
     private func optionButton(
@@ -633,30 +871,13 @@ private struct PullRequestListView: View {
         help: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button {
-            action()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: symbolName)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(title)
-                    .lineLimit(1)
-            }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(isOpen ? Color.accentColor : Color.primary)
-            .padding(.horizontal, 10)
-            .frame(height: 24)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        MenuControlButton(
+            symbolName: symbolName,
+            title: title,
+            isOpen: isOpen,
+            help: help,
+            action: action
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .help(help)
-        .accessibilityLabel(help)
     }
 
     @ViewBuilder
