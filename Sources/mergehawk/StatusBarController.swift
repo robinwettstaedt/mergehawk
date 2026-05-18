@@ -51,7 +51,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
         button.image = StatusIcon.make(attention: controller.hasAttention)
         button.image?.isTemplate = !controller.hasAttention
-        button.title = controller.attentionCount > 0 ? " \(controller.attentionCount)" : ""
+        button.title = ""
     }
 
     private func rebuildMenu() {
