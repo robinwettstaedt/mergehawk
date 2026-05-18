@@ -45,6 +45,9 @@ isolated mocked app slot using the Linear issue id:
    ```
 This is required even when static screenshots are sufficient. The user expects
 the slot app to be open so they can personally inspect the finished feature.
+This review slot should remain open until the user approves PR handoff; after
+that, `mergehawk-pr-handoff` owns slot teardown and should close/remove it by
+default unless the user explicitly asks to keep it open in that handoff turn.
 
 For interactive UI verification, prefer Codex computer-use tools when available. Inspect the running slot app and capture relevant screenshots or notes under:
    ```text
@@ -63,7 +66,7 @@ The slot app opens as a real macOS app on the user's machine, usually at:
 ~/Applications/MergeHawk <ISSUE-ID>.app
 ```
 
-Leave the slot app open for user review after finishing feature work. State the exact app name and what state it is showing. Do not replace or relaunch the user's normal installed app.
+Leave the slot app open for user review after finishing feature work, before PR handoff. State the exact app name and what state it is showing. Do not replace or relaunch the user's normal installed app. Do not carry this instruction into PR handoff; that phase tears down the slot by default.
 
 The slot must be inspectable by the user through LaunchServices, not only by
 directly executing a binary. After running `scripts/run-agent-app.sh`, confirm
