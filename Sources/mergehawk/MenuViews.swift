@@ -126,6 +126,10 @@ struct CountSearchControl: View {
 }
 
 struct MenuControlButton: View {
+    enum Layout {
+        static let height: CGFloat = 24
+    }
+
     let symbolName: String
     let title: String
     let isOpen: Bool
@@ -142,17 +146,17 @@ struct MenuControlButton: View {
                 Text(title)
                     .lineLimit(1)
             }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(isOpen ? Color.accentColor : Color.primary)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
             .padding(.horizontal, 10)
-            .frame(height: 24)
+            .frame(height: Self.Layout.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(.ultraThinMaterial)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .help(help)
@@ -458,25 +462,19 @@ private struct NotificationListView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 NotificationSubtabSegmentedControl(selection: $controller.selectedNotificationSubtab)
-                    .frame(width: 104, height: 20)
+                    .frame(width: 104, height: 18)
 
                 Spacer()
 
                 if hasNotifications {
-                    Button("Mark all read") {
+                    MenuControlButton(
+                        symbolName: "envelope.open",
+                        title: "Mark all read",
+                        isOpen: false,
+                        help: "Mark all notifications read"
+                    ) {
                         controller.markAllNotificationsRead()
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 20)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                 }
             }
             .padding(.horizontal, 12)
