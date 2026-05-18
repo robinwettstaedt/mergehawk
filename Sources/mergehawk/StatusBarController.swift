@@ -54,6 +54,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         button.title = ""
     }
 
+    func showMenu(selecting tab: DashboardController.MenuTab? = nil) {
+        prepareMenu(selecting: tab)
+        statusItem.button?.performClick(nil)
+    }
+
+    func showMenuForTesting(selecting tab: DashboardController.MenuTab? = nil) -> [NSMenuItem] {
+        prepareMenu(selecting: tab)
+        return menu.items
+    }
+
     private func rebuildMenu() {
         updateStatusButton()
         menu.removeAllItems()
@@ -78,6 +88,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(actionItem("Settings", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(actionItem("About MergeHawk", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(actionItem("Quit", action: #selector(quit), keyEquivalent: "q"))
+    }
+
+    private func prepareMenu(selecting tab: DashboardController.MenuTab?) {
+        if let tab {
+            controller.selectedTab = tab
+        }
+        rebuildMenu()
     }
 
     private func refreshItem() -> NSMenuItem {

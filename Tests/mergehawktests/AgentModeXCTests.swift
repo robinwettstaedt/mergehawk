@@ -254,16 +254,84 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertTrue(notificationClient.records.isEmpty)
     }
 
+    func testNotificationClickRouteOpensSingleMatchingPullRequest() {
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        let route = NotificationClickRoute.route(
+            events: [PullRequestEvent(type: .ciFailed, prId: "PR_1")],
+            pullRequests: [pullRequest]
+        )
+
+        XCTAssertEqual(route, .openPullRequest(pullRequest.url))
+        XCTAssertEqual(route.userInfo[NotificationClickRoute.actionKey], NotificationClickRoute.openPullRequestAction)
+        XCTAssertEqual(route.userInfo[NotificationClickRoute.pullRequestURLKey], pullRequest.url.absoluteString)
+    }
+
+    func testNotificationClickRouteOpensNotificationsForMultipleEvents() {
+        let route = NotificationClickRoute.route(
+            events: [
+                PullRequestEvent(type: .newComment, prId: "PR_1"),
+                PullRequestEvent(type: .ciFailed, prId: "PR_2")
+            ],
+            pullRequests: [
+                makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/1"),
+                makePullRequest(id: "PR_2", url: "https://github.com/example/mergehawk/pull/2")
+            ]
+        )
+
+        XCTAssertEqual(route, .openNotifications)
+        XCTAssertEqual(route.userInfo[NotificationClickRoute.actionKey], NotificationClickRoute.openNotificationsAction)
+        XCTAssertNil(route.userInfo[NotificationClickRoute.pullRequestURLKey])
+    }
+
+    func testNotificationClickRouteOpensNotificationsWhenPullRequestIsMissing() {
+        let route = NotificationClickRoute.route(
+            events: [PullRequestEvent(type: .ciFailed, prId: "missing")],
+            pullRequests: [makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")]
+        )
+
+        XCTAssertEqual(route, .openNotifications)
+    }
+
+    func testNotificationClickRouteParsesMalformedUserInfoSafely() {
+        XCTAssertEqual(NotificationClickRoute(userInfo: [:]), .openNotifications)
+        XCTAssertEqual(
+            NotificationClickRoute(userInfo: [NotificationClickRoute.actionKey: "unknown"]),
+            .openNotifications
+        )
+        XCTAssertEqual(
+            NotificationClickRoute(userInfo: [
+                NotificationClickRoute.actionKey: NotificationClickRoute.openPullRequestAction,
+                NotificationClickRoute.pullRequestURLKey: "not a url"
+            ]),
+            .openNotifications
+        )
+    }
+
     func testRecordingNotificationClientWritesJsonLines() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mergehawk-notifications-\(UUID().uuidString)")
         let logURL = directory.appendingPathComponent("notifications.jsonl")
         let client = RecordingNotificationClient(logPath: logURL.path)
-        let pullRequest = PullRequest(
-            id: "PR_1",
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+
+        client.post(
+            events: [PullRequestEvent(type: .ciFailed, prId: "PR_1")],
+            pullRequests: [pullRequest]
+        )
+
+        let payload = try String(contentsOf: logURL)
+        XCTAssertTrue(payload.contains(#""eventType":"ci_failed""#))
+        XCTAssertTrue(payload.contains(#""repository":"example\/mergehawk""#))
+        XCTAssertTrue(payload.contains(#""clickAction":"open_pull_request""#))
+        XCTAssertTrue(payload.contains(#""clickPullRequestURL":"https:\/\/github.com\/example\/mergehawk\/pull\/42""#))
+    }
+
+    private func makePullRequest(id: String, url: String) -> PullRequest {
+        PullRequest(
+            id: id,
             title: "Make mock notifications testable",
             number: 42,
-            url: URL(string: "https://github.com/example/mergehawk/pull/42")!,
+            url: URL(string: url)!,
             repo: "example/mergehawk",
             ciState: .failing,
             reviewDecision: .reviewRequired,
@@ -274,15 +342,6 @@ final class AgentModeXCTests: XCTestCase {
             mergeable: .mergeable,
             draft: false
         )
-
-        client.post(
-            events: [PullRequestEvent(type: .ciFailed, prId: "PR_1")],
-            pullRequests: [pullRequest]
-        )
-
-        let payload = try String(contentsOf: logURL)
-        XCTAssertTrue(payload.contains(#""eventType":"ci_failed""#))
-        XCTAssertTrue(payload.contains(#""repository":"example\/mergehawk""#))
     }
 
     private func waitUntil(timeout: TimeInterval, condition: () async -> Bool) async {
