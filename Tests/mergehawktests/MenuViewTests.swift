@@ -47,6 +47,29 @@ import mergehawkcore
     dropdownState.dismiss()
     precondition(dropdownState.openMenu == nil)
 
+    precondition(PullRequestSearchPresentation.countLabel(for: 0) == "0 PRs")
+    precondition(PullRequestSearchPresentation.countLabel(for: 1) == "1 PR")
+    precondition(PullRequestSearchPresentation.countLabel(for: 9) == "9 PRs")
+    precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
+    precondition(PullRequestListCopy.emptyReviewRequests == "No review requests.")
+    precondition(PullRequestListCopy.noMatches == "No matching PRs.")
+
+    var searchState = PullRequestSearchState()
+    precondition(!searchState.isExpanded)
+    searchState.expand()
+    precondition(searchState.isExpanded)
+    searchState.blur()
+    precondition(!searchState.isExpanded)
+    searchState.expand()
+    searchState.query = "billing"
+    searchState.blur()
+    precondition(searchState.isExpanded)
+    searchState.handleEscape()
+    precondition(searchState.query.isEmpty)
+    precondition(searchState.isExpanded)
+    searchState.handleEscape()
+    precondition(!searchState.isExpanded)
+
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0
@@ -132,6 +155,7 @@ import mergehawkcore
         reviewCount: 1,
         isMine: true,
         author: "rw",
+        headRefName: "older-branch",
         mergeable: .mergeable,
         draft: false,
         createdAt: Date(timeIntervalSince1970: 100),
@@ -149,6 +173,7 @@ import mergehawkcore
         reviewCount: 0,
         isMine: true,
         author: "rw",
+        headRefName: "feature/newer",
         mergeable: .conflicting,
         draft: false,
         createdAt: Date(timeIntervalSince1970: 200),
@@ -166,6 +191,7 @@ import mergehawkcore
         reviewCount: 0,
         isMine: true,
         author: "rw",
+        headRefName: "draft-flow",
         mergeable: .unknown,
         draft: true,
         createdAt: Date(timeIntervalSince1970: 300),
@@ -187,6 +213,11 @@ import mergehawkcore
     precondition(DashboardController.filtered([older, newer, draft], by: [.approved], events: [event]).map(\.id) == ["older"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ciFailing], events: [event]).map(\.id) == ["newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested, .draft], events: [event]).map(\.id) == ["newer", "draft"])
+    precondition(PullRequestSearch.filtered([older, newer, draft], query: "older pr").map(\.id) == ["older"])
+    precondition(PullRequestSearch.filtered([older, newer, draft], query: "ACME/MERGEHAWK").map(\.id) == ["older", "newer", "draft"])
+    precondition(PullRequestSearch.filtered([older, newer, draft], query: "rw").map(\.id) == ["older", "newer", "draft"])
+    precondition(PullRequestSearch.filtered([older, newer, draft], query: "feature/newer").map(\.id) == ["newer"])
+    precondition(PullRequestSearch.filtered([older, newer, draft], query: "missing").isEmpty)
 
     let directReview = PullRequest(
         id: "direct",

@@ -58,6 +58,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let reviewRequestKind: ReviewRequestKind
     public let isMine: Bool
     public let author: String
+    public let headRefName: String
     public let mergeable: MergeableState
     public let draft: Bool
     public let createdAt: Date
@@ -76,6 +77,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         reviewRequestKind: ReviewRequestKind = .none,
         isMine: Bool,
         author: String,
+        headRefName: String = "",
         mergeable: MergeableState,
         draft: Bool,
         createdAt: Date = Date(timeIntervalSince1970: 0),
@@ -93,6 +95,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.reviewRequestKind = reviewRequestKind
         self.isMine = isMine
         self.author = author
+        self.headRefName = headRefName
         self.mergeable = mergeable
         self.draft = draft
         self.createdAt = createdAt

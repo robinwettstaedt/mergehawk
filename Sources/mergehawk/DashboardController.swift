@@ -269,13 +269,22 @@ final class DashboardController: ObservableObject {
         PreferencesStore.refreshIntervalMinuteOptions
     }
 
-    var sortedMyPullRequests: [PullRequest] {
-        let mine = state.pullRequests.filter { pr in
+    var sourceFilteredMyPullRequests: [PullRequest] {
+        state.pullRequests.filter { pr in
             pr.isMine && sourcePreferences.allowsMyPullRequests(for: pr.repo)
         }
+    }
+
+    var sourceFilteredReviewRequests: [PullRequest] {
+        state.pullRequests.filter { pr in
+            sourcePreferences.allowsReviewRequests(for: pr.repo)
+        }
+    }
+
+    var sortedMyPullRequests: [PullRequest] {
         return Self.sorted(
             Self.filtered(
-                mine,
+                sourceFilteredMyPullRequests,
                 by: selectedPullRequestFilters,
                 attentionPullRequestIds: unreadPullRequestNotificationIds
             ),
@@ -286,7 +295,7 @@ final class DashboardController: ObservableObject {
     var sortedReviewRequests: [PullRequest] {
         Self.sorted(
             Self.filteredReviewRequests(
-                state.pullRequests.filter { sourcePreferences.allowsReviewRequests(for: $0.repo) },
+                sourceFilteredReviewRequests,
                 by: selectedReviewRequestFilters
             ),
             by: pullRequestSortOption

@@ -68,9 +68,24 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
+            try renderMenu(
+                controller: controller,
+                initialAuthoredSearchState: PullRequestSearchState(isExpanded: true, query: "oauth"),
+                to: outputURL.appendingPathComponent("menu-my-prs-search-oauth.png")
+            )
+            try renderMenu(
+                controller: controller,
+                initialAuthoredSearchState: PullRequestSearchState(isExpanded: true, query: "missing"),
+                to: outputURL.appendingPathComponent("menu-my-prs-search-empty.png")
+            )
 
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
+            try renderMenu(
+                controller: controller,
+                initialReviewRequestSearchState: PullRequestSearchState(isExpanded: true, query: "billing"),
+                to: outputURL.appendingPathComponent("menu-review-requests-search-billing.png")
+            )
 
             controller.selectedReviewRequestFilters = [.team]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-team.png"))
@@ -112,9 +127,18 @@ final class VisualVerificationXCTests: XCTestCase {
     }
 
     @MainActor
-    private func renderMenu(controller: DashboardController, to url: URL) throws {
+    private func renderMenu(
+        controller: DashboardController,
+        initialAuthoredSearchState: PullRequestSearchState = PullRequestSearchState(),
+        initialReviewRequestSearchState: PullRequestSearchState = PullRequestSearchState(),
+        to url: URL
+    ) throws {
         try render(
-            MenuRootView(controller: controller)
+            MenuRootView(
+                controller: controller,
+                initialAuthoredSearchState: initialAuthoredSearchState,
+                initialReviewRequestSearchState: initialReviewRequestSearchState
+            )
                 .background(.regularMaterial),
             size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
             to: url
