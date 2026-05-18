@@ -87,6 +87,11 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.selectedReviewRequestFilters = [.ready]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-ready.png"))
 
+            controller.selectedTab = .notifications
+            controller.selectedNotificationSubtab = .pullRequests
+            controller.markAllNotificationsRead()
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-read.png"))
+
             try render(
                 SettingsRootView(controller: controller, selection: .sources),
                 size: SettingsTab.defaultWindowSize,

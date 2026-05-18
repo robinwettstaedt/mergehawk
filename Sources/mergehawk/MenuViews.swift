@@ -25,7 +25,8 @@ struct MenuRootView: View {
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
         static let tabSwitcherWidth: CGFloat = 324
-        static let tabSegmentWidth: CGFloat = tabSwitcherWidth / CGFloat(DashboardController.MenuTab.allCases.count)
+        static let notificationTabSegmentWidth: CGFloat = 64
+        static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
     }
 
     @ObservedObject var controller: DashboardController
@@ -58,7 +59,8 @@ struct MenuRootView: View {
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
                 timestampPrefix: "",
-                width: 40
+                width: 40,
+                showsIndicator: false
             )
         }
         .padding(.leading, 8)
@@ -67,7 +69,10 @@ struct MenuRootView: View {
     }
 
     private var tabSwitcher: some View {
-        MenuTabSegmentedControl(selection: $controller.selectedTab)
+        MenuTabSegmentedControl(
+            selection: $controller.selectedTab,
+            attentionCount: controller.attentionCount
+        )
         .frame(width: Self.Layout.tabSwitcherWidth)
     }
 
@@ -110,13 +115,16 @@ struct RefreshStatusControl: View {
     var keyboardShortcut: KeyboardShortcut?
     var timestampPrefix = "updated "
     var width = Layout.width
+    var showsIndicator = true
 
     var body: some View {
         VStack(alignment: .center, spacing: 3) {
             HStack(spacing: 7) {
-                Circle()
-                    .fill(indicatorColor)
-                    .frame(width: 10, height: 10)
+                if showsIndicator {
+                    Circle()
+                        .fill(indicatorColor)
+                        .frame(width: 10, height: 10)
+                }
                 refreshControl
             }
             Text("\(timestampPrefix)\(updatedText)")
@@ -164,10 +172,11 @@ struct RefreshStatusControl: View {
 
 private struct MenuTabSegmentedControl: NSViewRepresentable {
     @Binding var selection: DashboardController.MenuTab
+    let attentionCount: Int
 
     func makeNSView(context: Context) -> NSSegmentedControl {
         let control = NSSegmentedControl(
-            labels: DashboardController.MenuTab.allCases.map(\.rawValue),
+            labels: Array(repeating: "", count: DashboardController.MenuTab.allCases.count),
             trackingMode: .selectOne,
             target: context.coordinator,
             action: #selector(Coordinator.selectTab(_:))
@@ -175,8 +184,7 @@ private struct MenuTabSegmentedControl: NSViewRepresentable {
         control.segmentStyle = .rounded
         control.controlSize = .regular
         for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
-            control.setWidth(MenuRootView.Layout.tabSegmentWidth, forSegment: index)
-            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
+            configure(control, segment: index, for: tab)
         }
         return control
     }
@@ -185,8 +193,7 @@ private struct MenuTabSegmentedControl: NSViewRepresentable {
         context.coordinator.selection = $selection
         control.selectedSegment = DashboardController.MenuTab.allCases.firstIndex(of: selection) ?? 0
         for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
-            control.setWidth(MenuRootView.Layout.tabSegmentWidth, forSegment: index)
-            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
+            configure(control, segment: index, for: tab)
         }
     }
 
@@ -208,12 +215,57 @@ private struct MenuTabSegmentedControl: NSViewRepresentable {
             selection.wrappedValue = DashboardController.MenuTab.allCases[sender.selectedSegment]
         }
     }
+
+    private func configure(
+        _ control: NSSegmentedControl,
+        segment index: Int,
+        for tab: DashboardController.MenuTab
+    ) {
+        switch tab {
+        case .notifications:
+            control.setLabel(MenuNotificationTabPresentation.label(for: attentionCount), forSegment: index)
+            control.setImage(MenuNotificationTabPresentation.image(for: attentionCount), forSegment: index)
+            control.setWidth(MenuRootView.Layout.notificationTabSegmentWidth, forSegment: index)
+            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
+        case .myPRs, .reviewRequests:
+            control.setLabel(tab.rawValue, forSegment: index)
+            control.setImage(nil, forSegment: index)
+            control.setWidth(MenuRootView.Layout.textTabSegmentWidth, forSegment: index)
+            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
+        }
+    }
 }
 
 enum MenuTabShortcutHint {
     static func title(for tab: DashboardController.MenuTab) -> String {
         let shortcutNumber = DashboardController.MenuTab.allCases.firstIndex(of: tab)! + 1
-        return "Shortcut: ⌘\(shortcutNumber)"
+        return "⌘\(shortcutNumber)"
+    }
+}
+
+enum MenuNotificationTabPresentation {
+    static func label(for attentionCount: Int) -> String {
+        attentionCount > 0 ? "\(attentionCount)" : ""
+    }
+
+    static func help(for attentionCount: Int) -> String {
+        switch attentionCount {
+        case 0:
+            "Notifications"
+        case 1:
+            "1 new PR update"
+        default:
+            "\(attentionCount) new PR updates"
+        }
+    }
+
+    static func image(for attentionCount: Int) -> NSImage? {
+        let image = NSImage(
+            systemSymbolName: "bell",
+            accessibilityDescription: help(for: attentionCount)
+        )
+        image?.isTemplate = true
+        return image
     }
 }
 
