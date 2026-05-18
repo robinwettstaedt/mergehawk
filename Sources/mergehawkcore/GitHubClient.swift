@@ -115,6 +115,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let url: String
     public let createdAt: String
     public let updatedAt: String
+    public let headRefName: String
     public let isDraft: Bool
     public let mergeable: String?
     public let reviewDecision: String?
@@ -133,6 +134,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         url: String,
         createdAt: String,
         updatedAt: String,
+        headRefName: String = "",
         isDraft: Bool,
         mergeable: String?,
         reviewDecision: String?,
@@ -150,6 +152,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.url = url
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.headRefName = headRefName
         self.isDraft = isDraft
         self.mergeable = mergeable
         self.reviewDecision = reviewDecision
@@ -190,6 +193,7 @@ public enum GitHubPullRequestNormalizer {
             ),
             isMine: node.author?.login == login,
             author: node.author?.login ?? "unknown",
+            headRefName: node.headRefName,
             mergeable: normalizeMergeableState(node.mergeable),
             draft: node.isDraft,
             createdAt: normalizeDate(node.createdAt),
@@ -410,6 +414,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
               url
               createdAt
               updatedAt
+              headRefName
               isDraft
               mergeable
               reviewDecision
