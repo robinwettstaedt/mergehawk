@@ -637,7 +637,7 @@ private struct NotificationListView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, 10)
+                    .padding(.top, 5)
                     .padding(.bottom, 12)
                 }
             }
@@ -656,7 +656,7 @@ private struct NotificationListView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, 10)
+                    .padding(.top, 5)
                     .padding(.bottom, 12)
                 }
             }
@@ -834,6 +834,7 @@ private struct PullRequestListView: View {
                                 }
                             }
                             .padding(.horizontal, 12)
+                            .padding(.top, 5)
                             .padding(.bottom, 12)
                         }
                     }
