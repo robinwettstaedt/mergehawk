@@ -44,6 +44,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewCount: 0,
                     isMine: true,
                     author: "rw",
+                    headRefName: "oauth-device-flow",
                     mergeable: .mergeable,
                     draft: true
                 ),
@@ -60,6 +61,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewRequestKind: .direct,
                     isMine: false,
                     author: "teammate",
+                    headRefName: "notification-settings",
                     mergeable: .unknown,
                     draft: false
                 ),
@@ -76,6 +78,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewRequestKind: .team,
                     isMine: false,
                     author: "designer",
+                    headRefName: "billing-copy",
                     mergeable: .mergeable,
                     draft: true
                 )
@@ -93,6 +96,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewCount: 0,
                     isMine: true,
                     author: "rw",
+                    headRefName: "oauth-device-flow",
                     mergeable: .mergeable,
                     draft: true
                 ),
@@ -109,6 +113,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewRequestKind: .direct,
                     isMine: false,
                     author: "teammate",
+                    headRefName: "notification-settings",
                     mergeable: .mergeable,
                     draft: false
                 ),
@@ -125,6 +130,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewRequestKind: .team,
                     isMine: false,
                     author: "designer",
+                    headRefName: "billing-copy",
                     mergeable: .mergeable,
                     draft: true
                 )

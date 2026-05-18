@@ -32,10 +32,16 @@ enum SettingsTab: String, CaseIterable, Hashable {
 struct SettingsRootView: View {
     @ObservedObject var controller: DashboardController
     @State private var selection = SettingsTab.general
+    private let initialSourcesSearchState: ExpandableSearchState
 
-    init(controller: DashboardController, selection: SettingsTab = .general) {
+    init(
+        controller: DashboardController,
+        selection: SettingsTab = .general,
+        initialSourcesSearchState: ExpandableSearchState = ExpandableSearchState()
+    ) {
         self.controller = controller
         self._selection = State(initialValue: selection)
+        self.initialSourcesSearchState = initialSourcesSearchState
     }
 
     var body: some View {
@@ -66,7 +72,10 @@ struct SettingsRootView: View {
         case .notifications:
             NotificationSettingsView(controller: controller)
         case .sources:
-            SourcesSettingsView(controller: controller)
+            SourcesSettingsView(
+                controller: controller,
+                initialSearchState: initialSourcesSearchState
+            )
         }
     }
 }
@@ -341,28 +350,45 @@ private struct NotificationSettingsView: View {
 
 private struct SourcesSettingsView: View {
     @ObservedObject var controller: DashboardController
-    @State private var sourceSearchText = ""
+    @State private var sourceSearchState = ExpandableSearchState()
+
+    init(
+        controller: DashboardController,
+        initialSearchState: ExpandableSearchState = ExpandableSearchState()
+    ) {
+        self.controller = controller
+        _sourceSearchState = State(initialValue: initialSearchState)
+    }
 
     var body: some View {
         let filteredCatalog = SourceCatalogSearch.filteredCatalog(
             controller.sourceCatalog,
-            query: sourceSearchText
+            query: sourceSearchState.query
         )
 
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                SourceSearchField(text: $sourceSearchText)
-                    .frame(height: 26)
+                CountSearchControl(
+                    searchState: $sourceSearchState,
+                    countLabel: sourceCountLabel(for: filteredCatalog),
+                    placeholder: "Search sources",
+                    help: "Search sources",
+                    expandedWidth: 300
+                )
 
+                Spacer(minLength: 0)
                 RefreshStatusControl(
-                    indicatorColor: sourcesStatusColor,
+                    indicatorColor: .secondary,
                     isRefreshing: controller.isRefreshingSources,
                     updatedAt: controller.sourceCatalogSyncedAt,
                     action: controller.refreshSources,
                     isRefreshEnabled: controller.state.authStatus == .signedIn,
                     help: "Refresh sources",
                     accessibilityLabel: "Refresh sources",
-                    keyboardShortcut: KeyboardShortcut("r", modifiers: .command)
+                    keyboardShortcut: KeyboardShortcut("r", modifiers: .command),
+                    timestampPrefix: "",
+                    width: 40,
+                    showsIndicator: false
                 )
             }
             .padding(.bottom, 6)
@@ -375,7 +401,7 @@ private struct SourcesSettingsView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
             } else if filteredCatalog.owners.isEmpty {
-                Text("No sources match \"\(sourceSearchText.trimmingCharacters(in: .whitespacesAndNewlines))\".")
+                Text("No sources match \"\(sourceSearchState.trimmedQuery)\".")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
@@ -391,6 +417,9 @@ private struct SourcesSettingsView: View {
                         }
                     }
                 }
+                .simultaneousGesture(TapGesture().onEnded {
+                    sourceSearchState.blur()
+                })
             }
 
             if let error = controller.sourceErrorMessage {
@@ -413,11 +442,12 @@ private struct SourcesSettingsView: View {
         }
     }
 
-    private var sourcesStatusColor: Color {
-        guard controller.state.authStatus == .signedIn else {
-            return Color(nsColor: .secondaryLabelColor)
-        }
-        return controller.sourceErrorMessage == nil ? .green : .red
+    private func sourceCountLabel(for catalog: SourceCatalog) -> String {
+        CountSearchPresentation.countLabel(
+            for: SourceCatalogSearch.sourceCount(catalog),
+            singular: "source",
+            plural: "sources"
+        )
     }
 }
 
@@ -442,44 +472,6 @@ private struct GitHubOAuthAccessButton: View {
     }
 }
 
-private struct SourceSearchField: NSViewRepresentable {
-    @Binding var text: String
-
-    func makeNSView(context: Context) -> NSSearchField {
-        let searchField = NSSearchField()
-        searchField.placeholderString = "Search sources"
-        searchField.sendsSearchStringImmediately = true
-        searchField.delegate = context.coordinator
-        searchField.setAccessibilityLabel("Search sources")
-        return searchField
-    }
-
-    func updateNSView(_ searchField: NSSearchField, context: Context) {
-        if searchField.stringValue != text {
-            searchField.stringValue = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    final class Coordinator: NSObject, NSSearchFieldDelegate {
-        private let text: Binding<String>
-
-        init(text: Binding<String>) {
-            self.text = text
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let searchField = notification.object as? NSSearchField else {
-                return
-            }
-            text.wrappedValue = searchField.stringValue
-        }
-    }
-}
-
 enum SourceCatalogSearch {
     static func filteredCatalog(_ catalog: SourceCatalog, query: String) -> SourceCatalog {
         let searchText = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -501,6 +493,12 @@ enum SourceCatalogSearch {
             }
             return OwnerSource(owner: owner.owner, repositories: matchingRepositories)
         })
+    }
+
+    static func sourceCount(_ catalog: SourceCatalog) -> Int {
+        catalog.owners.reduce(0) { count, owner in
+            count + max(owner.repositories.count, 1)
+        }
     }
 }
 
