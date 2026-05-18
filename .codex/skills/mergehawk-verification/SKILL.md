@@ -33,7 +33,9 @@ For UI, copy, menu layout, filtering, sorting, notification presentation, or vis
    scripts/verify-ui.sh
    ```
    Inspect the generated screenshots under `.build/verification/ui`.
-If static screenshots are insufficient, run an isolated mocked app slot using the Linear issue id:
+
+Before reporting completed feature work ready for user review, always open an
+isolated mocked app slot using the Linear issue id:
    ```sh
    scripts/run-agent-app.sh --slot <ISSUE-ID> --mock --open
    ```
@@ -41,6 +43,9 @@ If static screenshots are insufficient, run an isolated mocked app slot using th
    ```sh
    scripts/run-agent-app.sh --slot MER-12 --mock --open
    ```
+This is required even when static screenshots are sufficient. The user expects
+the slot app to be open so they can personally inspect the finished feature.
+
 For interactive UI verification, prefer Codex computer-use tools when available. Inspect the running slot app and capture relevant screenshots or notes under:
    ```text
    .verification/<ISSUE-ID>/
@@ -58,7 +63,7 @@ The slot app opens as a real macOS app on the user's machine, usually at:
 ~/Applications/MergeHawk <ISSUE-ID>.app
 ```
 
-Leave the slot app open for user review when useful. State the exact app name and what state it is showing. Do not replace or relaunch the user's normal installed app.
+Leave the slot app open for user review after finishing feature work. State the exact app name and what state it is showing. Do not replace or relaunch the user's normal installed app.
 
 The slot must be inspectable by the user through LaunchServices, not only by
 directly executing a binary. After running `scripts/run-agent-app.sh`, confirm
@@ -91,7 +96,9 @@ When verification is complete, report:
 Commands run:
 Results:
 UI artifacts:
-Interactive app slot:
+Interactive app slot opened:
+Interactive app slot path:
+LaunchServices/executable checks:
 Notification artifacts:
 Skipped or blocked checks:
 Ready for user review: yes/no
