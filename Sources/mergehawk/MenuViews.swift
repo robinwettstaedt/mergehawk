@@ -221,15 +221,16 @@ private struct NotificationListView: View {
     @ObservedObject var controller: DashboardController
 
     var body: some View {
-        let events = controller.state.events
-        if events.isEmpty {
-            EmptyMenuState(text: "No new notifications.")
-        } else {
-            VStack(spacing: 0) {
-                HStack {
-                    Spacer()
-                    Button("Clear All") {
-                        controller.dismissAllEvents()
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                NotificationSubtabSegmentedControl(selection: $controller.selectedNotificationSubtab)
+                    .frame(width: 104, height: 20)
+
+                Spacer()
+
+                if hasNotifications {
+                    Button("Mark all read") {
+                        controller.markAllNotificationsRead()
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 11, weight: .semibold))
@@ -243,19 +244,38 @@ private struct NotificationListView: View {
                     )
                     .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
+            notificationContent
+        }
+    }
+
+    private var hasNotifications: Bool {
+        switch controller.selectedNotificationSubtab {
+        case .pullRequests:
+            !controller.visiblePullRequestNotifications.isEmpty
+        case .other:
+            !controller.visibleGitHubInboxNotifications.isEmpty
+        }
+    }
+
+    @ViewBuilder
+    private var notificationContent: some View {
+        switch controller.selectedNotificationSubtab {
+        case .pullRequests:
+            if controller.visiblePullRequestNotifications.isEmpty {
+                EmptyMenuState(text: "No PR notifications.")
+            } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(events) { event in
-                            if let pr = controller.state.pullRequests.first(where: { $0.id == event.prId }) {
-                                NotificationRow(event: event, pullRequest: pr) {
-                                    controller.open(pr.url)
-                                } onDismiss: {
-                                    controller.dismissEvent(event)
-                                }
+                        ForEach(controller.visiblePullRequestNotifications) { notification in
+                            PullRequestNotificationRow(notification: notification) {
+                                controller.openPullRequestNotification(notification)
+                            } onMarkRead: {
+                                controller.markPullRequestNotificationRead(notification)
                             }
                         }
                     }
@@ -264,6 +284,72 @@ private struct NotificationListView: View {
                     .padding(.bottom, 12)
                 }
             }
+        case .other:
+            if controller.visibleGitHubInboxNotifications.isEmpty {
+                EmptyMenuState(text: "No other GitHub notifications.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(controller.visibleGitHubInboxNotifications) { notification in
+                            GitHubInboxNotificationRow(notification: notification) {
+                                controller.openGitHubInboxNotification(notification)
+                            } onMarkRead: {
+                                controller.markGitHubInboxNotificationRead(notification)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
+                }
+            }
+        }
+    }
+}
+
+private struct NotificationSubtabSegmentedControl: NSViewRepresentable {
+    @Binding var selection: DashboardController.NotificationSubtab
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(
+            labels: DashboardController.NotificationSubtab.allCases.map(\.rawValue),
+            trackingMode: .selectOne,
+            target: context.coordinator,
+            action: #selector(Coordinator.selectSubtab(_:))
+        )
+        control.segmentStyle = .rounded
+        control.controlSize = .mini
+        control.font = .systemFont(ofSize: 10.5, weight: .medium)
+        for index in DashboardController.NotificationSubtab.allCases.indices {
+            control.setWidth(52, forSegment: index)
+        }
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        control.selectedSegment = DashboardController.NotificationSubtab.allCases.firstIndex(of: selection) ?? 0
+        for index in DashboardController.NotificationSubtab.allCases.indices {
+            control.setWidth(52, forSegment: index)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<DashboardController.NotificationSubtab>
+
+        init(selection: Binding<DashboardController.NotificationSubtab>) {
+            self.selection = selection
+        }
+
+        @objc func selectSubtab(_ sender: NSSegmentedControl) {
+            guard DashboardController.NotificationSubtab.allCases.indices.contains(sender.selectedSegment) else {
+                return
+            }
+            selection.wrappedValue = DashboardController.NotificationSubtab.allCases[sender.selectedSegment]
         }
     }
 }
@@ -361,7 +447,7 @@ private struct PullRequestListView: View {
                                 ForEach(pullRequests) { pr in
                                     PullRequestRow(
                                         pullRequest: pr,
-                                        isAttention: controller.state.events.contains { $0.prId == pr.id },
+                                        isAttention: controller.isUnreadPullRequest(pr),
                                         showsReviewRequestKind: mode == .reviewRequests
                                     ) {
                                         controller.open(pr.url)
@@ -643,11 +729,10 @@ private struct PullRequestListView: View {
     }
 }
 
-private struct NotificationRow: View {
-    let event: PullRequestEvent
-    let pullRequest: PullRequest
+private struct PullRequestNotificationRow: View {
+    let notification: PullRequestNotification
     let action: () -> Void
-    let onDismiss: () -> Void
+    let onMarkRead: () -> Void
 
     @State private var isHovered = false
 
@@ -661,7 +746,7 @@ private struct NotificationRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(title)
                             .font(.subheadline.weight(.semibold))
-                        Text("\(pullRequest.repo)#\(pullRequest.number) · \(pullRequest.title)")
+                        Text("\(notification.repo)#\(notification.prNumber) · \(notification.prTitle)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -670,12 +755,16 @@ private struct NotificationRow: View {
                 }
                 .padding(10)
                 .background(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(notification.read ? Color.clear : Color.blue, lineWidth: 1)
+                )
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
 
-            if isHovered {
-                Button(action: onDismiss) {
+            if isHovered && !notification.read {
+                Button(action: onMarkRead) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
@@ -689,19 +778,19 @@ private struct NotificationRow: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: -6, y: -6)
-                .help("Dismiss")
-                .accessibilityLabel("Dismiss notification")
+                .help("Mark read")
+                .accessibilityLabel("Mark PR notification read")
             }
         }
         .onHover { isHovered = $0 }
     }
 
     private var title: String {
-        switch event.type {
+        switch notification.eventType {
         case .newComment:
-            "\(event.count ?? 1) new comment\(event.count == 1 ? "" : "s")"
+            "\(notification.count ?? 1) new comment\(notification.count == 1 ? "" : "s")"
         case .newReview:
-            "\(event.count ?? 1) new review\(event.count == 1 ? "" : "s")"
+            "\(notification.count ?? 1) new review\(notification.count == 1 ? "" : "s")"
         case .ciFailed:
             "CI failed"
         case .changesRequested:
@@ -710,7 +799,7 @@ private struct NotificationRow: View {
     }
 
     private var iconName: String {
-        switch event.type {
+        switch notification.eventType {
         case .newComment: "text.bubble"
         case .newReview: "checkmark.seal"
         case .ciFailed: "xmark.octagon"
@@ -719,9 +808,76 @@ private struct NotificationRow: View {
     }
 
     private var iconColor: Color {
-        switch event.type {
+        switch notification.eventType {
         case .newComment, .newReview: .blue
         case .ciFailed, .changesRequested: .red
+        }
+    }
+}
+
+private struct GitHubInboxNotificationRow: View {
+    let notification: GitHubInboxNotification
+    let action: () -> Void
+    let onMarkRead: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Button(action: action) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: iconName)
+                        .foregroundStyle(notification.unread ? Color.purple : Color.secondary)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(notification.subjectTitle)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        Text("\(notification.repo) · \(notification.subjectType) · \(notification.reason)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .padding(10)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(notification.unread ? Color.purple : Color.clear, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+
+            if isHovered && notification.unread {
+                Button(action: onMarkRead) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .frame(width: 22, height: 22)
+                        .background(.regularMaterial, in: Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.16), radius: 4, y: 1)
+                }
+                .buttonStyle(.plain)
+                .offset(x: -6, y: -6)
+                .help("Mark read")
+                .accessibilityLabel("Mark other notification read")
+            }
+        }
+        .onHover { isHovered = $0 }
+    }
+
+    private var iconName: String {
+        switch notification.subjectType {
+        case "Issue": "record.circle"
+        case "Discussion": "bubble.left.and.bubble.right"
+        case "Release": "tag"
+        default: "tray"
         }
     }
 }

@@ -12,6 +12,13 @@ final class DashboardController: ObservableObject {
         var id: String { rawValue }
     }
 
+    enum NotificationSubtab: String, CaseIterable, Identifiable {
+        case pullRequests = "PRs"
+        case other = "Other"
+
+        var id: String { rawValue }
+    }
+
     enum PullRequestSortOption: String, CaseIterable, Identifiable {
         case createdDate
         case updatedDate
@@ -91,6 +98,7 @@ final class DashboardController: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
     @Published var selectedTab: MenuTab = .notifications
+    @Published var selectedNotificationSubtab: NotificationSubtab = .pullRequests
     @Published var preferences: NotificationPreferences {
         didSet {
             preferencesStore.notificationPreferences = preferences
@@ -153,9 +161,26 @@ final class DashboardController: ObservableObject {
     private let launchAtLoginService: LaunchAtLoginServicing
     private let notificationClient: NotificationPosting
     private var sourceCatalogProvider: SourceCatalogProviding?
+    private var gitHubInboxProvider: GitHubInboxProviding?
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
+    private var isRefreshingInbox = false
+    @Published private(set) var pullRequestNotificationHistory: [PullRequestNotification] {
+        didSet {
+            preferencesStore.pullRequestNotificationHistory = pullRequestNotificationHistory
+        }
+    }
+    @Published private(set) var gitHubInboxNotifications: [GitHubInboxNotification] {
+        didSet {
+            preferencesStore.gitHubInboxNotifications = gitHubInboxNotifications
+        }
+    }
+    private var gitHubInboxSyncMetadata: GitHubInboxSyncMetadata {
+        didSet {
+            preferencesStore.gitHubInboxSyncMetadata = gitHubInboxSyncMetadata
+        }
+    }
 
     init(
         tokenStore: TokenStore = KeychainTokenStore(),
@@ -193,6 +218,9 @@ final class DashboardController: ObservableObject {
         self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
         self.startsAtLogin = self.launchAtLoginService.isEnabled
         self.authMethod = preferencesStore.authMethod
+        self.pullRequestNotificationHistory = preferencesStore.pullRequestNotificationHistory
+        self.gitHubInboxNotifications = preferencesStore.gitHubInboxNotifications
+        self.gitHubInboxSyncMetadata = preferencesStore.gitHubInboxSyncMetadata
         self.notificationClient.requestAuthorization()
         configureInitialSource()
         startAutomaticRefresh()
@@ -203,11 +231,23 @@ final class DashboardController: ObservableObject {
     }
 
     var hasAttention: Bool {
-        !state.events.isEmpty
+        visiblePullRequestNotifications.contains { !$0.read }
     }
 
     var attentionCount: Int {
-        state.events.count
+        visiblePullRequestNotifications.filter { !$0.read }.count
+    }
+
+    var visiblePullRequestNotifications: [PullRequestNotification] {
+        pullRequestNotificationHistory
+            .filter { sourcePreferences.allowsNotifications(for: $0.repo) }
+            .sorted(by: Self.compareNotifications)
+    }
+
+    var visibleGitHubInboxNotifications: [GitHubInboxNotification] {
+        gitHubInboxNotifications
+            .filter { sourcePreferences.allowsNotifications(for: $0.repo) }
+            .sorted(by: Self.compareInboxNotifications)
     }
 
     var accountLabel: String {
@@ -234,7 +274,11 @@ final class DashboardController: ObservableObject {
             pr.isMine && sourcePreferences.allowsMyPullRequests(for: pr.repo)
         }
         return Self.sorted(
-            Self.filtered(mine, by: selectedPullRequestFilters, events: state.events),
+            Self.filtered(
+                mine,
+                by: selectedPullRequestFilters,
+                attentionPullRequestIds: unreadPullRequestNotificationIds
+            ),
             by: pullRequestSortOption
         )
     }
@@ -249,19 +293,34 @@ final class DashboardController: ObservableObject {
         )
     }
 
+    private var unreadPullRequestNotificationIds: Set<String> {
+        Set(visiblePullRequestNotifications.filter { !$0.read }.map(\.prId))
+    }
+
     static func filtered(
         _ pullRequests: [PullRequest],
         by selectedFilters: Set<PullRequestFilterOption>,
         events: [PullRequestEvent]
     ) -> [PullRequest] {
+        filtered(
+            pullRequests,
+            by: selectedFilters,
+            attentionPullRequestIds: Set(events.map(\.prId))
+        )
+    }
+
+    static func filtered(
+        _ pullRequests: [PullRequest],
+        by selectedFilters: Set<PullRequestFilterOption>,
+        attentionPullRequestIds: Set<String>
+    ) -> [PullRequest] {
         let selectedFilters = selectedFilters.subtracting([.all])
         guard !selectedFilters.isEmpty else {
             return pullRequests
         }
-        let attentionIds = Set(events.map(\.prId))
         return pullRequests.filter { pr in
             selectedFilters.contains { option in
-                matches(pr, option: option, attentionIds: attentionIds)
+                matches(pr, option: option, attentionIds: attentionPullRequestIds)
             }
         }
     }
@@ -440,12 +499,66 @@ final class DashboardController: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
-    func dismissEvent(_ event: PullRequestEvent) {
-        state.events.removeAll { $0.id == event.id }
+    func isUnreadPullRequest(_ pullRequest: PullRequest) -> Bool {
+        unreadPullRequestNotificationIds.contains(pullRequest.id)
     }
 
-    func dismissAllEvents() {
-        state.events.removeAll()
+    func openPullRequestNotification(_ notification: PullRequestNotification) {
+        markPullRequestNotificationRead(notification)
+        open(notification.url)
+    }
+
+    func openGitHubInboxNotification(_ notification: GitHubInboxNotification) {
+        open(notification.webURL)
+        markGitHubInboxNotificationRead(notification)
+    }
+
+    func markPullRequestNotificationRead(_ notification: PullRequestNotification) {
+        updatePullRequestNotification(notification.id) { $0.read = true }
+    }
+
+    func markGitHubInboxNotificationRead(_ notification: GitHubInboxNotification) {
+        updateGitHubInboxNotification(notification.threadId) { $0.unread = false }
+        Task {
+            do {
+                try await gitHubInboxProvider?.markInboxThreadRead(threadId: notification.threadId)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func markAllNotificationsRead() {
+        switch selectedNotificationSubtab {
+        case .pullRequests:
+            let visibleIds = Set(visiblePullRequestNotifications.map(\.id))
+            pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+                var copy = notification
+                if visibleIds.contains(copy.id) {
+                    copy.read = true
+                }
+                return copy
+            }
+        case .other:
+            let unread = visibleGitHubInboxNotifications.filter(\.unread)
+            let unreadIds = Set(unread.map(\.threadId))
+            gitHubInboxNotifications = gitHubInboxNotifications.map { notification in
+                var copy = notification
+                if unreadIds.contains(copy.threadId) {
+                    copy.unread = false
+                }
+                return copy
+            }
+            Task {
+                do {
+                    for notification in unread {
+                        try await gitHubInboxProvider?.markInboxThreadRead(threadId: notification.threadId)
+                    }
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func trimVisibleEvents() {
@@ -531,6 +644,7 @@ final class DashboardController: ObservableObject {
         accountProvider: @escaping () async throws -> GitHubAccount?
     ) {
         sourceCatalogProvider = client
+        gitHubInboxProvider = client
         setAuthMethod(authMethod)
         syncEngine = SyncEngine(
             source: client,
@@ -546,6 +660,7 @@ final class DashboardController: ObservableObject {
         setAuthMethod(.oauth)
         sourceCatalog = .empty
         sourceCatalogProvider = nil
+        gitHubInboxProvider = nil
         let source = EmptyPullRequestSource()
         syncEngine = SyncEngine(
             source: source,
@@ -563,6 +678,7 @@ final class DashboardController: ObservableObject {
         setAuthMethod(.oauth)
         let source = MockPullRequestSource()
         sourceCatalogProvider = source
+        gitHubInboxProvider = source
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
         sourceCatalogSyncedAt = Date()
         syncEngine = SyncEngine(
@@ -615,6 +731,57 @@ final class DashboardController: ObservableObject {
         isRefreshingSources = false
     }
 
+    private func fetchGitHubInboxNotifications() async {
+        guard let gitHubInboxProvider else {
+            return
+        }
+        if let lastFetchedAt = gitHubInboxSyncMetadata.lastFetchedAt,
+           let pollIntervalSeconds = gitHubInboxSyncMetadata.pollIntervalSeconds,
+           Date() < lastFetchedAt.addingTimeInterval(TimeInterval(pollIntervalSeconds)) {
+            return
+        }
+        guard !isRefreshingInbox else {
+            return
+        }
+        isRefreshingInbox = true
+        do {
+            let result = try await gitHubInboxProvider.fetchInboxNotifications(metadata: gitHubInboxSyncMetadata)
+            gitHubInboxSyncMetadata = result.metadata
+            if !result.isNotModified {
+                gitHubInboxNotifications = Self.mergeInboxNotifications(
+                    existing: gitHubInboxNotifications,
+                    fetched: result.notifications
+                )
+            }
+        } catch {
+            if isAuthenticationFailure(error) {
+                handleAuthenticationFailure(error)
+            } else {
+                errorMessage = error.localizedDescription
+            }
+        }
+        isRefreshingInbox = false
+    }
+
+    private func recordPullRequestNotifications(events: [PullRequestEvent], pullRequests: [PullRequest]) {
+        guard !events.isEmpty else {
+            return
+        }
+        let pullRequestsById = Dictionary(uniqueKeysWithValues: pullRequests.map { ($0.id, $0) })
+        let notifications = events.compactMap { event -> PullRequestNotification? in
+            guard let pullRequest = pullRequestsById[event.prId] else {
+                return nil
+            }
+            return PullRequestNotification(event: event, pullRequest: pullRequest)
+        }
+        guard !notifications.isEmpty else {
+            return
+        }
+        pullRequestNotificationHistory = Self.trimPullRequestNotifications(
+            notifications + pullRequestNotificationHistory
+        )
+    }
+
     private func sync() async {
         guard let syncEngine else {
             return
@@ -626,10 +793,12 @@ final class DashboardController: ObservableObject {
         errorMessage = nil
         do {
             let nextState = try await syncEngine.sync()
+            recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
             state = nextState
             if macOSLocalNotificationsEnabled {
                 notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
             }
+            await fetchGitHubInboxNotifications()
         } catch {
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
@@ -716,6 +885,77 @@ final class DashboardController: ObservableObject {
             return lhs.repo < rhs.repo
         }
         return lhs.number > rhs.number
+    }
+
+    private static func trimPullRequestNotifications(
+        _ notifications: [PullRequestNotification]
+    ) -> [PullRequestNotification] {
+        Array(notifications.sorted(by: compareNotifications).prefix(30))
+    }
+
+    private static func mergeInboxNotifications(
+        existing: [GitHubInboxNotification],
+        fetched: [GitHubInboxNotification]
+    ) -> [GitHubInboxNotification] {
+        var byId = Dictionary(uniqueKeysWithValues: existing.map { ($0.threadId, $0) })
+        for notification in fetched {
+            byId[notification.threadId] = notification
+        }
+        return Array(byId.values.sorted(by: compareInboxNotifications).prefix(30))
+    }
+
+    private static func compareNotifications(
+        _ lhs: PullRequestNotification,
+        _ rhs: PullRequestNotification
+    ) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        if lhs.repo != rhs.repo {
+            return lhs.repo < rhs.repo
+        }
+        return lhs.prNumber > rhs.prNumber
+    }
+
+    private static func compareInboxNotifications(
+        _ lhs: GitHubInboxNotification,
+        _ rhs: GitHubInboxNotification
+    ) -> Bool {
+        if lhs.updatedAt != rhs.updatedAt {
+            return lhs.updatedAt > rhs.updatedAt
+        }
+        if lhs.repo != rhs.repo {
+            return lhs.repo < rhs.repo
+        }
+        return lhs.subjectTitle < rhs.subjectTitle
+    }
+
+    private func updatePullRequestNotification(
+        _ id: PullRequestNotification.ID,
+        update: (inout PullRequestNotification) -> Void
+    ) {
+        pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+            guard notification.id == id else {
+                return notification
+            }
+            var copy = notification
+            update(&copy)
+            return copy
+        }
+    }
+
+    private func updateGitHubInboxNotification(
+        _ threadId: GitHubInboxNotification.ID,
+        update: (inout GitHubInboxNotification) -> Void
+    ) {
+        gitHubInboxNotifications = gitHubInboxNotifications.map { notification in
+            guard notification.threadId == threadId else {
+                return notification
+            }
+            var copy = notification
+            update(&copy)
+            return copy
+        }
     }
 
 }

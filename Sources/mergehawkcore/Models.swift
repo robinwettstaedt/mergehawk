@@ -307,6 +307,109 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendable {
+    public let id: String
+    public let eventType: PullRequestEventType
+    public let count: Int?
+    public let prId: String
+    public let prTitle: String
+    public let prNumber: Int
+    public let repo: String
+    public let url: URL
+    public let createdAt: Date
+    public let prUpdatedAt: Date
+    public var read: Bool
+
+    public init(
+        id: String = UUID().uuidString,
+        event: PullRequestEvent,
+        pullRequest: PullRequest,
+        createdAt: Date = Date(),
+        read: Bool = false
+    ) {
+        self.id = id
+        self.eventType = event.type
+        self.count = event.count
+        self.prId = event.prId
+        self.prTitle = pullRequest.title
+        self.prNumber = pullRequest.number
+        self.repo = pullRequest.repo
+        self.url = pullRequest.url
+        self.createdAt = createdAt
+        self.prUpdatedAt = pullRequest.updatedAt
+        self.read = read
+    }
+}
+
+public struct GitHubInboxNotification: Identifiable, Codable, Equatable, Sendable {
+    public var id: String { threadId }
+    public let threadId: String
+    public let repo: String
+    public let subjectTitle: String
+    public let subjectType: String
+    public let reason: String
+    public var unread: Bool
+    public let updatedAt: Date
+    public let threadURL: URL
+    public let webURL: URL
+
+    public init(
+        threadId: String,
+        repo: String,
+        subjectTitle: String,
+        subjectType: String,
+        reason: String,
+        unread: Bool,
+        updatedAt: Date,
+        threadURL: URL,
+        webURL: URL
+    ) {
+        self.threadId = threadId
+        self.repo = repo
+        self.subjectTitle = subjectTitle
+        self.subjectType = subjectType
+        self.reason = reason
+        self.unread = unread
+        self.updatedAt = updatedAt
+        self.threadURL = threadURL
+        self.webURL = webURL
+    }
+}
+
+public struct GitHubInboxSyncMetadata: Codable, Equatable, Sendable {
+    public var eTag: String?
+    public var lastFetchedAt: Date?
+    public var pollIntervalSeconds: Int?
+
+    public static let empty = GitHubInboxSyncMetadata(
+        eTag: nil,
+        lastFetchedAt: nil,
+        pollIntervalSeconds: nil
+    )
+
+    public init(eTag: String?, lastFetchedAt: Date?, pollIntervalSeconds: Int?) {
+        self.eTag = eTag
+        self.lastFetchedAt = lastFetchedAt
+        self.pollIntervalSeconds = pollIntervalSeconds
+    }
+}
+
+public struct GitHubInboxFetchResult: Equatable, Sendable {
+    public let notifications: [GitHubInboxNotification]
+    public let metadata: GitHubInboxSyncMetadata
+    public let isNotModified: Bool
+
+    public init(
+        notifications: [GitHubInboxNotification],
+        metadata: GitHubInboxSyncMetadata,
+        isNotModified: Bool = false
+    ) {
+        self.notifications = notifications
+        self.metadata = metadata
+        self.isNotModified = isNotModified
+    }
+}
+
 public struct NotificationPreferences: Codable, Equatable, Sendable {
     public var newComment: Bool
     public var newReview: Bool

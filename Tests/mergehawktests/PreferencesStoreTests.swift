@@ -148,6 +148,61 @@ let mergehawkSourceCatalogStoreTest: Void = {
     precondition(store.sourceCatalog == catalog)
 }()
 
+let mergehawkNotificationHistoryStoreTest: Void = {
+    let suiteName = "mergehawk-notification-history-store-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    var store = PreferencesStore(defaults: defaults)
+    let pullRequest = PullRequest(
+        id: "PR_1",
+        title: "Persist notification history",
+        number: 9,
+        url: URL(string: "https://github.com/example/mergehawk/pull/9")!,
+        repo: "example/mergehawk",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 1,
+        reviewCount: 0,
+        isMine: true,
+        author: "rw",
+        mergeable: .mergeable,
+        draft: false
+    )
+    let prNotification = PullRequestNotification(
+        id: "stored-pr",
+        event: PullRequestEvent(type: .newComment, prId: "PR_1", count: 1),
+        pullRequest: pullRequest,
+        createdAt: Date(timeIntervalSince1970: 10)
+    )
+    let inboxNotification = GitHubInboxNotification(
+        threadId: "thread-1",
+        repo: "example/app",
+        subjectTitle: "Question about sources",
+        subjectType: "Issue",
+        reason: "mention",
+        unread: true,
+        updatedAt: Date(timeIntervalSince1970: 20),
+        threadURL: URL(string: "https://api.github.com/notifications/threads/1")!,
+        webURL: URL(string: "https://github.com/example/app/issues/1")!
+    )
+    let metadata = GitHubInboxSyncMetadata(
+        eTag: #""etag""#,
+        lastFetchedAt: Date(timeIntervalSince1970: 30),
+        pollIntervalSeconds: 60
+    )
+
+    store.pullRequestNotificationHistory = [prNotification]
+    store.gitHubInboxNotifications = [inboxNotification]
+    store.gitHubInboxSyncMetadata = metadata
+
+    precondition(store.pullRequestNotificationHistory == [prNotification])
+    precondition(store.gitHubInboxNotifications == [inboxNotification])
+    precondition(store.gitHubInboxSyncMetadata == metadata)
+}()
+
 let mergehawkMacOSLocalNotificationPreferenceTest: Void = {
     let suiteName = "mergehawk-macos-local-notification-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!

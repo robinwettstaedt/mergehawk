@@ -5,6 +5,7 @@ import mergehawkcore
 
 @MainActor let mergehawkMenuViewTest: Void = {
     precondition(DashboardController.MenuTab.allCases.map(\.rawValue) == ["Notifications", "Authored", "Requested"])
+    precondition(DashboardController.NotificationSubtab.allCases.map(\.rawValue) == ["PRs", "Other"])
     precondition(MenuTabShortcutHint.title(for: .notifications) == "Shortcut: ⌘1")
     precondition(MenuTabShortcutHint.title(for: .myPRs) == "Shortcut: ⌘2")
     precondition(MenuTabShortcutHint.title(for: .reviewRequests) == "Shortcut: ⌘3")
