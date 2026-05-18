@@ -61,8 +61,8 @@ struct CountSearchControl: View {
     let countLabel: String
     let placeholder: String
     let help: String
-    let expandedWidth: CGFloat
-    @FocusState private var searchFieldFocused: Bool
+    var expandedWidth: CGFloat?
+    @State private var searchFieldFocused = false
 
     var body: some View {
         HStack(spacing: 7) {
@@ -96,16 +96,20 @@ struct CountSearchControl: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
-            TextField(placeholder, text: $searchState.query)
-                .textFieldStyle(.plain)
-                .font(.caption)
-                .focused($searchFieldFocused)
-                .onChange(of: searchFieldFocused) { _, isFocused in
-                    if !isFocused {
-                        searchState.blur()
-                    }
+            TransparentSearchTextField(
+                text: $searchState.query,
+                placeholder: placeholder,
+                isFocused: $searchFieldFocused
+            ) {
+                searchState.blur()
+            }
+            .accessibilityLabel(help)
+            .frame(height: 16)
+            .onChange(of: searchState.isExpanded) { _, isExpanded in
+                if !isExpanded {
+                    searchFieldFocused = false
                 }
-                .accessibilityLabel(help)
+            }
             if searchState.hasActiveQuery {
                 Text(countLabel)
                     .font(.caption2.weight(.medium))
@@ -115,17 +119,142 @@ struct CountSearchControl: View {
             }
         }
         .padding(.horizontal, 8)
-        .frame(width: expandedWidth, height: 24)
-        .background(Color(nsColor: .textBackgroundColor))
+        .frame(height: 24)
+        .frame(width: expandedWidth)
+        .frame(maxWidth: expandedWidth == nil ? .infinity : nil)
+        .background(.ultraThinMaterial)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(searchFieldFocused ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor), lineWidth: 1)
+                .stroke(
+                    searchFieldFocused ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor).opacity(0.55),
+                    lineWidth: 1
+                )
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
+private struct TransparentSearchTextField: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let placeholder: String
+    let onBlur: () -> Void
+
+    init(
+        text: Binding<String>,
+        placeholder: String,
+        isFocused: Binding<Bool>,
+        onBlur: @escaping () -> Void
+    ) {
+        _text = text
+        _isFocused = isFocused
+        self.placeholder = placeholder
+        self.onBlur = onBlur
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.delegate = context.coordinator
+        Self.configure(field)
+        field.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        field.textColor = .labelColor
+        field.placeholderString = placeholder
+        field.cell?.usesSingleLineMode = true
+        field.cell?.lineBreakMode = .byTruncatingTail
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        Self.configure(field)
+        context.coordinator.text = $text
+        context.coordinator.isFocused = $isFocused
+        context.coordinator.onBlur = onBlur
+
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        if field.placeholderString != placeholder {
+            field.placeholderString = placeholder
+        }
+
+        if isFocused, field.window?.firstResponder !== field.currentEditor() {
+            DispatchQueue.main.async {
+                field.window?.makeFirstResponder(field)
+                Self.configureEditor(for: field)
+            }
+        } else if !isFocused, field.window?.firstResponder === field.currentEditor() {
+            DispatchQueue.main.async {
+                field.window?.makeFirstResponder(nil)
+            }
+        } else {
+            Self.configureEditor(for: field)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, isFocused: $isFocused, onBlur: onBlur)
+    }
+
+    private static func configure(_ field: NSTextField) {
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.backgroundColor = .clear
+        field.focusRingType = .none
+        field.wantsLayer = true
+        field.layer?.backgroundColor = NSColor.clear.cgColor
+        if let cell = field.cell as? NSTextFieldCell {
+            cell.drawsBackground = false
+            cell.backgroundColor = .clear
+        }
+    }
+
+    private static func configureEditor(for field: NSTextField) {
+        guard let editor = field.currentEditor() as? NSTextView else {
+            return
+        }
+        editor.drawsBackground = false
+        editor.backgroundColor = .clear
+        editor.insertionPointColor = .controlAccentColor
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        var isFocused: Binding<Bool>
+        var onBlur: () -> Void
+
+        init(text: Binding<String>, isFocused: Binding<Bool>, onBlur: @escaping () -> Void) {
+            self.text = text
+            self.isFocused = isFocused
+            self.onBlur = onBlur
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else {
+                return
+            }
+            text.wrappedValue = field.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            if let field = notification.object as? NSTextField {
+                TransparentSearchTextField.configureEditor(for: field)
+            }
+            isFocused.wrappedValue = true
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            isFocused.wrappedValue = false
+            onBlur()
+        }
+    }
+}
+
 struct MenuControlButton: View {
+    enum Layout {
+        static let height: CGFloat = 24
+    }
+
     let symbolName: String
     let title: String
     let isOpen: Bool
@@ -142,17 +271,17 @@ struct MenuControlButton: View {
                 Text(title)
                     .lineLimit(1)
             }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(isOpen ? Color.accentColor : Color.primary)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
             .padding(.horizontal, 10)
-            .frame(height: 24)
+            .frame(height: Self.Layout.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(.ultraThinMaterial)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .help(help)
@@ -192,6 +321,7 @@ struct MenuRootView: View {
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
         static let tabSwitcherWidth: CGFloat = 324
+        static let tabSwitcherLeadingInset: CGFloat = 5
         static let notificationTabSegmentWidth: CGFloat = 64
         static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
     }
@@ -248,6 +378,7 @@ struct MenuRootView: View {
             attentionCount: controller.attentionCount
         )
         .frame(width: Self.Layout.tabSwitcherWidth)
+        .padding(.leading, Self.Layout.tabSwitcherLeadingInset)
     }
 
     @ViewBuilder
@@ -458,25 +589,19 @@ private struct NotificationListView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 NotificationSubtabSegmentedControl(selection: $controller.selectedNotificationSubtab)
-                    .frame(width: 104, height: 20)
+                    .frame(width: 104, height: 18)
 
                 Spacer()
 
                 if hasNotifications {
-                    Button("Mark all read") {
+                    MenuControlButton(
+                        symbolName: "envelope.open",
+                        title: "Mark all read",
+                        isOpen: false,
+                        help: "Mark all notifications read"
+                    ) {
                         controller.markAllNotificationsRead()
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 20)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                 }
             }
             .padding(.horizontal, 12)
@@ -514,7 +639,7 @@ private struct NotificationListView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, 10)
+                    .padding(.top, 5)
                     .padding(.bottom, 12)
                 }
             }
@@ -533,7 +658,7 @@ private struct NotificationListView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, 10)
+                    .padding(.top, 5)
                     .padding(.bottom, 12)
                 }
             }
@@ -646,7 +771,6 @@ struct GitHubSignInView: View {
 private struct PullRequestListView: View {
     enum Layout {
         static let controlsHeight: CGFloat = 40
-        static let searchFieldWidth: CGFloat = 244
     }
 
     enum Mode {
@@ -678,18 +802,7 @@ private struct PullRequestListView: View {
         } else {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        searchControls
-                        Spacer(minLength: 0)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                dismissTransientControls()
-                            }
-                        HStack(spacing: 8) {
-                            filterButton
-                            sortButton
-                        }
-                    }
+                    toolbarControls
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
                     .padding(.bottom, 6)
@@ -711,6 +824,7 @@ private struct PullRequestListView: View {
                                 }
                             }
                             .padding(.horizontal, 12)
+                            .padding(.top, 5)
                             .padding(.bottom, 12)
                         }
                     }
@@ -726,7 +840,7 @@ private struct PullRequestListView: View {
                 if dropdownState.openMenu == .filter {
                     filterMenu
                         .padding(.top, 40)
-                        .padding(.trailing, 86)
+                        .padding(.trailing, 110)
                         .zIndex(3)
                 }
 
@@ -783,12 +897,35 @@ private struct PullRequestListView: View {
             searchState: $searchState,
             countLabel: visibleCountLabel,
             placeholder: "Search PRs...",
-            help: "Search PRs",
-            expandedWidth: Layout.searchFieldWidth
+            help: "Search PRs"
         )
         .simultaneousGesture(TapGesture().onEnded {
             dropdownState.dismiss()
         })
+    }
+
+    @ViewBuilder
+    private var toolbarControls: some View {
+        if searchState.isExpanded {
+            HStack(spacing: 8) {
+                searchControls
+                filterButton
+                sortButton
+            }
+        } else {
+            HStack(spacing: 0) {
+                searchControls
+                Spacer(minLength: 0)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissTransientControls()
+                    }
+                HStack(spacing: 8) {
+                    filterButton
+                    sortButton
+                }
+            }
+        }
     }
 
     private var outsideDropdownDismissArea: some View {
@@ -968,10 +1105,10 @@ private struct PullRequestListView: View {
             content()
         }
         .padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(.ultraThinMaterial)
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .shadow(radius: 8, y: 3)
@@ -993,7 +1130,8 @@ private struct PullRequestListView: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .font(.caption)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
             .padding(.horizontal, 8)
             .frame(width: width, height: 24, alignment: .leading)
             .contentShape(Rectangle())
