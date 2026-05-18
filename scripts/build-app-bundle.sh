@@ -113,7 +113,9 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]] && security find-identity -v -p codesigning 2>
 fi
 
 if [[ -n "$CODE_SIGN_IDENTITY" ]]; then
-  codesign --force --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+  codesign --force --deep --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+else
+  codesign --force --deep --sign - "$APP_DIR"
 fi
 
 echo "$APP_DIR"

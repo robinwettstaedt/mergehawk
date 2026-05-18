@@ -98,6 +98,11 @@ import mergehawkcore
     let signedInStatusBarController = StatusBarController(controller: signedInController)
     _ = signedInStatusBarController.rebuildMenuForTesting()
     signedInController.selectedTab = .reviewRequests
+    let revealedMenuItems = signedInStatusBarController.showMenuForTesting(selecting: .notifications)
+    precondition(signedInController.selectedTab == .notifications)
+    precondition(revealedMenuItems.count == 6)
+    precondition(revealedMenuItems[0].view != nil)
+    signedInController.selectedTab = .reviewRequests
     precondition(signedInStatusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "1", modifiers: .command)))
     precondition(signedInController.selectedTab == .notifications)
     precondition(signedInStatusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "2", modifiers: .command)))
