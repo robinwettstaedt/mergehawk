@@ -9,6 +9,11 @@ public protocol SourceCatalogProviding: AnyObject {
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog
 }
 
+public protocol GitHubInboxProviding: AnyObject {
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult
+    func markInboxThreadRead(threadId: String) async throws
+}
+
 public final class EmptyPullRequestSource: PullRequestSource {
     public let sourceKind: DashboardSource = .none
 
@@ -150,4 +155,42 @@ extension MockPullRequestSource: SourceCatalogProviding {
             accountLogin: accountLogin
         )
     }
+}
+
+extension MockPullRequestSource: GitHubInboxProviding {
+    public func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(
+            notifications: [
+                GitHubInboxNotification(
+                    threadId: "mock-issue-1",
+                    repo: "example/app",
+                    subjectTitle: "Crash when saving source preferences",
+                    subjectType: "Issue",
+                    reason: "mention",
+                    unread: true,
+                    updatedAt: Date(timeIntervalSince1970: 1_777_809_600),
+                    threadURL: URL(string: "https://api.github.com/notifications/threads/mock-issue-1")!,
+                    webURL: URL(string: "https://github.com/example/app/issues/42")!
+                ),
+                GitHubInboxNotification(
+                    threadId: "mock-discussion-1",
+                    repo: "example/web",
+                    subjectTitle: "Ideas for review request grouping",
+                    subjectType: "Discussion",
+                    reason: "subscribed",
+                    unread: false,
+                    updatedAt: Date(timeIntervalSince1970: 1_777_723_200),
+                    threadURL: URL(string: "https://api.github.com/notifications/threads/mock-discussion-1")!,
+                    webURL: URL(string: "https://github.com/example/web/discussions/8")!
+                )
+            ],
+            metadata: GitHubInboxSyncMetadata(
+                eTag: metadata.eTag,
+                lastFetchedAt: Date(),
+                pollIntervalSeconds: 60
+            )
+        )
+    }
+
+    public func markInboxThreadRead(threadId: String) async throws {}
 }
