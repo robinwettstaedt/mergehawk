@@ -497,10 +497,12 @@ enum StatusIcon {
     }
 
     private static func markImage(isTemplate: Bool) -> NSImage {
-        guard let url = Bundle.module.url(
-            forResource: "MenuBarIconTemplate",
-            withExtension: "svg"
-        ), let image = NSImage(contentsOf: url) else {
+        let resourceName = "MenuBarIconTemplate"
+        let resourceExtension = "svg"
+        let url = Bundle.main.url(forResource: resourceName, withExtension: resourceExtension)
+            ?? Bundle.module.url(forResource: resourceName, withExtension: resourceExtension)
+
+        guard let url, let image = NSImage(contentsOf: url) else {
             preconditionFailure("MenuBarIconTemplate.svg must be bundled with mergehawk")
         }
 

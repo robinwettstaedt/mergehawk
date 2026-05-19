@@ -21,7 +21,7 @@ export SWIFTPM_CACHE_PATH="$ROOT_DIR/.build/swiftpm-cache"
 swift build --disable-sandbox --product mergehawk ${CONFIGURATION:+--configuration "$CONFIGURATION"}
 
 rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 if [[ -n "$LAUNCH_ARGUMENTS" ]]; then
   cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME.bin"
   /usr/bin/python3 - "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME" "$APP_EXECUTABLE_NAME.bin" "$LAUNCH_ARGUMENTS" "$LAUNCH_ENVIRONMENT" <<'PY'
@@ -49,6 +49,16 @@ PY
 else
   cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME"
 fi
+
+while IFS= read -r -d '' resource_bundle; do
+  ditto "$resource_bundle" "$APP_DIR/Contents/Resources"
+done < <(
+  find "$ROOT_DIR/.build/arm64-apple-macosx/$CONFIGURATION" \
+    -maxdepth 1 \
+    -type d \
+    -name "mergehawk_*.bundle" \
+    -print0
+)
 
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
