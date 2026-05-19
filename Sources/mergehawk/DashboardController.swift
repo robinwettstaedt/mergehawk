@@ -124,6 +124,8 @@ final class DashboardController: ObservableObject {
             preferencesStore.selectedPullRequestFilters = selectedPullRequestFilters
         }
     }
+    @Published var authoredSearchState = ExpandableSearchState()
+    @Published var reviewRequestSearchState = ExpandableSearchState()
     @Published var selectedReviewRequestFilters: Set<ReviewRequestFilterOption> {
         didSet {
             preferencesStore.selectedReviewRequestFilters = selectedReviewRequestFilters

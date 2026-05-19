@@ -80,12 +80,15 @@ struct CountSearchControl: View {
     let countLabel: String
     let placeholder: String
     let help: String
+    var isAlwaysExpanded = false
+    var showsInlineCount = true
     var expandedWidth: CGFloat?
     @State private var searchFieldFocused = false
+    @State private var searchFocusRequest = 0
 
     var body: some View {
         HStack(spacing: 7) {
-            if searchState.isExpanded {
+            if isSearchExpanded {
                 expandedSearchControls
             } else {
                 MenuControlButton(
@@ -96,18 +99,22 @@ struct CountSearchControl: View {
                 ) {
                     searchState.expand()
                     DispatchQueue.main.async {
-                        searchFieldFocused = true
+                        searchFocusRequest += 1
                     }
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.16), value: searchState.isExpanded)
+        .animation(.easeInOut(duration: 0.16), value: isSearchExpanded)
         .onExitCommand {
             searchState.handleEscape()
-            if !searchState.isExpanded {
+            if !isSearchExpanded {
                 searchFieldFocused = false
             }
         }
+    }
+
+    private var isSearchExpanded: Bool {
+        isAlwaysExpanded || searchState.isExpanded
     }
 
     private var expandedSearchControls: some View {
@@ -118,23 +125,29 @@ struct CountSearchControl: View {
             TransparentSearchTextField(
                 text: $searchState.query,
                 placeholder: placeholder,
-                isFocused: $searchFieldFocused
+                isFocused: $searchFieldFocused,
+                focusRequest: searchFocusRequest
             ) {
-                searchState.blur()
+                if !isAlwaysExpanded {
+                    searchState.blur()
+                }
             }
             .accessibilityLabel(help)
             .frame(height: 16)
             .onChange(of: searchState.isExpanded) { _, isExpanded in
-                if !isExpanded {
+                if !isExpanded && !isAlwaysExpanded {
                     searchFieldFocused = false
                 }
             }
-            if searchState.hasActiveQuery {
+            if searchState.hasActiveQuery, showsInlineCount {
                 Text(countLabel)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
+            }
+            if searchState.hasActiveQuery {
+                clearSearchButton
             }
         }
         .padding(.horizontal, 8)
@@ -142,6 +155,11 @@ struct CountSearchControl: View {
         .frame(width: expandedWidth)
         .frame(maxWidth: expandedWidth == nil ? .infinity : nil)
         .background(.ultraThinMaterial)
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture {
+            searchState.expand()
+            searchFocusRequest += 1
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .stroke(
@@ -151,28 +169,50 @@ struct CountSearchControl: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
+
+    private var clearSearchButton: some View {
+        Button {
+            searchState.query = ""
+            searchState.expand()
+            DispatchQueue.main.async {
+                searchFieldFocused = false
+            }
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("Clear search")
+        .accessibilityLabel("Clear search")
+    }
 }
 
 private struct TransparentSearchTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let placeholder: String
+    let focusRequest: Int
     let onBlur: () -> Void
 
     init(
         text: Binding<String>,
         placeholder: String,
         isFocused: Binding<Bool>,
+        focusRequest: Int,
         onBlur: @escaping () -> Void
     ) {
         _text = text
         _isFocused = isFocused
         self.placeholder = placeholder
+        self.focusRequest = focusRequest
         self.onBlur = onBlur
     }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = SearchTextField()
         field.delegate = context.coordinator
         Self.configure(field)
         field.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
@@ -188,6 +228,8 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         context.coordinator.text = $text
         context.coordinator.isFocused = $isFocused
         context.coordinator.onBlur = onBlur
+        let shouldRequestFocus = context.coordinator.focusRequest != focusRequest
+        context.coordinator.focusRequest = focusRequest
 
         if field.stringValue != text {
             field.stringValue = text
@@ -196,11 +238,8 @@ private struct TransparentSearchTextField: NSViewRepresentable {
             field.placeholderString = placeholder
         }
 
-        if isFocused, field.window?.firstResponder !== field.currentEditor() {
-            DispatchQueue.main.async {
-                field.window?.makeFirstResponder(field)
-                Self.configureEditor(for: field)
-            }
+        if shouldRequestFocus || (isFocused && field.window?.firstResponder !== field.currentEditor()) {
+            Self.focus(field)
         } else if !isFocused, field.window?.firstResponder === field.currentEditor() {
             DispatchQueue.main.async {
                 field.window?.makeFirstResponder(nil)
@@ -225,6 +264,20 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         if let cell = field.cell as? NSTextFieldCell {
             cell.drawsBackground = false
             cell.backgroundColor = .clear
+            cell.focusRingType = .none
+        }
+    }
+
+    private static func focus(_ field: NSTextField, attemptsRemaining: Int = 3) {
+        DispatchQueue.main.async {
+            guard field.window != nil else {
+                if attemptsRemaining > 0 {
+                    focus(field, attemptsRemaining: attemptsRemaining - 1)
+                }
+                return
+            }
+            field.window?.makeFirstResponder(field)
+            configureEditor(for: field)
         }
     }
 
@@ -235,12 +288,34 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         editor.drawsBackground = false
         editor.backgroundColor = .clear
         editor.insertionPointColor = .controlAccentColor
+        editor.enclosingScrollView?.drawsBackground = false
+        editor.superview?.wantsLayer = true
+        editor.superview?.layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    private final class SearchTextField: NSTextField {
+        override func becomeFirstResponder() -> Bool {
+            let becameFirstResponder = super.becomeFirstResponder()
+            if becameFirstResponder {
+                TransparentSearchTextField.configure(self)
+                DispatchQueue.main.async {
+                    TransparentSearchTextField.configureEditor(for: self)
+                }
+            }
+            return becameFirstResponder
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            TransparentSearchTextField.configure(self)
+            super.draw(dirtyRect)
+        }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var text: Binding<String>
         var isFocused: Binding<Bool>
         var onBlur: () -> Void
+        var focusRequest = 0
 
         init(text: Binding<String>, isFocused: Binding<Bool>, onBlur: @escaping () -> Void) {
             self.text = text
@@ -258,6 +333,9 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ notification: Notification) {
             if let field = notification.object as? NSTextField {
                 TransparentSearchTextField.configureEditor(for: field)
+                DispatchQueue.main.async {
+                    TransparentSearchTextField.configureEditor(for: field)
+                }
             }
             isFocused.wrappedValue = true
         }
@@ -287,13 +365,15 @@ struct MenuControlButton: View {
             HStack(spacing: 6) {
                 Image(systemName: symbolName)
                     .font(.system(size: 11, weight: .semibold))
-                Text(title)
-                    .lineLimit(1)
+                if !title.isEmpty {
+                    Text(title)
+                        .lineLimit(1)
+                }
             }
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: Self.Layout.height)
+            .padding(.horizontal, title.isEmpty ? 0 : 10)
+            .frame(width: title.isEmpty ? Self.Layout.height : nil, height: Self.Layout.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -339,15 +419,13 @@ struct MenuRootView: View {
         static let width: CGFloat = 420
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
-        static let tabSwitcherWidth: CGFloat = 324
+        static let tabSwitcherWidth: CGFloat = 351
         static let tabSwitcherLeadingInset: CGFloat = 5
         static let notificationTabSegmentWidth: CGFloat = 64
         static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
     }
 
     @ObservedObject var controller: DashboardController
-    var initialAuthoredSearchState = ExpandableSearchState()
-    var initialReviewRequestSearchState = ExpandableSearchState()
     @State private var dismissTransientPRControlsSignal = 0
 
     var body: some View {
@@ -412,14 +490,14 @@ struct MenuRootView: View {
                 PullRequestListView(
                     controller: controller,
                     mode: .authored,
-                    initialSearchState: initialAuthoredSearchState,
+                    searchState: $controller.authoredSearchState,
                     dismissSignal: dismissTransientPRControlsSignal
                 )
             case .reviewRequests:
                 PullRequestListView(
                     controller: controller,
                     mode: .reviewRequests,
-                    initialSearchState: initialReviewRequestSearchState,
+                    searchState: $controller.reviewRequestSearchState,
                     dismissSignal: dismissTransientPRControlsSignal
                 )
             }
@@ -801,18 +879,18 @@ private struct PullRequestListView: View {
     let mode: Mode
     let dismissSignal: Int
     @State private var dropdownState = PullRequestMenuDropdownState()
-    @State private var searchState = ExpandableSearchState()
+    @Binding var searchState: ExpandableSearchState
 
     init(
         controller: DashboardController,
         mode: Mode,
-        initialSearchState: ExpandableSearchState = ExpandableSearchState(),
+        searchState: Binding<ExpandableSearchState>,
         dismissSignal: Int = 0
     ) {
         self.controller = controller
         self.mode = mode
         self.dismissSignal = dismissSignal
-        _searchState = State(initialValue: initialSearchState)
+        _searchState = searchState
     }
 
     var body: some View {
@@ -911,12 +989,22 @@ private struct PullRequestListView: View {
         CountSearchPresentation.countLabel(for: visiblePullRequests.count, singular: "PR", plural: "PRs")
     }
 
+    private var visibleCount: some View {
+        Text("\(visiblePullRequests.count)")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .accessibilityLabel(visibleCountLabel)
+            .padding(.leading, 12)
+    }
+
     private var searchControls: some View {
         CountSearchControl(
             searchState: $searchState,
-            countLabel: visibleCountLabel,
-            placeholder: "Search PRs...",
-            help: "Search PRs"
+            countLabel: "",
+            placeholder: "",
+            help: "Search PRs",
+            showsInlineCount: false
         )
         .simultaneousGesture(TapGesture().onEnded {
             dropdownState.dismiss()
@@ -927,22 +1015,22 @@ private struct PullRequestListView: View {
     private var toolbarControls: some View {
         if searchState.isExpanded {
             HStack(spacing: 8) {
+                visibleCount
                 searchControls
                 filterButton
                 sortButton
             }
         } else {
-            HStack(spacing: 0) {
+            HStack(spacing: 8) {
+                visibleCount
                 searchControls
                 Spacer(minLength: 0)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissTransientControls()
                     }
-                HStack(spacing: 8) {
-                    filterButton
-                    sortButton
-                }
+                filterButton
+                sortButton
             }
         }
     }

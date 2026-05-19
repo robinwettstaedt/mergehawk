@@ -367,13 +367,15 @@ private struct SourcesSettingsView: View {
         )
 
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                sourceCount(for: filteredCatalog)
                 CountSearchControl(
                     searchState: $sourceSearchState,
                     countLabel: sourceCountLabel(for: filteredCatalog),
                     placeholder: "Search sources",
                     help: "Search sources",
-                    expandedWidth: 300
+                    isAlwaysExpanded: true,
+                    showsInlineCount: false
                 )
 
                 Spacer(minLength: 0)
@@ -448,6 +450,14 @@ private struct SourcesSettingsView: View {
             singular: "source",
             plural: "sources"
         )
+    }
+
+    private func sourceCount(for catalog: SourceCatalog) -> some View {
+        Text("\(SourceCatalogSearch.sourceCount(catalog))")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .accessibilityLabel(sourceCountLabel(for: catalog))
     }
 }
 
