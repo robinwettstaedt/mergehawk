@@ -142,11 +142,11 @@ final class VisualVerificationXCTests: XCTestCase {
         initialReviewRequestSearchState: ExpandableSearchState = ExpandableSearchState(),
         to url: URL
     ) throws {
+        controller.authoredSearchState = initialAuthoredSearchState
+        controller.reviewRequestSearchState = initialReviewRequestSearchState
         try render(
             MenuRootView(
-                controller: controller,
-                initialAuthoredSearchState: initialAuthoredSearchState,
-                initialReviewRequestSearchState: initialReviewRequestSearchState
+                controller: controller
             )
                 .background(.regularMaterial),
             size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),

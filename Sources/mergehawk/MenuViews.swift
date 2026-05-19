@@ -371,8 +371,6 @@ struct MenuRootView: View {
     }
 
     @ObservedObject var controller: DashboardController
-    var initialAuthoredSearchState = ExpandableSearchState()
-    var initialReviewRequestSearchState = ExpandableSearchState()
     @State private var dismissTransientPRControlsSignal = 0
 
     var body: some View {
@@ -437,14 +435,14 @@ struct MenuRootView: View {
                 PullRequestListView(
                     controller: controller,
                     mode: .authored,
-                    initialSearchState: initialAuthoredSearchState,
+                    searchState: $controller.authoredSearchState,
                     dismissSignal: dismissTransientPRControlsSignal
                 )
             case .reviewRequests:
                 PullRequestListView(
                     controller: controller,
                     mode: .reviewRequests,
-                    initialSearchState: initialReviewRequestSearchState,
+                    searchState: $controller.reviewRequestSearchState,
                     dismissSignal: dismissTransientPRControlsSignal
                 )
             }
@@ -826,18 +824,18 @@ private struct PullRequestListView: View {
     let mode: Mode
     let dismissSignal: Int
     @State private var dropdownState = PullRequestMenuDropdownState()
-    @State private var searchState = ExpandableSearchState()
+    @Binding var searchState: ExpandableSearchState
 
     init(
         controller: DashboardController,
         mode: Mode,
-        initialSearchState: ExpandableSearchState = ExpandableSearchState(),
+        searchState: Binding<ExpandableSearchState>,
         dismissSignal: Int = 0
     ) {
         self.controller = controller
         self.mode = mode
         self.dismissSignal = dismissSignal
-        _searchState = State(initialValue: initialSearchState)
+        _searchState = searchState
     }
 
     var body: some View {
