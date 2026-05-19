@@ -146,6 +146,13 @@ import mergehawkcore
     precondition(!signedInStatusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "1", modifiers: [.command, .shift])))
     precondition(signedInController.selectedTab == .reviewRequests)
 
+    signedInController.authoredSearchState = ExpandableSearchState(isExpanded: true, query: "oauth")
+    signedInController.reviewRequestSearchState = ExpandableSearchState(isExpanded: true, query: "billing")
+    _ = signedInStatusBarController.showMenuForTesting(selecting: .myPRs)
+    precondition(signedInController.authoredSearchState == ExpandableSearchState(isExpanded: true, query: "oauth"))
+    _ = signedInStatusBarController.showMenuForTesting(selecting: .reviewRequests)
+    precondition(signedInController.reviewRequestSearchState == ExpandableSearchState(isExpanded: true, query: "billing"))
+
     let markAllController = signedInMockController()
     let markAllStatusBarController = StatusBarController(controller: markAllController)
     precondition(!markAllStatusBarController.statusButtonHasAttentionForTesting())
