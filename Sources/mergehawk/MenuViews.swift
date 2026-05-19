@@ -84,6 +84,7 @@ struct CountSearchControl: View {
     var showsInlineCount = true
     var expandedWidth: CGFloat?
     @State private var searchFieldFocused = false
+    @State private var searchFocusRequest = 0
 
     var body: some View {
         HStack(spacing: 7) {
@@ -98,7 +99,7 @@ struct CountSearchControl: View {
                 ) {
                     searchState.expand()
                     DispatchQueue.main.async {
-                        searchFieldFocused = true
+                        searchFocusRequest += 1
                     }
                 }
             }
@@ -124,7 +125,8 @@ struct CountSearchControl: View {
             TransparentSearchTextField(
                 text: $searchState.query,
                 placeholder: placeholder,
-                isFocused: $searchFieldFocused
+                isFocused: $searchFieldFocused,
+                focusRequest: searchFocusRequest
             ) {
                 if !isAlwaysExpanded {
                     searchState.blur()
@@ -153,6 +155,11 @@ struct CountSearchControl: View {
         .frame(width: expandedWidth)
         .frame(maxWidth: expandedWidth == nil ? .infinity : nil)
         .background(.ultraThinMaterial)
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture {
+            searchState.expand()
+            searchFocusRequest += 1
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .stroke(
@@ -187,17 +194,20 @@ private struct TransparentSearchTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let placeholder: String
+    let focusRequest: Int
     let onBlur: () -> Void
 
     init(
         text: Binding<String>,
         placeholder: String,
         isFocused: Binding<Bool>,
+        focusRequest: Int,
         onBlur: @escaping () -> Void
     ) {
         _text = text
         _isFocused = isFocused
         self.placeholder = placeholder
+        self.focusRequest = focusRequest
         self.onBlur = onBlur
     }
 
@@ -218,6 +228,8 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         context.coordinator.text = $text
         context.coordinator.isFocused = $isFocused
         context.coordinator.onBlur = onBlur
+        let shouldRequestFocus = context.coordinator.focusRequest != focusRequest
+        context.coordinator.focusRequest = focusRequest
 
         if field.stringValue != text {
             field.stringValue = text
@@ -226,11 +238,8 @@ private struct TransparentSearchTextField: NSViewRepresentable {
             field.placeholderString = placeholder
         }
 
-        if isFocused, field.window?.firstResponder !== field.currentEditor() {
-            DispatchQueue.main.async {
-                field.window?.makeFirstResponder(field)
-                Self.configureEditor(for: field)
-            }
+        if shouldRequestFocus || (isFocused && field.window?.firstResponder !== field.currentEditor()) {
+            Self.focus(field)
         } else if !isFocused, field.window?.firstResponder === field.currentEditor() {
             DispatchQueue.main.async {
                 field.window?.makeFirstResponder(nil)
@@ -256,6 +265,19 @@ private struct TransparentSearchTextField: NSViewRepresentable {
             cell.drawsBackground = false
             cell.backgroundColor = .clear
             cell.focusRingType = .none
+        }
+    }
+
+    private static func focus(_ field: NSTextField, attemptsRemaining: Int = 3) {
+        DispatchQueue.main.async {
+            guard field.window != nil else {
+                if attemptsRemaining > 0 {
+                    focus(field, attemptsRemaining: attemptsRemaining - 1)
+                }
+                return
+            }
+            field.window?.makeFirstResponder(field)
+            configureEditor(for: field)
         }
     }
 
@@ -293,6 +315,7 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         var text: Binding<String>
         var isFocused: Binding<Bool>
         var onBlur: () -> Void
+        var focusRequest = 0
 
         init(text: Binding<String>, isFocused: Binding<Bool>, onBlur: @escaping () -> Void) {
             self.text = text
