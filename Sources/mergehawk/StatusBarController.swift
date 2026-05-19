@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -7,7 +8,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let menu = StatusBarMenu()
     private let controller: DashboardController
     private weak var refreshMenuItemView: RefreshMenuItemView?
-    private var observation: NSKeyValueObservation?
+    private var cancellables: Set<AnyCancellable> = []
 
     init(controller: DashboardController) {
         self.controller = controller
@@ -21,6 +22,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             self?.selectKeyboardTab(tab) == true
         }
         statusItem.menu = menu
+        observeStatusButtonInputs()
         updateStatusButton()
     }
 
@@ -45,6 +47,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         refreshMenuItemView?.performKeyEquivalent(with: event) == true
     }
 
+    func statusButtonHasAttentionForTesting() -> Bool {
+        statusItem.button?.image?.isTemplate == false
+    }
+
     func updateStatusButton() {
         guard let button = statusItem.button else {
             return
@@ -52,6 +58,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         button.image = StatusIcon.make(attention: controller.hasAttention)
         button.image?.isTemplate = !controller.hasAttention
         button.title = ""
+    }
+
+    private func observeStatusButtonInputs() {
+        controller.$pullRequestNotificationHistory
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateStatusButton()
+            }
+            .store(in: &cancellables)
+
+        controller.$sourcePreferences
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateStatusButton()
+            }
+            .store(in: &cancellables)
     }
 
     func showMenu(selecting tab: DashboardController.MenuTab? = nil) {

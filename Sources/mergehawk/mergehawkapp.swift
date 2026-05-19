@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 import UserNotifications
 
@@ -27,15 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.openSettingsWindow = { [weak self] in
             self?.showSettingsWindow()
         }
-        controller.$state
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.statusBarController?.updateStatusButton()
-            }
-            .store(in: &cancellables)
     }
-
-    private var cancellables: Set<AnyCancellable> = []
 
     private func showSettingsWindow() {
         let window: NSWindow
