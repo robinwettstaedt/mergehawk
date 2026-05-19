@@ -35,6 +35,15 @@ struct NotificationTimestampPresentation {
     }
 }
 
+struct NotificationReadPresentation {
+    static let symbolName = "envelope.open"
+    static let markAllTitle = "Mark all as read"
+    static let markAllHelp = "Mark all notifications as read"
+    static let markOneHelp = "Mark as read"
+    static let markPRAccessibilityLabel = "Mark PR notification as read"
+    static let markOtherAccessibilityLabel = "Mark other notification as read"
+}
+
 struct ExpandableSearchState: Equatable {
     var isExpanded = false
     var query = ""
@@ -605,10 +614,10 @@ private struct NotificationListView: View {
 
                 if hasNotifications {
                     MenuControlButton(
-                        symbolName: "envelope.open",
-                        title: "Mark all read",
+                        symbolName: NotificationReadPresentation.symbolName,
+                        title: NotificationReadPresentation.markAllTitle,
                         isOpen: false,
-                        help: "Mark all notifications read"
+                        help: NotificationReadPresentation.markAllHelp
                     ) {
                         controller.markAllNotificationsRead()
                     }
@@ -1192,7 +1201,7 @@ private struct PullRequestNotificationRow: View {
 
             if isHovered && !notification.read {
                 Button(action: onMarkRead) {
-                    Image(systemName: "xmark")
+                    Image(systemName: NotificationReadPresentation.symbolName)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .frame(width: 22, height: 22)
@@ -1205,8 +1214,8 @@ private struct PullRequestNotificationRow: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: -6, y: -6)
-                .help("Mark read")
-                .accessibilityLabel("Mark PR notification read")
+                .help(NotificationReadPresentation.markOneHelp)
+                .accessibilityLabel(NotificationReadPresentation.markPRAccessibilityLabel)
             }
         }
         .onHover { isHovered = $0 }
@@ -1284,7 +1293,7 @@ private struct GitHubInboxNotificationRow: View {
 
             if isHovered && notification.unread {
                 Button(action: onMarkRead) {
-                    Image(systemName: "xmark")
+                    Image(systemName: NotificationReadPresentation.symbolName)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .frame(width: 22, height: 22)
@@ -1297,8 +1306,8 @@ private struct GitHubInboxNotificationRow: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: -6, y: -6)
-                .help("Mark read")
-                .accessibilityLabel("Mark other notification read")
+                .help(NotificationReadPresentation.markOneHelp)
+                .accessibilityLabel(NotificationReadPresentation.markOtherAccessibilityLabel)
             }
         }
         .onHover { isHovered = $0 }
