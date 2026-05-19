@@ -126,14 +126,7 @@ import mergehawkcore
     precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "1", modifiers: .command)))
     precondition(controller.selectedTab == .reviewRequests)
 
-    let signedInController = DashboardController(
-        tokenStore: InMemoryTokenStore(),
-        launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-        automaticRefreshInterval: 0
-    )
-    waitUntil(timeout: 1.0) {
-        signedInController.state.authStatus == .signedIn
-    }
+    let signedInController = signedInMockController()
     let signedInStatusBarController = StatusBarController(controller: signedInController)
     _ = signedInStatusBarController.rebuildMenuForTesting()
     signedInController.selectedTab = .reviewRequests
@@ -152,6 +145,62 @@ import mergehawkcore
     precondition(signedInController.selectedTab == .reviewRequests)
     precondition(!signedInStatusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "1", modifiers: [.command, .shift])))
     precondition(signedInController.selectedTab == .reviewRequests)
+
+    let markAllController = signedInMockController()
+    let markAllStatusBarController = StatusBarController(controller: markAllController)
+    precondition(!markAllStatusBarController.statusButtonHasAttentionForTesting())
+    markAllController.refresh()
+    waitUntil(timeout: 1.0) {
+        markAllController.attentionCount == 2 && markAllStatusBarController.statusButtonHasAttentionForTesting()
+    }
+    markAllController.markAllNotificationsRead()
+    waitUntil(timeout: 1.0) {
+        markAllController.attentionCount == 0 && !markAllStatusBarController.statusButtonHasAttentionForTesting()
+    }
+
+    let markOneController = signedInMockController()
+    let markOneStatusBarController = StatusBarController(controller: markOneController)
+    markOneController.refresh()
+    waitUntil(timeout: 1.0) {
+        markOneController.attentionCount == 2 && markOneStatusBarController.statusButtonHasAttentionForTesting()
+    }
+    markOneController.markPullRequestNotificationRead(markOneController.visiblePullRequestNotifications[0])
+    waitUntil(timeout: 1.0) {
+        markOneController.attentionCount == 1 && markOneStatusBarController.statusButtonHasAttentionForTesting()
+    }
+    if let unreadNotification = markOneController.visiblePullRequestNotifications.first(where: { !$0.read }) {
+        markOneController.markPullRequestNotificationRead(unreadNotification)
+    }
+    waitUntil(timeout: 1.0) {
+        markOneController.attentionCount == 0 && !markOneStatusBarController.statusButtonHasAttentionForTesting()
+    }
+
+    let sourceFilteredController = signedInMockController()
+    let sourceFilteredStatusBarController = StatusBarController(controller: sourceFilteredController)
+    sourceFilteredController.refresh()
+    waitUntil(timeout: 1.0) {
+        sourceFilteredController.attentionCount == 2 && sourceFilteredStatusBarController.statusButtonHasAttentionForTesting()
+    }
+    sourceFilteredController.setOwnerPreferences(
+        owner: "example",
+        preferences: OwnerSourcePreferences(
+            notifications: false,
+            myPullRequests: true,
+            reviewRequests: true
+        )
+    )
+    waitUntil(timeout: 1.0) {
+        sourceFilteredController.attentionCount == 0
+            && !sourceFilteredStatusBarController.statusButtonHasAttentionForTesting()
+    }
+
+    let inboxOnlyController = signedInMockController()
+    waitUntil(timeout: 1.0) {
+        inboxOnlyController.visibleGitHubInboxNotifications.filter(\.unread).count == 1
+    }
+    let inboxOnlyStatusBarController = StatusBarController(controller: inboxOnlyController)
+    precondition(inboxOnlyController.attentionCount == 0)
+    precondition(!inboxOnlyStatusBarController.statusButtonHasAttentionForTesting())
 
     let older = PullRequest(
         id: "older",
@@ -302,6 +351,19 @@ import mergehawkcore
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.ready]).map(\.id) == ["direct", "team", "direct-team"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team, .draft]).map(\.id) == ["team", "direct-team", "draft-direct"])
 }()
+
+@MainActor
+private func signedInMockController() -> DashboardController {
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+        automaticRefreshInterval: 0
+    )
+    waitUntil(timeout: 1.0) {
+        controller.state.authStatus == .signedIn
+    }
+    return controller
+}
 
 @MainActor
 private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
