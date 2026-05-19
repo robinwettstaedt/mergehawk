@@ -25,6 +25,16 @@ struct CountSearchPresentation {
     }
 }
 
+struct NotificationTimestampPresentation {
+    static func label(for date: Date, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
 struct ExpandableSearchState: Equatable {
     var isExpanded = false
     var query = ""
@@ -1157,12 +1167,18 @@ private struct PullRequestNotificationRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(title)
                             .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
                         Text("\(notification.repo)#\(notification.prNumber) · \(notification.prTitle)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
-                    Spacer()
+                    Spacer(minLength: 8)
+                    Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(10)
                 .background(Color(nsColor: .controlBackgroundColor))
@@ -1249,7 +1265,12 @@ private struct GitHubInboxNotificationRow: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-                    Spacer()
+                    Spacer(minLength: 8)
+                    Text(NotificationTimestampPresentation.label(for: notification.updatedAt))
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(10)
                 .background(Color(nsColor: .controlBackgroundColor))
