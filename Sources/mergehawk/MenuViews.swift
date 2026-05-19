@@ -172,7 +172,7 @@ private struct TransparentSearchTextField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = SearchTextField()
         field.delegate = context.coordinator
         Self.configure(field)
         field.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
@@ -225,6 +225,7 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         if let cell = field.cell as? NSTextFieldCell {
             cell.drawsBackground = false
             cell.backgroundColor = .clear
+            cell.focusRingType = .none
         }
     }
 
@@ -235,6 +236,27 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         editor.drawsBackground = false
         editor.backgroundColor = .clear
         editor.insertionPointColor = .controlAccentColor
+        editor.enclosingScrollView?.drawsBackground = false
+        editor.superview?.wantsLayer = true
+        editor.superview?.layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    private final class SearchTextField: NSTextField {
+        override func becomeFirstResponder() -> Bool {
+            let becameFirstResponder = super.becomeFirstResponder()
+            if becameFirstResponder {
+                TransparentSearchTextField.configure(self)
+                DispatchQueue.main.async {
+                    TransparentSearchTextField.configureEditor(for: self)
+                }
+            }
+            return becameFirstResponder
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            TransparentSearchTextField.configure(self)
+            super.draw(dirtyRect)
+        }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -258,6 +280,9 @@ private struct TransparentSearchTextField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ notification: Notification) {
             if let field = notification.object as? NSTextField {
                 TransparentSearchTextField.configureEditor(for: field)
+                DispatchQueue.main.async {
+                    TransparentSearchTextField.configureEditor(for: field)
+                }
             }
             isFocused.wrappedValue = true
         }
