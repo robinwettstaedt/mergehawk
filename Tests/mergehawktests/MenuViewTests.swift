@@ -50,6 +50,16 @@ import mergehawkcore
     precondition(CountSearchPresentation.countLabel(for: 0, singular: "PR", plural: "PRs") == "0 PRs")
     precondition(CountSearchPresentation.countLabel(for: 1, singular: "PR", plural: "PRs") == "1 PR")
     precondition(CountSearchPresentation.countLabel(for: 9, singular: "PR", plural: "PRs") == "9 PRs")
+    precondition(NotificationTimestampPresentation.label(
+        for: Date(timeIntervalSince1970: 60 * 60),
+        timeZone: TimeZone(secondsFromGMT: 0)!
+    ) == "01:00")
+    precondition(NotificationReadPresentation.symbolName == "envelope.open")
+    precondition(NotificationReadPresentation.markAllTitle == "Mark all as read")
+    precondition(NotificationReadPresentation.markAllHelp == "Mark all notifications as read")
+    precondition(NotificationReadPresentation.markOneHelp == "Mark as read")
+    precondition(NotificationReadPresentation.markPRAccessibilityLabel == "Mark PR notification as read")
+    precondition(NotificationReadPresentation.markOtherAccessibilityLabel == "Mark other notification as read")
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests.")
     precondition(PullRequestListCopy.noMatches == "No matching PRs.")
