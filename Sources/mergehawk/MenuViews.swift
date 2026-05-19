@@ -647,7 +647,7 @@ private struct NotificationListView: View {
             if controller.visiblePullRequestNotifications.isEmpty {
                 EmptyMenuState(text: "No PR notifications.")
             } else {
-                ScrollView {
+                ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 8) {
                         ForEach(controller.visiblePullRequestNotifications) { notification in
                             PullRequestNotificationRow(notification: notification) {
@@ -666,7 +666,7 @@ private struct NotificationListView: View {
             if controller.visibleGitHubInboxNotifications.isEmpty {
                 EmptyMenuState(text: "No other GitHub notifications.")
             } else {
-                ScrollView {
+                ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 8) {
                         ForEach(controller.visibleGitHubInboxNotifications) { notification in
                             GitHubInboxNotificationRow(notification: notification) {
@@ -826,7 +826,7 @@ private struct PullRequestListView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 6)
 
-                    ScrollView {
+                    ScrollView(.vertical, showsIndicators: false) {
                         if visiblePullRequests.isEmpty {
                             EmptyMenuState(text: PullRequestListCopy.noMatches)
                                 .frame(minHeight: 520)
