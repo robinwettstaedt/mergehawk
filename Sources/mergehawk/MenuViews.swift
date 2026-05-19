@@ -1000,7 +1000,7 @@ private struct PullRequestListView: View {
         CountSearchControl(
             searchState: $searchState,
             countLabel: visibleCountLabel,
-            placeholder: "Search PRs...",
+            placeholder: "",
             help: "Search PRs",
             isAlwaysExpanded: true,
             showsInlineCount: false
