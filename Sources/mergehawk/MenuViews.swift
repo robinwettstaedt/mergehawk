@@ -365,13 +365,15 @@ struct MenuControlButton: View {
             HStack(spacing: 6) {
                 Image(systemName: symbolName)
                     .font(.system(size: 11, weight: .semibold))
-                Text(title)
-                    .lineLimit(1)
+                if !title.isEmpty {
+                    Text(title)
+                        .lineLimit(1)
+                }
             }
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: Self.Layout.height)
+            .padding(.horizontal, title.isEmpty ? 0 : 10)
+            .frame(width: title.isEmpty ? Self.Layout.height : nil, height: Self.Layout.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -417,7 +419,7 @@ struct MenuRootView: View {
         static let width: CGFloat = 420
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
-        static let tabSwitcherWidth: CGFloat = 324
+        static let tabSwitcherWidth: CGFloat = 351
         static let tabSwitcherLeadingInset: CGFloat = 5
         static let notificationTabSegmentWidth: CGFloat = 64
         static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
@@ -999,10 +1001,9 @@ private struct PullRequestListView: View {
     private var searchControls: some View {
         CountSearchControl(
             searchState: $searchState,
-            countLabel: visibleCountLabel,
+            countLabel: "",
             placeholder: "",
             help: "Search PRs",
-            isAlwaysExpanded: true,
             showsInlineCount: false
         )
         .simultaneousGesture(TapGesture().onEnded {
@@ -1010,12 +1011,27 @@ private struct PullRequestListView: View {
         })
     }
 
+    @ViewBuilder
     private var toolbarControls: some View {
-        HStack(spacing: 8) {
-            visibleCount
-            searchControls
-            filterButton
-            sortButton
+        if searchState.isExpanded {
+            HStack(spacing: 8) {
+                visibleCount
+                searchControls
+                filterButton
+                sortButton
+            }
+        } else {
+            HStack(spacing: 8) {
+                visibleCount
+                searchControls
+                Spacer(minLength: 0)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissTransientControls()
+                    }
+                filterButton
+                sortButton
+            }
         }
     }
 
