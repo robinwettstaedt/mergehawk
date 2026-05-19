@@ -80,12 +80,14 @@ struct CountSearchControl: View {
     let countLabel: String
     let placeholder: String
     let help: String
+    var isAlwaysExpanded = false
+    var showsInlineCount = true
     var expandedWidth: CGFloat?
     @State private var searchFieldFocused = false
 
     var body: some View {
         HStack(spacing: 7) {
-            if searchState.isExpanded {
+            if isSearchExpanded {
                 expandedSearchControls
             } else {
                 MenuControlButton(
@@ -101,13 +103,17 @@ struct CountSearchControl: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.16), value: searchState.isExpanded)
+        .animation(.easeInOut(duration: 0.16), value: isSearchExpanded)
         .onExitCommand {
             searchState.handleEscape()
-            if !searchState.isExpanded {
+            if !isSearchExpanded {
                 searchFieldFocused = false
             }
         }
+    }
+
+    private var isSearchExpanded: Bool {
+        isAlwaysExpanded || searchState.isExpanded
     }
 
     private var expandedSearchControls: some View {
@@ -120,21 +126,26 @@ struct CountSearchControl: View {
                 placeholder: placeholder,
                 isFocused: $searchFieldFocused
             ) {
-                searchState.blur()
+                if !isAlwaysExpanded {
+                    searchState.blur()
+                }
             }
             .accessibilityLabel(help)
             .frame(height: 16)
             .onChange(of: searchState.isExpanded) { _, isExpanded in
-                if !isExpanded {
+                if !isExpanded && !isAlwaysExpanded {
                     searchFieldFocused = false
                 }
             }
-            if searchState.hasActiveQuery {
+            if searchState.hasActiveQuery, showsInlineCount {
                 Text(countLabel)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
+            }
+            if searchState.hasActiveQuery {
+                clearSearchButton
             }
         }
         .padding(.horizontal, 8)
@@ -150,6 +161,25 @@ struct CountSearchControl: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var clearSearchButton: some View {
+        Button {
+            searchState.query = ""
+            searchState.expand()
+            DispatchQueue.main.async {
+                searchFieldFocused = false
+            }
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("Clear search")
+        .accessibilityLabel("Clear search")
     }
 }
 
@@ -934,39 +964,35 @@ private struct PullRequestListView: View {
         CountSearchPresentation.countLabel(for: visiblePullRequests.count, singular: "PR", plural: "PRs")
     }
 
+    private var visibleCount: some View {
+        Text("\(visiblePullRequests.count)")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .accessibilityLabel(visibleCountLabel)
+            .padding(.leading, 12)
+    }
+
     private var searchControls: some View {
         CountSearchControl(
             searchState: $searchState,
             countLabel: visibleCountLabel,
             placeholder: "Search PRs...",
-            help: "Search PRs"
+            help: "Search PRs",
+            isAlwaysExpanded: true,
+            showsInlineCount: false
         )
         .simultaneousGesture(TapGesture().onEnded {
             dropdownState.dismiss()
         })
     }
 
-    @ViewBuilder
     private var toolbarControls: some View {
-        if searchState.isExpanded {
-            HStack(spacing: 8) {
-                searchControls
-                filterButton
-                sortButton
-            }
-        } else {
-            HStack(spacing: 0) {
-                searchControls
-                Spacer(minLength: 0)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        dismissTransientControls()
-                    }
-                HStack(spacing: 8) {
-                    filterButton
-                    sortButton
-                }
-            }
+        HStack(spacing: 8) {
+            visibleCount
+            searchControls
+            filterButton
+            sortButton
         }
     }
 
