@@ -5,16 +5,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SLOT=""
 MOCK=0
 OPEN_APP=1
+NOTIFICATION_TYPE_FIXTURES=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-agent-app.sh --slot <name> [--mock] [--open|--no-open]
+Usage: scripts/run-agent-app.sh --slot <name> [--mock] [--notification-type-fixtures] [--open|--no-open]
 
 Builds and installs a slot-specific MergeHawk app bundle so multiple agents can
 work from different checkouts without replacing the user's normal app bundle.
 
 Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
+  scripts/run-agent-app.sh --slot agent-3 --mock --notification-type-fixtures --open
   scripts/run-agent-app.sh --slot agent-3 --mock --no-open
 USAGE
 }
@@ -27,6 +29,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --mock)
       MOCK=1
+      shift
+      ;;
+    --notification-type-fixtures)
+      NOTIFICATION_TYPE_FIXTURES=1
       shift
       ;;
     --open)
@@ -68,6 +74,9 @@ rm -f "$ARTIFACT_DIR/notifications.jsonl"
 
 if [[ "$MOCK" == "1" ]]; then
   LAUNCH_ENVIRONMENT="$LAUNCH_ENVIRONMENT MERGEHAWK_MOCK_MODE=1"
+fi
+if [[ "$NOTIFICATION_TYPE_FIXTURES" == "1" ]]; then
+  LAUNCH_ENVIRONMENT="$LAUNCH_ENVIRONMENT MERGEHAWK_NOTIFICATION_TYPE_FIXTURES=1"
 fi
 
 cd "$ROOT_DIR"
