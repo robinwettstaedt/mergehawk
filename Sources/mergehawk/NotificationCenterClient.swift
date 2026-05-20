@@ -43,6 +43,10 @@ enum NotificationContentBuilder {
         switch event.type {
         case .newComment:
             event.count == 1 ? "New PR comment" : "\(event.count ?? 0) new PR comments"
+        case .reviewApproved:
+            "PR approved"
+        case .reviewCommented:
+            "PR review commented"
         case .newReview:
             event.count == 1 ? "New PR review" : "\(event.count ?? 0) new PR reviews"
         case .ciFailed:
