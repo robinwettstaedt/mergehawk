@@ -63,6 +63,33 @@ import mergehawkcore
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests.")
     precondition(PullRequestListCopy.noMatches == "No matching PRs.")
+    let metadataPullRequest = PullRequest(
+        id: "metadata",
+        title: "Metadata presentation",
+        number: 12,
+        url: URL(string: "https://github.com/acme/mergehawk/pull/12")!,
+        repo: "acme/mergehawk",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isMine: true,
+        author: "rw",
+        headRefName: "feature/metadata",
+        mergeable: .mergeable,
+        draft: false
+    )
+    precondition(PullRequestRowMetadataPresentation.text(
+        for: metadataPullRequest,
+        showsAuthor: false
+    ) == "acme/mergehawk")
+    precondition(PullRequestRowMetadataPresentation.text(
+        for: metadataPullRequest,
+        showsAuthor: true
+    ) == "acme/mergehawk · @rw")
+    precondition(PullRequestRowMetadataPresentation.branchText(
+        for: metadataPullRequest
+    ) == "feature/metadata")
 
     var searchState = ExpandableSearchState()
     precondition(!searchState.isExpanded)
