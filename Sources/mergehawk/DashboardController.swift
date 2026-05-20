@@ -124,11 +124,14 @@ final class DashboardController: ObservableObject {
             preferencesStore.selectedPullRequestFilters = selectedPullRequestFilters
         }
     }
-    @Published var authoredSearchState = ExpandableSearchState()
-    @Published var reviewRequestSearchState = ExpandableSearchState()
     @Published var selectedReviewRequestFilters: Set<ReviewRequestFilterOption> {
         didSet {
             preferencesStore.selectedReviewRequestFilters = selectedReviewRequestFilters
+        }
+    }
+    @Published var pinnedPullRequestIds: Set<String> {
+        didSet {
+            preferencesStore.pinnedPullRequestIds = pinnedPullRequestIds
         }
     }
     @Published var sourcePreferences: SourcePreferences {
@@ -218,6 +221,7 @@ final class DashboardController: ObservableObject {
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.selectedPullRequestFilters = preferencesStore.selectedPullRequestFilters
         self.selectedReviewRequestFilters = preferencesStore.selectedReviewRequestFilters
+        self.pinnedPullRequestIds = preferencesStore.pinnedPullRequestIds
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.sourceCatalog = preferencesStore.sourceCatalog
         self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
@@ -287,22 +291,24 @@ final class DashboardController: ObservableObject {
     }
 
     var sortedMyPullRequests: [PullRequest] {
-        return Self.sorted(
+        return Self.sortedWithPins(
             Self.filtered(
                 sourceFilteredMyPullRequests,
                 by: selectedPullRequestFilters,
                 attentionPullRequestIds: unreadPullRequestNotificationIds
             ),
+            pinnedIds: pinnedPullRequestIds,
             by: pullRequestSortOption
         )
     }
 
     var sortedReviewRequests: [PullRequest] {
-        Self.sorted(
+        Self.sortedWithPins(
             Self.filteredReviewRequests(
                 sourceFilteredReviewRequests,
                 by: selectedReviewRequestFilters
             ),
+            pinnedIds: pinnedPullRequestIds,
             by: pullRequestSortOption
         )
     }
@@ -411,6 +417,16 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    static func sortedWithPins(
+        _ pullRequests: [PullRequest],
+        pinnedIds: Set<String>,
+        by option: PullRequestSortOption
+    ) -> [PullRequest] {
+        let pinned = pullRequests.filter { pinnedIds.contains($0.id) }
+        let unpinned = pullRequests.filter { !pinnedIds.contains($0.id) }
+        return sorted(pinned, by: option) + sorted(unpinned, by: option)
+    }
+
     func refresh() {
         Task {
             await sync()
@@ -515,6 +531,18 @@ final class DashboardController: ObservableObject {
 
     func isUnreadPullRequest(_ pullRequest: PullRequest) -> Bool {
         unreadPullRequestNotificationIds.contains(pullRequest.id)
+    }
+
+    func isPinned(_ pullRequest: PullRequest) -> Bool {
+        pinnedPullRequestIds.contains(pullRequest.id)
+    }
+
+    func togglePin(_ pullRequest: PullRequest) {
+        if pinnedPullRequestIds.contains(pullRequest.id) {
+            pinnedPullRequestIds.remove(pullRequest.id)
+        } else {
+            pinnedPullRequestIds.insert(pullRequest.id)
+        }
     }
 
     func openPullRequest(_ pullRequest: PullRequest) {
