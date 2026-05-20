@@ -687,11 +687,17 @@ final class DashboardController: ObservableObject {
         let account = GitHubAccount(login: "agent-fixture")
         self.account = account
         setAuthMethod(.oauth)
-        let source = MockPullRequestSource()
+        let source = MockPullRequestSource(
+            showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures
+        )
         sourceCatalogProvider = source
         gitHubInboxProvider = source
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
         sourceCatalogSyncedAt = Date()
+        if launchConfiguration.showsNotificationTypeFixtures {
+            pullRequestNotificationHistory = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
+            gitHubInboxNotifications = MockPullRequestSource.notificationTypeFixtureInboxNotifications
+        }
         syncEngine = SyncEngine(
             source: source,
             preferences: preferences,

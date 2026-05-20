@@ -44,15 +44,65 @@ struct Runner {
         let current = PullRequest.fixture(
             id: "PR_1",
             ciState: .failing,
-            reviewDecision: .changesRequested,
+            reviewDecision: .approved,
             commentCount: 2,
             reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_APPROVED",
+                    state: .approved,
+                    submittedAt: Date(timeIntervalSince1970: 200)
+                )
+            ],
             isMine: true
         )
 
         try expect(
             PRActivityDetector.detect(previous: previous, current: current).map(\.type)
-                == [.newComment, .newReview, .ciFailed, .changesRequested]
+                == [.reviewApproved, .ciFailed]
+        )
+
+        let previousReviews = PullRequest.fixture(
+            id: "PR_2",
+            commentCount: 1,
+            reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_OLD",
+                    state: .approved,
+                    submittedAt: Date(timeIntervalSince1970: 100)
+                )
+            ],
+            isMine: true
+        )
+        let currentReviews = PullRequest.fixture(
+            id: "PR_2",
+            reviewDecision: .changesRequested,
+            commentCount: 3,
+            reviewCount: 3,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_OLD",
+                    state: .approved,
+                    submittedAt: Date(timeIntervalSince1970: 100)
+                ),
+                PullRequestReview(
+                    id: "REVIEW_COMMENTED",
+                    state: .commented,
+                    submittedAt: Date(timeIntervalSince1970: 200)
+                ),
+                PullRequestReview(
+                    id: "REVIEW_CHANGES",
+                    state: .changesRequested,
+                    submittedAt: Date(timeIntervalSince1970: 300)
+                )
+            ],
+            isMine: true
+        )
+
+        try expect(
+            PRActivityDetector.detect(previous: previousReviews, current: currentReviews).map(\.type)
+                == [.reviewCommented, .changesRequested]
         )
     }
 
@@ -65,7 +115,8 @@ struct Runner {
         )
         let events = [
             PullRequestEvent(type: .newComment, prId: "1", count: 1),
-            PullRequestEvent(type: .newReview, prId: "1", count: 1),
+            PullRequestEvent(type: .reviewApproved, prId: "1"),
+            PullRequestEvent(type: .reviewCommented, prId: "1"),
             PullRequestEvent(type: .ciFailed, prId: "1"),
             PullRequestEvent(type: .changesRequested, prId: "1")
         ]
@@ -184,7 +235,9 @@ struct Runner {
             mergeable: "MERGEABLE",
             reviewDecision: "REVIEW_REQUIRED",
             comments: .init(totalCount: 2),
-            reviews: .init(totalCount: 1),
+            reviews: .init(totalCount: 1, nodes: [
+                .init(id: "REVIEW_1", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z")
+            ]),
             reviewThreads: .init(nodes: [.init(isResolved: true), .init(isResolved: false)]),
             repository: .init(nameWithOwner: "acme/mergehawk"),
             commits: .init(nodes: [.init(commit: .init(statusCheckRollup: .init(state: "FAILURE")))]),
@@ -201,6 +254,13 @@ struct Runner {
             reviewDecision: .reviewRequired,
             commentCount: 3,
             reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_1",
+                    state: .approved,
+                    submittedAt: Date(timeIntervalSince1970: 1_777_719_600)
+                )
+            ],
             isMine: true,
             author: "rw",
             headRefName: "ship-dashboard",
@@ -337,6 +397,7 @@ private extension PullRequest {
         reviewDecision: ReviewDecision = .reviewRequired,
         commentCount: Int = 0,
         reviewCount: Int = 0,
+        recentReviews: [PullRequestReview] = [],
         isMine: Bool = false,
         author: String = "rw",
         mergeable: MergeableState = .unknown,
@@ -352,6 +413,7 @@ private extension PullRequest {
             reviewDecision: reviewDecision,
             commentCount: commentCount,
             reviewCount: reviewCount,
+            recentReviews: recentReviews,
             isMine: isMine,
             author: author,
             mergeable: mergeable,
