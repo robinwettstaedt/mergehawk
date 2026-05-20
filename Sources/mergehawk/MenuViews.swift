@@ -414,6 +414,19 @@ enum PullRequestListCopy {
     static let noMatches = "No matching PRs."
 }
 
+enum PullRequestRowMetadataPresentation {
+    static func text(for pullRequest: PullRequest, showsAuthor: Bool) -> String {
+        if showsAuthor {
+            return "\(pullRequest.repo) · @\(pullRequest.author)"
+        }
+        return pullRequest.repo
+    }
+
+    static func branchText(for pullRequest: PullRequest) -> String {
+        pullRequest.headRefName
+    }
+}
+
 struct MenuRootView: View {
     enum Layout {
         static let width: CGFloat = 420
@@ -914,9 +927,10 @@ private struct PullRequestListView: View {
                                     PullRequestRow(
                                         pullRequest: pr,
                                         isAttention: controller.isUnreadPullRequest(pr),
-                                        showsReviewRequestKind: mode == .reviewRequests
+                                        showsReviewRequestKind: mode == .reviewRequests,
+                                        showsAuthor: mode == .reviewRequests
                                     ) {
-                                        controller.open(pr.url)
+                                        controller.openPullRequest(pr)
                                     }
                                 }
                             }
@@ -1450,6 +1464,7 @@ private struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
     var showsReviewRequestKind = false
+    var showsAuthor = false
     let action: () -> Void
 
     @State private var isHovered = false
@@ -1458,32 +1473,44 @@ private struct PullRequestRow: View {
         ZStack(alignment: .bottomTrailing) {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(pullRequest.repo)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                        Spacer()
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            if pullRequest.draft {
+                                DraftPullRequestIndicator()
+                            }
+                            Text(pullRequest.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
                         Text("#\(pullRequest.number)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .layoutPriority(1)
                     }
-                    Text(pullRequest.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
+                    Text(PullRequestRowMetadataPresentation.text(
+                        for: pullRequest,
+                        showsAuthor: showsAuthor
+                    ))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
                         CIStatusIndicator(ciState: pullRequest.ciState)
                         ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                         CommentCountIndicator(count: pullRequest.commentCount)
-                        if pullRequest.draft {
-                            StatusPill(text: "Draft", kind: .neutral)
-                                .help("Draft PR")
-                                .accessibilityLabel("Draft PR")
-                        }
                         if showsReviewRequestKind {
                             ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
-                        }
-                        if isAttention {
-                            StatusPill(text: "new", kind: .attention)
                         }
                         Spacer(minLength: 28)
                     }
@@ -1504,6 +1531,16 @@ private struct PullRequestRow: View {
     }
 }
 
+private struct DraftPullRequestIndicator: View {
+    var body: some View {
+        Image(systemName: "pencil")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .help("Draft PR")
+            .accessibilityLabel("Draft PR")
+    }
+}
+
 private struct TransparentCardStyle: ViewModifier {
     let accentColor: Color?
     let isHovered: Bool
@@ -1521,6 +1558,7 @@ private struct TransparentCardStyle: ViewModifier {
                     .stroke(borderColor, lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var hoverFill: Color {
@@ -1554,36 +1592,26 @@ private struct ReviewRequestKindPill: View {
     let kind: ReviewRequestKind
 
     var body: some View {
-        if kind != .none {
-            StatusPill(text: label, kind: .neutral)
-                .help(accessibilityLabel)
-                .accessibilityLabel(accessibilityLabel)
+        ForEach(presentations, id: \.text) { presentation in
+            StatusPill(text: presentation.text, kind: .neutral)
+                .help(presentation.accessibilityLabel)
+                .accessibilityLabel(presentation.accessibilityLabel)
         }
     }
 
-    private var label: String {
+    private var presentations: [(text: String, accessibilityLabel: String)] {
         switch kind {
         case .none:
-            ""
+            []
         case .direct:
-            "direct"
+            [(text: "direct", accessibilityLabel: "Direct review request")]
         case .team:
-            "team"
+            [(text: "team", accessibilityLabel: "Team review request")]
         case .directAndTeam:
-            "direct+team"
-        }
-    }
-
-    private var accessibilityLabel: String {
-        switch kind {
-        case .none:
-            "No review request"
-        case .direct:
-            "Direct review request"
-        case .team:
-            "Team review request"
-        case .directAndTeam:
-            "Direct and team review request"
+            [
+                (text: "direct", accessibilityLabel: "Direct review request"),
+                (text: "team", accessibilityLabel: "Team review request")
+            ]
         }
     }
 }
