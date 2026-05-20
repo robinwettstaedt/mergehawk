@@ -49,7 +49,7 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertEqual(controller.state.authStatus, .signedIn)
             XCTAssertEqual(controller.state.source, .mock)
             XCTAssertEqual(controller.state.account?.login, "agent-fixture")
-            XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_2", "PR_3"])
+            XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_5"])
             XCTAssertFalse(controller.startsAtLogin)
         }
 
@@ -137,7 +137,7 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
-                URL(string: "https://github.com/example/mergehawk/pull/14")
+                URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
@@ -168,6 +168,51 @@ final class AgentModeXCTests: XCTestCase {
         await MainActor.run {
             XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 2)
             XCTAssertEqual(restoredController.attentionCount, 0)
+        }
+    }
+
+    func testOpeningPullRequestMarksItsNotificationsRead() async {
+        let suiteName = "mergehawk-open-pr-notification-history-test-\(UUID().uuidString)"
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        var preferencesStore = PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!)
+        preferencesStore.pullRequestNotificationHistory = [
+            PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: pullRequest.id),
+                pullRequest: pullRequest
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id),
+                pullRequest: pullRequest
+            )
+        ]
+        let seededPreferencesStore = preferencesStore
+        let openedURLs = RecordingURLOpener()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: seededPreferencesStore,
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                urlOpener: openedURLs.open
+            )
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 2)
+            XCTAssertTrue(controller.isUnreadPullRequest(pullRequest))
+            controller.openPullRequest(pullRequest)
+
+            XCTAssertEqual(openedURLs.urls, [pullRequest.url])
+            XCTAssertFalse(controller.isUnreadPullRequest(pullRequest))
+            XCTAssertEqual(controller.attentionCount, 0)
+            XCTAssertTrue(
+                controller.visiblePullRequestNotifications
+                    .filter { $0.prId == pullRequest.id }
+                    .allSatisfy(\.read)
+            )
         }
     }
 
@@ -253,6 +298,11 @@ final class AgentModeXCTests: XCTestCase {
         var mutablePreferencesStore = PreferencesStore(defaults: defaults)
         mutablePreferencesStore.sourcePreferences = SourcePreferences(
             owners: [
+                "mergehawk-labs": OwnerSourcePreferences(
+                    notifications: false,
+                    myPullRequests: true,
+                    reviewRequests: true
+                ),
                 "example": OwnerSourcePreferences(
                     notifications: false,
                     myPullRequests: true,
@@ -392,5 +442,13 @@ final class AgentModeXCTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("Timed out waiting for condition")
+    }
+}
+
+private final class RecordingURLOpener {
+    private(set) var urls: [URL] = []
+
+    func open(_ url: URL) {
+        urls.append(url)
     }
 }
