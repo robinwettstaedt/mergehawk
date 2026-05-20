@@ -1474,9 +1474,14 @@ private struct PullRequestRow: View {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(pullRequest.title)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            if pullRequest.draft {
+                                DraftPullRequestIndicator()
+                            }
+                            Text(pullRequest.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(2)
+                        }
                         Spacer(minLength: 0)
                         Text("#\(pullRequest.number)")
                             .font(.caption)
@@ -1504,16 +1509,8 @@ private struct PullRequestRow: View {
                         CIStatusIndicator(ciState: pullRequest.ciState)
                         ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                         CommentCountIndicator(count: pullRequest.commentCount)
-                        if pullRequest.draft {
-                            StatusPill(text: "Draft", kind: .neutral)
-                                .help("Draft PR")
-                                .accessibilityLabel("Draft PR")
-                        }
                         if showsReviewRequestKind {
                             ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
-                        }
-                        if isAttention {
-                            StatusPill(text: "new", kind: .attention)
                         }
                         Spacer(minLength: 28)
                     }
@@ -1531,6 +1528,16 @@ private struct PullRequestRow: View {
                 .padding(.bottom, 8)
         }
         .onHover { isHovered = $0 }
+    }
+}
+
+private struct DraftPullRequestIndicator: View {
+    var body: some View {
+        Image(systemName: "pencil")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .help("Draft PR")
+            .accessibilityLabel("Draft PR")
     }
 }
 
@@ -1584,36 +1591,26 @@ private struct ReviewRequestKindPill: View {
     let kind: ReviewRequestKind
 
     var body: some View {
-        if kind != .none {
-            StatusPill(text: label, kind: .neutral)
-                .help(accessibilityLabel)
-                .accessibilityLabel(accessibilityLabel)
+        ForEach(presentations, id: \.text) { presentation in
+            StatusPill(text: presentation.text, kind: .neutral)
+                .help(presentation.accessibilityLabel)
+                .accessibilityLabel(presentation.accessibilityLabel)
         }
     }
 
-    private var label: String {
+    private var presentations: [(text: String, accessibilityLabel: String)] {
         switch kind {
         case .none:
-            ""
+            []
         case .direct:
-            "direct"
+            [(text: "direct", accessibilityLabel: "Direct review request")]
         case .team:
-            "team"
+            [(text: "team", accessibilityLabel: "Team review request")]
         case .directAndTeam:
-            "direct+team"
-        }
-    }
-
-    private var accessibilityLabel: String {
-        switch kind {
-        case .none:
-            "No review request"
-        case .direct:
-            "Direct review request"
-        case .team:
-            "Team review request"
-        case .directAndTeam:
-            "Direct and team review request"
+            [
+                (text: "direct", accessibilityLabel: "Direct review request"),
+                (text: "team", accessibilityLabel: "Team review request")
+            ]
         }
     }
 }

@@ -38,7 +38,7 @@ public final class MockPullRequestSource: PullRequestSource {
             [
                 PullRequest(
                     id: "PR_1",
-                    title: "Add OAuth device flow",
+                    title: "feat(MER-14): Add OAuth device flow",
                     number: 14,
                     url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")!,
                     repo: "mergehawk-labs/mergehawk",
@@ -56,7 +56,7 @@ public final class MockPullRequestSource: PullRequestSource {
                 ),
                 PullRequest(
                     id: "PR_4",
-                    title: "Add reviewer assignment summary",
+                    title: "chore(MER-33): Add reviewer assignment summary",
                     number: 48,
                     url: URL(string: "https://github.com/customer-success-platform/team-portal-web/pull/48")!,
                     repo: "customer-success-platform/team-portal-web",
@@ -73,8 +73,26 @@ public final class MockPullRequestSource: PullRequestSource {
                     updatedAt: Date(timeIntervalSince1970: 1_777_806_000)
                 ),
                 PullRequest(
+                    id: "PR_6",
+                    title: "fix(MER-44): Handle requested changes",
+                    number: 56,
+                    url: URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/56")!,
+                    repo: "mergehawk-labs/desktop-app",
+                    ciState: .passing,
+                    reviewDecision: .changesRequested,
+                    commentCount: 6,
+                    reviewCount: 2,
+                    isMine: true,
+                    author: "rw",
+                    headRefName: "MER-44-handle-requested-changes",
+                    mergeable: .mergeable,
+                    draft: false,
+                    createdAt: Date(timeIntervalSince1970: 1_777_765_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_777_816_000)
+                ),
+                PullRequest(
                     id: "PR_2",
-                    title: "Show PR author in requested rows",
+                    title: "feat(MER-27): Show PR author in requested rows",
                     number: 27,
                     url: URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/27")!,
                     repo: "mergehawk-labs/desktop-app",
@@ -93,7 +111,7 @@ public final class MockPullRequestSource: PullRequestSource {
                 ),
                 PullRequest(
                     id: "PR_3",
-                    title: "Tighten billing retry copy",
+                    title: "fix(MER-18): Tighten billing retry copy",
                     number: 31,
                     url: URL(
                         string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31"
@@ -114,7 +132,7 @@ public final class MockPullRequestSource: PullRequestSource {
                 ),
                 PullRequest(
                     id: "PR_5",
-                    title: "Surface stale review requests",
+                    title: "refactor(MER-41): Surface stale review requests",
                     number: 52,
                     url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/52")!,
                     repo: "mergehawk-labs/review-router",
@@ -135,7 +153,7 @@ public final class MockPullRequestSource: PullRequestSource {
             [
                 PullRequest(
                     id: "PR_1",
-                    title: "Add OAuth device flow",
+                    title: "feat(MER-14): Add OAuth device flow",
                     number: 14,
                     url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")!,
                     repo: "mergehawk-labs/mergehawk",
@@ -153,7 +171,7 @@ public final class MockPullRequestSource: PullRequestSource {
                 ),
                 PullRequest(
                     id: "PR_4",
-                    title: "Add reviewer assignment summary",
+                    title: "chore(MER-33): Add reviewer assignment summary",
                     number: 48,
                     url: URL(string: "https://github.com/customer-success-platform/team-portal-web/pull/48")!,
                     repo: "customer-success-platform/team-portal-web",
@@ -170,8 +188,26 @@ public final class MockPullRequestSource: PullRequestSource {
                     updatedAt: Date(timeIntervalSince1970: 1_777_806_000)
                 ),
                 PullRequest(
+                    id: "PR_6",
+                    title: "fix(MER-44): Handle requested changes",
+                    number: 56,
+                    url: URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/56")!,
+                    repo: "mergehawk-labs/desktop-app",
+                    ciState: .passing,
+                    reviewDecision: .changesRequested,
+                    commentCount: 6,
+                    reviewCount: 2,
+                    isMine: true,
+                    author: "rw",
+                    headRefName: "MER-44-handle-requested-changes",
+                    mergeable: .mergeable,
+                    draft: false,
+                    createdAt: Date(timeIntervalSince1970: 1_777_765_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_777_816_000)
+                ),
+                PullRequest(
                     id: "PR_2",
-                    title: "Show PR author in requested rows",
+                    title: "feat(MER-27): Show PR author in requested rows",
                     number: 27,
                     url: URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/27")!,
                     repo: "mergehawk-labs/desktop-app",
@@ -190,7 +226,7 @@ public final class MockPullRequestSource: PullRequestSource {
                 ),
                 PullRequest(
                     id: "PR_3",
-                    title: "Tighten billing retry copy",
+                    title: "fix(MER-18): Tighten billing retry copy",
                     number: 31,
                     url: URL(
                         string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31"
@@ -211,7 +247,7 @@ public final class MockPullRequestSource: PullRequestSource {
                 ),
                 PullRequest(
                     id: "PR_5",
-                    title: "Surface stale review requests",
+                    title: "refactor(MER-41): Surface stale review requests",
                     number: 52,
                     url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/52")!,
                     repo: "mergehawk-labs/review-router",
