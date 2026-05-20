@@ -49,7 +49,7 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertEqual(controller.state.authStatus, .signedIn)
             XCTAssertEqual(controller.state.source, .mock)
             XCTAssertEqual(controller.state.account?.login, "agent-fixture")
-            XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_2", "PR_3"])
+            XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_4", "PR_2", "PR_3", "PR_5"])
             XCTAssertFalse(controller.startsAtLogin)
         }
 
@@ -137,7 +137,7 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
-                URL(string: "https://github.com/example/mergehawk/pull/14")
+                URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
@@ -253,6 +253,11 @@ final class AgentModeXCTests: XCTestCase {
         var mutablePreferencesStore = PreferencesStore(defaults: defaults)
         mutablePreferencesStore.sourcePreferences = SourcePreferences(
             owners: [
+                "mergehawk-labs": OwnerSourcePreferences(
+                    notifications: false,
+                    myPullRequests: true,
+                    reviewRequests: true
+                ),
                 "example": OwnerSourcePreferences(
                     notifications: false,
                     myPullRequests: true,

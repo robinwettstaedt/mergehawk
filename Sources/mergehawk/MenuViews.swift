@@ -414,6 +414,19 @@ enum PullRequestListCopy {
     static let noMatches = "No matching PRs."
 }
 
+enum PullRequestRowMetadataPresentation {
+    static func text(for pullRequest: PullRequest, showsAuthor: Bool) -> String {
+        if showsAuthor {
+            return "\(pullRequest.repo) · @\(pullRequest.author)"
+        }
+        return pullRequest.repo
+    }
+
+    static func branchText(for pullRequest: PullRequest) -> String {
+        pullRequest.headRefName
+    }
+}
+
 struct MenuRootView: View {
     enum Layout {
         static let width: CGFloat = 420
@@ -914,7 +927,8 @@ private struct PullRequestListView: View {
                                     PullRequestRow(
                                         pullRequest: pr,
                                         isAttention: controller.isUnreadPullRequest(pr),
-                                        showsReviewRequestKind: mode == .reviewRequests
+                                        showsReviewRequestKind: mode == .reviewRequests,
+                                        showsAuthor: mode == .reviewRequests
                                     ) {
                                         controller.open(pr.url)
                                     }
@@ -1450,6 +1464,7 @@ private struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
     var showsReviewRequestKind = false
+    var showsAuthor = false
     let action: () -> Void
 
     @State private var isHovered = false
@@ -1458,18 +1473,31 @@ private struct PullRequestRow: View {
         ZStack(alignment: .bottomTrailing) {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(pullRequest.repo)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                        Spacer()
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(pullRequest.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        Spacer(minLength: 0)
                         Text("#\(pullRequest.number)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .layoutPriority(1)
                     }
-                    Text(pullRequest.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
+                    Text(PullRequestRowMetadataPresentation.text(
+                        for: pullRequest,
+                        showsAuthor: showsAuthor
+                    ))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     HStack(spacing: 6) {
                         CIStatusIndicator(ciState: pullRequest.ciState)
                         ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
