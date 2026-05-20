@@ -72,6 +72,27 @@ let mergehawkReviewRequestFilterPreferencesTest: Void = {
     precondition(store.selectedReviewRequestFilters == [.ready])
 }()
 
+let mergehawkPinnedPullRequestPreferencesTest: Void = {
+    let suiteName = "mergehawk-pinned-pr-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    var store = PreferencesStore(defaults: defaults)
+    precondition(store.pinnedPullRequestIds == [])
+
+    store.pinnedPullRequestIds = ["pr-3", "pr-1", "pr-2"]
+    precondition(store.pinnedPullRequestIds == ["pr-1", "pr-2", "pr-3"])
+    precondition(defaults.stringArray(forKey: "pullRequests.pinnedIds") == ["pr-1", "pr-2", "pr-3"])
+
+    defaults.set(["pr-1", "", "  ", "pr-1", "pr-4"], forKey: "pullRequests.pinnedIds")
+    precondition(store.pinnedPullRequestIds == ["pr-1", "pr-4"])
+
+    defaults.set([], forKey: "pullRequests.pinnedIds")
+    precondition(store.pinnedPullRequestIds == [])
+}()
+
 let mergehawkSingleSelectFilterPreferencesMigrationTest: Void = {
     let suiteName = "mergehawk-filter-migration-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
