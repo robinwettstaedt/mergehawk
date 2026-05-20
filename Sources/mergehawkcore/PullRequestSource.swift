@@ -95,8 +95,10 @@ public final class MockPullRequestSource: PullRequestSource {
                     id: "PR_3",
                     title: "Tighten billing retry copy",
                     number: 31,
-                    url: URL(string: "https://github.com/billing-platform-experiments/customer-dashboard/pull/31")!,
-                    repo: "billing-platform-experiments/customer-dashboard",
+                    url: URL(
+                        string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31"
+                    )!,
+                    repo: "billing-platform-experiments/customer-subscription-dashboard",
                     ciState: .passing,
                     reviewDecision: .reviewRequired,
                     commentCount: 1,
@@ -104,7 +106,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewRequestKind: .team,
                     isMine: false,
                     author: "design-systems-amy",
-                    headRefName: "MER-18-tighten-billing-copy",
+                    headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
                     mergeable: .mergeable,
                     draft: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_780_000),
@@ -190,8 +192,10 @@ public final class MockPullRequestSource: PullRequestSource {
                     id: "PR_3",
                     title: "Tighten billing retry copy",
                     number: 31,
-                    url: URL(string: "https://github.com/billing-platform-experiments/customer-dashboard/pull/31")!,
-                    repo: "billing-platform-experiments/customer-dashboard",
+                    url: URL(
+                        string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31"
+                    )!,
+                    repo: "billing-platform-experiments/customer-subscription-dashboard",
                     ciState: .passing,
                     reviewDecision: .reviewRequired,
                     commentCount: 1,
@@ -199,7 +203,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewRequestKind: .team,
                     isMine: false,
                     author: "design-systems-amy",
-                    headRefName: "MER-18-tighten-billing-copy",
+                    headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
                     mergeable: .mergeable,
                     draft: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_780_000),
@@ -367,7 +371,7 @@ extension MockPullRequestSource: SourceCatalogProviding {
         SourceCatalog(
             repositories: [
                 RepositorySource(owner: "agent-fixture", name: "sandbox"),
-                RepositorySource(owner: "billing-platform-experiments", name: "customer-dashboard"),
+                RepositorySource(owner: "billing-platform-experiments", name: "customer-subscription-dashboard"),
                 RepositorySource(owner: "customer-success-platform", name: "team-portal-web"),
                 RepositorySource(owner: "mergehawk-labs", name: "desktop-app"),
                 RepositorySource(owner: "mergehawk-labs", name: "mergehawk"),

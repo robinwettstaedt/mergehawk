@@ -1493,11 +1493,13 @@ private struct PullRequestRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
                         CIStatusIndicator(ciState: pullRequest.ciState)
                         ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
