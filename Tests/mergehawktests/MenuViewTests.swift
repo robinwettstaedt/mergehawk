@@ -62,7 +62,7 @@ import mergehawkcore
     precondition(NotificationReadPresentation.markOtherAccessibilityLabel == "Mark other notification as read")
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests.")
-    precondition(PullRequestListCopy.noMatches == "No matching PRs.")
+    precondition(PullRequestListCopy.noFilterMatches == "No PRs match these filters.")
     let metadataPullRequest = PullRequest(
         id: "metadata",
         title: "Metadata presentation",
@@ -90,6 +90,11 @@ import mergehawkcore
     precondition(PullRequestRowMetadataPresentation.branchText(
         for: metadataPullRequest
     ) == "feature/metadata")
+    precondition(PullRequestPinPresentation.symbolName(isPinned: false) == "pin")
+    precondition(PullRequestPinPresentation.symbolName(isPinned: true) == "pin.fill")
+    precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin PR")
+    precondition(PullRequestPinPresentation.label(isPinned: true) == "Unpin PR")
+    precondition(PullRequestPinPresentation.rotationDegrees == 35.0)
 
     var searchState = ExpandableSearchState()
     precondition(!searchState.isExpanded)
@@ -173,12 +178,10 @@ import mergehawkcore
     precondition(!signedInStatusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "1", modifiers: [.command, .shift])))
     precondition(signedInController.selectedTab == .reviewRequests)
 
-    signedInController.authoredSearchState = ExpandableSearchState(isExpanded: true, query: "oauth")
-    signedInController.reviewRequestSearchState = ExpandableSearchState(isExpanded: true, query: "billing")
     _ = signedInStatusBarController.showMenuForTesting(selecting: .myPRs)
-    precondition(signedInController.authoredSearchState == ExpandableSearchState(isExpanded: true, query: "oauth"))
+    precondition(signedInController.selectedTab == .myPRs)
     _ = signedInStatusBarController.showMenuForTesting(selecting: .reviewRequests)
-    precondition(signedInController.reviewRequestSearchState == ExpandableSearchState(isExpanded: true, query: "billing"))
+    precondition(signedInController.selectedTab == .reviewRequests)
 
     let markAllController = signedInMockController()
     let markAllStatusBarController = StatusBarController(controller: markAllController)
@@ -306,11 +309,13 @@ import mergehawkcore
     precondition(DashboardController.filtered([older, newer, draft], by: [.approved], events: [event]).map(\.id) == ["older"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ciFailing], events: [event]).map(\.id) == ["newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested, .draft], events: [event]).map(\.id) == ["newer", "draft"])
-    precondition(PullRequestSearch.filtered([older, newer, draft], query: "older pr").map(\.id) == ["older"])
-    precondition(PullRequestSearch.filtered([older, newer, draft], query: "ACME/MERGEHAWK").map(\.id) == ["older", "newer", "draft"])
-    precondition(PullRequestSearch.filtered([older, newer, draft], query: "rw").map(\.id) == ["older", "newer", "draft"])
-    precondition(PullRequestSearch.filtered([older, newer, draft], query: "feature/newer").map(\.id) == ["newer"])
-    precondition(PullRequestSearch.filtered([older, newer, draft], query: "missing").isEmpty)
+    precondition(DashboardController.sortedWithPins([older, newer, draft], pinnedIds: ["older"], by: .createdDate).map(\.id) == ["older", "draft", "newer"])
+    precondition(DashboardController.sortedWithPins([older, newer, draft], pinnedIds: ["draft", "older"], by: .updatedDate).map(\.id) == ["draft", "older", "newer"])
+    precondition(DashboardController.sortedWithPins(
+        DashboardController.filtered([older, newer, draft], by: [.ready], events: [event]),
+        pinnedIds: ["draft"],
+        by: .createdDate
+    ).map(\.id) == ["newer", "older"])
 
     let directReview = PullRequest(
         id: "direct",

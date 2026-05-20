@@ -388,30 +388,10 @@ struct MenuControlButton: View {
     }
 }
 
-enum PullRequestSearch {
-    static func filtered(_ pullRequests: [PullRequest], query: String) -> [PullRequest] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return pullRequests
-        }
-
-        return pullRequests.filter { pr in
-            matches(pr.title, query: query)
-                || matches(pr.repo, query: query)
-                || matches(pr.author, query: query)
-                || matches(pr.headRefName, query: query)
-        }
-    }
-
-    private static func matches(_ value: String, query: String) -> Bool {
-        value.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-    }
-}
-
 enum PullRequestListCopy {
     static let emptyAuthored = "No authored PRs."
     static let emptyReviewRequests = "No review requests."
-    static let noMatches = "No matching PRs."
+    static let noFilterMatches = "No PRs match these filters."
 }
 
 enum PullRequestRowMetadataPresentation {
@@ -424,6 +404,18 @@ enum PullRequestRowMetadataPresentation {
 
     static func branchText(for pullRequest: PullRequest) -> String {
         pullRequest.headRefName
+    }
+}
+
+enum PullRequestPinPresentation {
+    static let rotationDegrees = 35.0
+
+    static func symbolName(isPinned: Bool) -> String {
+        isPinned ? "pin.fill" : "pin"
+    }
+
+    static func label(isPinned: Bool) -> String {
+        isPinned ? "Unpin PR" : "Pin PR"
     }
 }
 
@@ -503,14 +495,12 @@ struct MenuRootView: View {
                 PullRequestListView(
                     controller: controller,
                     mode: .authored,
-                    searchState: $controller.authoredSearchState,
                     dismissSignal: dismissTransientPRControlsSignal
                 )
             case .reviewRequests:
                 PullRequestListView(
                     controller: controller,
                     mode: .reviewRequests,
-                    searchState: $controller.reviewRequestSearchState,
                     dismissSignal: dismissTransientPRControlsSignal
                 )
             }
@@ -892,18 +882,15 @@ private struct PullRequestListView: View {
     let mode: Mode
     let dismissSignal: Int
     @State private var dropdownState = PullRequestMenuDropdownState()
-    @Binding var searchState: ExpandableSearchState
 
     init(
         controller: DashboardController,
         mode: Mode,
-        searchState: Binding<ExpandableSearchState>,
         dismissSignal: Int = 0
     ) {
         self.controller = controller
         self.mode = mode
         self.dismissSignal = dismissSignal
-        _searchState = searchState
     }
 
     var body: some View {
@@ -919,7 +906,7 @@ private struct PullRequestListView: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         if visiblePullRequests.isEmpty {
-                            EmptyMenuState(text: PullRequestListCopy.noMatches)
+                            EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
                                 .frame(minHeight: 520)
                         } else {
                             LazyVStack(spacing: 8) {
@@ -927,8 +914,12 @@ private struct PullRequestListView: View {
                                     PullRequestRow(
                                         pullRequest: pr,
                                         isAttention: controller.isUnreadPullRequest(pr),
+                                        isPinned: controller.isPinned(pr),
                                         showsReviewRequestKind: mode == .reviewRequests,
-                                        showsAuthor: mode == .reviewRequests
+                                        showsAuthor: mode == .reviewRequests,
+                                        togglePin: {
+                                            controller.togglePin(pr)
+                                        }
                                     ) {
                                         controller.openPullRequest(pr)
                                     }
@@ -969,10 +960,6 @@ private struct PullRequestListView: View {
     }
 
     private var visiblePullRequests: [PullRequest] {
-        PullRequestSearch.filtered(pullRequests, query: searchState.query)
-    }
-
-    private var pullRequests: [PullRequest] {
         switch mode {
         case .authored:
             controller.sortedMyPullRequests
@@ -1012,40 +999,17 @@ private struct PullRequestListView: View {
             .padding(.leading, 12)
     }
 
-    private var searchControls: some View {
-        CountSearchControl(
-            searchState: $searchState,
-            countLabel: "",
-            placeholder: "",
-            help: "Search PRs",
-            showsInlineCount: false
-        )
-        .simultaneousGesture(TapGesture().onEnded {
-            dropdownState.dismiss()
-        })
-    }
-
     @ViewBuilder
     private var toolbarControls: some View {
-        if searchState.isExpanded {
-            HStack(spacing: 8) {
-                visibleCount
-                searchControls
-                filterButton
-                sortButton
-            }
-        } else {
-            HStack(spacing: 8) {
-                visibleCount
-                searchControls
-                Spacer(minLength: 0)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        dismissTransientControls()
-                    }
-                filterButton
-                sortButton
-            }
+        HStack(spacing: 8) {
+            visibleCount
+            Spacer(minLength: 0)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dismissTransientControls()
+                }
+            filterButton
+            sortButton
         }
     }
 
@@ -1069,7 +1033,6 @@ private struct PullRequestListView: View {
             isOpen: dropdownState.openMenu == .filter,
             help: "Filter pull requests"
         ) {
-            searchState.blur()
             dropdownState.toggle(.filter)
         }
     }
@@ -1112,14 +1075,12 @@ private struct PullRequestListView: View {
             isOpen: dropdownState.openMenu == .sort,
             help: "Sort pull requests"
         ) {
-            searchState.blur()
             dropdownState.toggle(.sort)
         }
     }
 
     private func dismissTransientControls() {
         dropdownState.dismiss()
-        searchState.blur()
     }
 
     private func optionButton(
@@ -1463,8 +1424,10 @@ private struct GitHubInboxNotificationRow: View {
 private struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
+    let isPinned: Bool
     var showsReviewRequestKind = false
     var showsAuthor = false
+    let togglePin: () -> Void
     let action: () -> Void
 
     @State private var isHovered = false
@@ -1523,11 +1486,36 @@ private struct PullRequestRow: View {
             }
             .buttonStyle(.plain)
 
-            PullRequestLinkCopyButton(url: pullRequest.url)
+            HStack(spacing: 2) {
+                PullRequestPinButton(isPinned: isPinned, isVisible: isPinned || isHovered, action: togglePin)
+                PullRequestLinkCopyButton(url: pullRequest.url)
+            }
                 .padding(.trailing, 8)
                 .padding(.bottom, 8)
         }
         .onHover { isHovered = $0 }
+    }
+}
+
+private struct PullRequestPinButton: View {
+    let isPinned: Bool
+    let isVisible: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned))
+                .font(.system(size: 12, weight: .semibold))
+                .rotationEffect(.degrees(PullRequestPinPresentation.rotationDegrees))
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .opacity(isVisible ? 1 : 0)
+        .allowsHitTesting(isVisible)
+        .help(PullRequestPinPresentation.label(isPinned: isPinned))
+        .accessibilityLabel(PullRequestPinPresentation.label(isPinned: isPinned))
+        .accessibilityHidden(!isVisible)
     }
 }
 

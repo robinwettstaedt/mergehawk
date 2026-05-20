@@ -157,6 +157,18 @@ struct PreferencesStore {
         }
     }
 
+    var pinnedPullRequestIds: Set<String> {
+        get {
+            Set((defaults.stringArray(forKey: "pullRequests.pinnedIds") ?? []).compactMap { rawValue in
+                let id = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                return id.isEmpty ? nil : id
+            })
+        }
+        set {
+            defaults.set(newValue.sorted(), forKey: "pullRequests.pinnedIds")
+        }
+    }
+
     private func migratedPullRequestFilters() -> Set<DashboardController.PullRequestFilterOption> {
         guard
             let rawValue = defaults.string(forKey: "pullRequests.filterOption"),
