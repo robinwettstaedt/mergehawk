@@ -68,24 +68,15 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
-            try renderMenu(
-                controller: controller,
-                initialAuthoredSearchState: ExpandableSearchState(isExpanded: true, query: "oauth"),
-                to: outputURL.appendingPathComponent("menu-my-prs-search-oauth.png")
-            )
-            try renderMenu(
-                controller: controller,
-                initialAuthoredSearchState: ExpandableSearchState(isExpanded: true, query: "missing"),
-                to: outputURL.appendingPathComponent("menu-my-prs-search-empty.png")
-            )
+            controller.pinnedPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(1).map(\.id))
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-pinned.png"))
+            controller.pinnedPullRequestIds = []
 
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
-            try renderMenu(
-                controller: controller,
-                initialReviewRequestSearchState: ExpandableSearchState(isExpanded: true, query: "billing"),
-                to: outputURL.appendingPathComponent("menu-review-requests-search-billing.png")
-            )
+            controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
+            controller.pinnedPullRequestIds = []
 
             controller.selectedReviewRequestFilters = [.team]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-team.png"))
@@ -138,12 +129,8 @@ final class VisualVerificationXCTests: XCTestCase {
     @MainActor
     private func renderMenu(
         controller: DashboardController,
-        initialAuthoredSearchState: ExpandableSearchState = ExpandableSearchState(),
-        initialReviewRequestSearchState: ExpandableSearchState = ExpandableSearchState(),
         to url: URL
     ) throws {
-        controller.authoredSearchState = initialAuthoredSearchState
-        controller.reviewRequestSearchState = initialReviewRequestSearchState
         try render(
             MenuRootView(
                 controller: controller
