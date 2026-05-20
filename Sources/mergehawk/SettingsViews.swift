@@ -331,7 +331,7 @@ private struct NotificationSettingsView: View {
                 get: { controller.preferences.newComment },
                 set: { controller.preferences.newComment = $0 }
             ))
-            Toggle("New reviews", isOn: Binding(
+            Toggle("Review approvals and comments", isOn: Binding(
                 get: { controller.preferences.newReview },
                 set: { controller.preferences.newReview = $0 }
             ))

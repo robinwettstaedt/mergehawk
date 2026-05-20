@@ -4,6 +4,7 @@ struct LaunchConfiguration: Equatable {
     var usesMockData: Bool
     var suppressesMacOSNotifications: Bool
     var notificationLogPath: String? = nil
+    var showsNotificationTypeFixtures: Bool = false
 
     static func current(
         arguments: [String] = CommandLine.arguments,
@@ -17,12 +18,15 @@ struct LaunchConfiguration: Equatable {
             || truthy(environment["MERGEHAWK_DISABLE_NOTIFICATIONS"])
             || truthy(environment["MERGEHAWK_SUPPRESS_MACOS_NOTIFICATIONS"])
             || usesMockData
+        let showsNotificationTypeFixtures = arguments.contains("--notification-type-fixtures")
+            || truthy(environment["MERGEHAWK_NOTIFICATION_TYPE_FIXTURES"])
 
         return LaunchConfiguration(
             usesMockData: usesMockData,
             suppressesMacOSNotifications: suppressesMacOSNotifications,
             notificationLogPath: value(after: "--notification-log", in: arguments)
-                ?? environment["MERGEHAWK_NOTIFICATION_LOG"]
+                ?? environment["MERGEHAWK_NOTIFICATION_LOG"],
+            showsNotificationTypeFixtures: showsNotificationTypeFixtures
         )
     }
 

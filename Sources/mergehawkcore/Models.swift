@@ -45,6 +45,24 @@ public enum MergeableState: String, Codable, Equatable, Sendable {
     case unknown
 }
 
+public enum PullRequestReviewState: String, Codable, Equatable, Sendable {
+    case approved
+    case changesRequested = "changes_requested"
+    case commented
+}
+
+public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
+    public let id: String
+    public let state: PullRequestReviewState
+    public let submittedAt: Date
+
+    public init(id: String, state: PullRequestReviewState, submittedAt: Date) {
+        self.id = id
+        self.state = state
+        self.submittedAt = submittedAt
+    }
+}
+
 public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -55,6 +73,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let reviewDecision: ReviewDecision
     public let commentCount: Int
     public let reviewCount: Int
+    public let recentReviews: [PullRequestReview]
     public let reviewRequestKind: ReviewRequestKind
     public let isMine: Bool
     public let author: String
@@ -74,6 +93,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         reviewDecision: ReviewDecision,
         commentCount: Int,
         reviewCount: Int,
+        recentReviews: [PullRequestReview] = [],
         reviewRequestKind: ReviewRequestKind = .none,
         isMine: Bool,
         author: String,
@@ -92,6 +112,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.reviewDecision = reviewDecision
         self.commentCount = commentCount
         self.reviewCount = reviewCount
+        self.recentReviews = recentReviews
         self.reviewRequestKind = reviewRequestKind
         self.isMine = isMine
         self.author = author
@@ -292,6 +313,8 @@ public struct SourcePreferences: Codable, Equatable, Sendable {
 
 public enum PullRequestEventType: String, Codable, Equatable, Sendable {
     case newComment = "new_comment"
+    case reviewApproved = "review_approved"
+    case reviewCommented = "review_commented"
     case newReview = "new_review"
     case ciFailed = "ci_failed"
     case changesRequested = "changes_requested"
@@ -436,7 +459,7 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
     public func allows(_ type: PullRequestEventType) -> Bool {
         switch type {
         case .newComment: newComment
-        case .newReview: newReview
+        case .reviewApproved, .reviewCommented, .newReview: newReview
         case .ciFailed: ciFailed
         case .changesRequested: changesRequested
         }

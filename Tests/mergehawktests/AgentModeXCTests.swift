@@ -205,6 +205,45 @@ final class AgentModeXCTests: XCTestCase {
         }
     }
 
+    func testNotificationTypeFixtureModeSeedsAllMockNotificationKinds() async {
+        let suiteName = "mergehawk-notification-type-fixtures-test-\(UUID().uuidString)"
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(
+                    usesMockData: true,
+                    suppressesMacOSNotifications: true,
+                    showsNotificationTypeFixtures: true
+                ),
+                automaticRefreshInterval: 0
+            )
+        }
+
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.state.syncedAt != nil
+            }
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(
+                Set(controller.visiblePullRequestNotifications.map(\.eventType)),
+                [.newComment, .reviewApproved, .reviewCommented, .ciFailed, .changesRequested]
+            )
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
+            XCTAssertEqual(
+                Set(controller.visibleGitHubInboxNotifications.map(\.subjectType)),
+                ["Issue", "Discussion", "Release", "Commit", "CheckSuite", "RepositoryVulnerabilityAlert"]
+            )
+            XCTAssertEqual(controller.visibleGitHubInboxNotifications.count, 6)
+        }
+    }
+
     func testSourcePreferencesSuppressInAppNotifications() async {
         let suiteName = "mergehawk-source-notifications-test-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

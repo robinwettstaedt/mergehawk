@@ -8,7 +8,10 @@ public enum PRActivityDetector {
 
         var events: [PullRequestEvent] = []
 
-        if current.commentCount > previous.commentCount {
+        let reviewEvents = reviewOutcomeEvents(previous: previous, current: current)
+        events.append(contentsOf: reviewEvents)
+
+        if reviewEvents.isEmpty, current.commentCount > previous.commentCount {
             events.append(PullRequestEvent(
                 type: .newComment,
                 prId: current.id,
@@ -16,25 +19,32 @@ public enum PRActivityDetector {
             ))
         }
 
-        if current.reviewCount > previous.reviewCount {
-            events.append(PullRequestEvent(
-                type: .newReview,
-                prId: current.id,
-                count: current.reviewCount - previous.reviewCount
-            ))
-        }
-
         if current.isMine, previous.ciState != .failing, current.ciState == .failing {
             events.append(PullRequestEvent(type: .ciFailed, prId: current.id))
         }
 
-        if current.isMine,
-           previous.reviewDecision != .changesRequested,
-           current.reviewDecision == .changesRequested {
-            events.append(PullRequestEvent(type: .changesRequested, prId: current.id))
-        }
-
         return events
+    }
+
+    private static func reviewOutcomeEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {
+        let previousReviewIds = Set(previous.recentReviews.map(\.id))
+        return current.recentReviews
+            .filter { !previousReviewIds.contains($0.id) }
+            .sorted { $0.submittedAt < $1.submittedAt }
+            .map { review in
+                PullRequestEvent(type: reviewEventType(for: review.state), prId: current.id)
+            }
+    }
+
+    private static func reviewEventType(for state: PullRequestReviewState) -> PullRequestEventType {
+        switch state {
+        case .approved:
+            .reviewApproved
+        case .changesRequested:
+            .changesRequested
+        case .commented:
+            .reviewCommented
+        }
     }
 
     public static func filter(

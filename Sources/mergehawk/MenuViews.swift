@@ -1258,17 +1258,28 @@ private struct PullRequestNotificationRow: View {
         ZStack(alignment: .topLeading) {
             Button(action: action) {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: iconName)
-                        .foregroundStyle(iconColor)
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Text("\(notification.repo)#\(notification.prNumber) · \(notification.prTitle)")
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .center, spacing: 6) {
+                            Image(systemName: iconName)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 15)
+                            Text(title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(notification.repo)#\(notification.prNumber)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text(notification.prTitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Spacer(minLength: 8)
                     Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
@@ -1278,12 +1289,10 @@ private struct PullRequestNotificationRow: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(10)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(notification.read ? Color.clear : Color.blue, lineWidth: 1)
+                .transparentCardStyle(
+                    accentColor: notification.read ? nil : .accentColor,
+                    isHovered: isHovered
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
 
@@ -1313,6 +1322,10 @@ private struct PullRequestNotificationRow: View {
         switch notification.eventType {
         case .newComment:
             "\(notification.count ?? 1) new comment\(notification.count == 1 ? "" : "s")"
+        case .reviewApproved:
+            "Approved"
+        case .reviewCommented:
+            "Review comment"
         case .newReview:
             "\(notification.count ?? 1) new review\(notification.count == 1 ? "" : "s")"
         case .ciFailed:
@@ -1324,19 +1337,21 @@ private struct PullRequestNotificationRow: View {
 
     private var iconName: String {
         switch notification.eventType {
-        case .newComment: "text.bubble"
-        case .newReview: "checkmark.seal"
-        case .ciFailed: "xmark.octagon"
-        case .changesRequested: "exclamationmark.triangle"
+        case .newComment:
+            "text.bubble"
+        case .reviewApproved:
+            "checkmark.seal"
+        case .reviewCommented:
+            "quote.bubble"
+        case .newReview:
+            "checkmark.seal"
+        case .ciFailed:
+            "xmark.octagon"
+        case .changesRequested:
+            "exclamationmark.triangle"
         }
     }
 
-    private var iconColor: Color {
-        switch notification.eventType {
-        case .newComment, .newReview: .blue
-        case .ciFailed, .changesRequested: .red
-        }
-    }
 }
 
 private struct GitHubInboxNotificationRow: View {
@@ -1350,17 +1365,28 @@ private struct GitHubInboxNotificationRow: View {
         ZStack(alignment: .topLeading) {
             Button(action: action) {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: iconName)
-                        .foregroundStyle(notification.unread ? Color.purple : Color.secondary)
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(notification.subjectTitle)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                        Text("\(notification.repo) · \(notification.subjectType) · \(notification.reason)")
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .center, spacing: 6) {
+                            Image(systemName: iconName)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 15)
+                            Text(notification.subjectTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(notification.repo)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text("\(notification.subjectType) · \(notification.reason)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Spacer(minLength: 8)
                     Text(NotificationTimestampPresentation.label(for: notification.updatedAt))
@@ -1370,12 +1396,10 @@ private struct GitHubInboxNotificationRow: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(10)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(notification.unread ? Color.purple : Color.clear, lineWidth: 1)
+                .transparentCardStyle(
+                    accentColor: notification.unread ? .accentColor : nil,
+                    isHovered: isHovered
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
 
@@ -1403,12 +1427,23 @@ private struct GitHubInboxNotificationRow: View {
 
     private var iconName: String {
         switch notification.subjectType {
-        case "Issue": "record.circle"
-        case "Discussion": "bubble.left.and.bubble.right"
-        case "Release": "tag"
-        default: "tray"
+        case "Issue":
+            "record.circle"
+        case "Discussion":
+            "bubble.left.and.bubble.right"
+        case "Release":
+            "tag"
+        case "Commit":
+            "arrow.triangle.branch"
+        case "CheckSuite":
+            "checkmark.circle"
+        case "RepositoryVulnerabilityAlert":
+            "exclamationmark.shield"
+        default:
+            "tray"
         }
     }
+
 }
 
 private struct PullRequestRow: View {
@@ -1416,6 +1451,8 @@ private struct PullRequestRow: View {
     let isAttention: Bool
     var showsReviewRequestKind = false
     let action: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -1452,12 +1489,10 @@ private struct PullRequestRow: View {
                     }
                 }
                 .padding(10)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isAttention ? Color.blue : Color.clear, lineWidth: 1)
+                .transparentCardStyle(
+                    accentColor: isAttention ? .accentColor : nil,
+                    isHovered: isHovered
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
 
@@ -1465,6 +1500,53 @@ private struct PullRequestRow: View {
                 .padding(.trailing, 8)
                 .padding(.bottom, 8)
         }
+        .onHover { isHovered = $0 }
+    }
+}
+
+private struct TransparentCardStyle: ViewModifier {
+    let accentColor: Color?
+    let isHovered: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(hoverFill)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var hoverFill: Color {
+        guard isHovered else {
+            return .clear
+        }
+
+        return colorScheme == .dark
+            ? Color.white.opacity(0.07)
+            : Color.white.opacity(0.35)
+    }
+
+    private var borderColor: Color {
+        if let accentColor {
+            return accentColor
+        }
+
+        return colorScheme == .dark
+            ? Color.white.opacity(0.24)
+            : Color(nsColor: .separatorColor).opacity(0.72)
+    }
+}
+
+private extension View {
+    func transparentCardStyle(accentColor: Color?, isHovered: Bool) -> some View {
+        modifier(TransparentCardStyle(accentColor: accentColor, isHovered: isHovered))
     }
 }
 

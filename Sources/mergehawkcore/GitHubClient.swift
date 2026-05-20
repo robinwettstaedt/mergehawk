@@ -81,6 +81,28 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
     }
 
+    public struct ReviewConnection: Decodable, Equatable, Sendable {
+        public struct Node: Decodable, Equatable, Sendable {
+            public let id: String
+            public let state: String
+            public let submittedAt: String?
+
+            public init(id: String, state: String, submittedAt: String?) {
+                self.id = id
+                self.state = state
+                self.submittedAt = submittedAt
+            }
+        }
+
+        public let totalCount: Int
+        public let nodes: [Node]
+
+        public init(totalCount: Int, nodes: [Node] = []) {
+            self.totalCount = totalCount
+            self.nodes = nodes
+        }
+    }
+
     public struct RequestedReviewer: Decodable, Equatable, Sendable {
         public struct Organization: Decodable, Equatable, Sendable {
             public let login: String
@@ -120,7 +142,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let mergeable: String?
     public let reviewDecision: String?
     public let comments: Count
-    public let reviews: Count
+    public let reviews: ReviewConnection
     public let reviewThreads: ReviewThreadConnection
     public let reviewRequests: ReviewRequestConnection
     public let repository: Repository
@@ -139,7 +161,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         mergeable: String?,
         reviewDecision: String?,
         comments: Count,
-        reviews: Count,
+        reviews: ReviewConnection,
         reviewThreads: ReviewThreadConnection,
         reviewRequests: ReviewRequestConnection = .init(nodes: []),
         repository: Repository,
@@ -186,6 +208,7 @@ public enum GitHubPullRequestNormalizer {
             reviewDecision: normalizeReviewDecision(node.reviewDecision),
             commentCount: node.comments.totalCount + unresolvedReviewThreadCount,
             reviewCount: node.reviews.totalCount,
+            recentReviews: normalizeReviews(node.reviews),
             reviewRequestKind: normalizeReviewRequestKind(
                 node.reviewRequests,
                 login: login,
@@ -224,6 +247,35 @@ public enum GitHubPullRequestNormalizer {
             .reviewRequired
         default:
             .unknown
+        }
+    }
+
+    public static func normalizeReviewState(_ state: String) -> PullRequestReviewState? {
+        switch state {
+        case "APPROVED":
+            .approved
+        case "CHANGES_REQUESTED":
+            .changesRequested
+        case "COMMENTED":
+            .commented
+        default:
+            nil
+        }
+    }
+
+    private static func normalizeReviews(_ reviews: GitHubPullRequestNode.ReviewConnection) -> [PullRequestReview] {
+        reviews.nodes.compactMap { review in
+            guard
+                let state = normalizeReviewState(review.state),
+                let submittedAt = review.submittedAt
+            else {
+                return nil
+            }
+            return PullRequestReview(
+                id: review.id,
+                state: state,
+                submittedAt: normalizeDate(submittedAt)
+            )
         }
     }
 
@@ -421,8 +473,13 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
               comments {
                 totalCount
               }
-              reviews {
+              reviews(last: 5) {
                 totalCount
+                nodes {
+                  id
+                  state
+                  submittedAt
+                }
               }
               reviewThreads(first: 100) {
                 nodes {
