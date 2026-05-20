@@ -930,7 +930,7 @@ private struct PullRequestListView: View {
                                         showsReviewRequestKind: mode == .reviewRequests,
                                         showsAuthor: mode == .reviewRequests
                                     ) {
-                                        controller.open(pr.url)
+                                        controller.openPullRequest(pr)
                                     }
                                 }
                             }
@@ -1558,6 +1558,7 @@ private struct TransparentCardStyle: ViewModifier {
                     .stroke(borderColor, lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var hoverFill: Color {

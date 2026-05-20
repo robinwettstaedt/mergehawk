@@ -164,6 +164,7 @@ final class DashboardController: ObservableObject {
     private let notificationClient: NotificationPosting
     private var sourceCatalogProvider: SourceCatalogProviding?
     private var gitHubInboxProvider: GitHubInboxProviding?
+    private let openURL: (URL) -> Void
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
@@ -191,13 +192,15 @@ final class DashboardController: ObservableObject {
         launchConfiguration: LaunchConfiguration = LaunchConfiguration.current(),
         notificationClient: NotificationPosting? = nil,
         automaticRefreshInterval: TimeInterval? = nil,
-        oauthSignIn: GitHubOAuthSigningIn? = nil
+        oauthSignIn: GitHubOAuthSigningIn? = nil,
+        urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
     ) {
         self.tokenStore = tokenStore
         self.oauthSignIn = oauthSignIn ?? BrowserGitHubOAuthSignIn(tokenStore: tokenStore)
         self.oauthAccessTokenCache = OAuthAccessTokenCache(tokenStore: tokenStore)
         self.preferencesStore = preferencesStore
         self.launchConfiguration = launchConfiguration
+        self.openURL = urlOpener
         self.launchAtLoginService = launchAtLoginService
             ?? (launchConfiguration.usesMockData ? InMemoryLaunchAtLoginService() : LaunchAtLoginService())
         if let notificationClient {
@@ -507,11 +510,16 @@ final class DashboardController: ObservableObject {
     }
 
     func open(_ url: URL) {
-        NSWorkspace.shared.open(url)
+        openURL(url)
     }
 
     func isUnreadPullRequest(_ pullRequest: PullRequest) -> Bool {
         unreadPullRequestNotificationIds.contains(pullRequest.id)
+    }
+
+    func openPullRequest(_ pullRequest: PullRequest) {
+        markPullRequestNotificationsRead(for: pullRequest)
+        open(pullRequest.url)
     }
 
     func openPullRequestNotification(_ notification: PullRequestNotification) {
@@ -526,6 +534,17 @@ final class DashboardController: ObservableObject {
 
     func markPullRequestNotificationRead(_ notification: PullRequestNotification) {
         updatePullRequestNotification(notification.id) { $0.read = true }
+    }
+
+    private func markPullRequestNotificationsRead(for pullRequest: PullRequest) {
+        pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+            guard notification.prId == pullRequest.id else {
+                return notification
+            }
+            var copy = notification
+            copy.read = true
+            return copy
+        }
     }
 
     func markGitHubInboxNotificationRead(_ notification: GitHubInboxNotification) {

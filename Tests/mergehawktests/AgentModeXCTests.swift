@@ -171,6 +171,51 @@ final class AgentModeXCTests: XCTestCase {
         }
     }
 
+    func testOpeningPullRequestMarksItsNotificationsRead() async {
+        let suiteName = "mergehawk-open-pr-notification-history-test-\(UUID().uuidString)"
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        var preferencesStore = PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!)
+        preferencesStore.pullRequestNotificationHistory = [
+            PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: pullRequest.id),
+                pullRequest: pullRequest
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id),
+                pullRequest: pullRequest
+            )
+        ]
+        let seededPreferencesStore = preferencesStore
+        let openedURLs = RecordingURLOpener()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: seededPreferencesStore,
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                urlOpener: openedURLs.open
+            )
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 2)
+            XCTAssertTrue(controller.isUnreadPullRequest(pullRequest))
+            controller.openPullRequest(pullRequest)
+
+            XCTAssertEqual(openedURLs.urls, [pullRequest.url])
+            XCTAssertFalse(controller.isUnreadPullRequest(pullRequest))
+            XCTAssertEqual(controller.attentionCount, 0)
+            XCTAssertTrue(
+                controller.visiblePullRequestNotifications
+                    .filter { $0.prId == pullRequest.id }
+                    .allSatisfy(\.read)
+            )
+        }
+    }
+
     func testOtherNotificationsDoNotDriveGlobalAttention() async {
         let suiteName = "mergehawk-other-notifications-test-\(UUID().uuidString)"
         defer {
@@ -397,5 +442,13 @@ final class AgentModeXCTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("Timed out waiting for condition")
+    }
+}
+
+private final class RecordingURLOpener {
+    private(set) var urls: [URL] = []
+
+    func open(_ url: URL) {
+        urls.append(url)
     }
 }
