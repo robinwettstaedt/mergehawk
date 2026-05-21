@@ -84,6 +84,9 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.selectedReviewRequestFilters = []
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-all.png"))
 
+            controller.selectedReviewRequestFilters = [.assigned]
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-assigned.png"))
+
             controller.selectedReviewRequestFilters = [.direct, .team]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-multiple.png"))
 

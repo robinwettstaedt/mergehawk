@@ -23,6 +23,7 @@ struct Runner {
         try testNormalizesActionableUnresolvedComments()
         try testNormalizesReviewOutcomeFromLatestOpinionatedReviews()
         try testNormalizesReviewRequestKinds()
+        try testNormalizesViewerAssignment()
         try testBuildsThreePullRequestSearchQueries()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
         print("mergehawkcore tests passed")
@@ -719,6 +720,18 @@ struct Runner {
         )
     }
 
+    private static func testNormalizesViewerAssignment() throws {
+        let assignedNode = GitHubPullRequestNode.fixture(
+            assignees: .init(nodes: [.init(login: "rw"), .init(login: "teammate")])
+        )
+        let unassignedNode = GitHubPullRequestNode.fixture(
+            assignees: .init(nodes: [.init(login: "teammate")])
+        )
+
+        try expect(GitHubPullRequestNormalizer.normalize(assignedNode, login: "rw").isAssignedToViewer)
+        try expect(!GitHubPullRequestNormalizer.normalize(unassignedNode, login: "rw").isAssignedToViewer)
+    }
+
     private static func testInMemoryTokenStoreHandlesMissingStoreLoadAndClear() throws {
         let store = InMemoryTokenStore()
 
@@ -754,7 +767,8 @@ private extension GitHubPullRequestNode {
         comments: CommentConnection = .init(totalCount: 0),
         reviews: ReviewConnection = .init(totalCount: 0),
         latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
-        reviewThreads: ReviewThreadConnection = .init(nodes: [])
+        reviewThreads: ReviewThreadConnection = .init(nodes: []),
+        assignees: AssigneeConnection = .init(nodes: [])
     ) -> GitHubPullRequestNode {
         GitHubPullRequestNode(
             id: "PR_FIXTURE",
@@ -770,6 +784,7 @@ private extension GitHubPullRequestNode {
             reviews: reviews,
             latestOpinionatedReviews: latestOpinionatedReviews,
             reviewThreads: reviewThreads,
+            assignees: assignees,
             repository: .init(nameWithOwner: "acme/mergehawk"),
             commits: .init(nodes: []),
             author: .init(login: "teammate")

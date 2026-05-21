@@ -64,12 +64,12 @@ let mergehawkReviewRequestFilterPreferencesTest: Void = {
     var store = PreferencesStore(defaults: defaults)
     precondition(store.selectedReviewRequestFilters == [])
 
-    store.selectedReviewRequestFilters = [.direct, .draft]
-    precondition(store.selectedReviewRequestFilters == [.direct, .draft])
-    precondition(defaults.stringArray(forKey: "reviewRequests.filterOptions") == ["direct", "draft"])
+    store.selectedReviewRequestFilters = [.direct, .assigned, .draft]
+    precondition(store.selectedReviewRequestFilters == [.direct, .assigned, .draft])
+    precondition(defaults.stringArray(forKey: "reviewRequests.filterOptions") == ["direct", "assigned", "draft"])
 
-    defaults.set(["unsupported", "all", "ready"], forKey: "reviewRequests.filterOptions")
-    precondition(store.selectedReviewRequestFilters == [.ready])
+    defaults.set(["unsupported", "all", "assigned", "ready"], forKey: "reviewRequests.filterOptions")
+    precondition(store.selectedReviewRequestFilters == [.assigned, .ready])
 }()
 
 let mergehawkPinnedPullRequestPreferencesTest: Void = {

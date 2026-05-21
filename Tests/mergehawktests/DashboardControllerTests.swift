@@ -72,15 +72,18 @@ import mergehawkcore
     precondition(controller.state.authStatus == .signedIn)
     precondition(controller.state.source == .mock)
     precondition(controller.state.account?.login == "agent-fixture")
-    precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_5"])
+    precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
     precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_4", "PR_1"])
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_3", "PR_2"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
 
     controller.selectedReviewRequestFilters = [.team]
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_3"])
 
+    controller.selectedReviewRequestFilters = [.assigned]
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7"])
+
     controller.selectedReviewRequestFilters = []
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_3", "PR_2"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
 }()
 
 @MainActor let mergehawkSourcePreferencesFilterDashboardListsTest: Void = {
@@ -111,7 +114,7 @@ import mergehawkcore
         )
     )
     precondition(controller.sortedMyPullRequests.isEmpty)
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_3", "PR_2"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
 
     controller.setRepositoryPreferences(
         repo: "mergehawk-labs/desktop-app",
@@ -122,7 +125,7 @@ import mergehawkcore
         )
     )
     controller.selectedReviewRequestFilters = []
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_3"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3"])
 }()
 
 @MainActor
