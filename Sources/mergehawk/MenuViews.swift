@@ -996,7 +996,6 @@ private struct PullRequestListView: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
             .accessibilityLabel(visibleCountLabel)
-            .padding(.leading, 12)
     }
 
     @ViewBuilder
