@@ -44,6 +44,31 @@ struct NotificationReadPresentation {
     static let markOtherAccessibilityLabel = "Mark other notification as read"
 }
 
+enum PullRequestNotificationTitlePresentation {
+    static func title(for notification: PullRequestNotification) -> String {
+        switch notification.eventType {
+        case .newComment:
+            actorText(for: notification).map { "New comment from \($0)" }
+                ?? "\(notification.count ?? 1) new comment\(notification.count == 1 ? "" : "s")"
+        case .reviewApproved:
+            actorText(for: notification).map { "Approved by \($0)" } ?? "Approved"
+        case .reviewCommented:
+            actorText(for: notification).map { "Review comment from \($0)" } ?? "Review comment"
+        case .newReview:
+            actorText(for: notification).map { "New review from \($0)" }
+                ?? "\(notification.count ?? 1) new review\(notification.count == 1 ? "" : "s")"
+        case .ciFailed:
+            "CI failed"
+        case .changesRequested:
+            actorText(for: notification).map { "Changes requested by \($0)" } ?? "Changes requested"
+        }
+    }
+
+    private static func actorText(for notification: PullRequestNotification) -> String? {
+        notification.actorLogin.map { "@\($0)" }
+    }
+}
+
 struct ExpandableSearchState: Equatable {
     var isExpanded = false
     var query = ""
@@ -1293,20 +1318,7 @@ private struct PullRequestNotificationRow: View {
     }
 
     private var title: String {
-        switch notification.eventType {
-        case .newComment:
-            "\(notification.count ?? 1) new comment\(notification.count == 1 ? "" : "s")"
-        case .reviewApproved:
-            "Approved"
-        case .reviewCommented:
-            "Review comment"
-        case .newReview:
-            "\(notification.count ?? 1) new review\(notification.count == 1 ? "" : "s")"
-        case .ciFailed:
-            "CI failed"
-        case .changesRequested:
-            "Changes requested"
-        }
+        PullRequestNotificationTitlePresentation.title(for: notification)
     }
 
     private var iconName: String {

@@ -224,6 +224,41 @@ let mergehawkNotificationHistoryStoreTest: Void = {
     precondition(store.gitHubInboxSyncMetadata == metadata)
 }()
 
+let mergehawkLegacyNotificationHistoryStoreTest: Void = {
+    let suiteName = "mergehawk-legacy-notification-history-store-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let legacyPayload = """
+    [
+      {
+        "id": "legacy-pr",
+        "eventType": "new_comment",
+        "count": 1,
+        "prId": "PR_1",
+        "prTitle": "Persist legacy notification history",
+        "prNumber": 9,
+        "repo": "example/mergehawk",
+        "url": "https://github.com/example/mergehawk/pull/9",
+        "createdAt": 10,
+        "prUpdatedAt": 20,
+        "read": false
+      }
+    ]
+    """.data(using: .utf8)!
+    defaults.set(legacyPayload, forKey: "notifications.prHistory")
+
+    let store = PreferencesStore(defaults: defaults)
+    let notifications = store.pullRequestNotificationHistory
+
+    precondition(notifications.count == 1)
+    precondition(notifications[0].id == "legacy-pr")
+    precondition(notifications[0].actorLogin == nil)
+    precondition(notifications[0].activityId == nil)
+}()
+
 let mergehawkMacOSLocalNotificationPreferenceTest: Void = {
     let suiteName = "mergehawk-macos-local-notification-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
