@@ -407,6 +407,22 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let prUpdatedAt: Date
     public var read: Bool
 
+    enum CodingKeys: String, CodingKey {
+        case id
+        case eventType
+        case count
+        case prId
+        case prTitle
+        case prNumber
+        case repo
+        case url
+        case actorLogin
+        case activityId
+        case createdAt
+        case prUpdatedAt
+        case read
+    }
+
     public init(
         id: String = UUID().uuidString,
         event: PullRequestEvent,
@@ -427,6 +443,23 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.createdAt = createdAt
         self.prUpdatedAt = pullRequest.updatedAt
         self.read = read
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.eventType = try container.decode(PullRequestEventType.self, forKey: .eventType)
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count)
+        self.prId = try container.decode(String.self, forKey: .prId)
+        self.prTitle = try container.decode(String.self, forKey: .prTitle)
+        self.prNumber = try container.decode(Int.self, forKey: .prNumber)
+        self.repo = try container.decode(String.self, forKey: .repo)
+        self.url = try container.decode(URL.self, forKey: .url)
+        self.actorLogin = try container.decodeIfPresent(String.self, forKey: .actorLogin)
+        self.activityId = try container.decodeIfPresent(String.self, forKey: .activityId)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.prUpdatedAt = try container.decode(Date.self, forKey: .prUpdatedAt)
+        self.read = try container.decode(Bool.self, forKey: .read)
     }
 }
 
