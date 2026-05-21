@@ -8,6 +8,7 @@ struct Runner {
         try testDetectsNewActivityAndAuthoredPRStateTransitions()
         try testDetectsNewCommentActivitiesWithActors()
         try testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents()
+        try testOutcomeReviewSuppressesChildReviewThreadCommentEvents()
         try testCommentCountFallbackCoversMissingFetchedActivities()
         try testIgnoresSelfAuthoredPeopleActivity()
         try testPreferencesFilterEvents()
@@ -207,6 +208,45 @@ struct Runner {
                 count: 1,
                 actorLogin: "docs-lee",
                 activityId: "INLINE_COMMENT",
+                happenedAt: Date(timeIntervalSince1970: 200)
+            )
+        ])
+    }
+
+    private static func testOutcomeReviewSuppressesChildReviewThreadCommentEvents() throws {
+        let previous = PullRequest.fixture(id: "PR_CHANGES_COMMENT", commentActivityCount: 0, isMine: true)
+        let current = PullRequest.fixture(
+            id: "PR_CHANGES_COMMENT",
+            commentCount: 1,
+            commentActivityCount: 2,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "INLINE_COMMENT",
+                    author: "backend-mateo",
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    source: .reviewThread,
+                    reviewId: "REVIEW_CHANGES"
+                )
+            ],
+            reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_CHANGES",
+                    state: .changesRequested,
+                    submittedAt: Date(timeIntervalSince1970: 200),
+                    author: "backend-mateo"
+                )
+            ],
+            isMine: true
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+            PullRequestEvent(
+                type: .changesRequested,
+                prId: "PR_CHANGES_COMMENT",
+                count: 1,
+                actorLogin: "backend-mateo",
+                activityId: "REVIEW_CHANGES",
                 happenedAt: Date(timeIntervalSince1970: 200)
             )
         ])
@@ -480,20 +520,23 @@ struct Runner {
                     id: "RESOLVED_COMMENT_1",
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 1_777_723_200),
-                    source: .reviewThread
+                    source: .reviewThread,
+                    reviewId: "REVIEW_1"
                 ),
                 PullRequestCommentActivity(
                     id: "ACTIONABLE_COMMENT_1",
                     author: "rw",
                     viewerDidAuthor: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_723_200),
-                    source: .reviewThread
+                    source: .reviewThread,
+                    reviewId: "REVIEW_1"
                 ),
                 PullRequestCommentActivity(
                     id: "ACTIONABLE_COMMENT_2",
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 1_777_723_200),
-                    source: .reviewThread
+                    source: .reviewThread,
+                    reviewId: "REVIEW_1"
                 )
             ],
             reviewCount: 1,
@@ -689,7 +732,8 @@ private extension GitHubPullRequestNode.ReviewThreadConnection.Node {
         idPrefix: String = "REVIEW_COMMENT",
         isResolved: Bool,
         viewerCanResolve: Bool,
-        viewerDidAuthorComments: [Bool]
+        viewerDidAuthorComments: [Bool],
+        reviewId: String? = "REVIEW_1"
     ) -> Self {
         .init(
             isResolved: isResolved,
@@ -699,7 +743,8 @@ private extension GitHubPullRequestNode.ReviewThreadConnection.Node {
                     id: "\(idPrefix)_\(index + 1)",
                     createdAt: "2026-05-02T12:00:00Z",
                     viewerDidAuthor: viewerDidAuthor,
-                    author: .init(login: viewerDidAuthor ? "rw" : "teammate")
+                    author: .init(login: viewerDidAuthor ? "rw" : "teammate"),
+                    pullRequestReview: reviewId.map { .init(id: $0) }
                 )
             })
         )

@@ -84,19 +84,22 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     public let viewerDidAuthor: Bool
     public let createdAt: Date
     public let source: Source
+    public let reviewId: String?
 
     public init(
         id: String,
         author: String? = nil,
         viewerDidAuthor: Bool = false,
         createdAt: Date,
-        source: Source
+        source: Source,
+        reviewId: String? = nil
     ) {
         self.id = id
         self.author = author
         self.viewerDidAuthor = viewerDidAuthor
         self.createdAt = createdAt
         self.source = source
+        self.reviewId = reviewId
     }
 }
 

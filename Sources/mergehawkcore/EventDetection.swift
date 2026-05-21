@@ -8,8 +8,13 @@ public enum PRActivityDetector {
 
         var events: [PullRequestEvent] = []
 
-        events.append(contentsOf: reviewOutcomeEvents(previous: previous, current: current))
-        events.append(contentsOf: commentEvents(previous: previous, current: current))
+        let reviewEvents = reviewOutcomeEvents(previous: previous, current: current)
+        events.append(contentsOf: reviewEvents)
+        events.append(contentsOf: commentEvents(
+            previous: previous,
+            current: current,
+            reviewEventIds: Set(reviewEvents.compactMap(\.activityId))
+        ))
 
         if current.isMine, previous.ciState != .failing, current.ciState == .failing {
             events.append(PullRequestEvent(type: .ciFailed, prId: current.id))
@@ -39,12 +44,19 @@ public enum PRActivityDetector {
             }
     }
 
-    private static func commentEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {
+    private static func commentEvents(
+        previous: PullRequest,
+        current: PullRequest,
+        reviewEventIds: Set<String>
+    ) -> [PullRequestEvent] {
         let previousCommentIds = Set(previous.recentCommentActivities.map(\.id))
         let newComments = current.recentCommentActivities
             .filter { !previousCommentIds.contains($0.id) }
         let detectedEvents = newComments
             .filter { !$0.viewerDidAuthor }
+            .filter { comment in
+                comment.reviewId.map { !reviewEventIds.contains($0) } ?? true
+            }
             .sorted { $0.createdAt < $1.createdAt }
             .map { comment in
                 PullRequestEvent(
@@ -57,7 +69,7 @@ public enum PRActivityDetector {
                 )
             }
         let missingCount = max(0, current.commentActivityCount - previous.commentActivityCount - newComments.count)
-        guard missingCount > 0 else {
+        guard missingCount > 0, reviewEventIds.isEmpty else {
             return detectedEvents
         }
         return detectedEvents + [

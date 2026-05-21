@@ -79,21 +79,31 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         public struct Node: Decodable, Equatable, Sendable {
             public struct ReviewCommentConnection: Decodable, Equatable, Sendable {
                 public struct ReviewComment: Decodable, Equatable, Sendable {
+                    public struct Review: Decodable, Equatable, Sendable {
+                        public let id: String
+                        public init(id: String) {
+                            self.id = id
+                        }
+                    }
+
                     public let id: String
                     public let createdAt: String
                     public let viewerDidAuthor: Bool
                     public let author: User?
+                    public let pullRequestReview: Review?
 
                     public init(
                         id: String,
                         createdAt: String,
                         viewerDidAuthor: Bool,
-                        author: User? = nil
+                        author: User? = nil,
+                        pullRequestReview: Review? = nil
                     ) {
                         self.id = id
                         self.createdAt = createdAt
                         self.viewerDidAuthor = viewerDidAuthor
                         self.author = author
+                        self.pullRequestReview = pullRequestReview
                     }
                 }
 
@@ -365,7 +375,8 @@ public enum GitHubPullRequestNormalizer {
                     author: comment.author?.login,
                     viewerDidAuthor: comment.viewerDidAuthor,
                     createdAt: normalizeDate(comment.createdAt),
-                    source: .reviewThread
+                    source: .reviewThread,
+                    reviewId: comment.pullRequestReview?.id
                 )
             }
         }
@@ -639,6 +650,9 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                       viewerDidAuthor
                       author {
                         login
+                      }
+                      pullRequestReview {
+                        id
                       }
                     }
                   }
