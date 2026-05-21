@@ -8,7 +8,9 @@ struct Runner {
         try testDetectsNewActivityAndAuthoredPRStateTransitions()
         try testDetectsNewCommentActivitiesWithActors()
         try testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents()
+        try testTopLevelCommentedReviewEmitsReviewCommentedEvent()
         try testOutcomeReviewSuppressesChildReviewThreadCommentEvents()
+        try testOutcomeReviewKeepsUnrepresentedCommentFallback()
         try testCommentCountFallbackCoversMissingFetchedActivities()
         try testIgnoresSelfAuthoredPeopleActivity()
         try testPreferencesFilterEvents()
@@ -186,7 +188,8 @@ struct Runner {
                     id: "INLINE_COMMENT",
                     author: "docs-lee",
                     createdAt: Date(timeIntervalSince1970: 200),
-                    source: .reviewThread
+                    source: .reviewThread,
+                    reviewId: "REVIEW_COMMENTED"
                 )
             ],
             reviewCount: 1,
@@ -207,7 +210,35 @@ struct Runner {
                 prId: "PR_REVIEW_COMMENT",
                 count: 1,
                 actorLogin: "docs-lee",
-                activityId: "INLINE_COMMENT",
+                activityId: "REVIEW_COMMENTED",
+                happenedAt: Date(timeIntervalSince1970: 200)
+            )
+        ])
+    }
+
+    private static func testTopLevelCommentedReviewEmitsReviewCommentedEvent() throws {
+        let previous = PullRequest.fixture(id: "PR_TOP_LEVEL_REVIEW_COMMENT", isMine: true)
+        let current = PullRequest.fixture(
+            id: "PR_TOP_LEVEL_REVIEW_COMMENT",
+            reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_COMMENTED",
+                    state: .commented,
+                    submittedAt: Date(timeIntervalSince1970: 200),
+                    author: "docs-lee"
+                )
+            ],
+            isMine: true
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+            PullRequestEvent(
+                type: .reviewCommented,
+                prId: "PR_TOP_LEVEL_REVIEW_COMMENT",
+                count: 1,
+                actorLogin: "docs-lee",
+                activityId: "REVIEW_COMMENTED",
                 happenedAt: Date(timeIntervalSince1970: 200)
             )
         ])
@@ -218,7 +249,7 @@ struct Runner {
         let current = PullRequest.fixture(
             id: "PR_CHANGES_COMMENT",
             commentCount: 1,
-            commentActivityCount: 2,
+            commentActivityCount: 1,
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "INLINE_COMMENT",
@@ -249,6 +280,46 @@ struct Runner {
                 activityId: "REVIEW_CHANGES",
                 happenedAt: Date(timeIntervalSince1970: 200)
             )
+        ])
+    }
+
+    private static func testOutcomeReviewKeepsUnrepresentedCommentFallback() throws {
+        let previous = PullRequest.fixture(id: "PR_CHANGES_WITH_MISSING_COMMENT", commentActivityCount: 0, isMine: true)
+        let current = PullRequest.fixture(
+            id: "PR_CHANGES_WITH_MISSING_COMMENT",
+            commentCount: 2,
+            commentActivityCount: 2,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "INLINE_COMMENT",
+                    author: "backend-mateo",
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    source: .reviewThread,
+                    reviewId: "REVIEW_CHANGES"
+                )
+            ],
+            reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_CHANGES",
+                    state: .changesRequested,
+                    submittedAt: Date(timeIntervalSince1970: 200),
+                    author: "backend-mateo"
+                )
+            ],
+            isMine: true
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+            PullRequestEvent(
+                type: .changesRequested,
+                prId: "PR_CHANGES_WITH_MISSING_COMMENT",
+                count: 1,
+                actorLogin: "backend-mateo",
+                activityId: "REVIEW_CHANGES",
+                happenedAt: Date(timeIntervalSince1970: 200)
+            ),
+            PullRequestEvent(type: .newComment, prId: "PR_CHANGES_WITH_MISSING_COMMENT", count: 1)
         ])
     }
 

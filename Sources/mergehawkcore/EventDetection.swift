@@ -29,12 +29,9 @@ public enum PRActivityDetector {
             .filter { !previousReviewIds.contains($0.id) }
             .filter { !$0.viewerDidAuthor }
             .sorted { $0.submittedAt < $1.submittedAt }
-            .compactMap { review in
-                guard let eventType = reviewEventType(for: review.state) else {
-                    return nil
-                }
-                return PullRequestEvent(
-                    type: eventType,
+            .map { review in
+                PullRequestEvent(
+                    type: reviewEventType(for: review.state),
                     prId: current.id,
                     count: 1,
                     actorLogin: review.author,
@@ -69,7 +66,7 @@ public enum PRActivityDetector {
                 )
             }
         let missingCount = max(0, current.commentActivityCount - previous.commentActivityCount - newComments.count)
-        guard missingCount > 0, reviewEventIds.isEmpty else {
+        guard missingCount > 0 else {
             return detectedEvents
         }
         return detectedEvents + [
@@ -77,14 +74,14 @@ public enum PRActivityDetector {
         ]
     }
 
-    private static func reviewEventType(for state: PullRequestReviewState) -> PullRequestEventType? {
+    private static func reviewEventType(for state: PullRequestReviewState) -> PullRequestEventType {
         switch state {
         case .approved:
             .reviewApproved
         case .changesRequested:
             .changesRequested
         case .commented:
-            nil
+            .reviewCommented
         }
     }
 
