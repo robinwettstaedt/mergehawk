@@ -11,11 +11,11 @@ public enum PRActivityDetector {
         let reviewEvents = reviewOutcomeEvents(previous: previous, current: current)
         events.append(contentsOf: reviewEvents)
 
-        if reviewEvents.isEmpty, current.commentCount > previous.commentCount {
+        if reviewEvents.isEmpty, current.commentActivityCount > previous.commentActivityCount {
             events.append(PullRequestEvent(
                 type: .newComment,
                 prId: current.id,
-                count: current.commentCount - previous.commentCount
+                count: current.commentActivityCount - previous.commentActivityCount
             ))
         }
 
