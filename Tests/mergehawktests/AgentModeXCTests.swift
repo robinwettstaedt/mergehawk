@@ -281,6 +281,11 @@ final class AgentModeXCTests: XCTestCase {
                 [.newComment, .reviewApproved, .reviewCommented, .ciFailed, .changesRequested]
             )
             XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
+            XCTAssertTrue(
+                controller.visiblePullRequestNotifications
+                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
+                    .contains("New comment from @frontend-sam")
+            )
             XCTAssertEqual(
                 Set(controller.visibleGitHubInboxNotifications.map(\.subjectType)),
                 ["Issue", "Discussion", "Release", "Commit", "CheckSuite", "RepositoryVulnerabilityAlert"]
@@ -396,6 +401,56 @@ final class AgentModeXCTests: XCTestCase {
         )
     }
 
+    func testNotificationContentIncludesActorsAndCapsGroupedActorSummary() {
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        let events = [
+            PullRequestEvent(
+                type: .newComment,
+                prId: "PR_1",
+                count: 1,
+                actorLogin: "alice",
+                activityId: "COMMENT_1"
+            ),
+            PullRequestEvent(
+                type: .reviewApproved,
+                prId: "PR_1",
+                count: 1,
+                actorLogin: "bob",
+                activityId: "REVIEW_1"
+            ),
+            PullRequestEvent(
+                type: .reviewCommented,
+                prId: "PR_1",
+                count: 1,
+                actorLogin: "carol",
+                activityId: "REVIEW_2"
+            ),
+            PullRequestEvent(
+                type: .changesRequested,
+                prId: "PR_1",
+                count: 1,
+                actorLogin: "dina",
+                activityId: "REVIEW_3"
+            )
+        ]
+
+        let records = NotificationContentBuilder.records(events: events, pullRequests: [pullRequest])
+
+        XCTAssertEqual(records.map(\.title), [
+            "New comment from @alice",
+            "Approved by @bob",
+            "Review comment from @carol",
+            "Changes requested by @dina"
+        ])
+        XCTAssertEqual(records.map(\.actorLogin), ["alice", "bob", "carol", "dina"])
+        XCTAssertTrue(
+            NotificationContentBuilder.summaryBody(
+                for: events,
+                pullRequests: [pullRequest]
+            ).contains("From @alice, @bob, @carol, ...")
+        )
+    }
+
     func testRecordingNotificationClientWritesJsonLines() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mergehawk-notifications-\(UUID().uuidString)")
@@ -404,12 +459,22 @@ final class AgentModeXCTests: XCTestCase {
         let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
 
         client.post(
-            events: [PullRequestEvent(type: .ciFailed, prId: "PR_1")],
+            events: [
+                PullRequestEvent(
+                    type: .newComment,
+                    prId: "PR_1",
+                    count: 1,
+                    actorLogin: "alice",
+                    activityId: "COMMENT_1"
+                )
+            ],
             pullRequests: [pullRequest]
         )
 
         let payload = try String(contentsOf: logURL)
-        XCTAssertTrue(payload.contains(#""eventType":"ci_failed""#))
+        XCTAssertTrue(payload.contains(#""title":"New comment from @alice""#))
+        XCTAssertTrue(payload.contains(#""actorLogin":"alice""#))
+        XCTAssertTrue(payload.contains(#""eventType":"new_comment""#))
         XCTAssertTrue(payload.contains(#""repository":"example\/mergehawk""#))
         XCTAssertTrue(payload.contains(#""clickAction":"open_pull_request""#))
         XCTAssertTrue(payload.contains(#""clickPullRequestURL":"https:\/\/github.com\/example\/mergehawk\/pull\/42""#))
