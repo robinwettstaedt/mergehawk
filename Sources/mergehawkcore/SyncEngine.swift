@@ -38,7 +38,7 @@ public final class SyncEngine {
         for current in pullRequests {
             let detected = PRActivityDetector.detect(previous: snapshots[current.id], current: current)
             let allowedEvents = PRActivityDetector
-                .filter(detected, preferences: preferences)
+                .filter(detected, preferences: preferences, pullRequest: current)
                 .filter { _ in sourcePreferences.allowsNotifications(for: current.repo) }
             events.append(contentsOf: allowedEvents)
             snapshots[current.id] = current

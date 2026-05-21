@@ -535,33 +535,140 @@ public struct GitHubInboxFetchResult: Equatable, Sendable {
     }
 }
 
-public struct NotificationPreferences: Codable, Equatable, Sendable {
-    public var newComment: Bool
-    public var newReview: Bool
-    public var ciFailed: Bool
-    public var changesRequested: Bool
+public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
+    case authored
+    case assigned
+    case directReviewRequest = "direct_review_request"
+    case teamReviewRequest = "team_review_request"
+}
 
-    public static let defaults = NotificationPreferences(
-        newComment: true,
-        newReview: true,
-        ciFailed: true,
-        changesRequested: true
+public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
+    case comments
+    case reviewActivity = "review_activity"
+    case ciFailures = "ci_failures"
+
+    public init(eventType: PullRequestEventType) {
+        switch eventType {
+        case .newComment:
+            self = .comments
+        case .reviewApproved, .reviewCommented, .newReview, .changesRequested:
+            self = .reviewActivity
+        case .ciFailed:
+            self = .ciFailures
+        }
+    }
+}
+
+public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Sendable {
+    public var comments: Bool
+    public var reviewActivity: Bool
+    public var ciFailures: Bool
+
+    public static let enabled = PullRequestNotificationActivityPreferences(
+        comments: true,
+        reviewActivity: true,
+        ciFailures: true
+    )
+    public static let disabled = PullRequestNotificationActivityPreferences(
+        comments: false,
+        reviewActivity: false,
+        ciFailures: false
     )
 
-    public init(newComment: Bool, newReview: Bool, ciFailed: Bool, changesRequested: Bool) {
-        self.newComment = newComment
-        self.newReview = newReview
-        self.ciFailed = ciFailed
-        self.changesRequested = changesRequested
+    public init(comments: Bool, reviewActivity: Bool, ciFailures: Bool) {
+        self.comments = comments
+        self.reviewActivity = reviewActivity
+        self.ciFailures = ciFailures
     }
 
-    public func allows(_ type: PullRequestEventType) -> Bool {
-        switch type {
-        case .newComment: newComment
-        case .reviewApproved, .reviewCommented, .newReview: newReview
-        case .ciFailed: ciFailed
-        case .changesRequested: changesRequested
+    public func allows(_ activity: PullRequestNotificationActivity) -> Bool {
+        switch activity {
+        case .comments:
+            comments
+        case .reviewActivity:
+            reviewActivity
+        case .ciFailures:
+            ciFailures
         }
+    }
+}
+
+public struct NotificationPreferences: Codable, Equatable, Sendable {
+    public var authored: PullRequestNotificationActivityPreferences
+    public var assigned: PullRequestNotificationActivityPreferences
+    public var directReviewRequests: PullRequestNotificationActivityPreferences
+    public var teamReviewRequests: PullRequestNotificationActivityPreferences
+
+    public static let defaults = NotificationPreferences(
+        authored: .enabled,
+        assigned: .disabled,
+        directReviewRequests: .disabled,
+        teamReviewRequests: .disabled
+    )
+
+    public init(
+        authored: PullRequestNotificationActivityPreferences,
+        assigned: PullRequestNotificationActivityPreferences,
+        directReviewRequests: PullRequestNotificationActivityPreferences,
+        teamReviewRequests: PullRequestNotificationActivityPreferences
+    ) {
+        self.authored = authored
+        self.assigned = assigned
+        self.directReviewRequests = directReviewRequests
+        self.teamReviewRequests = teamReviewRequests
+    }
+
+    public func preferences(for relationship: PullRequestNotificationRelationship) -> PullRequestNotificationActivityPreferences {
+        switch relationship {
+        case .authored:
+            authored
+        case .assigned:
+            assigned
+        case .directReviewRequest:
+            directReviewRequests
+        case .teamReviewRequest:
+            teamReviewRequests
+        }
+    }
+
+    public mutating func set(
+        _ preferences: PullRequestNotificationActivityPreferences,
+        for relationship: PullRequestNotificationRelationship
+    ) {
+        switch relationship {
+        case .authored:
+            authored = preferences
+        case .assigned:
+            assigned = preferences
+        case .directReviewRequest:
+            directReviewRequests = preferences
+        case .teamReviewRequest:
+            teamReviewRequests = preferences
+        }
+    }
+
+    public func allows(event: PullRequestEvent, for pullRequest: PullRequest) -> Bool {
+        let activity = PullRequestNotificationActivity(eventType: event.type)
+        return Self.relationships(matching: pullRequest).contains { relationship in
+            preferences(for: relationship).allows(activity)
+        }
+    }
+
+    public static func relationships(matching pullRequest: PullRequest) -> [PullRequestNotificationRelationship] {
+        var relationships: [PullRequestNotificationRelationship] = []
+        if pullRequest.isMine {
+            relationships.append(.authored)
+        }
+        if pullRequest.isAssignedToViewer {
+            relationships.append(.assigned)
+        }
+        if pullRequest.reviewRequestKind.includesDirect {
+            relationships.append(.directReviewRequest)
+        }
+        if pullRequest.reviewRequestKind.includesTeam {
+            relationships.append(.teamReviewRequest)
+        }
+        return relationships
     }
 }
 
