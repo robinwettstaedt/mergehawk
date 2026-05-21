@@ -6,7 +6,8 @@ struct Runner {
     static func main() async throws {
         try testFirstSyncBaselinesWithoutEvents()
         try testDetectsNewActivityAndAuthoredPRStateTransitions()
-        try testDetectsNewCommentsFromProviderActivityCount()
+        try testDetectsNewCommentActivitiesWithActors()
+        try testIgnoresSelfAuthoredPeopleActivity()
         try testPreferencesFilterEvents()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
         try await testSyncBaselinesFirstFetchAndReportsPRs()
@@ -54,7 +55,8 @@ struct Runner {
                 PullRequestReview(
                     id: "REVIEW_APPROVED",
                     state: .approved,
-                    submittedAt: Date(timeIntervalSince1970: 200)
+                    submittedAt: Date(timeIntervalSince1970: 200),
+                    author: "teammate"
                 )
             ],
             isMine: true
@@ -73,7 +75,8 @@ struct Runner {
                 PullRequestReview(
                     id: "REVIEW_OLD",
                     state: .approved,
-                    submittedAt: Date(timeIntervalSince1970: 100)
+                    submittedAt: Date(timeIntervalSince1970: 100),
+                    author: "teammate"
                 )
             ],
             isMine: true
@@ -87,17 +90,20 @@ struct Runner {
                 PullRequestReview(
                     id: "REVIEW_OLD",
                     state: .approved,
-                    submittedAt: Date(timeIntervalSince1970: 100)
+                    submittedAt: Date(timeIntervalSince1970: 100),
+                    author: "teammate"
                 ),
                 PullRequestReview(
                     id: "REVIEW_COMMENTED",
                     state: .commented,
-                    submittedAt: Date(timeIntervalSince1970: 200)
+                    submittedAt: Date(timeIntervalSince1970: 200),
+                    author: "docs-lee"
                 ),
                 PullRequestReview(
                     id: "REVIEW_CHANGES",
                     state: .changesRequested,
-                    submittedAt: Date(timeIntervalSince1970: 300)
+                    submittedAt: Date(timeIntervalSince1970: 300),
+                    author: "backend-mateo"
                 )
             ],
             isMine: true
@@ -109,23 +115,94 @@ struct Runner {
         )
     }
 
-    private static func testDetectsNewCommentsFromProviderActivityCount() throws {
+    private static func testDetectsNewCommentActivitiesWithActors() throws {
         let previous = PullRequest.fixture(
             id: "PR_ACTIVITY",
             commentCount: 1,
-            commentActivityCount: 4,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "COMMENT_OLD",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 100),
+                    source: .pullRequest
+                )
+            ],
             isMine: true
         )
         let current = PullRequest.fixture(
             id: "PR_ACTIVITY",
-            commentCount: 1,
-            commentActivityCount: 5,
+            commentCount: 3,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "COMMENT_OLD",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 100),
+                    source: .pullRequest
+                ),
+                PullRequestCommentActivity(
+                    id: "COMMENT_NEW_1",
+                    author: "frontend-sam",
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    source: .pullRequest
+                ),
+                PullRequestCommentActivity(
+                    id: "COMMENT_NEW_2",
+                    author: "docs-lee",
+                    createdAt: Date(timeIntervalSince1970: 300),
+                    source: .reviewThread
+                )
+            ],
             isMine: true
         )
 
         try expect(PRActivityDetector.detect(previous: previous, current: current) == [
-            PullRequestEvent(type: .newComment, prId: "PR_ACTIVITY", count: 1)
+            PullRequestEvent(
+                type: .newComment,
+                prId: "PR_ACTIVITY",
+                count: 1,
+                actorLogin: "frontend-sam",
+                activityId: "COMMENT_NEW_1",
+                happenedAt: Date(timeIntervalSince1970: 200)
+            ),
+            PullRequestEvent(
+                type: .newComment,
+                prId: "PR_ACTIVITY",
+                count: 1,
+                actorLogin: "docs-lee",
+                activityId: "COMMENT_NEW_2",
+                happenedAt: Date(timeIntervalSince1970: 300)
+            )
         ])
+    }
+
+    private static func testIgnoresSelfAuthoredPeopleActivity() throws {
+        let previous = PullRequest.fixture(id: "PR_SELF", isMine: true)
+        let current = PullRequest.fixture(
+            id: "PR_SELF",
+            commentCount: 1,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "COMMENT_SELF",
+                    author: "rw",
+                    viewerDidAuthor: true,
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    source: .pullRequest
+                )
+            ],
+            reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_SELF",
+                    state: .approved,
+                    submittedAt: Date(timeIntervalSince1970: 300),
+                    author: "rw",
+                    viewerDidAuthor: true
+                )
+            ],
+            isMine: true
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
     }
 
     private static func testPreferencesFilterEvents() throws {
@@ -189,7 +266,20 @@ struct Runner {
     private static func testSyncEmitsFilteredEventsAfterBaseline() async throws {
         let source = SequencePullRequestSource(snapshots: [
             [.fixture(id: "1", ciState: .passing, commentCount: 0, isMine: true)],
-            [.fixture(id: "1", ciState: .failing, commentCount: 1, isMine: true)]
+            [.fixture(
+                id: "1",
+                ciState: .failing,
+                commentCount: 1,
+                recentCommentActivities: [
+                    PullRequestCommentActivity(
+                        id: "COMMENT_NEW",
+                        author: "teammate",
+                        createdAt: Date(timeIntervalSince1970: 200),
+                        source: .pullRequest
+                    )
+                ],
+                isMine: true
+            )]
         ])
         let engine = SyncEngine(source: source, loginProvider: { "rw" })
 
@@ -202,7 +292,20 @@ struct Runner {
     private static func testSyncFiltersEventsBySourcePreferences() async throws {
         let source = SequencePullRequestSource(snapshots: [
             [.fixture(id: "1", repo: "work/app", commentCount: 0, isMine: true)],
-            [.fixture(id: "1", repo: "work/app", commentCount: 1, isMine: true)]
+            [.fixture(
+                id: "1",
+                repo: "work/app",
+                commentCount: 1,
+                recentCommentActivities: [
+                    PullRequestCommentActivity(
+                        id: "COMMENT_NEW",
+                        author: "teammate",
+                        createdAt: Date(timeIntervalSince1970: 200),
+                        source: .pullRequest
+                    )
+                ],
+                isMine: true
+            )]
         ])
         let sourcePreferences = SourcePreferences(
             owners: [
@@ -256,13 +359,30 @@ struct Runner {
             isDraft: true,
             mergeable: "MERGEABLE",
             reviewDecision: "REVIEW_REQUIRED",
-            comments: .init(totalCount: 2),
+            comments: .init(totalCount: 2, nodes: [
+                .init(
+                    id: "COMMENT_1",
+                    createdAt: "2026-05-02T10:00:00Z",
+                    viewerDidAuthor: false,
+                    author: .init(login: "reviewer")
+                )
+            ]),
             reviews: .init(totalCount: 1, nodes: [
-                .init(id: "REVIEW_1", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z")
+                .init(
+                    id: "REVIEW_1",
+                    state: "APPROVED",
+                    submittedAt: "2026-05-02T11:00:00Z",
+                    author: .init(login: "reviewer")
+                )
             ]),
             reviewThreads: .init(nodes: [
-                .fixture(isResolved: true, viewerCanResolve: true, viewerDidAuthorComments: [false]),
-                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [true, false])
+                .fixture(idPrefix: "RESOLVED_COMMENT", isResolved: true, viewerCanResolve: true, viewerDidAuthorComments: [false]),
+                .fixture(
+                    idPrefix: "ACTIONABLE_COMMENT",
+                    isResolved: false,
+                    viewerCanResolve: true,
+                    viewerDidAuthorComments: [true, false]
+                )
             ]),
             repository: .init(nameWithOwner: "acme/mergehawk"),
             commits: .init(nodes: [.init(commit: .init(statusCheckRollup: .init(state: "FAILURE")))]),
@@ -279,12 +399,40 @@ struct Runner {
             reviewDecision: .reviewRequired,
             commentCount: 1,
             commentActivityCount: 5,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "COMMENT_1",
+                    author: "reviewer",
+                    createdAt: Date(timeIntervalSince1970: 1_777_716_000),
+                    source: .pullRequest
+                ),
+                PullRequestCommentActivity(
+                    id: "RESOLVED_COMMENT_1",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 1_777_723_200),
+                    source: .reviewThread
+                ),
+                PullRequestCommentActivity(
+                    id: "ACTIONABLE_COMMENT_1",
+                    author: "rw",
+                    viewerDidAuthor: true,
+                    createdAt: Date(timeIntervalSince1970: 1_777_723_200),
+                    source: .reviewThread
+                ),
+                PullRequestCommentActivity(
+                    id: "ACTIONABLE_COMMENT_2",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 1_777_723_200),
+                    source: .reviewThread
+                )
+            ],
             reviewCount: 1,
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_1",
                     state: .approved,
-                    submittedAt: Date(timeIntervalSince1970: 1_777_719_600)
+                    submittedAt: Date(timeIntervalSince1970: 1_777_719_600),
+                    author: "reviewer"
                 )
             ],
             isMine: true,
@@ -419,7 +567,7 @@ private struct TestFailure: Error, CustomStringConvertible {
 private extension GitHubPullRequestNode {
     static func fixture(
         reviewDecision: String? = "REVIEW_REQUIRED",
-        comments: Count = .init(totalCount: 0),
+        comments: CommentConnection = .init(totalCount: 0),
         reviews: ReviewConnection = .init(totalCount: 0),
         latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
         reviewThreads: ReviewThreadConnection = .init(nodes: [])
@@ -468,6 +616,7 @@ private extension GitHubPullRequestNode {
 
 private extension GitHubPullRequestNode.ReviewThreadConnection.Node {
     static func fixture(
+        idPrefix: String = "REVIEW_COMMENT",
         isResolved: Bool,
         viewerCanResolve: Bool,
         viewerDidAuthorComments: [Bool]
@@ -475,7 +624,14 @@ private extension GitHubPullRequestNode.ReviewThreadConnection.Node {
         .init(
             isResolved: isResolved,
             viewerCanResolve: viewerCanResolve,
-            comments: .init(nodes: viewerDidAuthorComments.map { .init(viewerDidAuthor: $0) })
+            comments: .init(nodes: viewerDidAuthorComments.enumerated().map { index, viewerDidAuthor in
+                .init(
+                    id: "\(idPrefix)_\(index + 1)",
+                    createdAt: "2026-05-02T12:00:00Z",
+                    viewerDidAuthor: viewerDidAuthor,
+                    author: .init(login: viewerDidAuthor ? "rw" : "teammate")
+                )
+            })
         )
     }
 }
@@ -504,6 +660,7 @@ private extension PullRequest {
         reviewDecision: ReviewDecision = .reviewRequired,
         commentCount: Int = 0,
         commentActivityCount: Int? = nil,
+        recentCommentActivities: [PullRequestCommentActivity] = [],
         reviewCount: Int = 0,
         recentReviews: [PullRequestReview] = [],
         isMine: Bool = false,
@@ -521,6 +678,7 @@ private extension PullRequest {
             reviewDecision: reviewDecision,
             commentCount: commentCount,
             commentActivityCount: commentActivityCount,
+            recentCommentActivities: recentCommentActivities,
             reviewCount: reviewCount,
             recentReviews: recentReviews,
             isMine: isMine,

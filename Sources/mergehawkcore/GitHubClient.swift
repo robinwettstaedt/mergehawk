@@ -4,13 +4,6 @@ import FoundationNetworking
 #endif
 
 public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
-    public struct Count: Decodable, Equatable, Sendable {
-        public let totalCount: Int
-        public init(totalCount: Int) {
-            self.totalCount = totalCount
-        }
-    }
-
     public struct Repository: Decodable, Equatable, Sendable {
         public let nameWithOwner: String
         public init(nameWithOwner: String) {
@@ -53,13 +46,54 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
     }
 
+    public struct CommentConnection: Decodable, Equatable, Sendable {
+        public struct Node: Decodable, Equatable, Sendable {
+            public let id: String
+            public let createdAt: String
+            public let viewerDidAuthor: Bool
+            public let author: User?
+
+            public init(
+                id: String,
+                createdAt: String,
+                viewerDidAuthor: Bool,
+                author: User? = nil
+            ) {
+                self.id = id
+                self.createdAt = createdAt
+                self.viewerDidAuthor = viewerDidAuthor
+                self.author = author
+            }
+        }
+
+        public let totalCount: Int
+        public let nodes: [Node]
+
+        public init(totalCount: Int, nodes: [Node] = []) {
+            self.totalCount = totalCount
+            self.nodes = nodes
+        }
+    }
+
     public struct ReviewThreadConnection: Decodable, Equatable, Sendable {
         public struct Node: Decodable, Equatable, Sendable {
             public struct ReviewCommentConnection: Decodable, Equatable, Sendable {
                 public struct ReviewComment: Decodable, Equatable, Sendable {
+                    public let id: String
+                    public let createdAt: String
                     public let viewerDidAuthor: Bool
-                    public init(viewerDidAuthor: Bool) {
+                    public let author: User?
+
+                    public init(
+                        id: String,
+                        createdAt: String,
+                        viewerDidAuthor: Bool,
+                        author: User? = nil
+                    ) {
+                        self.id = id
+                        self.createdAt = createdAt
                         self.viewerDidAuthor = viewerDidAuthor
+                        self.author = author
                     }
                 }
 
@@ -111,11 +145,13 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
             public let id: String
             public let state: String
             public let submittedAt: String?
+            public let author: User?
 
-            public init(id: String, state: String, submittedAt: String?) {
+            public init(id: String, state: String, submittedAt: String?, author: User? = nil) {
                 self.id = id
                 self.state = state
                 self.submittedAt = submittedAt
+                self.author = author
             }
         }
 
@@ -166,7 +202,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let isDraft: Bool
     public let mergeable: String?
     public let reviewDecision: String?
-    public let comments: Count
+    public let comments: CommentConnection
     public let reviews: ReviewConnection
     public let latestOpinionatedReviews: ReviewConnection
     public let reviewThreads: ReviewThreadConnection
@@ -186,7 +222,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         isDraft: Bool,
         mergeable: String?,
         reviewDecision: String?,
-        comments: Count,
+        comments: CommentConnection,
         reviews: ReviewConnection,
         latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
         reviewThreads: ReviewThreadConnection,
@@ -238,8 +274,9 @@ public enum GitHubPullRequestNormalizer {
             ),
             commentCount: normalizeActionableUnresolvedCommentCount(node.reviewThreads),
             commentActivityCount: normalizeCommentActivityCount(node),
+            recentCommentActivities: normalizeCommentActivities(node),
             reviewCount: node.reviews.totalCount,
-            recentReviews: normalizeReviews(node.reviews),
+            recentReviews: normalizeReviews(node.reviews, login: login),
             reviewRequestKind: normalizeReviewRequestKind(
                 node.reviewRequests,
                 login: login,
@@ -311,6 +348,30 @@ public enum GitHubPullRequestNormalizer {
         }
     }
 
+    private static func normalizeCommentActivities(_ node: GitHubPullRequestNode) -> [PullRequestCommentActivity] {
+        let pullRequestComments = node.comments.nodes.map { comment in
+            PullRequestCommentActivity(
+                id: comment.id,
+                author: comment.author?.login,
+                viewerDidAuthor: comment.viewerDidAuthor,
+                createdAt: normalizeDate(comment.createdAt),
+                source: .pullRequest
+            )
+        }
+        let reviewThreadComments = node.reviewThreads.nodes.flatMap { thread in
+            thread.comments.nodes.map { comment in
+                PullRequestCommentActivity(
+                    id: comment.id,
+                    author: comment.author?.login,
+                    viewerDidAuthor: comment.viewerDidAuthor,
+                    createdAt: normalizeDate(comment.createdAt),
+                    source: .reviewThread
+                )
+            }
+        }
+        return (pullRequestComments + reviewThreadComments).sorted { $0.createdAt < $1.createdAt }
+    }
+
     public static func normalizeReviewState(_ state: String) -> PullRequestReviewState? {
         switch state {
         case "APPROVED":
@@ -324,7 +385,10 @@ public enum GitHubPullRequestNormalizer {
         }
     }
 
-    private static func normalizeReviews(_ reviews: GitHubPullRequestNode.ReviewConnection) -> [PullRequestReview] {
+    private static func normalizeReviews(
+        _ reviews: GitHubPullRequestNode.ReviewConnection,
+        login: String
+    ) -> [PullRequestReview] {
         reviews.nodes.compactMap { review in
             guard
                 let state = normalizeReviewState(review.state),
@@ -335,7 +399,9 @@ public enum GitHubPullRequestNormalizer {
             return PullRequestReview(
                 id: review.id,
                 state: state,
-                submittedAt: normalizeDate(submittedAt)
+                submittedAt: normalizeDate(submittedAt),
+                author: review.author?.login,
+                viewerDidAuthor: review.author?.login == login
             )
         }
     }
@@ -531,8 +597,16 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
               isDraft
               mergeable
               reviewDecision
-              comments {
+              comments(last: 20) {
                 totalCount
+                nodes {
+                  id
+                  createdAt
+                  viewerDidAuthor
+                  author {
+                    login
+                  }
+                }
               }
               reviews(last: 5) {
                 totalCount
@@ -540,6 +614,9 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                   id
                   state
                   submittedAt
+                  author {
+                    login
+                  }
                 }
               }
               latestOpinionatedReviews(first: 100) {
@@ -557,7 +634,12 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                   comments(first: 100) {
                     totalCount
                     nodes {
+                      id
+                      createdAt
                       viewerDidAuthor
+                      author {
+                        login
+                      }
                     }
                   }
                 }

@@ -55,11 +55,48 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let state: PullRequestReviewState
     public let submittedAt: Date
+    public let author: String?
+    public let viewerDidAuthor: Bool
 
-    public init(id: String, state: PullRequestReviewState, submittedAt: Date) {
+    public init(
+        id: String,
+        state: PullRequestReviewState,
+        submittedAt: Date,
+        author: String? = nil,
+        viewerDidAuthor: Bool = false
+    ) {
         self.id = id
         self.state = state
         self.submittedAt = submittedAt
+        self.author = author
+        self.viewerDidAuthor = viewerDidAuthor
+    }
+}
+
+public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Sendable {
+    public enum Source: String, Codable, Equatable, Sendable {
+        case pullRequest
+        case reviewThread = "review_thread"
+    }
+
+    public let id: String
+    public let author: String?
+    public let viewerDidAuthor: Bool
+    public let createdAt: Date
+    public let source: Source
+
+    public init(
+        id: String,
+        author: String? = nil,
+        viewerDidAuthor: Bool = false,
+        createdAt: Date,
+        source: Source
+    ) {
+        self.id = id
+        self.author = author
+        self.viewerDidAuthor = viewerDidAuthor
+        self.createdAt = createdAt
+        self.source = source
     }
 }
 
@@ -73,6 +110,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let reviewDecision: ReviewDecision
     public let commentCount: Int
     public let commentActivityCount: Int
+    public let recentCommentActivities: [PullRequestCommentActivity]
     public let reviewCount: Int
     public let recentReviews: [PullRequestReview]
     public let reviewRequestKind: ReviewRequestKind
@@ -94,6 +132,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         reviewDecision: ReviewDecision,
         commentCount: Int,
         commentActivityCount: Int? = nil,
+        recentCommentActivities: [PullRequestCommentActivity] = [],
         reviewCount: Int,
         recentReviews: [PullRequestReview] = [],
         reviewRequestKind: ReviewRequestKind = .none,
@@ -114,6 +153,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.reviewDecision = reviewDecision
         self.commentCount = commentCount
         self.commentActivityCount = commentActivityCount ?? commentCount
+        self.recentCommentActivities = recentCommentActivities
         self.reviewCount = reviewCount
         self.recentReviews = recentReviews
         self.reviewRequestKind = reviewRequestKind
@@ -324,15 +364,28 @@ public enum PullRequestEventType: String, Codable, Equatable, Sendable {
 }
 
 public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
-    public var id: String { "\(type.rawValue)-\(prId)-\(count ?? 0)" }
+    public var id: String { activityId ?? "\(type.rawValue)-\(prId)-\(count ?? 0)" }
     public let type: PullRequestEventType
     public let prId: String
     public let count: Int?
+    public let actorLogin: String?
+    public let activityId: String?
+    public let happenedAt: Date?
 
-    public init(type: PullRequestEventType, prId: String, count: Int? = nil) {
+    public init(
+        type: PullRequestEventType,
+        prId: String,
+        count: Int? = nil,
+        actorLogin: String? = nil,
+        activityId: String? = nil,
+        happenedAt: Date? = nil
+    ) {
         self.type = type
         self.prId = prId
         self.count = count
+        self.actorLogin = actorLogin
+        self.activityId = activityId
+        self.happenedAt = happenedAt
     }
 }
 
@@ -345,6 +398,8 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let prNumber: Int
     public let repo: String
     public let url: URL
+    public let actorLogin: String?
+    public let activityId: String?
     public let createdAt: Date
     public let prUpdatedAt: Date
     public var read: Bool
@@ -364,6 +419,8 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.prNumber = pullRequest.number
         self.repo = pullRequest.repo
         self.url = pullRequest.url
+        self.actorLogin = event.actorLogin
+        self.activityId = event.activityId
         self.createdAt = createdAt
         self.prUpdatedAt = pullRequest.updatedAt
         self.read = read

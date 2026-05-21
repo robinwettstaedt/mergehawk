@@ -160,6 +160,14 @@ public final class MockPullRequestSource: PullRequestSource {
                     ciState: .failing,
                     reviewDecision: .reviewRequired,
                     commentCount: 3,
+                    recentCommentActivities: [
+                        PullRequestCommentActivity(
+                            id: "PR_1_COMMENT_NEW",
+                            author: "frontend-sam",
+                            createdAt: Date(timeIntervalSince1970: 1_777_815_000),
+                            source: .pullRequest
+                        )
+                    ],
                     reviewCount: 0,
                     isMine: true,
                     author: "rw",
@@ -277,24 +285,45 @@ public final class MockPullRequestSource: PullRequestSource {
     public static var notificationTypeFixturePullRequestNotifications: [PullRequestNotification] {
         [
             PullRequestNotification(
-                event: PullRequestEvent(type: .newComment, prId: notificationFixtureCommentPullRequest.id, count: 1),
+                event: PullRequestEvent(
+                    type: .newComment,
+                    prId: notificationFixtureCommentPullRequest.id,
+                    count: 1,
+                    actorLogin: "frontend-sam",
+                    activityId: "PR_NOTIFICATION_COMMENT_ACTIVITY"
+                ),
                 pullRequest: notificationFixtureCommentPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_809_600)
             ),
             PullRequestNotification(
-                event: PullRequestEvent(type: .reviewApproved, prId: notificationFixtureApprovalPullRequest.id),
+                event: PullRequestEvent(
+                    type: .reviewApproved,
+                    prId: notificationFixtureApprovalPullRequest.id,
+                    count: 1,
+                    actorLogin: "platform-nora",
+                    activityId: "PR_NOTIFICATION_APPROVAL_REVIEW"
+                ),
                 pullRequest: notificationFixtureApprovalPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_806_000)
             ),
             PullRequestNotification(
-                event: PullRequestEvent(type: .reviewCommented, prId: notificationFixtureReviewCommentPullRequest.id),
+                event: PullRequestEvent(
+                    type: .reviewCommented,
+                    prId: notificationFixtureReviewCommentPullRequest.id,
+                    count: 1,
+                    actorLogin: "docs-lee",
+                    activityId: "PR_NOTIFICATION_REVIEW_COMMENT"
+                ),
                 pullRequest: notificationFixtureReviewCommentPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_802_400)
             ),
             PullRequestNotification(
                 event: PullRequestEvent(
                     type: .changesRequested,
-                    prId: notificationFixtureChangesRequestedPullRequest.id
+                    prId: notificationFixtureChangesRequestedPullRequest.id,
+                    count: 1,
+                    actorLogin: "billing-ivy",
+                    activityId: "PR_NOTIFICATION_CHANGES_REVIEW"
                 ),
                 pullRequest: notificationFixtureChangesRequestedPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_798_800)
