@@ -8,8 +8,7 @@ public enum PRActivityDetector {
 
         var events: [PullRequestEvent] = []
 
-        let reviewEvents = reviewOutcomeEvents(previous: previous, current: current)
-        events.append(contentsOf: reviewEvents)
+        events.append(contentsOf: reviewOutcomeEvents(previous: previous, current: current))
         events.append(contentsOf: commentEvents(previous: previous, current: current))
 
         if current.isMine, previous.ciState != .failing, current.ciState == .failing {
@@ -25,9 +24,12 @@ public enum PRActivityDetector {
             .filter { !previousReviewIds.contains($0.id) }
             .filter { !$0.viewerDidAuthor }
             .sorted { $0.submittedAt < $1.submittedAt }
-            .map { review in
-                PullRequestEvent(
-                    type: reviewEventType(for: review.state),
+            .compactMap { review in
+                guard let eventType = reviewEventType(for: review.state) else {
+                    return nil
+                }
+                return PullRequestEvent(
+                    type: eventType,
                     prId: current.id,
                     count: 1,
                     actorLogin: review.author,
@@ -39,13 +41,14 @@ public enum PRActivityDetector {
 
     private static func commentEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {
         let previousCommentIds = Set(previous.recentCommentActivities.map(\.id))
-        return current.recentCommentActivities
+        let newComments = current.recentCommentActivities
             .filter { !previousCommentIds.contains($0.id) }
+        let detectedEvents = newComments
             .filter { !$0.viewerDidAuthor }
             .sorted { $0.createdAt < $1.createdAt }
             .map { comment in
                 PullRequestEvent(
-                    type: .newComment,
+                    type: commentEventType(for: comment.source),
                     prId: current.id,
                     count: 1,
                     actorLogin: comment.author,
@@ -53,15 +56,31 @@ public enum PRActivityDetector {
                     happenedAt: comment.createdAt
                 )
             }
+        let missingCount = max(0, current.commentActivityCount - previous.commentActivityCount - newComments.count)
+        guard missingCount > 0 else {
+            return detectedEvents
+        }
+        return detectedEvents + [
+            PullRequestEvent(type: .newComment, prId: current.id, count: missingCount)
+        ]
     }
 
-    private static func reviewEventType(for state: PullRequestReviewState) -> PullRequestEventType {
+    private static func reviewEventType(for state: PullRequestReviewState) -> PullRequestEventType? {
         switch state {
         case .approved:
             .reviewApproved
         case .changesRequested:
             .changesRequested
         case .commented:
+            nil
+        }
+    }
+
+    private static func commentEventType(for source: PullRequestCommentActivity.Source) -> PullRequestEventType {
+        switch source {
+        case .pullRequest:
+            .newComment
+        case .reviewThread:
             .reviewCommented
         }
     }

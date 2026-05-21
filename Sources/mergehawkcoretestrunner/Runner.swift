@@ -7,6 +7,8 @@ struct Runner {
         try testFirstSyncBaselinesWithoutEvents()
         try testDetectsNewActivityAndAuthoredPRStateTransitions()
         try testDetectsNewCommentActivitiesWithActors()
+        try testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents()
+        try testCommentCountFallbackCoversMissingFetchedActivities()
         try testIgnoresSelfAuthoredPeopleActivity()
         try testPreferencesFilterEvents()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
@@ -50,6 +52,7 @@ struct Runner {
             ciState: .failing,
             reviewDecision: .approved,
             commentCount: 2,
+            commentActivityCount: 1,
             reviewCount: 1,
             recentReviews: [
                 PullRequestReview(
@@ -85,6 +88,7 @@ struct Runner {
             id: "PR_2",
             reviewDecision: .changesRequested,
             commentCount: 3,
+            commentActivityCount: 1,
             reviewCount: 3,
             recentReviews: [
                 PullRequestReview(
@@ -92,12 +96,6 @@ struct Runner {
                     state: .approved,
                     submittedAt: Date(timeIntervalSince1970: 100),
                     author: "teammate"
-                ),
-                PullRequestReview(
-                    id: "REVIEW_COMMENTED",
-                    state: .commented,
-                    submittedAt: Date(timeIntervalSince1970: 200),
-                    author: "docs-lee"
                 ),
                 PullRequestReview(
                     id: "REVIEW_CHANGES",
@@ -111,7 +109,7 @@ struct Runner {
 
         try expect(
             PRActivityDetector.detect(previous: previousReviews, current: currentReviews).map(\.type)
-                == [.reviewCommented, .changesRequested]
+                == [.changesRequested]
         )
     }
 
@@ -132,6 +130,7 @@ struct Runner {
         let current = PullRequest.fixture(
             id: "PR_ACTIVITY",
             commentCount: 3,
+            commentActivityCount: 3,
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "COMMENT_OLD",
@@ -165,13 +164,84 @@ struct Runner {
                 happenedAt: Date(timeIntervalSince1970: 200)
             ),
             PullRequestEvent(
-                type: .newComment,
+                type: .reviewCommented,
                 prId: "PR_ACTIVITY",
                 count: 1,
                 actorLogin: "docs-lee",
                 activityId: "COMMENT_NEW_2",
                 happenedAt: Date(timeIntervalSince1970: 300)
             )
+        ])
+    }
+
+    private static func testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents() throws {
+        let previous = PullRequest.fixture(id: "PR_REVIEW_COMMENT", commentActivityCount: 0, isMine: true)
+        let current = PullRequest.fixture(
+            id: "PR_REVIEW_COMMENT",
+            commentCount: 1,
+            commentActivityCount: 1,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "INLINE_COMMENT",
+                    author: "docs-lee",
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    source: .reviewThread
+                )
+            ],
+            reviewCount: 1,
+            recentReviews: [
+                PullRequestReview(
+                    id: "REVIEW_COMMENTED",
+                    state: .commented,
+                    submittedAt: Date(timeIntervalSince1970: 200),
+                    author: "docs-lee"
+                )
+            ],
+            isMine: true
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+            PullRequestEvent(
+                type: .reviewCommented,
+                prId: "PR_REVIEW_COMMENT",
+                count: 1,
+                actorLogin: "docs-lee",
+                activityId: "INLINE_COMMENT",
+                happenedAt: Date(timeIntervalSince1970: 200)
+            )
+        ])
+    }
+
+    private static func testCommentCountFallbackCoversMissingFetchedActivities() throws {
+        let previous = PullRequest.fixture(
+            id: "PR_MISSING_COMMENTS",
+            commentActivityCount: 10,
+            isMine: true
+        )
+        let current = PullRequest.fixture(
+            id: "PR_MISSING_COMMENTS",
+            commentActivityCount: 13,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "FETCHED_COMMENT",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    source: .pullRequest
+                )
+            ],
+            isMine: true
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+            PullRequestEvent(
+                type: .newComment,
+                prId: "PR_MISSING_COMMENTS",
+                count: 1,
+                actorLogin: "teammate",
+                activityId: "FETCHED_COMMENT",
+                happenedAt: Date(timeIntervalSince1970: 200)
+            ),
+            PullRequestEvent(type: .newComment, prId: "PR_MISSING_COMMENTS", count: 2)
         ])
     }
 

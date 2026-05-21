@@ -631,7 +631,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                 nodes {
                   isResolved
                   viewerCanResolve
-                  comments(first: 100) {
+                  comments(last: 100) {
                     totalCount
                     nodes {
                       id
