@@ -60,7 +60,7 @@ Implementation steps:
 Verification plan:
 UI review plan:
 Risks or assumptions:
-Next: implement, then use mergehawk-simplification before mergehawk-verification
+Next: implement, then use mergehawk-simplification
 ```
 
 Scale the plan to the task. For small tasks, keep sections brief. For nuanced tasks, make each implementation step independently understandable and include enough detail that another agent could execute it without re-deciding the design.
