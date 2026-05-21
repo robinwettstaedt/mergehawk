@@ -1,11 +1,11 @@
 ---
 name: mergehawk-simplification
-description: Use after implementing or modifying MergeHawk code, before final verification, to simplify recently changed code while preserving behavior and removing speculative fallbacks, backwards compatibility, defensive guards, or abstractions that are not required by the current issue.
+description: Use after implementing or modifying MergeHawk code, before mergehawk-review, to simplify recently changed code while preserving behavior and removing speculative fallbacks, backwards compatibility, defensive guards, or abstractions that are not required by the current issue.
 ---
 
 # MergeHawk Simplification
 
-Use this after implementation and before `mergehawk-verification`. It may also be used after a meaningful implementation slice when the diff is starting to look complex.
+Use this after implementation and before `mergehawk-review`. It may also be used after a meaningful implementation slice when the diff is starting to look complex.
 
 ## Goal
 
@@ -54,7 +54,7 @@ Review the diff for opportunities to:
 
 ## Verification Impact
 
-If simplification changes code, run the lightest relevant focused check before continuing. Final verification still belongs to `mergehawk-verification`.
+If simplification changes code, run the lightest relevant focused check before continuing. Independent review belongs to `mergehawk-review`.
 
 ## Output
 
@@ -67,7 +67,7 @@ Changed:
 Removed complexity:
 Behavior preserved:
 Focused checks run:
-Next: mergehawk-verification
+Next: mergehawk-review
 ```
 
-If no simplification is needed, say so briefly and proceed to `mergehawk-verification`.
+If no simplification is needed, say so briefly and proceed to `mergehawk-review`.
