@@ -72,6 +72,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let ciState: CIState
     public let reviewDecision: ReviewDecision
     public let commentCount: Int
+    public let commentActivityCount: Int
     public let reviewCount: Int
     public let recentReviews: [PullRequestReview]
     public let reviewRequestKind: ReviewRequestKind
@@ -92,6 +93,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         ciState: CIState,
         reviewDecision: ReviewDecision,
         commentCount: Int,
+        commentActivityCount: Int? = nil,
         reviewCount: Int,
         recentReviews: [PullRequestReview] = [],
         reviewRequestKind: ReviewRequestKind = .none,
@@ -111,6 +113,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.ciState = ciState
         self.reviewDecision = reviewDecision
         self.commentCount = commentCount
+        self.commentActivityCount = commentActivityCount ?? commentCount
         self.reviewCount = reviewCount
         self.recentReviews = recentReviews
         self.reviewRequestKind = reviewRequestKind
