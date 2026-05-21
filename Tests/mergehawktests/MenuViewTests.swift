@@ -430,6 +430,22 @@ import mergehawkcore
         mergeable: .mergeable,
         draft: false
     )
+    let selfAssignedReview = PullRequest(
+        id: "self-assigned",
+        title: "Self assigned review",
+        number: 11,
+        url: URL(string: "https://github.com/acme/mergehawk/pull/11")!,
+        repo: "acme/mergehawk",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isAssignedToViewer: true,
+        isMine: true,
+        author: "rw",
+        mergeable: .mergeable,
+        draft: false
+    )
     let reviewRequests = [
         older,
         directReview,
@@ -438,7 +454,8 @@ import mergehawkcore
         draftDirectReview,
         assignedReview,
         assignedDraftReview,
-        directAssignedReview
+        directAssignedReview,
+        selfAssignedReview
     ]
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.direct]).map(\.id) == ["direct", "direct-team", "draft-direct", "direct-assigned"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team]).map(\.id) == ["team", "direct-team"])

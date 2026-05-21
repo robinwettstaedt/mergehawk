@@ -379,7 +379,7 @@ final class DashboardController: ObservableObject {
     ) -> [PullRequest] {
         let selectedFilters = selectedFilters.subtracting([.all])
         return pullRequests.filter { pr in
-            guard pr.reviewRequestKind != .none || pr.isAssignedToViewer else {
+            guard !pr.isMine && (pr.reviewRequestKind != .none || pr.isAssignedToViewer) else {
                 return false
             }
             guard !selectedFilters.isEmpty else {
