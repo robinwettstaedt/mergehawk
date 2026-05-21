@@ -1,5 +1,6 @@
 import mergehawkcore
 
 let mergehawkSmokeTest: Void = {
-    precondition(NotificationPreferences.defaults.newComment)
+    precondition(NotificationPreferences.defaults.authored.comments)
+    precondition(!NotificationPreferences.defaults.assigned.comments)
 }()

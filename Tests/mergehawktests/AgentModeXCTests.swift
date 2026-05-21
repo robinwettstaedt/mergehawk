@@ -101,6 +101,50 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertTrue(notificationClient.records.isEmpty)
     }
 
+    func testNotificationMatrixSuppressesHistoryAndMacOSNotificationsThroughStateEvents() async {
+        let suiteName = "mergehawk-notification-matrix-suppression-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        var mutablePreferencesStore = PreferencesStore(defaults: defaults)
+        mutablePreferencesStore.notificationPreferences = NotificationPreferences(
+            authored: .disabled,
+            assigned: .disabled,
+            directReviewRequests: .disabled,
+            teamReviewRequests: .disabled
+        )
+        let preferencesStore = mutablePreferencesStore
+
+        let notificationClient = RecordingNotificationClient()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: preferencesStore,
+                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+                notificationClient: notificationClient,
+                automaticRefreshInterval: 0
+            )
+        }
+
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.state.syncedAt != nil
+            }
+        }
+
+        await MainActor.run {
+            controller.refresh()
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        await MainActor.run {
+            XCTAssertTrue(controller.state.events.isEmpty)
+            XCTAssertTrue(controller.visiblePullRequestNotifications.isEmpty)
+        }
+        XCTAssertTrue(notificationClient.records.isEmpty)
+    }
+
     func testPRNotificationHistoryPersistsAndMarksReadWithoutRemovingRows() async {
         let suiteName = "mergehawk-pr-notification-history-test-\(UUID().uuidString)"
         defer {

@@ -16,7 +16,7 @@ public enum PRActivityDetector {
             reviewEventIds: Set(reviewEvents.compactMap(\.activityId))
         ))
 
-        if current.isMine, previous.ciState != .failing, current.ciState == .failing {
+        if previous.ciState != .failing, current.ciState == .failing {
             events.append(PullRequestEvent(type: .ciFailed, prId: current.id))
         }
 
@@ -96,8 +96,9 @@ public enum PRActivityDetector {
 
     public static func filter(
         _ events: [PullRequestEvent],
-        preferences: NotificationPreferences
+        preferences: NotificationPreferences,
+        pullRequest: PullRequest
     ) -> [PullRequestEvent] {
-        events.filter { preferences.allows($0.type) }
+        events.filter { preferences.allows(event: $0, for: pullRequest) }
     }
 }
