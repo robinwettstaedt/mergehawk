@@ -13,18 +13,10 @@ struct PreferencesStore {
 
     var notificationPreferences: NotificationPreferences {
         get {
-            NotificationPreferences(
-                newComment: value(for: "notifications.newComment", fallback: true),
-                newReview: value(for: "notifications.newReview", fallback: true),
-                ciFailed: value(for: "notifications.ciFailed", fallback: true),
-                changesRequested: value(for: "notifications.changesRequested", fallback: true)
-            )
+            decoded(for: "notifications.prMatrix", fallback: .defaults)
         }
         set {
-            defaults.set(newValue.newComment, forKey: "notifications.newComment")
-            defaults.set(newValue.newReview, forKey: "notifications.newReview")
-            defaults.set(newValue.ciFailed, forKey: "notifications.ciFailed")
-            defaults.set(newValue.changesRequested, forKey: "notifications.changesRequested")
+            encode(newValue, for: "notifications.prMatrix")
         }
     }
 

@@ -273,6 +273,41 @@ let mergehawkMacOSLocalNotificationPreferenceTest: Void = {
     precondition(store.macOSLocalNotificationsEnabled == false)
 }()
 
+let mergehawkNotificationMatrixPreferenceTest: Void = {
+    let suiteName = "mergehawk-notification-matrix-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    var store = PreferencesStore(defaults: defaults)
+    precondition(store.notificationPreferences == .defaults)
+    precondition(defaults.data(forKey: "notifications.prMatrix") == nil)
+
+    let preferences = NotificationPreferences(
+        authored: PullRequestNotificationActivityPreferences(
+            comments: true,
+            reviewActivity: false,
+            ciFailures: true
+        ),
+        assigned: PullRequestNotificationActivityPreferences(
+            comments: false,
+            reviewActivity: true,
+            ciFailures: false
+        ),
+        directReviewRequests: PullRequestNotificationActivityPreferences(
+            comments: true,
+            reviewActivity: true,
+            ciFailures: false
+        ),
+        teamReviewRequests: .disabled
+    )
+    store.notificationPreferences = preferences
+
+    precondition(store.notificationPreferences == preferences)
+    precondition(defaults.data(forKey: "notifications.prMatrix") != nil)
+}()
+
 let mergehawkAuthMethodPreferenceTest: Void = {
     let suiteName = "mergehawk-auth-method-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!

@@ -327,24 +327,110 @@ private struct NotificationSettingsView: View {
     var body: some View {
         Form {
             Toggle("macOS local notifications", isOn: $controller.macOSLocalNotificationsEnabled)
-            Toggle("New comments", isOn: Binding(
-                get: { controller.preferences.newComment },
-                set: { controller.preferences.newComment = $0 }
-            ))
-            Toggle("Review approvals and comments", isOn: Binding(
-                get: { controller.preferences.newReview },
-                set: { controller.preferences.newReview = $0 }
-            ))
-            Toggle("Failed CI", isOn: Binding(
-                get: { controller.preferences.ciFailed },
-                set: { controller.preferences.ciFailed = $0 }
-            ))
-            Toggle("Changes requested", isOn: Binding(
-                get: { controller.preferences.changesRequested },
-                set: { controller.preferences.changesRequested = $0 }
-            ))
+            Section("Pull request notifications") {
+                Grid(horizontalSpacing: NotificationMatrixLayout.columnSpacing, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Notify me for")
+                            .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
+                        ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
+                            Text(activity.columnTitle)
+                                .frame(width: NotificationMatrixLayout.activityColumnWidth)
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+                        .gridCellColumns(4)
+
+                    ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
+                        GridRow {
+                            Text(relationship.title)
+                                .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
+                            ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
+                                Toggle("", isOn: matrixBinding(relationship: relationship, activity: activity))
+                                    .labelsHidden()
+                                    .toggleStyle(.checkbox)
+                                    .frame(width: NotificationMatrixLayout.activityColumnWidth)
+                                    .accessibilityLabel("\(relationship.title) \(activity.accessibilityTitle)")
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func matrixBinding(
+        relationship: PullRequestNotificationRelationship,
+        activity: PullRequestNotificationActivity
+    ) -> Binding<Bool> {
+        Binding(
+            get: {
+                controller.preferences.preferences(for: relationship).allows(activity)
+            },
+            set: { isEnabled in
+                var preferences = controller.preferences
+                var activityPreferences = preferences.preferences(for: relationship)
+                switch activity {
+                case .comments:
+                    activityPreferences.comments = isEnabled
+                case .reviewActivity:
+                    activityPreferences.reviewActivity = isEnabled
+                case .ciFailures:
+                    activityPreferences.ciFailures = isEnabled
+                }
+                preferences.set(activityPreferences, for: relationship)
+                controller.preferences = preferences
+            }
+        )
+    }
+}
+
+private enum NotificationMatrixLayout {
+    static let relationshipColumnWidth: CGFloat = 160
+    static let activityColumnWidth: CGFloat = 78
+    static let columnSpacing: CGFloat = 12
+}
+
+private extension PullRequestNotificationRelationship {
+    var title: String {
+        switch self {
+        case .authored:
+            "Authored PRs"
+        case .assigned:
+            "Assigned PRs"
+        case .directReviewRequest:
+            "Direct review requests"
+        case .teamReviewRequest:
+            "Team review requests"
+        }
+    }
+}
+
+private extension PullRequestNotificationActivity {
+    var columnTitle: String {
+        switch self {
+        case .comments:
+            "Comments"
+        case .reviewActivity:
+            "Reviews"
+        case .ciFailures:
+            "CI failed"
+        }
+    }
+
+    var accessibilityTitle: String {
+        switch self {
+        case .comments:
+            "comments"
+        case .reviewActivity:
+            "review activity"
+        case .ciFailures:
+            "CI failures"
+        }
     }
 }
 

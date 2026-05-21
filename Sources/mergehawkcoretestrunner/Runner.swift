@@ -13,10 +13,16 @@ struct Runner {
         try testOutcomeReviewKeepsUnrepresentedCommentFallback()
         try testCommentCountFallbackCoversMissingFetchedActivities()
         try testIgnoresSelfAuthoredPeopleActivity()
+        try testDetectsCIFailuresForIncomingPRs()
+        try testNotificationPreferencesDefaultToAuthoredOnly()
         try testPreferencesFilterEvents()
+        try testNotificationPreferencesAllowEachRelationshipAndActivity()
+        try testNotificationPreferencesTreatReviewEventsAsReviewActivity()
+        try testNotificationPreferencesAllowOverlappingRelationshipOnce()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
         try await testSyncBaselinesFirstFetchAndReportsPRs()
         try await testSyncEmitsFilteredEventsAfterBaseline()
+        try await testSyncFiltersIncomingEventsByMatrix()
         try await testSyncFiltersEventsBySourcePreferences()
         try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
         try testNormalizesPullRequestSearchNodes()
@@ -387,13 +393,34 @@ struct Runner {
         try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
     }
 
+    private static func testDetectsCIFailuresForIncomingPRs() throws {
+        let previous = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .passing, isMine: false)
+        let current = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .failing, isMine: false)
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current).map(\.type) == [.ciFailed])
+    }
+
+    private static func testNotificationPreferencesDefaultToAuthoredOnly() throws {
+        let authored = PullRequest.fixture(id: "PR_AUTHORED", isMine: true)
+        let assigned = PullRequest.fixture(id: "PR_ASSIGNED", isAssignedToViewer: true, isMine: false)
+        let event = PullRequestEvent(type: .newComment, prId: "PR_AUTHORED")
+
+        try expect(NotificationPreferences.defaults.allows(event: event, for: authored))
+        try expect(!NotificationPreferences.defaults.allows(event: event, for: assigned))
+    }
+
     private static func testPreferencesFilterEvents() throws {
         let preferences = NotificationPreferences(
-            newComment: true,
-            newReview: false,
-            ciFailed: true,
-            changesRequested: false
+            authored: PullRequestNotificationActivityPreferences(
+                comments: true,
+                reviewActivity: false,
+                ciFailures: true
+            ),
+            assigned: .disabled,
+            directReviewRequests: .disabled,
+            teamReviewRequests: .disabled
         )
+        let pullRequest = PullRequest.fixture(id: "1", isMine: true)
         let events = [
             PullRequestEvent(type: .newComment, prId: "1", count: 1),
             PullRequestEvent(type: .reviewApproved, prId: "1"),
@@ -402,7 +429,92 @@ struct Runner {
             PullRequestEvent(type: .changesRequested, prId: "1")
         ]
 
-        try expect(PRActivityDetector.filter(events, preferences: preferences).map(\.type) == [.newComment, .ciFailed])
+        try expect(
+            PRActivityDetector
+                .filter(events, preferences: preferences, pullRequest: pullRequest)
+                .map(\.type) == [.newComment, .ciFailed]
+        )
+    }
+
+    private static func testNotificationPreferencesAllowEachRelationshipAndActivity() throws {
+        for relationship in PullRequestNotificationRelationship.allCases {
+            for activity in PullRequestNotificationActivity.allCases {
+                var preferences = NotificationPreferences(
+                    authored: .disabled,
+                    assigned: .disabled,
+                    directReviewRequests: .disabled,
+                    teamReviewRequests: .disabled
+                )
+                preferences.set(activityPreferences(enabling: activity), for: relationship)
+                let pullRequest = pullRequest(matching: relationship)
+                let allowedEvent = PullRequestEvent(type: eventType(for: activity), prId: pullRequest.id)
+
+                try expect(preferences.allows(event: allowedEvent, for: pullRequest))
+
+                for disabledActivity in PullRequestNotificationActivity.allCases where disabledActivity != activity {
+                    let disabledEvent = PullRequestEvent(type: eventType(for: disabledActivity), prId: pullRequest.id)
+                    try expect(!preferences.allows(event: disabledEvent, for: pullRequest))
+                }
+            }
+        }
+    }
+
+    private static func testNotificationPreferencesTreatReviewEventsAsReviewActivity() throws {
+        let pullRequest = PullRequest.fixture(id: "PR_REVIEWS", isMine: true)
+        let preferences = NotificationPreferences(
+            authored: PullRequestNotificationActivityPreferences(
+                comments: false,
+                reviewActivity: true,
+                ciFailures: false
+            ),
+            assigned: .disabled,
+            directReviewRequests: .disabled,
+            teamReviewRequests: .disabled
+        )
+
+        for eventType in [
+            PullRequestEventType.reviewApproved,
+            .reviewCommented,
+            .changesRequested,
+            .newReview
+        ] {
+            try expect(
+                preferences.allows(
+                    event: PullRequestEvent(type: eventType, prId: pullRequest.id),
+                    for: pullRequest
+                )
+            )
+        }
+        try expect(!preferences.allows(event: PullRequestEvent(type: .newComment, prId: pullRequest.id), for: pullRequest))
+        try expect(!preferences.allows(event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id), for: pullRequest))
+    }
+
+    private static func testNotificationPreferencesAllowOverlappingRelationshipOnce() throws {
+        let preferences = NotificationPreferences(
+            authored: .disabled,
+            assigned: PullRequestNotificationActivityPreferences(
+                comments: true,
+                reviewActivity: false,
+                ciFailures: false
+            ),
+            directReviewRequests: PullRequestNotificationActivityPreferences(
+                comments: true,
+                reviewActivity: false,
+                ciFailures: false
+            ),
+            teamReviewRequests: .disabled
+        )
+        let pullRequest = PullRequest.fixture(
+            id: "PR_OVERLAP",
+            reviewRequestKind: .direct,
+            isAssignedToViewer: true,
+            isMine: false
+        )
+        let events = [PullRequestEvent(type: .newComment, prId: pullRequest.id)]
+
+        try expect(
+            PRActivityDetector.filter(events, preferences: preferences, pullRequest: pullRequest) == events
+        )
     }
 
     private static func testSourcePreferencesResolveOwnerAndRepositoryOverrides() throws {
@@ -469,6 +581,57 @@ struct Runner {
         let result = try await engine.sync()
 
         try expect(result.events.map(\.type) == [.newComment, .ciFailed])
+    }
+
+    private static func testSyncFiltersIncomingEventsByMatrix() async throws {
+        let source = SequencePullRequestSource(snapshots: [
+            [
+                .fixture(
+                    id: "assigned",
+                    ciState: .passing,
+                    commentCount: 0,
+                    isAssignedToViewer: true,
+                    isMine: false
+                )
+            ],
+            [
+                .fixture(
+                    id: "assigned",
+                    ciState: .failing,
+                    commentCount: 1,
+                    recentCommentActivities: [
+                        PullRequestCommentActivity(
+                            id: "COMMENT_ASSIGNED",
+                            author: "teammate",
+                            createdAt: Date(timeIntervalSince1970: 200),
+                            source: .pullRequest
+                        )
+                    ],
+                    isAssignedToViewer: true,
+                    isMine: false
+                )
+            ]
+        ])
+        let preferences = NotificationPreferences(
+            authored: .disabled,
+            assigned: PullRequestNotificationActivityPreferences(
+                comments: true,
+                reviewActivity: false,
+                ciFailures: false
+            ),
+            directReviewRequests: .disabled,
+            teamReviewRequests: .disabled
+        )
+        let engine = SyncEngine(
+            source: source,
+            preferences: preferences,
+            loginProvider: { "rw" }
+        )
+
+        _ = try await engine.sync()
+        let result = try await engine.sync()
+
+        try expect(result.events.map(\.type) == [.newComment])
     }
 
     private static func testSyncFiltersEventsBySourcePreferences() async throws {
@@ -732,6 +895,42 @@ struct Runner {
         try expect(!GitHubPullRequestNormalizer.normalize(unassignedNode, login: "rw").isAssignedToViewer)
     }
 
+    private static func activityPreferences(
+        enabling activity: PullRequestNotificationActivity
+    ) -> PullRequestNotificationActivityPreferences {
+        PullRequestNotificationActivityPreferences(
+            comments: activity == .comments,
+            reviewActivity: activity == .reviewActivity,
+            ciFailures: activity == .ciFailures
+        )
+    }
+
+    private static func eventType(for activity: PullRequestNotificationActivity) -> PullRequestEventType {
+        switch activity {
+        case .comments:
+            .newComment
+        case .reviewActivity:
+            .reviewApproved
+        case .ciFailures:
+            .ciFailed
+        }
+    }
+
+    private static func pullRequest(
+        matching relationship: PullRequestNotificationRelationship
+    ) -> PullRequest {
+        switch relationship {
+        case .authored:
+            PullRequest.fixture(id: "PR_AUTHORED", isMine: true)
+        case .assigned:
+            PullRequest.fixture(id: "PR_ASSIGNED", isAssignedToViewer: true, isMine: false)
+        case .directReviewRequest:
+            PullRequest.fixture(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false)
+        case .teamReviewRequest:
+            PullRequest.fixture(id: "PR_TEAM", reviewRequestKind: .team, isMine: false)
+        }
+    }
+
     private static func testInMemoryTokenStoreHandlesMissingStoreLoadAndClear() throws {
         let store = InMemoryTokenStore()
 
@@ -864,6 +1063,8 @@ private extension PullRequest {
         recentCommentActivities: [PullRequestCommentActivity] = [],
         reviewCount: Int = 0,
         recentReviews: [PullRequestReview] = [],
+        reviewRequestKind: ReviewRequestKind = .none,
+        isAssignedToViewer: Bool = false,
         isMine: Bool = false,
         author: String = "rw",
         mergeable: MergeableState = .unknown,
@@ -882,6 +1083,8 @@ private extension PullRequest {
             recentCommentActivities: recentCommentActivities,
             reviewCount: reviewCount,
             recentReviews: recentReviews,
+            reviewRequestKind: reviewRequestKind,
+            isAssignedToViewer: isAssignedToViewer,
             isMine: isMine,
             author: author,
             mergeable: mergeable,
