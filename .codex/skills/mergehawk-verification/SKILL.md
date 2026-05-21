@@ -5,7 +5,7 @@ description: Use during and after implementing a MergeHawk issue to verify meani
 
 # MergeHawk Verification
 
-Use this during implementation after meaningful slices, and after implementation before telling the user the work is ready for review. When code changed, run `mergehawk-simplification` before final verification.
+Use this during implementation after meaningful slices. For final verification, use this after `mergehawk-review` before telling the user the work is ready for review.
 
 ## Goal
 
