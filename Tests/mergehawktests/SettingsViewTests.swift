@@ -19,6 +19,20 @@ let mergehawkSettingsTabsTest: Void = {
     precondition(SettingsTabLayout.labelSize == 11)
 }()
 
+let mergehawkNotificationMatrixSettingsModelTest: Void = {
+    precondition(PullRequestNotificationRelationship.allCases == [
+        .authored,
+        .assigned,
+        .directReviewRequest,
+        .teamReviewRequest,
+    ])
+    precondition(PullRequestNotificationActivity.allCases == [
+        .comments,
+        .reviewActivity,
+        .ciFailures,
+    ])
+}()
+
 let mergehawkSourceCatalogSearchTest: Void = {
     let catalog = SourceCatalog(owners: [
         OwnerSource(owner: "acme", repositories: [
