@@ -46,6 +46,13 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
     }
 
+    public struct AssigneeConnection: Decodable, Equatable, Sendable {
+        public let nodes: [User]
+        public init(nodes: [User]) {
+            self.nodes = nodes
+        }
+    }
+
     public struct CommentConnection: Decodable, Equatable, Sendable {
         public struct Node: Decodable, Equatable, Sendable {
             public let id: String
@@ -217,6 +224,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let latestOpinionatedReviews: ReviewConnection
     public let reviewThreads: ReviewThreadConnection
     public let reviewRequests: ReviewRequestConnection
+    public let assignees: AssigneeConnection
     public let repository: Repository
     public let commits: CommitConnection?
     public let author: User?
@@ -237,6 +245,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
         reviewThreads: ReviewThreadConnection,
         reviewRequests: ReviewRequestConnection = .init(nodes: []),
+        assignees: AssigneeConnection = .init(nodes: []),
         repository: Repository,
         commits: CommitConnection?,
         author: User?
@@ -256,6 +265,7 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.latestOpinionatedReviews = latestOpinionatedReviews
         self.reviewThreads = reviewThreads
         self.reviewRequests = reviewRequests
+        self.assignees = assignees
         self.repository = repository
         self.commits = commits
         self.author = author
@@ -292,6 +302,7 @@ public enum GitHubPullRequestNormalizer {
                 login: login,
                 isReviewRequestResult: isReviewRequestResult
             ),
+            isAssignedToViewer: node.assignees.nodes.contains { $0.login == login },
             isMine: node.author?.login == login,
             author: node.author?.login ?? "unknown",
             headRefName: node.headRefName,
@@ -672,6 +683,11 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                       }
                     }
                   }
+                }
+              }
+              assignees(first: 100) {
+                nodes {
+                  login
                 }
               }
               repository {

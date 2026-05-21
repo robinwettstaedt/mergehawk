@@ -296,7 +296,7 @@ import mergehawkcore
     let event = PullRequestEvent(type: .ciFailed, prId: "newer")
 
     precondition(DashboardController.PullRequestSortOption.allCases.map(\.label) == ["Created", "Updated"])
-    precondition(DashboardController.ReviewRequestFilterOption.allCases.map(\.label) == ["All", "Direct", "Team", "Draft", "Ready"])
+    precondition(DashboardController.ReviewRequestFilterOption.allCases.map(\.label) == ["All", "Direct", "Team", "Assigned", "Draft", "Ready"])
     precondition(DashboardController.sorted([older, newer], by: .createdDate).map(\.id) == ["newer", "older"])
     precondition(DashboardController.sorted([older, newer], by: .updatedDate).map(\.id) == ["older", "newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [], events: [event]).map(\.id) == ["older", "newer", "draft"])
@@ -381,14 +381,91 @@ import mergehawkcore
         mergeable: .unknown,
         draft: true
     )
-    let reviewRequests = [older, directReview, teamReview, directAndTeamReview, draftDirectReview]
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.direct]).map(\.id) == ["direct", "direct-team", "draft-direct"])
+    let assignedReview = PullRequest(
+        id: "assigned",
+        title: "Assigned review",
+        number: 8,
+        url: URL(string: "https://github.com/acme/mergehawk/pull/8")!,
+        repo: "acme/mergehawk",
+        ciState: .pending,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isAssignedToViewer: true,
+        isMine: false,
+        author: "teammate",
+        mergeable: .unknown,
+        draft: false
+    )
+    let assignedDraftReview = PullRequest(
+        id: "assigned-draft",
+        title: "Assigned draft review",
+        number: 9,
+        url: URL(string: "https://github.com/acme/mergehawk/pull/9")!,
+        repo: "acme/mergehawk",
+        ciState: .pending,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isAssignedToViewer: true,
+        isMine: false,
+        author: "teammate",
+        mergeable: .unknown,
+        draft: true
+    )
+    let directAssignedReview = PullRequest(
+        id: "direct-assigned",
+        title: "Direct assigned review",
+        number: 10,
+        url: URL(string: "https://github.com/acme/mergehawk/pull/10")!,
+        repo: "acme/mergehawk",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        reviewRequestKind: .direct,
+        isAssignedToViewer: true,
+        isMine: false,
+        author: "teammate",
+        mergeable: .mergeable,
+        draft: false
+    )
+    let selfAssignedReview = PullRequest(
+        id: "self-assigned",
+        title: "Self assigned review",
+        number: 11,
+        url: URL(string: "https://github.com/acme/mergehawk/pull/11")!,
+        repo: "acme/mergehawk",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isAssignedToViewer: true,
+        isMine: true,
+        author: "rw",
+        mergeable: .mergeable,
+        draft: false
+    )
+    let reviewRequests = [
+        older,
+        directReview,
+        teamReview,
+        directAndTeamReview,
+        draftDirectReview,
+        assignedReview,
+        assignedDraftReview,
+        directAssignedReview,
+        selfAssignedReview
+    ]
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.direct]).map(\.id) == ["direct", "direct-team", "draft-direct", "direct-assigned"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team]).map(\.id) == ["team", "direct-team"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: []).map(\.id) == ["direct", "team", "direct-team", "draft-direct"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all]).map(\.id) == ["direct", "team", "direct-team", "draft-direct"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.draft]).map(\.id) == ["draft-direct"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.ready]).map(\.id) == ["direct", "team", "direct-team"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team, .draft]).map(\.id) == ["team", "direct-team", "draft-direct"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.assigned]).map(\.id) == ["assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: []).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all]).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.draft]).map(\.id) == ["draft-direct", "assigned-draft"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.ready]).map(\.id) == ["direct", "team", "direct-team", "assigned", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team, .draft]).map(\.id) == ["team", "direct-team", "draft-direct", "assigned-draft"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.assigned, .draft]).map(\.id) == ["draft-direct", "assigned", "assigned-draft", "direct-assigned"])
 }()
 
 @MainActor
