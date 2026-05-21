@@ -24,6 +24,7 @@ enum NotificationContentBuilder {
                 pullRequestId: event.prId,
                 pullRequestTitle: pullRequest?.title,
                 repository: pullRequest?.repo,
+                actorLogin: event.actorLogin,
                 clickAction: clickRoute.action,
                 clickPullRequestURL: clickRoute.pullRequestURLString
             )
@@ -42,17 +43,19 @@ enum NotificationContentBuilder {
     private static func title(for event: PullRequestEvent) -> String {
         switch event.type {
         case .newComment:
-            event.count == 1 ? "New PR comment" : "\(event.count ?? 0) new PR comments"
+            actorText(for: event).map { "New comment from \($0)" }
+                ?? (event.count == 1 ? "New PR comment" : "\(event.count ?? 0) new PR comments")
         case .reviewApproved:
-            "PR approved"
+            actorText(for: event).map { "Approved by \($0)" } ?? "PR approved"
         case .reviewCommented:
-            "PR review commented"
+            actorText(for: event).map { "Review comment from \($0)" } ?? "PR review commented"
         case .newReview:
-            event.count == 1 ? "New PR review" : "\(event.count ?? 0) new PR reviews"
+            actorText(for: event).map { "New review from \($0)" }
+                ?? (event.count == 1 ? "New PR review" : "\(event.count ?? 0) new PR reviews")
         case .ciFailed:
             "CI failed"
         case .changesRequested:
-            "Changes requested"
+            actorText(for: event).map { "Changes requested by \($0)" } ?? "Changes requested"
         }
     }
 
@@ -61,7 +64,28 @@ enum NotificationContentBuilder {
             return "\(pr.repo)#\(pr.number): \(pr.title)"
         }
         let repos = events.compactMap { prsById[$0.prId]?.repo }
-        return repos.isEmpty ? "Open MergeHawk for details." : repos.prefix(3).joined(separator: ", ")
+        let repoText = repos.isEmpty ? "Open MergeHawk for details." : repos.prefix(3).joined(separator: ", ")
+        guard let actorText = actorSummary(for: events) else {
+            return repoText
+        }
+        return "From \(actorText) · \(repoText)"
+    }
+
+    private static func actorText(for event: PullRequestEvent) -> String? {
+        event.actorLogin.map { "@\($0)" }
+    }
+
+    private static func actorSummary(for events: [PullRequestEvent]) -> String? {
+        let actors = events.compactMap(\.actorLogin).reduce(into: [String]()) { result, actor in
+            if !result.contains(actor) {
+                result.append(actor)
+            }
+        }
+        guard !actors.isEmpty else {
+            return nil
+        }
+        let capped = actors.prefix(3).map { "@\($0)" }.joined(separator: ", ")
+        return actors.count > 3 ? "\(capped), ..." : capped
     }
 }
 
@@ -141,6 +165,7 @@ struct NotificationRecord: Codable, Equatable {
     let pullRequestId: String
     let pullRequestTitle: String?
     let repository: String?
+    let actorLogin: String?
     let clickAction: String
     let clickPullRequestURL: String?
 }
