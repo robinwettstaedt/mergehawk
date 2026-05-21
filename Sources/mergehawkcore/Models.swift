@@ -117,6 +117,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let reviewCount: Int
     public let recentReviews: [PullRequestReview]
     public let reviewRequestKind: ReviewRequestKind
+    public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String
     public let headRefName: String
@@ -139,6 +140,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         reviewCount: Int,
         recentReviews: [PullRequestReview] = [],
         reviewRequestKind: ReviewRequestKind = .none,
+        isAssignedToViewer: Bool = false,
         isMine: Bool,
         author: String,
         headRefName: String = "",
@@ -160,6 +162,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.reviewCount = reviewCount
         self.recentReviews = recentReviews
         self.reviewRequestKind = reviewRequestKind
+        self.isAssignedToViewer = isAssignedToViewer
         self.isMine = isMine
         self.author = author
         self.headRefName = headRefName

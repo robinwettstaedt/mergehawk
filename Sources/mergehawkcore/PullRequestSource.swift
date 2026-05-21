@@ -131,6 +131,25 @@ public final class MockPullRequestSource: PullRequestSource {
                     updatedAt: Date(timeIntervalSince1970: 1_777_808_000)
                 ),
                 PullRequest(
+                    id: "PR_7",
+                    title: "feat(MER-36): Handle assigned incoming PRs",
+                    number: 61,
+                    url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/61")!,
+                    repo: "mergehawk-labs/review-router",
+                    ciState: .pending,
+                    reviewDecision: .reviewRequired,
+                    commentCount: 0,
+                    reviewCount: 0,
+                    isAssignedToViewer: true,
+                    isMine: false,
+                    author: "platform-nora",
+                    headRefName: "MER-36-assigned-incoming-prs",
+                    mergeable: .unknown,
+                    draft: false,
+                    createdAt: Date(timeIntervalSince1970: 1_777_785_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_777_810_000)
+                ),
+                PullRequest(
                     id: "PR_5",
                     title: "refactor(MER-41): Surface stale review requests",
                     number: 52,
@@ -252,6 +271,25 @@ public final class MockPullRequestSource: PullRequestSource {
                     draft: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_780_000),
                     updatedAt: Date(timeIntervalSince1970: 1_777_808_000)
+                ),
+                PullRequest(
+                    id: "PR_7",
+                    title: "feat(MER-36): Handle assigned incoming PRs",
+                    number: 61,
+                    url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/61")!,
+                    repo: "mergehawk-labs/review-router",
+                    ciState: .pending,
+                    reviewDecision: .reviewRequired,
+                    commentCount: 0,
+                    reviewCount: 0,
+                    isAssignedToViewer: true,
+                    isMine: false,
+                    author: "platform-nora",
+                    headRefName: "MER-36-assigned-incoming-prs",
+                    mergeable: .unknown,
+                    draft: false,
+                    createdAt: Date(timeIntervalSince1970: 1_777_785_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_777_810_000)
                 ),
                 PullRequest(
                     id: "PR_5",
