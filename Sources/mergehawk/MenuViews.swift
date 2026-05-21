@@ -998,7 +998,7 @@ private struct PullRequestListView: View {
         case .authored:
             !controller.sourceFilteredMyPullRequests.isEmpty
         case .reviewRequests:
-            controller.sourceFilteredReviewRequests.contains { $0.reviewRequestKind != .none }
+            controller.sourceFilteredReviewRequests.contains { $0.reviewRequestKind != .none || $0.isAssignedToViewer }
         }
     }
 
@@ -1485,6 +1485,9 @@ private struct PullRequestRow: View {
                         CommentCountIndicator(count: pullRequest.commentCount)
                         if showsReviewRequestKind {
                             ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
+                            if pullRequest.isAssignedToViewer {
+                                AssignedPullRequestPill()
+                            }
                         }
                         Spacer(minLength: 28)
                     }
@@ -1612,6 +1615,14 @@ private struct ReviewRequestKindPill: View {
                 (text: "team", accessibilityLabel: "Team review request")
             ]
         }
+    }
+}
+
+private struct AssignedPullRequestPill: View {
+    var body: some View {
+        StatusPill(text: "assigned", kind: .neutral)
+            .help("Assigned PR")
+            .accessibilityLabel("Assigned PR")
     }
 }
 

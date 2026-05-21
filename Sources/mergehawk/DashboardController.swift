@@ -73,6 +73,7 @@ final class DashboardController: ObservableObject {
         case all
         case direct
         case team
+        case assigned
         case draft
         case ready
 
@@ -86,6 +87,8 @@ final class DashboardController: ObservableObject {
                 "Direct"
             case .team:
                 "Team"
+            case .assigned:
+                "Assigned"
             case .draft:
                 "Draft"
             case .ready:
@@ -376,7 +379,7 @@ final class DashboardController: ObservableObject {
     ) -> [PullRequest] {
         let selectedFilters = selectedFilters.subtracting([.all])
         return pullRequests.filter { pr in
-            guard pr.reviewRequestKind != .none else {
+            guard pr.reviewRequestKind != .none || pr.isAssignedToViewer else {
                 return false
             }
             guard !selectedFilters.isEmpty else {
@@ -397,6 +400,8 @@ final class DashboardController: ObservableObject {
             pr.reviewRequestKind.includesDirect
         case .team:
             pr.reviewRequestKind.includesTeam
+        case .assigned:
+            pr.isAssignedToViewer
         case .all:
             true
         case .draft:
