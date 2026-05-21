@@ -26,8 +26,8 @@ import mergehawkcore
 
     let prURL = URL(string: "https://github.com/acme/mergehawk/pull/12")!
     precondition(PullRequestLinkCopyButton.clipboardString(for: prURL) == "https://github.com/acme/mergehawk/pull/12")
-    precondition(CommentCountIndicator.label(for: 3) == "3 comments")
-    precondition(CommentCountIndicator.label(for: 1) == "1 comment")
+    precondition(CommentCountIndicator.label(for: 3) == "3 unresolved comments")
+    precondition(CommentCountIndicator.label(for: 1) == "1 unresolved comment")
     precondition(GitHubSignInView.Copy.title == "Connect GitHub")
     precondition(GitHubSignInView.Copy.buttonTitle == "Sign in with GitHub")
     precondition(GitHubSignInView.Copy.permissionText.contains("only reads GitHub data"))

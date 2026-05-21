@@ -6,6 +6,7 @@ struct Runner {
     static func main() async throws {
         try testFirstSyncBaselinesWithoutEvents()
         try testDetectsNewActivityAndAuthoredPRStateTransitions()
+        try testDetectsNewCommentsFromProviderActivityCount()
         try testPreferencesFilterEvents()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
         try await testSyncBaselinesFirstFetchAndReportsPRs()
@@ -13,6 +14,8 @@ struct Runner {
         try await testSyncFiltersEventsBySourcePreferences()
         try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
         try testNormalizesPullRequestSearchNodes()
+        try testNormalizesActionableUnresolvedComments()
+        try testNormalizesReviewOutcomeFromLatestOpinionatedReviews()
         try testNormalizesReviewRequestKinds()
         try testBuildsThreePullRequestSearchQueries()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
@@ -104,6 +107,25 @@ struct Runner {
             PRActivityDetector.detect(previous: previousReviews, current: currentReviews).map(\.type)
                 == [.reviewCommented, .changesRequested]
         )
+    }
+
+    private static func testDetectsNewCommentsFromProviderActivityCount() throws {
+        let previous = PullRequest.fixture(
+            id: "PR_ACTIVITY",
+            commentCount: 1,
+            commentActivityCount: 4,
+            isMine: true
+        )
+        let current = PullRequest.fixture(
+            id: "PR_ACTIVITY",
+            commentCount: 1,
+            commentActivityCount: 5,
+            isMine: true
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+            PullRequestEvent(type: .newComment, prId: "PR_ACTIVITY", count: 1)
+        ])
     }
 
     private static func testPreferencesFilterEvents() throws {
@@ -238,7 +260,10 @@ struct Runner {
             reviews: .init(totalCount: 1, nodes: [
                 .init(id: "REVIEW_1", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z")
             ]),
-            reviewThreads: .init(nodes: [.init(isResolved: true), .init(isResolved: false)]),
+            reviewThreads: .init(nodes: [
+                .fixture(isResolved: true, viewerCanResolve: true, viewerDidAuthorComments: [false]),
+                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [true, false])
+            ]),
             repository: .init(nameWithOwner: "acme/mergehawk"),
             commits: .init(nodes: [.init(commit: .init(statusCheckRollup: .init(state: "FAILURE")))]),
             author: .init(login: "rw")
@@ -252,7 +277,8 @@ struct Runner {
             repo: "acme/mergehawk",
             ciState: .failing,
             reviewDecision: .reviewRequired,
-            commentCount: 3,
+            commentCount: 1,
+            commentActivityCount: 5,
             reviewCount: 1,
             recentReviews: [
                 PullRequestReview(
@@ -269,6 +295,46 @@ struct Runner {
             createdAt: Date(timeIntervalSince1970: 1_777_636_800),
             updatedAt: Date(timeIntervalSince1970: 1_777_723_200)
         ))
+    }
+
+    private static func testNormalizesActionableUnresolvedComments() throws {
+        let node = GitHubPullRequestNode.fixture(
+            comments: .init(totalCount: 8),
+            reviewThreads: .init(nodes: [
+                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [true]),
+                .fixture(isResolved: false, viewerCanResolve: false, viewerDidAuthorComments: [false]),
+                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [true, false]),
+                .fixture(isResolved: true, viewerCanResolve: true, viewerDidAuthorComments: [false])
+            ])
+        )
+
+        try expect(GitHubPullRequestNormalizer.normalize(node, login: "rw").commentCount == 1)
+        try expect(GitHubPullRequestNormalizer.normalize(node, login: "rw").commentActivityCount == 13)
+    }
+
+    private static func testNormalizesReviewOutcomeFromLatestOpinionatedReviews() throws {
+        let approvedWithUnresolvedComments = GitHubPullRequestNode.fixture(
+            reviewDecision: "REVIEW_REQUIRED",
+            latestOpinionatedReviews: .init(totalCount: 1, nodes: [
+                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z")
+            ]),
+            reviewThreads: .init(nodes: [
+                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [false])
+            ])
+        )
+
+        let changesRequestedWins = GitHubPullRequestNode.fixture(
+            reviewDecision: "APPROVED",
+            latestOpinionatedReviews: .init(totalCount: 2, nodes: [
+                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z"),
+                .init(id: "CHANGES", state: "CHANGES_REQUESTED", submittedAt: "2026-05-02T12:00:00Z")
+            ])
+        )
+
+        let approved = GitHubPullRequestNormalizer.normalize(approvedWithUnresolvedComments, login: "rw")
+        try expect(approved.reviewDecision == .approved)
+        try expect(approved.commentCount == 1)
+        try expect(GitHubPullRequestNormalizer.normalize(changesRequestedWins, login: "rw").reviewDecision == .changesRequested)
     }
 
     private static func testBuildsThreePullRequestSearchQueries() throws {
@@ -351,6 +417,33 @@ private struct TestFailure: Error, CustomStringConvertible {
 }
 
 private extension GitHubPullRequestNode {
+    static func fixture(
+        reviewDecision: String? = "REVIEW_REQUIRED",
+        comments: Count = .init(totalCount: 0),
+        reviews: ReviewConnection = .init(totalCount: 0),
+        latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
+        reviewThreads: ReviewThreadConnection = .init(nodes: [])
+    ) -> GitHubPullRequestNode {
+        GitHubPullRequestNode(
+            id: "PR_FIXTURE",
+            title: "Fixture PR",
+            number: 12,
+            url: "https://github.com/acme/mergehawk/pull/12",
+            createdAt: "2026-05-01T12:00:00Z",
+            updatedAt: "2026-05-02T12:00:00Z",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            reviewDecision: reviewDecision,
+            comments: comments,
+            reviews: reviews,
+            latestOpinionatedReviews: latestOpinionatedReviews,
+            reviewThreads: reviewThreads,
+            repository: .init(nameWithOwner: "acme/mergehawk"),
+            commits: .init(nodes: []),
+            author: .init(login: "teammate")
+        )
+    }
+
     static func reviewRequestFixture(reviewers: [RequestedReviewer]) -> GitHubPullRequestNode {
         GitHubPullRequestNode(
             id: "PR_REVIEW",
@@ -369,6 +462,20 @@ private extension GitHubPullRequestNode {
             repository: .init(nameWithOwner: "acme/mergehawk"),
             commits: .init(nodes: []),
             author: .init(login: "teammate")
+        )
+    }
+}
+
+private extension GitHubPullRequestNode.ReviewThreadConnection.Node {
+    static func fixture(
+        isResolved: Bool,
+        viewerCanResolve: Bool,
+        viewerDidAuthorComments: [Bool]
+    ) -> Self {
+        .init(
+            isResolved: isResolved,
+            viewerCanResolve: viewerCanResolve,
+            comments: .init(nodes: viewerDidAuthorComments.map { .init(viewerDidAuthor: $0) })
         )
     }
 }
@@ -396,6 +503,7 @@ private extension PullRequest {
         ciState: CIState = .passing,
         reviewDecision: ReviewDecision = .reviewRequired,
         commentCount: Int = 0,
+        commentActivityCount: Int? = nil,
         reviewCount: Int = 0,
         recentReviews: [PullRequestReview] = [],
         isMine: Bool = false,
@@ -412,6 +520,7 @@ private extension PullRequest {
             ciState: ciState,
             reviewDecision: reviewDecision,
             commentCount: commentCount,
+            commentActivityCount: commentActivityCount,
             reviewCount: reviewCount,
             recentReviews: recentReviews,
             isMine: isMine,

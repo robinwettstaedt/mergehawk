@@ -1648,7 +1648,7 @@ struct CommentCountIndicator: View {
     }
 
     static func label(for count: Int) -> String {
-        "\(count) comment\(count == 1 ? "" : "s")"
+        "\(count) unresolved comment\(count == 1 ? "" : "s")"
     }
 }
 
