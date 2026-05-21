@@ -998,7 +998,7 @@ private struct PullRequestListView: View {
         case .authored:
             !controller.sourceFilteredMyPullRequests.isEmpty
         case .reviewRequests:
-            controller.sourceFilteredReviewRequests.contains { $0.reviewRequestKind != .none || $0.isAssignedToViewer }
+            controller.sourceFilteredReviewRequests.contains(where: DashboardController.isRequestedPullRequest)
         }
     }
 

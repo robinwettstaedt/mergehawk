@@ -379,7 +379,7 @@ final class DashboardController: ObservableObject {
     ) -> [PullRequest] {
         let selectedFilters = selectedFilters.subtracting([.all])
         return pullRequests.filter { pr in
-            guard !pr.isMine && (pr.reviewRequestKind != .none || pr.isAssignedToViewer) else {
+            guard isRequestedPullRequest(pr) else {
                 return false
             }
             guard !selectedFilters.isEmpty else {
@@ -389,6 +389,10 @@ final class DashboardController: ObservableObject {
                 matchesReviewRequest(pr, option: option)
             }
         }
+    }
+
+    static func isRequestedPullRequest(_ pr: PullRequest) -> Bool {
+        !pr.isMine && (pr.reviewRequestKind != .none || pr.isAssignedToViewer)
     }
 
     private static func matchesReviewRequest(
