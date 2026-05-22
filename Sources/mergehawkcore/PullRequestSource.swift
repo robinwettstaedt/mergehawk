@@ -2,7 +2,10 @@ import Foundation
 
 public protocol PullRequestSource: AnyObject {
     var sourceKind: DashboardSource { get }
-    func fetchPullRequests(login: String) async throws -> [PullRequest]
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult
 }
 
 public protocol SourceCatalogProviding: AnyObject {
@@ -19,8 +22,11 @@ public final class EmptyPullRequestSource: PullRequestSource {
 
     public init() {}
 
-    public func fetchPullRequests(login: String) async throws -> [PullRequest] {
-        []
+    public func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        PullRequestFetchResult(pullRequests: [])
     }
 }
 
@@ -314,10 +320,13 @@ public final class MockPullRequestSource: PullRequestSource {
         ]
     }
 
-    public func fetchPullRequests(login: String) async throws -> [PullRequest] {
+    public func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
         let snapshot = snapshots[min(index, snapshots.count - 1)]
         index += 1
-        return snapshot
+        return PullRequestFetchResult(pullRequests: snapshot)
     }
 
     public static var notificationTypeFixturePullRequestNotifications: [PullRequestNotification] {

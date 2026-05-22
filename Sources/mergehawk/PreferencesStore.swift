@@ -62,6 +62,15 @@ struct PreferencesStore {
         }
     }
 
+    var pullRequestSnapshotCache: PullRequestSnapshotCache {
+        get {
+            decoded(for: "pullRequests.snapshotCache", fallback: .empty)
+        }
+        set {
+            encode(newValue, for: "pullRequests.snapshotCache")
+        }
+    }
+
     var pullRequestNotificationHistory: [PullRequestNotification] {
         get {
             decoded(for: "notifications.prHistory", fallback: [])

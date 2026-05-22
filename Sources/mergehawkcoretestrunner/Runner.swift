@@ -24,6 +24,8 @@ struct Runner {
         try await testSyncEmitsFilteredEventsAfterBaseline()
         try await testSyncFiltersIncomingEventsByMatrix()
         try await testSyncFiltersEventsBySourcePreferences()
+        try await testSyncSeedsPreviousSnapshotsAndUpdatesSnapshotCache()
+        try await testSyncSurfacesSourceRefreshWarning()
         try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
         try testNormalizesPullRequestSearchNodes()
         try testNormalizesActionableUnresolvedComments()
@@ -674,6 +676,58 @@ struct Runner {
         try expect(result.events.isEmpty)
     }
 
+    private static func testSyncSeedsPreviousSnapshotsAndUpdatesSnapshotCache() async throws {
+        let previous = PullRequest.fixture(
+            id: "1",
+            commentCount: 0,
+            recentCommentActivities: [],
+            isMine: true
+        )
+        let current = PullRequest.fixture(
+            id: "1",
+            commentCount: 1,
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "COMMENT_AFTER_RESTART",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 300),
+                    source: .pullRequest
+                )
+            ],
+            isMine: true
+        )
+        let source = SequencePullRequestSource(snapshots: [[current]])
+        var storedCache: PullRequestSnapshotCache?
+        let engine = SyncEngine(
+            source: source,
+            loginProvider: { "rw" },
+            initialPullRequests: [previous],
+            snapshotCacheDidUpdate: { cache in
+                storedCache = cache
+            }
+        )
+
+        let result = try await engine.sync()
+
+        try expect(source.receivedPreviousPullRequestIds == [["1"]])
+        try expect(result.events.map(\.activityId) == ["COMMENT_AFTER_RESTART"])
+        try expect(storedCache?.pullRequests == [current])
+        try expect(storedCache?.account?.login == "rw")
+        try expect(storedCache?.source == .mock)
+    }
+
+    private static func testSyncSurfacesSourceRefreshWarning() async throws {
+        let source = SequencePullRequestSource(
+            snapshots: [[.fixture(id: "1", isMine: true)]],
+            warnings: ["Using cached activity."]
+        )
+        let engine = SyncEngine(source: source, loginProvider: { "rw" })
+
+        _ = try await engine.sync()
+
+        try expect(engine.lastRefreshWarning == "Using cached activity.")
+    }
+
     private static func testEmptyPullRequestSourceReportsNoneAndNoPullRequests() async throws {
         let source = EmptyPullRequestSource()
         let engine = SyncEngine(
@@ -1039,13 +1093,23 @@ private extension GitHubPullRequestNode.ReviewThreadConnection.Node {
 private final class SequencePullRequestSource: PullRequestSource {
     let sourceKind: DashboardSource = .mock
     private var snapshots: [[PullRequest]]
+    private var warnings: [String?]
+    private(set) var receivedPreviousPullRequestIds: [[String]] = []
 
-    init(snapshots: [[PullRequest]]) {
+    init(snapshots: [[PullRequest]], warnings: [String?] = []) {
         self.snapshots = snapshots
+        self.warnings = warnings
     }
 
-    func fetchPullRequests(login: String) async throws -> [PullRequest] {
-        snapshots.isEmpty ? [] : snapshots.removeFirst()
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        receivedPreviousPullRequestIds.append(previousPullRequests.map(\.id).sorted())
+        return PullRequestFetchResult(
+            pullRequests: snapshots.isEmpty ? [] : snapshots.removeFirst(),
+            refreshWarning: warnings.isEmpty ? nil : warnings.removeFirst()
+        )
     }
 }
 
