@@ -7,7 +7,10 @@ public final class SyncEngine {
     private let authStatusProvider: () -> AuthStatus
     private var preferences: NotificationPreferences
     private let sourcePreferencesProvider: () -> SourcePreferences
+    private let snapshotSeedProvider: (String) -> [PullRequest]
+    private let snapshotCacheDidUpdate: (PullRequestSnapshotCache) -> Void
     private var snapshots: [String: PullRequest] = [:]
+    public private(set) var lastRefreshWarning: String?
 
     public init(
         source: PullRequestSource,
@@ -15,7 +18,10 @@ public final class SyncEngine {
         loginProvider: @escaping () async throws -> String,
         accountProvider: @escaping () async throws -> GitHubAccount? = { nil },
         authStatusProvider: @escaping () -> AuthStatus = { .signedOut },
-        sourcePreferencesProvider: @escaping () -> SourcePreferences = { .defaults }
+        sourcePreferencesProvider: @escaping () -> SourcePreferences = { .defaults },
+        initialPullRequests: [PullRequest] = [],
+        snapshotSeedProvider: @escaping (String) -> [PullRequest] = { _ in [] },
+        snapshotCacheDidUpdate: @escaping (PullRequestSnapshotCache) -> Void = { _ in }
     ) {
         self.source = source
         self.preferences = preferences
@@ -23,6 +29,9 @@ public final class SyncEngine {
         self.accountProvider = accountProvider
         self.authStatusProvider = authStatusProvider
         self.sourcePreferencesProvider = sourcePreferencesProvider
+        self.snapshotSeedProvider = snapshotSeedProvider
+        self.snapshotCacheDidUpdate = snapshotCacheDidUpdate
+        self.snapshots = Dictionary(uniqueKeysWithValues: initialPullRequests.map { ($0.id, $0) })
     }
 
     public func updatePreferences(_ preferences: NotificationPreferences) {
@@ -31,7 +40,15 @@ public final class SyncEngine {
 
     public func sync() async throws -> DashboardState {
         let login = try await loginProvider()
-        let pullRequests = try await source.fetchPullRequests(login: login)
+        if snapshots.isEmpty {
+            snapshots = Dictionary(uniqueKeysWithValues: snapshotSeedProvider(login).map { ($0.id, $0) })
+        }
+        let result = try await source.fetchPullRequests(
+            login: login,
+            previousPullRequests: Array(snapshots.values)
+        )
+        let pullRequests = result.pullRequests
+        lastRefreshWarning = result.refreshWarning
         let sourcePreferences = sourcePreferencesProvider()
         var events: [PullRequestEvent] = []
 
@@ -44,13 +61,22 @@ public final class SyncEngine {
             snapshots[current.id] = current
         }
 
-        return DashboardState(
+        let syncedAt = Date()
+        let account = try await accountProvider() ?? GitHubAccount(login: login)
+        let state = DashboardState(
             pullRequests: pullRequests,
             events: events,
-            syncedAt: Date(),
+            syncedAt: syncedAt,
             source: source.sourceKind,
-            account: try await accountProvider() ?? GitHubAccount(login: login),
+            account: account,
             authStatus: authStatusProvider()
         )
+        snapshotCacheDidUpdate(PullRequestSnapshotCache(
+            pullRequests: pullRequests,
+            account: account,
+            fetchedAt: syncedAt,
+            source: source.sourceKind
+        ))
+        return state
     }
 }
