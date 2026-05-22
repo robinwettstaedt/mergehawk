@@ -173,6 +173,42 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public struct PullRequestSnapshotCache: Codable, Equatable, Sendable {
+    public var pullRequests: [PullRequest]
+    public var account: GitHubAccount?
+    public var fetchedAt: Date?
+    public var source: DashboardSource
+
+    public static let empty = PullRequestSnapshotCache(
+        pullRequests: [],
+        account: nil,
+        fetchedAt: nil,
+        source: .none
+    )
+
+    public init(
+        pullRequests: [PullRequest],
+        account: GitHubAccount?,
+        fetchedAt: Date?,
+        source: DashboardSource
+    ) {
+        self.pullRequests = pullRequests
+        self.account = account
+        self.fetchedAt = fetchedAt
+        self.source = source
+    }
+}
+
+public struct PullRequestFetchResult: Equatable, Sendable {
+    public let pullRequests: [PullRequest]
+    public let refreshWarning: String?
+
+    public init(pullRequests: [PullRequest], refreshWarning: String? = nil) {
+        self.pullRequests = pullRequests
+        self.refreshWarning = refreshWarning
+    }
+}
+
 public struct RepositoryIdentity: Codable, Equatable, Hashable, Comparable, Sendable {
     public let owner: String
     public let name: String

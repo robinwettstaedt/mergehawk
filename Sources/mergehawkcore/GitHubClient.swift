@@ -51,6 +51,15 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         public init(nodes: [User]) {
             self.nodes = nodes
         }
+
+        private enum CodingKeys: String, CodingKey {
+            case nodes
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.nodes = try container.decodeIfPresent([User].self, forKey: .nodes) ?? []
+        }
     }
 
     public struct CommentConnection: Decodable, Equatable, Sendable {
@@ -79,6 +88,17 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         public init(totalCount: Int, nodes: [Node] = []) {
             self.totalCount = totalCount
             self.nodes = nodes
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case totalCount
+            case nodes
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.totalCount = try container.decode(Int.self, forKey: .totalCount)
+            self.nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
         }
     }
 
@@ -120,6 +140,18 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
                     self.totalCount = totalCount ?? nodes.count
                     self.nodes = nodes
                 }
+
+                private enum CodingKeys: String, CodingKey {
+                    case totalCount
+                    case nodes
+                }
+
+                public init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    let nodes = try container.decodeIfPresent([ReviewComment].self, forKey: .nodes) ?? []
+                    self.nodes = nodes
+                    self.totalCount = try container.decodeIfPresent(Int.self, forKey: .totalCount) ?? nodes.count
+                }
             }
 
             public let isResolved: Bool
@@ -141,6 +173,15 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         public init(nodes: [Node]) {
             self.nodes = nodes
         }
+
+        private enum CodingKeys: String, CodingKey {
+            case nodes
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
+        }
     }
 
     public struct ReviewRequestConnection: Decodable, Equatable, Sendable {
@@ -154,6 +195,15 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         public let nodes: [Node]
         public init(nodes: [Node]) {
             self.nodes = nodes
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case nodes
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
         }
     }
 
@@ -178,6 +228,17 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         public init(totalCount: Int, nodes: [Node] = []) {
             self.totalCount = totalCount
             self.nodes = nodes
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case totalCount
+            case nodes
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.totalCount = try container.decode(Int.self, forKey: .totalCount)
+            self.nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
         }
     }
 
@@ -515,10 +576,75 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         )
     }
 
-    public func fetchPullRequests(login: String) async throws -> [PullRequest] {
+    public func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        let previousById = Dictionary(uniqueKeysWithValues: previousPullRequests.map { ($0.id, $0) })
+        let shallowPullRequests = try await fetchShallowPullRequests(login: login)
+        let detailIds = shallowPullRequests
+            .filter { Self.needsDetail(shallow: $0, previous: previousById[$0.id]) }
+            .map(\.id)
+
+        guard !detailIds.isEmpty else {
+            return PullRequestFetchResult(
+                pullRequests: shallowPullRequests.map { pullRequest in
+                    if let previous = previousById[pullRequest.id] {
+                        return Self.mergingDashboardFields(from: pullRequest, withActivityFrom: previous)
+                    }
+                    return pullRequest
+                }
+            )
+        }
+
+        do {
+            let detailedPullRequests = try await fetchPullRequestDetails(ids: detailIds, login: login)
+            let detailsById: [String: PullRequest] = Dictionary(
+                uniqueKeysWithValues: detailedPullRequests.map { ($0.id, $0) }
+            )
+            let requestedDetailIds = Set(detailIds)
+            return PullRequestFetchResult(
+                pullRequests: shallowPullRequests.map { pullRequest in
+                    if let detailed = detailsById[pullRequest.id] {
+                        return Self.mergingRelationshipFields(from: detailed, withRelationshipsFrom: pullRequest)
+                    }
+                    if let previous = previousById[pullRequest.id] {
+                        return Self.mergingDashboardFields(
+                            from: pullRequest,
+                            withActivityFrom: previous,
+                            preserveActivityCounts: requestedDetailIds.contains(pullRequest.id)
+                        )
+                    }
+                    return pullRequest
+                }
+            )
+        } catch {
+            if Self.isAuthenticationFailure(error) {
+                throw error
+            }
+            guard !previousById.isEmpty else {
+                throw error
+            }
+            return PullRequestFetchResult(
+                pullRequests: shallowPullRequests.map { pullRequest in
+                    if let previous = previousById[pullRequest.id] {
+                        return Self.mergingDashboardFields(
+                            from: pullRequest,
+                            withActivityFrom: previous,
+                            preserveActivityCounts: true
+                        )
+                    }
+                    return pullRequest
+                },
+                refreshWarning: "Pull request activity details could not refresh. Showing last-known notification activity."
+            )
+        }
+    }
+
+    private func fetchShallowPullRequests(login: String) async throws -> [PullRequest] {
         var pullRequests: [String: PullRequest] = [:]
         for search in Self.pullRequestSearches(login: login) {
-            let data = try await graphql(query: Self.pullRequestSearchQuery, variables: ["query": search.query])
+            let data = try await graphql(query: Self.pullRequestShallowSearchQuery, variables: ["query": .string(search.query)])
             let payload = try decoder.decode(GraphQLResponse<PullRequestSearchData>.self, from: data)
             if let errors = payload.errors, !errors.isEmpty {
                 throw GitHubClientError.graphQLErrors(errors.map(\.message).joined(separator: "; "))
@@ -532,6 +658,112 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             }
         }
         return Array(pullRequests.values)
+    }
+
+    private func fetchPullRequestDetails(ids: [String], login: String) async throws -> [PullRequest] {
+        var pullRequests: [PullRequest] = []
+        for chunk in ids.chunked(into: Self.detailRequestChunkSize) {
+            let data = try await graphql(query: Self.pullRequestDetailQuery, variables: ["ids": .strings(chunk)])
+            let payload = try decoder.decode(GraphQLResponse<PullRequestNodesData>.self, from: data)
+            if let errors = payload.errors, !errors.isEmpty {
+                throw GitHubClientError.graphQLErrors(errors.map(\.message).joined(separator: "; "))
+            }
+            pullRequests.append(contentsOf: (payload.data?.nodes ?? []).compactMap { node in
+                node.map { GitHubPullRequestNormalizer.normalize($0, login: login) }
+            })
+        }
+        return pullRequests
+    }
+
+    private static func needsDetail(shallow: PullRequest, previous: PullRequest?) -> Bool {
+        guard let previous else {
+            return true
+        }
+        if shallow.commentActivityCount != previous.commentActivityCount {
+            return true
+        }
+        if shallow.reviewCount != previous.reviewCount {
+            return true
+        }
+        if previous.recentCommentActivities.isEmpty, shallow.commentActivityCount > 0 {
+            return true
+        }
+        if previous.recentReviews.isEmpty, shallow.reviewCount > 0 {
+            return true
+        }
+        if shallow.commentCount != previous.commentCount {
+            return true
+        }
+        return false
+    }
+
+    private static func mergingDashboardFields(
+        from current: PullRequest,
+        withActivityFrom previous: PullRequest,
+        preserveActivityCounts: Bool = false
+    ) -> PullRequest {
+        PullRequest(
+            id: current.id,
+            title: current.title,
+            number: current.number,
+            url: current.url,
+            repo: current.repo,
+            ciState: current.ciState,
+            reviewDecision: current.reviewDecision,
+            commentCount: current.commentCount,
+            commentActivityCount: preserveActivityCounts ? previous.commentActivityCount : current.commentActivityCount,
+            recentCommentActivities: previous.recentCommentActivities,
+            reviewCount: preserveActivityCounts ? previous.reviewCount : current.reviewCount,
+            recentReviews: previous.recentReviews,
+            reviewRequestKind: current.reviewRequestKind,
+            isAssignedToViewer: current.isAssignedToViewer,
+            isMine: current.isMine,
+            author: current.author,
+            headRefName: current.headRefName,
+            mergeable: current.mergeable,
+            draft: current.draft,
+            createdAt: current.createdAt,
+            updatedAt: current.updatedAt
+        )
+    }
+
+    private static func mergingRelationshipFields(
+        from detailed: PullRequest,
+        withRelationshipsFrom shallow: PullRequest
+    ) -> PullRequest {
+        PullRequest(
+            id: detailed.id,
+            title: detailed.title,
+            number: detailed.number,
+            url: detailed.url,
+            repo: detailed.repo,
+            ciState: detailed.ciState,
+            reviewDecision: detailed.reviewDecision,
+            commentCount: detailed.commentCount,
+            commentActivityCount: detailed.commentActivityCount,
+            recentCommentActivities: detailed.recentCommentActivities,
+            reviewCount: detailed.reviewCount,
+            recentReviews: detailed.recentReviews,
+            reviewRequestKind: shallow.reviewRequestKind,
+            isAssignedToViewer: shallow.isAssignedToViewer,
+            isMine: shallow.isMine,
+            author: detailed.author,
+            headRefName: detailed.headRefName,
+            mergeable: detailed.mergeable,
+            draft: detailed.draft,
+            createdAt: detailed.createdAt,
+            updatedAt: detailed.updatedAt
+        )
+    }
+
+    private static func isAuthenticationFailure(_ error: Error) -> Bool {
+        if case GitHubClientError.authRefreshFailed = error {
+            return true
+        }
+        if case GitHubClientError.httpFailure(_, 401) = error {
+            return true
+        }
+        return false
     }
 
     public func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -558,7 +790,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         ]
     }
 
-    private func graphql(query: String, variables: [String: String]) async throws -> Data {
+    private func graphql(query: String, variables: [String: GraphQLVariable]) async throws -> Data {
         var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
         request.httpMethod = "POST"
         request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
@@ -604,7 +836,9 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         try await tokenProvider()
     }
 
-    private static let pullRequestSearchQuery = """
+    static let detailRequestChunkSize = 20
+
+    static let pullRequestShallowSearchQuery = """
       query PullRequestDashboard($query: String!) {
         search(query: $query, type: ISSUE, first: 50) {
           nodes {
@@ -619,29 +853,13 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
               isDraft
               mergeable
               reviewDecision
-              comments(last: 20) {
+              comments(first: 1) {
                 totalCount
-                nodes {
-                  id
-                  createdAt
-                  viewerDidAuthor
-                  author {
-                    login
-                  }
-                }
               }
-              reviews(last: 5) {
+              reviews(first: 1) {
                 totalCount
-                nodes {
-                  id
-                  state
-                  submittedAt
-                  author {
-                    login
-                  }
-                }
               }
-              latestOpinionatedReviews(first: 100) {
+              latestOpinionatedReviews(first: 20) {
                 totalCount
                 nodes {
                   id
@@ -649,11 +867,11 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                   submittedAt
                 }
               }
-              reviewThreads(first: 100) {
+              reviewThreads(first: 20) {
                 nodes {
                   isResolved
                   viewerCanResolve
-                  comments(last: 100) {
+                  comments(first: 1) {
                     totalCount
                     nodes {
                       id
@@ -669,7 +887,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                   }
                 }
               }
-              reviewRequests(first: 100) {
+              reviewRequests(first: 20) {
                 nodes {
                   requestedReviewer {
                     __typename
@@ -685,7 +903,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                   }
                 }
               }
-              assignees(first: 100) {
+              assignees(first: 20) {
                 nodes {
                   login
                 }
@@ -705,6 +923,111 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
               author {
                 login
               }
+            }
+          }
+        }
+      }
+    """
+
+    static let pullRequestDetailQuery = """
+      query PullRequestDetails($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on PullRequest {
+            id
+            title
+            number
+            url
+            createdAt
+            updatedAt
+            headRefName
+            isDraft
+            mergeable
+            reviewDecision
+            comments(last: 10) {
+              totalCount
+              nodes {
+                id
+                createdAt
+                viewerDidAuthor
+                author {
+                  login
+                }
+              }
+            }
+            reviews(last: 10) {
+              totalCount
+              nodes {
+                id
+                state
+                submittedAt
+                author {
+                  login
+                }
+              }
+            }
+            latestOpinionatedReviews(first: 20) {
+              totalCount
+              nodes {
+                id
+                state
+                submittedAt
+              }
+            }
+            reviewThreads(first: 20) {
+              nodes {
+                isResolved
+                viewerCanResolve
+                comments(last: 10) {
+                  totalCount
+                  nodes {
+                    id
+                    createdAt
+                    viewerDidAuthor
+                    author {
+                      login
+                    }
+                    pullRequestReview {
+                      id
+                    }
+                  }
+                }
+              }
+            }
+            reviewRequests(first: 20) {
+              nodes {
+                requestedReviewer {
+                  __typename
+                  ... on User {
+                    login
+                  }
+                  ... on Team {
+                    slug
+                    organization {
+                      login
+                    }
+                  }
+                }
+              }
+            }
+            assignees(first: 20) {
+              nodes {
+                login
+              }
+            }
+            repository {
+              nameWithOwner
+            }
+            commits(last: 1) {
+              nodes {
+                commit {
+                  statusCheckRollup {
+                    state
+                  }
+                }
+              }
+            }
+            author {
+              login
             }
           }
         }
@@ -843,7 +1166,22 @@ public enum GitHubClientError: Error, LocalizedError {
 
 private struct GraphQLRequest: Encodable {
     let query: String
-    let variables: [String: String]
+    let variables: [String: GraphQLVariable]
+}
+
+private enum GraphQLVariable: Encodable {
+    case string(String)
+    case strings([String])
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .strings(let values):
+            try container.encode(values)
+        }
+    }
 }
 
 private struct GraphQLResponse<DataPayload: Decodable>: Decodable {
@@ -863,6 +1201,10 @@ private struct PullRequestSearchData: Decodable {
     let search: Search
 }
 
+private struct PullRequestNodesData: Decodable {
+    let nodes: [GitHubPullRequestNode?]
+}
+
 private struct ViewerResponse: Decodable {
     let login: String
     let avatarUrl: URL?
@@ -872,6 +1214,17 @@ private struct ViewerResponse: Decodable {
         case login
         case avatarUrl = "avatar_url"
         case profileUrl = "html_url"
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else {
+            return [self]
+        }
+        return stride(from: 0, to: count, by: size).map { start in
+            Array(self[start..<Swift.min(start + size, count)])
+        }
     }
 }
 
