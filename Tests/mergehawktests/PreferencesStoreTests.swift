@@ -169,6 +169,44 @@ let mergehawkSourceCatalogStoreTest: Void = {
     precondition(store.sourceCatalog == catalog)
 }()
 
+let mergehawkPullRequestSnapshotCacheStoreTest: Void = {
+    let suiteName = "mergehawk-pr-snapshot-cache-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    var store = PreferencesStore(defaults: defaults)
+    precondition(store.pullRequestSnapshotCache == .empty)
+
+    let cache = PullRequestSnapshotCache(
+        pullRequests: [
+            PullRequest(
+                id: "PR_1",
+                title: "Persist PR snapshot",
+                number: 12,
+                url: URL(string: "https://github.com/example/mergehawk/pull/12")!,
+                repo: "example/mergehawk",
+                ciState: .passing,
+                reviewDecision: .reviewRequired,
+                commentCount: 0,
+                reviewCount: 0,
+                isMine: true,
+                author: "rw",
+                mergeable: .mergeable,
+                draft: false
+            )
+        ],
+        account: GitHubAccount(login: "rw"),
+        fetchedAt: Date(timeIntervalSince1970: 40),
+        source: .github
+    )
+
+    store.pullRequestSnapshotCache = cache
+    precondition(store.pullRequestSnapshotCache == cache)
+    precondition(defaults.data(forKey: "pullRequests.snapshotCache") != nil)
+}()
+
 let mergehawkNotificationHistoryStoreTest: Void = {
     let suiteName = "mergehawk-notification-history-store-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!

@@ -495,6 +495,7 @@ final class DashboardController: ObservableObject {
             errorMessage = error.localizedDescription
         }
         account = nil
+        preferencesStore.pullRequestSnapshotCache = .empty
         setAuthMethod(.oauth)
         sourceCatalogProvider = nil
         sourceCatalog = .empty
@@ -670,6 +671,7 @@ final class DashboardController: ObservableObject {
     }
 
     private func configureStoredGitHubSource(client: GitHubClient, authMethod: GitHubAuthMethod) {
+        restoreCachedGitHubDashboardIfAvailable()
         configureGitHubSource(
             client: client,
             authMethod: authMethod,
@@ -719,7 +721,13 @@ final class DashboardController: ObservableObject {
             loginProvider: loginProvider,
             accountProvider: accountProvider,
             authStatusProvider: { .signedIn },
-            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
+            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults },
+            snapshotSeedProvider: { [weak self] login in
+                self?.cachedGitHubPullRequests(for: login) ?? []
+            },
+            snapshotCacheDidUpdate: { [weak self] cache in
+                self?.storeGitHubSnapshotCache(cache)
+            }
         )
     }
 
@@ -778,6 +786,36 @@ final class DashboardController: ObservableObject {
     private func setAuthMethod(_ authMethod: GitHubAuthMethod) {
         self.authMethod = authMethod
         preferencesStore.authMethod = authMethod
+    }
+
+    private func restoreCachedGitHubDashboardIfAvailable() {
+        let cache = preferencesStore.pullRequestSnapshotCache
+        guard cache.source == .github, !cache.pullRequests.isEmpty else {
+            return
+        }
+        state = DashboardState(
+            pullRequests: cache.pullRequests,
+            events: [],
+            syncedAt: cache.fetchedAt,
+            source: .github,
+            account: cache.account,
+            authStatus: .signedIn
+        )
+    }
+
+    private func cachedGitHubPullRequests(for login: String) -> [PullRequest] {
+        let cache = preferencesStore.pullRequestSnapshotCache
+        guard cache.source == .github, cache.account?.login == login else {
+            return []
+        }
+        return cache.pullRequests
+    }
+
+    private func storeGitHubSnapshotCache(_ cache: PullRequestSnapshotCache) {
+        guard cache.source == .github else {
+            return
+        }
+        preferencesStore.pullRequestSnapshotCache = cache
     }
 
     private func fetchSourceCatalog() async {
@@ -868,6 +906,7 @@ final class DashboardController: ObservableObject {
             let nextState = try await syncEngine.sync()
             recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
             state = nextState
+            errorMessage = syncEngine.lastRefreshWarning
             if macOSLocalNotificationsEnabled {
                 notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
             }
@@ -886,6 +925,8 @@ final class DashboardController: ObservableObject {
         if let error = error as? GitHubClientError {
             switch error {
             case .authRefreshFailed:
+                return true
+            case .httpFailure(_, 401):
                 return true
             case .httpFailure, .graphQLErrors:
                 break
@@ -906,6 +947,7 @@ final class DashboardController: ObservableObject {
         oauthAccessTokenCache.clear()
         try? tokenStore.clearOAuthTokens()
         account = nil
+        preferencesStore.pullRequestSnapshotCache = .empty
         sourceCatalog = .empty
         sourceErrorMessage = nil
         configureSignedOutSource()
