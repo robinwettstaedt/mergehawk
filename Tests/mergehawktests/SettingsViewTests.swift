@@ -30,6 +30,7 @@ let mergehawkNotificationMatrixSettingsModelTest: Void = {
         .comments,
         .reviewActivity,
         .ciFailures,
+        .relationshipChanges,
     ])
 }()
 

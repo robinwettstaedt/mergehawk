@@ -334,25 +334,33 @@ private struct NotificationSettingsView: View {
                             .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
                         ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
                             Text(activity.columnTitle)
-                                .frame(width: NotificationMatrixLayout.activityColumnWidth)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity))
                         }
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
                     Divider()
-                        .gridCellColumns(4)
+                        .gridCellColumns(PullRequestNotificationActivity.allCases.count + 1)
 
                     ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
                         GridRow {
                             Text(relationship.title)
                                 .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
                             ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
-                                Toggle("", isOn: matrixBinding(relationship: relationship, activity: activity))
-                                    .labelsHidden()
-                                    .toggleStyle(.checkbox)
-                                    .frame(width: NotificationMatrixLayout.activityColumnWidth)
-                                    .accessibilityLabel("\(relationship.title) \(activity.accessibilityTitle)")
+                                if showsMatrixToggle(relationship: relationship, activity: activity) {
+                                    Toggle("", isOn: matrixBinding(relationship: relationship, activity: activity))
+                                        .labelsHidden()
+                                        .toggleStyle(.checkbox)
+                                        .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity))
+                                        .accessibilityLabel("\(relationship.title) \(activity.accessibilityTitle)")
+                                } else {
+                                    Color.clear
+                                        .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity))
+                                }
                             }
                         }
                     }
@@ -381,18 +389,35 @@ private struct NotificationSettingsView: View {
                     activityPreferences.reviewActivity = isEnabled
                 case .ciFailures:
                     activityPreferences.ciFailures = isEnabled
+                case .relationshipChanges:
+                    activityPreferences.relationshipChanges = isEnabled
                 }
                 preferences.set(activityPreferences, for: relationship)
                 controller.preferences = preferences
             }
         )
     }
+
+    private func showsMatrixToggle(
+        relationship: PullRequestNotificationRelationship,
+        activity: PullRequestNotificationActivity
+    ) -> Bool {
+        !(relationship == .authored && activity == .relationshipChanges)
+    }
 }
 
 private enum NotificationMatrixLayout {
-    static let relationshipColumnWidth: CGFloat = 160
-    static let activityColumnWidth: CGFloat = 78
-    static let columnSpacing: CGFloat = 12
+    static let relationshipColumnWidth: CGFloat = 145
+    static let columnSpacing: CGFloat = 8
+
+    static func activityColumnWidth(for activity: PullRequestNotificationActivity) -> CGFloat {
+        switch activity {
+        case .relationshipChanges:
+            104
+        case .comments, .reviewActivity, .ciFailures:
+            68
+        }
+    }
 }
 
 private extension PullRequestNotificationRelationship {
@@ -419,6 +444,8 @@ private extension PullRequestNotificationActivity {
             "Reviews"
         case .ciFailures:
             "CI failed"
+        case .relationshipChanges:
+            "Assigned/\nRequested"
         }
     }
 
@@ -430,6 +457,8 @@ private extension PullRequestNotificationActivity {
             "review activity"
         case .ciFailures:
             "CI failures"
+        case .relationshipChanges:
+            "assigned or requested"
         }
     }
 }

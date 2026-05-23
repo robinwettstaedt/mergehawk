@@ -25,6 +25,7 @@ enum NotificationContentBuilder {
                 pullRequestTitle: pullRequest?.title,
                 repository: pullRequest?.repo,
                 actorLogin: event.actorLogin,
+                relationshipChanges: event.relationshipChanges.map(\.rawValue).sorted(),
                 clickAction: clickRoute.action,
                 clickPullRequestURL: clickRoute.pullRequestURLString
             )
@@ -56,6 +57,8 @@ enum NotificationContentBuilder {
             "CI failed"
         case .changesRequested:
             actorText(for: event).map { "Changes requested by \($0)" } ?? "Changes requested"
+        case .relationshipAdded:
+            RelationshipChangeTitlePresentation.title(for: event.relationshipChanges)
         }
     }
 
@@ -86,6 +89,18 @@ enum NotificationContentBuilder {
         }
         let capped = actors.prefix(3).map { "@\($0)" }.joined(separator: ", ")
         return actors.count > 3 ? "\(capped), ..." : capped
+    }
+}
+
+enum RelationshipChangeTitlePresentation {
+    static func title(for changes: Set<PullRequestNotificationRelationship>) -> String {
+        if changes == [.assigned] {
+            return "Assigned to you"
+        }
+        if changes.isSubset(of: [.directReviewRequest, .teamReviewRequest]) {
+            return "Review requested"
+        }
+        return "Assigned/requested"
     }
 }
 
@@ -166,6 +181,7 @@ struct NotificationRecord: Codable, Equatable {
     let pullRequestTitle: String?
     let repository: String?
     let actorLogin: String?
+    let relationshipChanges: [String]
     let clickAction: String
     let clickPullRequestURL: String?
 }
