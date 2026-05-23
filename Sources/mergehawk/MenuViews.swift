@@ -385,7 +385,12 @@ struct MenuControlButton: View {
     let help: String
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6)
+
         Button {
             action()
         } label: {
@@ -404,14 +409,29 @@ struct MenuControlButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.ultraThinMaterial)
+        .contentShape(shape)
+        .background {
+            shape.fill(.ultraThinMaterial)
+            shape.fill(hoverFill)
+        }
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            shape
                 .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(shape)
+        .onHover { isHovered = $0 }
         .help(help)
         .accessibilityLabel(help)
+    }
+
+    private var hoverFill: Color {
+        guard isHovered else {
+            return .clear
+        }
+
+        return colorScheme == .dark
+            ? Color.white.opacity(0.07)
+            : Color.white.opacity(0.35)
     }
 }
 
