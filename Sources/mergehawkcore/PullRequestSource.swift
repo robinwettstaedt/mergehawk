@@ -249,6 +249,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     commentCount: 4,
                     reviewCount: 2,
                     reviewRequestKind: .direct,
+                    isAssignedToViewer: true,
                     isMine: false,
                     author: "teammate",
                     headRefName: "MER-27-show-pr-author-rows",
@@ -269,7 +270,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewDecision: .reviewRequired,
                     commentCount: 1,
                     reviewCount: 0,
-                    reviewRequestKind: .team,
+                    reviewRequestKind: .directAndTeam,
                     isMine: false,
                     author: "design-systems-amy",
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
@@ -333,6 +334,24 @@ public final class MockPullRequestSource: PullRequestSource {
         [
             PullRequestNotification(
                 event: PullRequestEvent(
+                    type: .relationshipAdded,
+                    prId: notificationFixtureRelationshipPullRequest.id,
+                    relationshipChanges: [.assigned, .directReviewRequest]
+                ),
+                pullRequest: notificationFixtureRelationshipPullRequest,
+                createdAt: Date(timeIntervalSince1970: 1_777_813_200)
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(
+                    type: .relationshipAdded,
+                    prId: notificationFixtureAssignedPullRequest.id,
+                    relationshipChanges: [.assigned]
+                ),
+                pullRequest: notificationFixtureAssignedPullRequest,
+                createdAt: Date(timeIntervalSince1970: 1_777_811_400)
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(
                     type: .newComment,
                     prId: notificationFixtureCommentPullRequest.id,
                     count: 1,
@@ -382,6 +401,45 @@ public final class MockPullRequestSource: PullRequestSource {
             )
         ]
     }
+
+    private static let notificationFixtureRelationshipPullRequest = PullRequest(
+        id: "PR_NOTIFICATION_RELATIONSHIP",
+        title: "Route newly requested reviews",
+        number: 40,
+        url: URL(string: "https://github.com/example/review-router/pull/40")!,
+        repo: "example/review-router",
+        ciState: .pending,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        reviewRequestKind: .direct,
+        isAssignedToViewer: true,
+        isMine: false,
+        author: "platform-nora",
+        headRefName: "new-review-routing",
+        mergeable: .unknown,
+        draft: false,
+        updatedAt: Date(timeIntervalSince1970: 1_777_813_200)
+    )
+
+    private static let notificationFixtureAssignedPullRequest = PullRequest(
+        id: "PR_NOTIFICATION_ASSIGNED",
+        title: "Follow up on assigned review",
+        number: 39,
+        url: URL(string: "https://github.com/example/review-router/pull/39")!,
+        repo: "example/review-router",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isAssignedToViewer: true,
+        isMine: false,
+        author: "backend-mateo",
+        headRefName: "assigned-review-follow-up",
+        mergeable: .mergeable,
+        draft: false,
+        updatedAt: Date(timeIntervalSince1970: 1_777_811_400)
+    )
 
     private static let notificationFixtureCommentPullRequest = PullRequest(
         id: "PR_NOTIFICATION_COMMENT",

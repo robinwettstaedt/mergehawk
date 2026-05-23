@@ -295,6 +295,7 @@ let mergehawkLegacyNotificationHistoryStoreTest: Void = {
     precondition(notifications[0].id == "legacy-pr")
     precondition(notifications[0].actorLogin == nil)
     precondition(notifications[0].activityId == nil)
+    precondition(notifications[0].relationshipChanges.isEmpty)
 }()
 
 let mergehawkMacOSLocalNotificationPreferenceTest: Void = {
@@ -344,6 +345,45 @@ let mergehawkNotificationMatrixPreferenceTest: Void = {
 
     precondition(store.notificationPreferences == preferences)
     precondition(defaults.data(forKey: "notifications.prMatrix") != nil)
+}()
+
+let mergehawkLegacyNotificationMatrixPreferenceTest: Void = {
+    let suiteName = "mergehawk-legacy-notification-matrix-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let legacyPayload = """
+    {
+      "authored": {
+        "comments": true,
+        "reviewActivity": true,
+        "ciFailures": true
+      },
+      "assigned": {
+        "comments": false,
+        "reviewActivity": false,
+        "ciFailures": false
+      },
+      "directReviewRequests": {
+        "comments": false,
+        "reviewActivity": false,
+        "ciFailures": false
+      },
+      "teamReviewRequests": {
+        "comments": false,
+        "reviewActivity": false,
+        "ciFailures": false
+      }
+    }
+    """.data(using: .utf8)!
+    defaults.set(legacyPayload, forKey: "notifications.prMatrix")
+
+    let preferences = PreferencesStore(defaults: defaults).notificationPreferences
+
+    precondition(preferences.authored.relationshipChanges == false)
+    precondition(preferences.assigned.relationshipChanges == false)
 }()
 
 let mergehawkAuthMethodPreferenceTest: Void = {
