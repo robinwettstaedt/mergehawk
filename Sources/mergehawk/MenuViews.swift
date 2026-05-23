@@ -451,9 +451,12 @@ struct MenuRootView: View {
         static let width: CGFloat = 420
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
-        static let tabSwitcherWidth: CGFloat = 351
+        static let tabSwitcherWidth: CGFloat = 320
         static let tabSwitcherLeadingInset: CGFloat = 5
+        static let topBarTrailingInset: CGFloat = 12
         static let notificationTabSegmentWidth: CGFloat = 64
+        static let topBarControlHeight: CGFloat = 24
+        static let refreshStatusWidth: CGFloat = 58
         static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
     }
 
@@ -488,12 +491,13 @@ struct MenuRootView: View {
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
                 timestampPrefix: "",
-                width: 40,
+                width: Self.Layout.refreshStatusWidth,
+                displayMode: .horizontalButton(height: Self.Layout.topBarControlHeight),
                 showsIndicator: false
             )
         }
         .padding(.leading, 8)
-        .padding(.trailing, 8)
+        .padding(.trailing, Self.Layout.topBarTrailingInset)
         .frame(height: Self.Layout.topBarHeight)
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded {
@@ -541,8 +545,17 @@ struct MenuRootView: View {
 }
 
 struct RefreshStatusControl: View {
+    enum DisplayMode {
+        case vertical
+        case horizontalButton(height: CGFloat)
+    }
+
     enum Layout {
         static let width: CGFloat = 82
+        static let refreshIconSize: CGFloat = 22
+        static let horizontalIconSize: CGFloat = 15
+        static let horizontalSpacing: CGFloat = 5
+        static let horizontalHorizontalPadding: CGFloat = 3
     }
 
     let indicatorColor: Color
@@ -555,9 +568,22 @@ struct RefreshStatusControl: View {
     var keyboardShortcut: KeyboardShortcut?
     var timestampPrefix = "updated "
     var width = Layout.width
+    var displayMode = DisplayMode.vertical
     var showsIndicator = true
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
     var body: some View {
+        switch displayMode {
+        case .vertical:
+            verticalBody
+        case .horizontalButton(let height):
+            horizontalButton(height: height)
+        }
+    }
+
+    private var verticalBody: some View {
         VStack(alignment: .center, spacing: 3) {
             HStack(spacing: 7) {
                 if showsIndicator {
@@ -577,16 +603,73 @@ struct RefreshStatusControl: View {
     }
 
     @ViewBuilder
+    private func horizontalButton(height: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6)
+        let button = Button(action: action) {
+            HStack(spacing: Layout.horizontalSpacing) {
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                }
+                Text("\(timestampPrefix)\(updatedText)")
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, Layout.horizontalHorizontalPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .frame(width: width, height: height)
+        .contentShape(shape)
+        .background {
+            shape.fill(.ultraThinMaterial)
+            shape.fill(horizontalHoverFill)
+        }
+        .overlay(
+            shape
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+        )
+        .clipShape(shape)
+        .onHover { isHovered = $0 }
+        .disabled(!isRefreshEnabled)
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
+
+        if let keyboardShortcut {
+            button.keyboardShortcut(keyboardShortcut)
+        } else {
+            button
+        }
+    }
+
+    private var horizontalHoverFill: Color {
+        guard isHovered else {
+            return .clear
+        }
+
+        return colorScheme == .dark
+            ? Color.white.opacity(0.07)
+            : Color.white.opacity(0.35)
+    }
+
+    @ViewBuilder
     private var refreshControl: some View {
         if isRefreshing {
             ProgressView()
                 .controlSize(.small)
-                .frame(width: 22, height: 22)
+                .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
         } else {
             let button = Button(action: action) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 22, height: 22)
+                    .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
