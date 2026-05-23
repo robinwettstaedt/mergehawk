@@ -925,9 +925,18 @@ private struct PullRequestListView: View {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
                     toolbarControls
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 6)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 6)
+                        .background {
+                            if dropdownState.openMenu != nil {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        dropdownState.dismiss()
+                                    }
+                            }
+                        }
 
                     ScrollView(.vertical, showsIndicators: false) {
                         if visiblePullRequests.isEmpty {
