@@ -1632,9 +1632,11 @@ private struct PullRequestPinButton: View {
     let isVisible: Bool
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned))
+            Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned || isHovered))
                 .font(.system(size: 12, weight: .semibold))
                 .rotationEffect(.degrees(PullRequestPinPresentation.rotationDegrees))
                 .frame(width: 22, height: 22)
@@ -1643,6 +1645,7 @@ private struct PullRequestPinButton: View {
         .foregroundStyle(.secondary)
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)
+        .onHover { isHovered = $0 }
         .help(PullRequestPinPresentation.label(isPinned: isPinned))
         .accessibilityLabel(PullRequestPinPresentation.label(isPinned: isPinned))
         .accessibilityHidden(!isVisible)
