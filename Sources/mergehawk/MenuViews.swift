@@ -1616,18 +1616,24 @@ private struct PullRequestRow: View {
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: 2) {
+            HStack(spacing: 0) {
                 PullRequestPinButton(isPinned: isPinned, isVisible: isPinned || isHovered, action: togglePin)
                 PullRequestLinkCopyButton(url: pullRequest.url)
             }
-                .padding(.trailing, 8)
-                .padding(.bottom, 8)
+                .padding(.trailing, 2)
+                .padding(.bottom, 5)
         }
         .onHover { isHovered = $0 }
     }
 }
 
 private struct PullRequestPinButton: View {
+    enum Layout {
+        static let iconSize: CGFloat = 22
+        static let hitSize: CGFloat = 28
+        static let pinGlyphOffsetX: CGFloat = 1
+    }
+
     let isPinned: Bool
     let isVisible: Bool
     let action: () -> Void
@@ -1639,7 +1645,10 @@ private struct PullRequestPinButton: View {
             Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned || isHovered))
                 .font(.system(size: 12, weight: .semibold))
                 .rotationEffect(.degrees(PullRequestPinPresentation.rotationDegrees))
-                .frame(width: 22, height: 22)
+                .frame(width: Layout.iconSize, height: Layout.iconSize)
+                .offset(x: Layout.pinGlyphOffsetX)
+                .frame(width: Layout.hitSize, height: Layout.hitSize)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
@@ -1746,18 +1755,30 @@ private struct AssignedPullRequestPill: View {
 }
 
 struct PullRequestLinkCopyButton: View {
+    enum Layout {
+        static let iconSize: CGFloat = 22
+        static let hitSize: CGFloat = 28
+        static let copyGlyphOffsetX: CGFloat = -1
+    }
+
     let url: URL
+
+    @State private var isHovered = false
 
     var body: some View {
         Button {
             copyToPasteboard(url)
         } label: {
-            Image(systemName: "doc.on.doc")
+            Image(systemName: isHovered ? "doc.on.doc.fill" : "doc.on.doc")
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: 22, height: 22)
+                .frame(width: Layout.iconSize, height: Layout.iconSize)
+                .offset(x: Layout.copyGlyphOffsetX)
+                .frame(width: Layout.hitSize, height: Layout.hitSize)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
+        .onHover { isHovered = $0 }
         .help("Copy PR link")
         .accessibilityLabel("Copy PR link")
     }
