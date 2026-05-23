@@ -61,6 +61,8 @@ enum PullRequestNotificationTitlePresentation {
             "CI failed"
         case .changesRequested:
             actorText(for: notification).map { "Changes requested by \($0)" } ?? "Changes requested"
+        case .relationshipAdded:
+            RelationshipChangeTitlePresentation.title(for: notification.relationshipChanges)
         }
     }
 
@@ -1344,6 +1346,8 @@ private struct PullRequestNotificationRow: View {
             "xmark.octagon"
         case .changesRequested:
             "exclamationmark.triangle"
+        case .relationshipAdded:
+            "person.badge.plus"
         }
     }
 
