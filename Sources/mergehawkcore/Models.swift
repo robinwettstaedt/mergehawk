@@ -403,6 +403,14 @@ public enum PullRequestEventType: String, Codable, Equatable, Sendable {
     case newReview = "new_review"
     case ciFailed = "ci_failed"
     case changesRequested = "changes_requested"
+    case relationshipAdded = "relationship_added"
+}
+
+public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
+    case authored
+    case assigned
+    case directReviewRequest = "direct_review_request"
+    case teamReviewRequest = "team_review_request"
 }
 
 public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
@@ -413,6 +421,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public let actorLogin: String?
     public let activityId: String?
     public let happenedAt: Date?
+    public let relationshipChanges: Set<PullRequestNotificationRelationship>
 
     public init(
         type: PullRequestEventType,
@@ -420,7 +429,8 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         count: Int? = nil,
         actorLogin: String? = nil,
         activityId: String? = nil,
-        happenedAt: Date? = nil
+        happenedAt: Date? = nil,
+        relationshipChanges: Set<PullRequestNotificationRelationship> = []
     ) {
         self.type = type
         self.prId = prId
@@ -428,6 +438,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         self.actorLogin = actorLogin
         self.activityId = activityId
         self.happenedAt = happenedAt
+        self.relationshipChanges = relationshipChanges
     }
 }
 
@@ -442,6 +453,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let url: URL
     public let actorLogin: String?
     public let activityId: String?
+    public let relationshipChanges: Set<PullRequestNotificationRelationship>
     public let createdAt: Date
     public let prUpdatedAt: Date
     public var read: Bool
@@ -457,6 +469,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         case url
         case actorLogin
         case activityId
+        case relationshipChanges
         case createdAt
         case prUpdatedAt
         case read
@@ -479,6 +492,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.url = pullRequest.url
         self.actorLogin = event.actorLogin
         self.activityId = event.activityId
+        self.relationshipChanges = event.relationshipChanges
         self.createdAt = createdAt
         self.prUpdatedAt = pullRequest.updatedAt
         self.read = read
@@ -496,6 +510,10 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.url = try container.decode(URL.self, forKey: .url)
         self.actorLogin = try container.decodeIfPresent(String.self, forKey: .actorLogin)
         self.activityId = try container.decodeIfPresent(String.self, forKey: .activityId)
+        self.relationshipChanges = try container.decodeIfPresent(
+            Set<PullRequestNotificationRelationship>.self,
+            forKey: .relationshipChanges
+        ) ?? []
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.prUpdatedAt = try container.decode(Date.self, forKey: .prUpdatedAt)
         self.read = try container.decode(Bool.self, forKey: .read)
@@ -571,17 +589,11 @@ public struct GitHubInboxFetchResult: Equatable, Sendable {
     }
 }
 
-public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
-    case authored
-    case assigned
-    case directReviewRequest = "direct_review_request"
-    case teamReviewRequest = "team_review_request"
-}
-
 public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
     case comments
     case reviewActivity = "review_activity"
     case ciFailures = "ci_failures"
+    case relationshipChanges = "relationship_changes"
 
     public init(eventType: PullRequestEventType) {
         switch eventType {
@@ -591,6 +603,8 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
             self = .reviewActivity
         case .ciFailed:
             self = .ciFailures
+        case .relationshipAdded:
+            self = .relationshipChanges
         }
     }
 }
@@ -599,22 +613,58 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
     public var comments: Bool
     public var reviewActivity: Bool
     public var ciFailures: Bool
+    public var relationshipChanges: Bool
 
+    public static let authoredDefaults = PullRequestNotificationActivityPreferences(
+        comments: true,
+        reviewActivity: true,
+        ciFailures: true,
+        relationshipChanges: false
+    )
     public static let enabled = PullRequestNotificationActivityPreferences(
         comments: true,
         reviewActivity: true,
-        ciFailures: true
+        ciFailures: true,
+        relationshipChanges: true
     )
     public static let disabled = PullRequestNotificationActivityPreferences(
         comments: false,
         reviewActivity: false,
-        ciFailures: false
+        ciFailures: false,
+        relationshipChanges: false
+    )
+    public static let relationshipChangesOnly = PullRequestNotificationActivityPreferences(
+        comments: false,
+        reviewActivity: false,
+        ciFailures: false,
+        relationshipChanges: true
     )
 
-    public init(comments: Bool, reviewActivity: Bool, ciFailures: Bool) {
+    enum CodingKeys: String, CodingKey {
+        case comments
+        case reviewActivity
+        case ciFailures
+        case relationshipChanges
+    }
+
+    public init(
+        comments: Bool,
+        reviewActivity: Bool,
+        ciFailures: Bool,
+        relationshipChanges: Bool = false
+    ) {
         self.comments = comments
         self.reviewActivity = reviewActivity
         self.ciFailures = ciFailures
+        self.relationshipChanges = relationshipChanges
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.comments = try container.decode(Bool.self, forKey: .comments)
+        self.reviewActivity = try container.decode(Bool.self, forKey: .reviewActivity)
+        self.ciFailures = try container.decode(Bool.self, forKey: .ciFailures)
+        self.relationshipChanges = try container.decodeIfPresent(Bool.self, forKey: .relationshipChanges) ?? false
     }
 
     public func allows(_ activity: PullRequestNotificationActivity) -> Bool {
@@ -625,6 +675,8 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
             reviewActivity
         case .ciFailures:
             ciFailures
+        case .relationshipChanges:
+            relationshipChanges
         }
     }
 }
@@ -636,10 +688,10 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
     public var teamReviewRequests: PullRequestNotificationActivityPreferences
 
     public static let defaults = NotificationPreferences(
-        authored: .enabled,
-        assigned: .disabled,
-        directReviewRequests: .disabled,
-        teamReviewRequests: .disabled
+        authored: .authoredDefaults,
+        assigned: .relationshipChangesOnly,
+        directReviewRequests: .relationshipChangesOnly,
+        teamReviewRequests: .relationshipChangesOnly
     )
 
     public init(
@@ -685,7 +737,10 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
 
     public func allows(event: PullRequestEvent, for pullRequest: PullRequest) -> Bool {
         let activity = PullRequestNotificationActivity(eventType: event.type)
-        return Self.relationships(matching: pullRequest).contains { relationship in
+        let relationships = event.relationshipChanges.isEmpty
+            ? Set(Self.relationships(matching: pullRequest))
+            : event.relationshipChanges
+        return relationships.contains { relationship in
             preferences(for: relationship).allows(activity)
         }
     }

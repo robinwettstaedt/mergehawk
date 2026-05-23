@@ -8,6 +8,8 @@ public enum PRActivityDetector {
 
         var events: [PullRequestEvent] = []
 
+        events.append(contentsOf: relationshipAddedEvents(previous: previous, current: current))
+
         let reviewEvents = reviewOutcomeEvents(previous: previous, current: current)
         events.append(contentsOf: reviewEvents)
         events.append(contentsOf: commentEvents(
@@ -21,6 +23,35 @@ public enum PRActivityDetector {
         }
 
         return events
+    }
+
+    private static func relationshipAddedEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {
+        guard !current.isMine else {
+            return []
+        }
+
+        var changes = Set<PullRequestNotificationRelationship>()
+        if !previous.isAssignedToViewer, current.isAssignedToViewer {
+            changes.insert(.assigned)
+        }
+        if !previous.reviewRequestKind.includesDirect, current.reviewRequestKind.includesDirect {
+            changes.insert(.directReviewRequest)
+        }
+        if !previous.reviewRequestKind.includesTeam, current.reviewRequestKind.includesTeam {
+            changes.insert(.teamReviewRequest)
+        }
+
+        guard !changes.isEmpty else {
+            return []
+        }
+        return [
+            PullRequestEvent(
+                type: .relationshipAdded,
+                prId: current.id,
+                happenedAt: current.updatedAt,
+                relationshipChanges: changes
+            )
+        ]
     }
 
     private static func reviewOutcomeEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {

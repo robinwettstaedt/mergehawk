@@ -14,6 +14,8 @@ struct Runner {
         try testCommentCountFallbackCoversMissingFetchedActivities()
         try testIgnoresSelfAuthoredPeopleActivity()
         try testDetectsCIFailuresForIncomingPRs()
+        try testDetectsIncomingRelationshipAddedTransitions()
+        try testRelationshipAddedFilteringUsesChangedRelationships()
         try testNotificationPreferencesDefaultToAuthoredOnly()
         try testPreferencesFilterEvents()
         try testNotificationPreferencesAllowEachRelationshipAndActivity()
@@ -402,6 +404,77 @@ struct Runner {
         try expect(PRActivityDetector.detect(previous: previous, current: current).map(\.type) == [.ciFailed])
     }
 
+    private static func testDetectsIncomingRelationshipAddedTransitions() throws {
+        let assigned = PRActivityDetector.detect(
+            previous: .fixture(id: "PR_ASSIGNED", isAssignedToViewer: false, isMine: false),
+            current: .fixture(id: "PR_ASSIGNED", isAssignedToViewer: true, isMine: false)
+        )
+        try expect(assigned.map(\.type) == [.relationshipAdded])
+        try expect(assigned[0].relationshipChanges == [.assigned])
+
+        let direct = PRActivityDetector.detect(
+            previous: .fixture(id: "PR_DIRECT", reviewRequestKind: .none, isMine: false),
+            current: .fixture(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false)
+        )
+        try expect(direct.map(\.type) == [.relationshipAdded])
+        try expect(direct[0].relationshipChanges == [.directReviewRequest])
+
+        let team = PRActivityDetector.detect(
+            previous: .fixture(id: "PR_TEAM", reviewRequestKind: .none, isMine: false),
+            current: .fixture(id: "PR_TEAM", reviewRequestKind: .team, isMine: false)
+        )
+        try expect(team.map(\.type) == [.relationshipAdded])
+        try expect(team[0].relationshipChanges == [.teamReviewRequest])
+
+        let combined = PRActivityDetector.detect(
+            previous: .fixture(id: "PR_COMBINED", reviewRequestKind: .none, isAssignedToViewer: false, isMine: false),
+            current: .fixture(id: "PR_COMBINED", reviewRequestKind: .directAndTeam, isAssignedToViewer: true, isMine: false)
+        )
+        try expect(combined.map(\.type) == [.relationshipAdded])
+        try expect(combined[0].relationshipChanges == [.assigned, .directReviewRequest, .teamReviewRequest])
+
+        let selfAuthored = PRActivityDetector.detect(
+            previous: .fixture(id: "PR_SELF", reviewRequestKind: .none, isAssignedToViewer: false, isMine: true),
+            current: .fixture(id: "PR_SELF", reviewRequestKind: .direct, isAssignedToViewer: true, isMine: true)
+        )
+        try expect(selfAuthored.isEmpty)
+    }
+
+    private static func testRelationshipAddedFilteringUsesChangedRelationships() throws {
+        let pullRequest = PullRequest.fixture(
+            id: "PR_OVERLAP_RELATIONSHIP",
+            reviewRequestKind: .direct,
+            isAssignedToViewer: true,
+            isMine: false
+        )
+        let preferences = NotificationPreferences(
+            authored: .disabled,
+            assigned: PullRequestNotificationActivityPreferences(
+                comments: false,
+                reviewActivity: false,
+                ciFailures: false,
+                relationshipChanges: true
+            ),
+            directReviewRequests: .disabled,
+            teamReviewRequests: .disabled
+        )
+        let assignedEvent = PullRequestEvent(
+            type: .relationshipAdded,
+            prId: pullRequest.id,
+            relationshipChanges: [.assigned]
+        )
+        let directEvent = PullRequestEvent(
+            type: .relationshipAdded,
+            prId: pullRequest.id,
+            relationshipChanges: [.directReviewRequest]
+        )
+
+        try expect(
+            PRActivityDetector.filter([assignedEvent, directEvent], preferences: preferences, pullRequest: pullRequest)
+                == [assignedEvent]
+        )
+    }
+
     private static func testNotificationPreferencesDefaultToAuthoredOnly() throws {
         let authored = PullRequest.fixture(id: "PR_AUTHORED", isMine: true)
         let assigned = PullRequest.fixture(id: "PR_ASSIGNED", isAssignedToViewer: true, isMine: false)
@@ -409,6 +482,14 @@ struct Runner {
 
         try expect(NotificationPreferences.defaults.allows(event: event, for: authored))
         try expect(!NotificationPreferences.defaults.allows(event: event, for: assigned))
+        try expect(NotificationPreferences.defaults.allows(
+            event: PullRequestEvent(
+                type: .relationshipAdded,
+                prId: assigned.id,
+                relationshipChanges: [.assigned]
+            ),
+            for: assigned
+        ))
     }
 
     private static func testPreferencesFilterEvents() throws {
@@ -955,7 +1036,8 @@ struct Runner {
         PullRequestNotificationActivityPreferences(
             comments: activity == .comments,
             reviewActivity: activity == .reviewActivity,
-            ciFailures: activity == .ciFailures
+            ciFailures: activity == .ciFailures,
+            relationshipChanges: activity == .relationshipChanges
         )
     }
 
@@ -967,6 +1049,8 @@ struct Runner {
             .reviewApproved
         case .ciFailures:
             .ciFailed
+        case .relationshipChanges:
+            .relationshipAdded
         }
     }
 
