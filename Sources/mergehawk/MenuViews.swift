@@ -642,7 +642,7 @@ struct RefreshStatusControl: View {
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
                 }
-                Text("\(timestampPrefix)\(updatedText)")
+                Text("\(timestampPrefix)\(compactUpdatedText)")
                     .font(.caption2)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -710,6 +710,17 @@ struct RefreshStatusControl: View {
             return "never"
         }
         return updatedAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    private var compactUpdatedText: String {
+        guard let updatedAt else {
+            return "never"
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "H:mm"
+        return formatter.string(from: updatedAt)
     }
 }
 
