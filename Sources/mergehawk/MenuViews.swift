@@ -425,6 +425,12 @@ struct MenuControlButton: View {
     }
 
     private var hoverFill: Color {
+        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+    }
+}
+
+private enum HoverFillPresentation {
+    static func fill(isHovered: Bool, colorScheme: ColorScheme) -> Color {
         guard isHovered else {
             return .clear
         }
@@ -670,13 +676,7 @@ struct RefreshStatusControl: View {
     }
 
     private var horizontalHoverFill: Color {
-        guard isHovered else {
-            return .clear
-        }
-
-        return colorScheme == .dark
-            ? Color.white.opacity(0.07)
-            : Color.white.opacity(0.35)
+        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
     }
 
     @ViewBuilder
@@ -1628,12 +1628,6 @@ private struct PullRequestRow: View {
 }
 
 private struct PullRequestPinButton: View {
-    enum Layout {
-        static let iconSize: CGFloat = 22
-        static let hitSize: CGFloat = 28
-        static let pinGlyphOffsetX: CGFloat = 1
-    }
-
     let isPinned: Bool
     let isVisible: Bool
     let action: () -> Void
@@ -1645,9 +1639,9 @@ private struct PullRequestPinButton: View {
             Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned || isHovered))
                 .font(.system(size: 12, weight: .semibold))
                 .rotationEffect(.degrees(PullRequestPinPresentation.rotationDegrees))
-                .frame(width: Layout.iconSize, height: Layout.iconSize)
-                .offset(x: Layout.pinGlyphOffsetX)
-                .frame(width: Layout.hitSize, height: Layout.hitSize)
+                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
+                .offset(x: PullRequestActionButtonLayout.pinGlyphOffsetX)
+                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1659,6 +1653,13 @@ private struct PullRequestPinButton: View {
         .accessibilityLabel(PullRequestPinPresentation.label(isPinned: isPinned))
         .accessibilityHidden(!isVisible)
     }
+}
+
+private enum PullRequestActionButtonLayout {
+    static let iconSize: CGFloat = 22
+    static let hitSize: CGFloat = 28
+    static let pinGlyphOffsetX: CGFloat = 1
+    static let copyGlyphOffsetX: CGFloat = -1
 }
 
 private struct DraftPullRequestIndicator: View {
@@ -1692,13 +1693,7 @@ private struct TransparentCardStyle: ViewModifier {
     }
 
     private var hoverFill: Color {
-        guard isHovered else {
-            return .clear
-        }
-
-        return colorScheme == .dark
-            ? Color.white.opacity(0.07)
-            : Color.white.opacity(0.35)
+        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
     }
 
     private var borderColor: Color {
@@ -1755,12 +1750,6 @@ private struct AssignedPullRequestPill: View {
 }
 
 struct PullRequestLinkCopyButton: View {
-    enum Layout {
-        static let iconSize: CGFloat = 22
-        static let hitSize: CGFloat = 28
-        static let copyGlyphOffsetX: CGFloat = -1
-    }
-
     let url: URL
 
     @State private var isHovered = false
@@ -1771,9 +1760,9 @@ struct PullRequestLinkCopyButton: View {
         } label: {
             Image(systemName: isHovered ? "doc.on.doc.fill" : "doc.on.doc")
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: Layout.iconSize, height: Layout.iconSize)
-                .offset(x: Layout.copyGlyphOffsetX)
-                .frame(width: Layout.hitSize, height: Layout.hitSize)
+                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
+                .offset(x: PullRequestActionButtonLayout.copyGlyphOffsetX)
+                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
