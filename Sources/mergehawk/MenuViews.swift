@@ -385,7 +385,12 @@ struct MenuControlButton: View {
     let help: String
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6)
+
         Button {
             action()
         } label: {
@@ -404,14 +409,35 @@ struct MenuControlButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.ultraThinMaterial)
+        .contentShape(shape)
+        .background {
+            shape.fill(.ultraThinMaterial)
+            shape.fill(hoverFill)
+        }
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            shape
                 .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(shape)
+        .onHover { isHovered = $0 }
         .help(help)
         .accessibilityLabel(help)
+    }
+
+    private var hoverFill: Color {
+        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+    }
+}
+
+private enum HoverFillPresentation {
+    static func fill(isHovered: Bool, colorScheme: ColorScheme) -> Color {
+        guard isHovered else {
+            return .clear
+        }
+
+        return colorScheme == .dark
+            ? Color.white.opacity(0.07)
+            : Color.white.opacity(0.35)
     }
 }
 
@@ -451,9 +477,12 @@ struct MenuRootView: View {
         static let width: CGFloat = 420
         static let height: CGFloat = 650
         static let topBarHeight: CGFloat = 45
-        static let tabSwitcherWidth: CGFloat = 351
+        static let tabSwitcherWidth: CGFloat = 320
         static let tabSwitcherLeadingInset: CGFloat = 5
+        static let topBarTrailingInset: CGFloat = 12
         static let notificationTabSegmentWidth: CGFloat = 64
+        static let topBarControlHeight: CGFloat = 24
+        static let refreshStatusWidth: CGFloat = 58
         static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
     }
 
@@ -488,12 +517,13 @@ struct MenuRootView: View {
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
                 timestampPrefix: "",
-                width: 40,
+                width: Self.Layout.refreshStatusWidth,
+                displayMode: .horizontalButton(height: Self.Layout.topBarControlHeight),
                 showsIndicator: false
             )
         }
         .padding(.leading, 8)
-        .padding(.trailing, 8)
+        .padding(.trailing, Self.Layout.topBarTrailingInset)
         .frame(height: Self.Layout.topBarHeight)
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded {
@@ -541,8 +571,17 @@ struct MenuRootView: View {
 }
 
 struct RefreshStatusControl: View {
+    enum DisplayMode {
+        case vertical
+        case horizontalButton(height: CGFloat)
+    }
+
     enum Layout {
         static let width: CGFloat = 82
+        static let refreshIconSize: CGFloat = 22
+        static let horizontalIconSize: CGFloat = 15
+        static let horizontalSpacing: CGFloat = 5
+        static let horizontalHorizontalPadding: CGFloat = 3
     }
 
     let indicatorColor: Color
@@ -555,9 +594,22 @@ struct RefreshStatusControl: View {
     var keyboardShortcut: KeyboardShortcut?
     var timestampPrefix = "updated "
     var width = Layout.width
+    var displayMode = DisplayMode.vertical
     var showsIndicator = true
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
     var body: some View {
+        switch displayMode {
+        case .vertical:
+            verticalBody
+        case .horizontalButton(let height):
+            horizontalButton(height: height)
+        }
+    }
+
+    private var verticalBody: some View {
         VStack(alignment: .center, spacing: 3) {
             HStack(spacing: 7) {
                 if showsIndicator {
@@ -577,16 +629,67 @@ struct RefreshStatusControl: View {
     }
 
     @ViewBuilder
+    private func horizontalButton(height: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6)
+        let button = Button(action: action) {
+            HStack(spacing: Layout.horizontalSpacing) {
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                }
+                Text("\(timestampPrefix)\(compactUpdatedText)")
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, Layout.horizontalHorizontalPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .frame(width: width, height: height)
+        .contentShape(shape)
+        .background {
+            shape.fill(.ultraThinMaterial)
+            shape.fill(horizontalHoverFill)
+        }
+        .overlay(
+            shape
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+        )
+        .clipShape(shape)
+        .onHover { isHovered = $0 }
+        .disabled(!isRefreshEnabled)
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
+
+        if let keyboardShortcut {
+            button.keyboardShortcut(keyboardShortcut)
+        } else {
+            button
+        }
+    }
+
+    private var horizontalHoverFill: Color {
+        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+    }
+
+    @ViewBuilder
     private var refreshControl: some View {
         if isRefreshing {
             ProgressView()
                 .controlSize(.small)
-                .frame(width: 22, height: 22)
+                .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
         } else {
             let button = Button(action: action) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 22, height: 22)
+                    .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -607,6 +710,17 @@ struct RefreshStatusControl: View {
             return "never"
         }
         return updatedAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    private var compactUpdatedText: String {
+        guard let updatedAt else {
+            return "never"
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "H:mm"
+        return formatter.string(from: updatedAt)
     }
 }
 
@@ -1513,12 +1627,12 @@ private struct PullRequestRow: View {
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: 2) {
+            HStack(spacing: 0) {
                 PullRequestPinButton(isPinned: isPinned, isVisible: isPinned || isHovered, action: togglePin)
                 PullRequestLinkCopyButton(url: pullRequest.url)
             }
-                .padding(.trailing, 8)
-                .padding(.bottom, 8)
+                .padding(.trailing, 2)
+                .padding(.bottom, 5)
         }
         .onHover { isHovered = $0 }
     }
@@ -1529,21 +1643,34 @@ private struct PullRequestPinButton: View {
     let isVisible: Bool
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned))
+            Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned || isHovered))
                 .font(.system(size: 12, weight: .semibold))
                 .rotationEffect(.degrees(PullRequestPinPresentation.rotationDegrees))
-                .frame(width: 22, height: 22)
+                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
+                .offset(x: PullRequestActionButtonLayout.pinGlyphOffsetX)
+                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)
+        .onHover { isHovered = $0 }
         .help(PullRequestPinPresentation.label(isPinned: isPinned))
         .accessibilityLabel(PullRequestPinPresentation.label(isPinned: isPinned))
         .accessibilityHidden(!isVisible)
     }
+}
+
+private enum PullRequestActionButtonLayout {
+    static let iconSize: CGFloat = 22
+    static let hitSize: CGFloat = 28
+    static let pinGlyphOffsetX: CGFloat = 1
+    static let copyGlyphOffsetX: CGFloat = -1
 }
 
 private struct DraftPullRequestIndicator: View {
@@ -1577,13 +1704,7 @@ private struct TransparentCardStyle: ViewModifier {
     }
 
     private var hoverFill: Color {
-        guard isHovered else {
-            return .clear
-        }
-
-        return colorScheme == .dark
-            ? Color.white.opacity(0.07)
-            : Color.white.opacity(0.35)
+        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
     }
 
     private var borderColor: Color {
@@ -1642,16 +1763,22 @@ private struct AssignedPullRequestPill: View {
 struct PullRequestLinkCopyButton: View {
     let url: URL
 
+    @State private var isHovered = false
+
     var body: some View {
         Button {
             copyToPasteboard(url)
         } label: {
-            Image(systemName: "doc.on.doc")
+            Image(systemName: isHovered ? "doc.on.doc.fill" : "doc.on.doc")
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: 22, height: 22)
+                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
+                .offset(x: PullRequestActionButtonLayout.copyGlyphOffsetX)
+                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
+        .onHover { isHovered = $0 }
         .help("Copy PR link")
         .accessibilityLabel("Copy PR link")
     }
