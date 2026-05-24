@@ -632,9 +632,9 @@ private struct SourceHeaderRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("Notifications")
                 .frame(width: SourceSettingsLayout.columnWidth)
-            Text("My PRs")
+            Text(SourceSettingsCopy.authoredTitle)
                 .frame(width: SourceSettingsLayout.columnWidth)
-            Text("Reviews")
+            Text(SourceSettingsCopy.requestedTitle)
                 .frame(width: SourceSettingsLayout.columnWidth)
         }
         .font(.caption.weight(.semibold))
@@ -647,6 +647,11 @@ private enum SourceSettingsLayout {
     static let columnWidth: CGFloat = 84
     static let rowHeight: CGFloat = 34
     static let disclosureHitSlop: CGFloat = 8
+}
+
+enum SourceSettingsCopy {
+    static let authoredTitle = "Authored"
+    static let requestedTitle = "Requested"
 }
 
 private struct OwnerSourceSettingsSection: View {
@@ -689,6 +694,10 @@ private struct OwnerSourceSettingsRow: View {
 
     var body: some View {
         let preferences = controller.sourcePreferences.ownerPreferences(for: owner)
+        let notificationStatus = preferences.notifications ? "on" : "off"
+        let authoredStatus = preferences.myPullRequests ? "on" : "off"
+        let requestedStatus = preferences.reviewRequests ? "on" : "off"
+
         HStack(spacing: 8) {
             ownerLabel
             Toggle("", isOn: ownerBinding(\.notifications))
@@ -703,7 +712,11 @@ private struct OwnerSourceSettingsRow: View {
         }
         .frame(height: SourceSettingsLayout.rowHeight)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(owner), notifications \(preferences.notifications ? "on" : "off"), My PRs \(preferences.myPullRequests ? "on" : "off"), reviews \(preferences.reviewRequests ? "on" : "off")")
+        .accessibilityLabel(
+            "\(owner), notifications \(notificationStatus), "
+                + "\(SourceSettingsCopy.authoredTitle.lowercased()) \(authoredStatus), "
+                + "\(SourceSettingsCopy.requestedTitle.lowercased()) \(requestedStatus)"
+        )
     }
 
     @ViewBuilder
