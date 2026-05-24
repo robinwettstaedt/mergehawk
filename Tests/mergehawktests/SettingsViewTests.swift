@@ -34,6 +34,11 @@ let mergehawkNotificationMatrixSettingsModelTest: Void = {
     ])
 }()
 
+let mergehawkSourceSettingsCopyTest: Void = {
+    precondition(SourceSettingsCopy.authoredTitle == "Authored")
+    precondition(SourceSettingsCopy.requestedTitle == "Requested")
+}()
+
 let mergehawkSourceCatalogSearchTest: Void = {
     let catalog = SourceCatalog(owners: [
         OwnerSource(owner: "acme", repositories: [
