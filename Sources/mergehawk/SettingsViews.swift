@@ -156,9 +156,6 @@ private struct GeneralSettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
-            Button("Refresh Now") {
-                controller.refresh()
-            }
         }
         .formStyle(.grouped)
     }
@@ -504,7 +501,8 @@ private struct SourcesSettingsView: View {
                     accessibilityLabel: "Refresh sources",
                     keyboardShortcut: KeyboardShortcut("r", modifiers: .command),
                     timestampPrefix: "",
-                    width: 40,
+                    width: 58,
+                    displayMode: .horizontalButton(height: 24),
                     showsIndicator: false
                 )
             }

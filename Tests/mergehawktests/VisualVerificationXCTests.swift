@@ -59,6 +59,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("settings-github-signed-out.png")
             )
             try render(
+                SettingsRootView(controller: controller, selection: .general),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-general.png")
+            )
+            try render(
                 SettingsRootView(controller: controller, selection: .notifications),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-notifications.png")
