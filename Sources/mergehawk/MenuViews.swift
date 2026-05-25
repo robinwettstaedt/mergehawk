@@ -555,7 +555,7 @@ struct MenuRootView: View {
                 indicatorColor: controller.hasAttention ? .red : .green,
                 isRefreshing: controller.isRefreshing,
                 updatedAt: controller.state.syncedAt,
-                action: controller.refreshManually,
+                action: controller.refresh,
                 isRefreshEnabled: controller.state.authStatus == .signedIn,
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
@@ -1084,12 +1084,10 @@ private struct PullRequestListView: View {
     }
 
     var body: some View {
-        if !hasSourcePullRequests {
-            if controller.showsGitHubAppRepositoryAccessPrompt {
-                GitHubAppRepositoryAccessPrompt(controller: controller)
-            } else {
-                EmptyMenuState(text: emptyText)
-            }
+        if controller.showsGitHubAppRepositoryAccessPrompt {
+            GitHubAppRepositoryAccessPrompt(controller: controller)
+        } else if !hasSourcePullRequests {
+            EmptyMenuState(text: emptyText)
         } else {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {

@@ -335,7 +335,7 @@ import mergehawkcore
     precondition(controller.sourceErrorMessage == FakeGitHubProvider.TestError.sourceCatalogFailed.localizedDescription)
 }()
 
-@MainActor let mergehawkGitHubAppManualRefreshChecksRepositoryAccessTest: Void = {
+@MainActor let mergehawkGitHubAppRefreshChecksRepositoryAccessTest: Void = {
     let fakeClient = FakeGitHubProvider(
         sourceCatalogResult: .success(SourceCatalog(repositories: [
             RepositorySource(owner: "rw", name: "story-tales")
@@ -364,7 +364,7 @@ import mergehawkcore
     }
 
     fakeClient.installationsResult = .success(GitHubAppInstallations(installations: []))
-    controller.refreshManually()
+    controller.refresh()
     waitUntil(timeout: 1.0) {
         fakeClient.fetchInstallationsCount == 2
             && controller.gitHubAppRepositoryAccessStatus == .noInstallations
@@ -373,7 +373,7 @@ import mergehawkcore
     precondition(controller.showsGitHubAppRepositoryAccessPrompt)
 }()
 
-@MainActor let mergehawkPATManualRefreshDoesNotCheckGitHubAppInstallationsTest: Void = {
+@MainActor let mergehawkPATRefreshDoesNotCheckGitHubAppInstallationsTest: Void = {
     let fakeClient = FakeGitHubProvider(
         sourceCatalogResult: .success(SourceCatalog(repositories: [], accountLogin: "rw")),
         installationsResult: .success(GitHubAppInstallations(installations: []))
@@ -391,7 +391,7 @@ import mergehawkcore
         controller.state.authStatus == .signedIn
     }
 
-    controller.refreshManually()
+    controller.refresh()
     RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
 
     precondition(fakeClient.fetchInstallationsCount == 0)
@@ -420,7 +420,7 @@ import mergehawkcore
     }
 }()
 
-@MainActor let mergehawkAutomaticRefreshDoesNotCheckGitHubAppInstallationsTest: Void = {
+@MainActor let mergehawkAutomaticRefreshChecksGitHubAppInstallationsTest: Void = {
     let fakeClient = FakeGitHubProvider(
         sourceCatalogResult: .success(SourceCatalog(repositories: [
             RepositorySource(owner: "rw", name: "story-tales")
@@ -453,7 +453,9 @@ import mergehawkcore
         fakeClient.fetchPullRequestsCount > 1
     }
 
-    precondition(fakeClient.fetchInstallationsCount == 1)
+    waitUntil(timeout: 1.0) {
+        fakeClient.fetchInstallationsCount > 1
+    }
 }()
 
 @MainActor let mergehawkStartAtLoginTest: Void = {

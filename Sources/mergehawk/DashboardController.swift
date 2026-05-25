@@ -506,16 +506,7 @@ final class DashboardController: ObservableObject {
 
     func refresh() {
         Task {
-            await sync()
-        }
-    }
-
-    func refreshManually() {
-        Task {
-            if canCheckGitHubAppRepositoryAccess {
-                await fetchSourceCatalog()
-            }
-            await sync()
+            await refreshDashboard()
         }
     }
 
@@ -797,8 +788,7 @@ final class DashboardController: ObservableObject {
             accountProvider: { [weak self] in self?.account }
         )
         Task {
-            await sync()
-            await fetchSourceCatalog()
+            await refreshDashboard()
         }
     }
 
@@ -1100,7 +1090,10 @@ final class DashboardController: ObservableObject {
             let nextState = try await syncEngine.sync()
             recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
             state = nextState
-            if authMethod == .oauth, !launchConfiguration.usesMockData, !nextState.pullRequests.isEmpty {
+            if authMethod == .oauth,
+               !launchConfiguration.usesMockData,
+               gitHubAppRepositoryAccessStatus != .noInstallations,
+               !nextState.pullRequests.isEmpty {
                 gitHubAppRepositoryAccessStatus = .configured
                 gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
             }
@@ -1117,6 +1110,13 @@ final class DashboardController: ObservableObject {
             }
         }
         isRefreshing = false
+    }
+
+    private func refreshDashboard() async {
+        if canCheckGitHubAppRepositoryAccess {
+            await fetchSourceCatalog()
+        }
+        await sync()
     }
 
     private func isAuthenticationFailure(_ error: Error) -> Bool {
@@ -1176,7 +1176,7 @@ final class DashboardController: ObservableObject {
                 guard let self else {
                     break
                 }
-                await self.sync()
+                await self.refreshDashboard()
             }
         }
     }
