@@ -13,6 +13,11 @@ struct Runner {
         try testOutcomeReviewKeepsUnrepresentedCommentFallback()
         try testCommentCountFallbackCoversMissingFetchedActivities()
         try testIgnoresSelfAuthoredPeopleActivity()
+        try testDetectsOtherCommitsOnAuthoredPullRequests()
+        try testOtherCommitActorRequiresOneDistinctOtherLogin()
+        try testLegacyCommitSnapshotsBaselineWithoutEvents()
+        try testIgnoresViewerOnlyAndUnknownAuthoredCommits()
+        try testIgnoresOtherCommitsOnNonAuthoredPullRequests()
         try testDetectsCIFailuresForIncomingPRs()
         try testDetectsIncomingRelationshipAddedTransitions()
         try testRelationshipAddedFilteringUsesChangedRelationships()
@@ -34,6 +39,7 @@ struct Runner {
         try testNormalizesReviewOutcomeFromLatestOpinionatedReviews()
         try testNormalizesReviewRequestKinds()
         try testNormalizesViewerAssignment()
+        try testNormalizesCommitIdentityMetadata()
         try testBuildsThreePullRequestSearchQueries()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
         print("mergehawkcore tests passed")
@@ -397,6 +403,211 @@ struct Runner {
         try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
     }
 
+    private static func testDetectsOtherCommitsOnAuthoredPullRequests() throws {
+        let previous = PullRequest.fixture(
+            id: "PR_OTHER_COMMIT",
+            recentCommits: [
+                PullRequestCommit(
+                    oid: "commit-old",
+                    authoredAt: Date(timeIntervalSince1970: 100),
+                    committedAt: Date(timeIntervalSince1970: 100),
+                    authorLogin: "rw",
+                    committerLogin: "rw"
+                )
+            ],
+            isMine: true,
+            author: "rw"
+        )
+        let singleOther = PullRequest.fixture(
+            id: "PR_OTHER_COMMIT",
+            recentCommits: previous.recentCommits + [
+                PullRequestCommit(
+                    oid: "commit-new",
+                    authoredAt: Date(timeIntervalSince1970: 200),
+                    committedAt: Date(timeIntervalSince1970: 250),
+                    authorLogin: "frontend-sam",
+                    committerLogin: "rw"
+                )
+            ],
+            isMine: true,
+            author: "rw"
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: singleOther) == [
+            PullRequestEvent(
+                type: .otherCommitAdded,
+                prId: "PR_OTHER_COMMIT",
+                count: 1,
+                actorLogin: "frontend-sam",
+                happenedAt: Date(timeIntervalSince1970: 250)
+            )
+        ])
+
+        let multipleOthers = PullRequest.fixture(
+            id: "PR_OTHER_COMMIT",
+            recentCommits: previous.recentCommits + [
+                PullRequestCommit(
+                    oid: "commit-new-1",
+                    authoredAt: Date(timeIntervalSince1970: 200),
+                    committedAt: Date(timeIntervalSince1970: 250),
+                    authorLogin: "frontend-sam",
+                    committerLogin: "rw"
+                ),
+                PullRequestCommit(
+                    oid: "commit-new-2",
+                    authoredAt: Date(timeIntervalSince1970: 300),
+                    committedAt: Date(timeIntervalSince1970: 350),
+                    authorLogin: "docs-lee",
+                    committerLogin: "docs-lee"
+                )
+            ],
+            isMine: true,
+            author: "rw"
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: multipleOthers) == [
+            PullRequestEvent(
+                type: .otherCommitAdded,
+                prId: "PR_OTHER_COMMIT",
+                count: 2,
+                happenedAt: Date(timeIntervalSince1970: 350)
+            )
+        ])
+    }
+
+    private static func testOtherCommitActorRequiresOneDistinctOtherLogin() throws {
+        let previous = PullRequest.fixture(
+            id: "PR_SPLIT_COMMIT",
+            recentCommits: [
+                PullRequestCommit(
+                    oid: "commit-old",
+                    authoredAt: Date(timeIntervalSince1970: 100),
+                    committedAt: Date(timeIntervalSince1970: 100),
+                    authorLogin: "rw",
+                    committerLogin: "rw"
+                )
+            ],
+            isMine: true,
+            author: "rw"
+        )
+        let current = PullRequest.fixture(
+            id: "PR_SPLIT_COMMIT",
+            recentCommits: previous.recentCommits + [
+                PullRequestCommit(
+                    oid: "commit-new",
+                    authoredAt: Date(timeIntervalSince1970: 200),
+                    committedAt: Date(timeIntervalSince1970: 250),
+                    authorLogin: "frontend-sam",
+                    committerLogin: "web-flow"
+                )
+            ],
+            isMine: true,
+            author: "rw"
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+            PullRequestEvent(
+                type: .otherCommitAdded,
+                prId: "PR_SPLIT_COMMIT",
+                count: 1,
+                happenedAt: Date(timeIntervalSince1970: 250)
+            )
+        ])
+    }
+
+    private static func testLegacyCommitSnapshotsBaselineWithoutEvents() throws {
+        let legacyJSON = """
+        {
+          "id": "PR_LEGACY_COMMIT_CACHE",
+          "title": "Decode legacy PR snapshot",
+          "number": 40,
+          "url": "https://github.com/acme/mergehawk/pull/40",
+          "repo": "acme/mergehawk",
+          "ciState": "passing",
+          "reviewDecision": "review_required",
+          "commentCount": 0,
+          "commentActivityCount": 0,
+          "recentCommentActivities": [],
+          "reviewCount": 0,
+          "recentReviews": [],
+          "reviewRequestKind": "none",
+          "isAssignedToViewer": false,
+          "isMine": true,
+          "author": "rw",
+          "headRefName": "feature",
+          "mergeable": "unknown",
+          "draft": false,
+          "createdAt": 0,
+          "updatedAt": 0
+        }
+        """
+        let previous = try JSONDecoder().decode(PullRequest.self, from: Data(legacyJSON.utf8))
+        try expect(previous.recentCommits.isEmpty)
+        try expect(!previous.hasRecentCommitMetadata)
+
+        let current = PullRequest.fixture(
+            id: "PR_LEGACY_COMMIT_CACHE",
+            recentCommits: [
+                PullRequestCommit(
+                    oid: "commit-existing",
+                    authoredAt: Date(timeIntervalSince1970: 100),
+                    committedAt: Date(timeIntervalSince1970: 100),
+                    authorLogin: "frontend-sam",
+                    committerLogin: "frontend-sam"
+                )
+            ],
+            isMine: true,
+            author: "rw"
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
+    }
+
+    private static func testIgnoresViewerOnlyAndUnknownAuthoredCommits() throws {
+        let previous = PullRequest.fixture(id: "PR_VIEWER_COMMIT", isMine: true, author: "rw")
+        let current = PullRequest.fixture(
+            id: "PR_VIEWER_COMMIT",
+            recentCommits: [
+                PullRequestCommit(
+                    oid: "commit-viewer",
+                    authoredAt: Date(timeIntervalSince1970: 100),
+                    committedAt: Date(timeIntervalSince1970: 100),
+                    authorLogin: "RW",
+                    committerLogin: "rw"
+                ),
+                PullRequestCommit(
+                    oid: "commit-unknown",
+                    authoredAt: Date(timeIntervalSince1970: 200),
+                    committedAt: Date(timeIntervalSince1970: 200)
+                )
+            ],
+            isMine: true,
+            author: "rw"
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
+    }
+
+    private static func testIgnoresOtherCommitsOnNonAuthoredPullRequests() throws {
+        let previous = PullRequest.fixture(id: "PR_INCOMING_COMMIT", isMine: false, author: "teammate")
+        let current = PullRequest.fixture(
+            id: "PR_INCOMING_COMMIT",
+            recentCommits: [
+                PullRequestCommit(
+                    oid: "commit-new",
+                    authoredAt: Date(timeIntervalSince1970: 100),
+                    committedAt: Date(timeIntervalSince1970: 100),
+                    authorLogin: "frontend-sam",
+                    committerLogin: "frontend-sam"
+                )
+            ],
+            isMine: false,
+            author: "teammate"
+        )
+
+        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
+    }
+
     private static func testDetectsCIFailuresForIncomingPRs() throws {
         let previous = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .passing, isMine: false)
         let current = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .failing, isMine: false)
@@ -482,6 +693,14 @@ struct Runner {
 
         try expect(NotificationPreferences.defaults.allows(event: event, for: authored))
         try expect(!NotificationPreferences.defaults.allows(event: event, for: assigned))
+        try expect(NotificationPreferences.defaults.allows(
+            event: PullRequestEvent(type: .otherCommitAdded, prId: authored.id),
+            for: authored
+        ))
+        try expect(!NotificationPreferences.defaults.allows(
+            event: PullRequestEvent(type: .otherCommitAdded, prId: assigned.id),
+            for: assigned
+        ))
         try expect(NotificationPreferences.defaults.allows(
             event: PullRequestEvent(
                 type: .relationshipAdded,
@@ -1030,6 +1249,34 @@ struct Runner {
         try expect(!GitHubPullRequestNormalizer.normalize(unassignedNode, login: "rw").isAssignedToViewer)
     }
 
+    private static func testNormalizesCommitIdentityMetadata() throws {
+        let node = GitHubPullRequestNode.fixture(
+            reviewThreads: .init(nodes: []),
+            commits: .init(nodes: [
+                .init(commit: .init(
+                    oid: "commit-1",
+                    authoredDate: "2026-05-01T10:00:00Z",
+                    committedDate: "2026-05-01T10:05:00Z",
+                    author: .init(user: .init(login: "frontend-sam")),
+                    committer: .init(user: .init(login: "rw")),
+                    statusCheckRollup: .init(state: "SUCCESS")
+                ))
+            ])
+        )
+
+        let pullRequest = GitHubPullRequestNormalizer.normalize(node, login: "rw")
+        try expect(pullRequest.ciState == .passing)
+        try expect(pullRequest.recentCommits == [
+            PullRequestCommit(
+                oid: "commit-1",
+                authoredAt: Date(timeIntervalSince1970: 1_777_629_600),
+                committedAt: Date(timeIntervalSince1970: 1_777_629_900),
+                authorLogin: "frontend-sam",
+                committerLogin: "rw"
+            )
+        ])
+    }
+
     private static func activityPreferences(
         enabling activity: PullRequestNotificationActivity
     ) -> PullRequestNotificationActivityPreferences {
@@ -1037,7 +1284,8 @@ struct Runner {
             comments: activity == .comments,
             reviewActivity: activity == .reviewActivity,
             ciFailures: activity == .ciFailures,
-            relationshipChanges: activity == .relationshipChanges
+            relationshipChanges: activity == .relationshipChanges,
+            otherCommits: activity == .otherCommits
         )
     }
 
@@ -1051,6 +1299,8 @@ struct Runner {
             .ciFailed
         case .relationshipChanges:
             .relationshipAdded
+        case .otherCommits:
+            .otherCommitAdded
         }
     }
 
@@ -1105,7 +1355,8 @@ private extension GitHubPullRequestNode {
         reviews: ReviewConnection = .init(totalCount: 0),
         latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
         reviewThreads: ReviewThreadConnection = .init(nodes: []),
-        assignees: AssigneeConnection = .init(nodes: [])
+        assignees: AssigneeConnection = .init(nodes: []),
+        commits: CommitConnection = .init(nodes: [])
     ) -> GitHubPullRequestNode {
         GitHubPullRequestNode(
             id: "PR_FIXTURE",
@@ -1123,7 +1374,7 @@ private extension GitHubPullRequestNode {
             reviewThreads: reviewThreads,
             assignees: assignees,
             repository: .init(nameWithOwner: "acme/mergehawk"),
-            commits: .init(nodes: []),
+            commits: commits,
             author: .init(login: "teammate")
         )
     }
@@ -1211,6 +1462,8 @@ private extension PullRequest {
         recentCommentActivities: [PullRequestCommentActivity] = [],
         reviewCount: Int = 0,
         recentReviews: [PullRequestReview] = [],
+        recentCommits: [PullRequestCommit] = [],
+        hasRecentCommitMetadata: Bool = true,
         reviewRequestKind: ReviewRequestKind = .none,
         isAssignedToViewer: Bool = false,
         isMine: Bool = false,
@@ -1231,6 +1484,8 @@ private extension PullRequest {
             recentCommentActivities: recentCommentActivities,
             reviewCount: reviewCount,
             recentReviews: recentReviews,
+            recentCommits: recentCommits,
+            hasRecentCommitMetadata: hasRecentCommitMetadata,
             reviewRequestKind: reviewRequestKind,
             isAssignedToViewer: isAssignedToViewer,
             isMine: isMine,

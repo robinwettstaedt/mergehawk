@@ -9,6 +9,7 @@ public enum PRActivityDetector {
         var events: [PullRequestEvent] = []
 
         events.append(contentsOf: relationshipAddedEvents(previous: previous, current: current))
+        events.append(contentsOf: otherCommitEvents(previous: previous, current: current))
 
         let reviewEvents = reviewOutcomeEvents(previous: previous, current: current)
         events.append(contentsOf: reviewEvents)
@@ -50,6 +51,38 @@ public enum PRActivityDetector {
                 prId: current.id,
                 happenedAt: current.updatedAt,
                 relationshipChanges: changes
+            )
+        ]
+    }
+
+    private static func otherCommitEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {
+        guard current.isMine, previous.hasRecentCommitMetadata else {
+            return []
+        }
+
+        let previousCommitIds = Set(previous.recentCommits.map(\.oid))
+        let newOtherCommits = current.recentCommits
+            .filter { !previousCommitIds.contains($0.oid) }
+            .filter { commit in
+                !commit.otherLogins(comparedTo: current.author).isEmpty
+            }
+            .sorted { $0.committedAt < $1.committedAt }
+
+        guard !newOtherCommits.isEmpty else {
+            return []
+        }
+
+        let actorLogins = newOtherCommits
+            .flatMap { $0.otherLogins(comparedTo: current.author) }
+            .uniquedCaseInsensitive()
+
+        return [
+            PullRequestEvent(
+                type: .otherCommitAdded,
+                prId: current.id,
+                count: newOtherCommits.count,
+                actorLogin: actorLogins.count == 1 ? actorLogins[0] : nil,
+                happenedAt: newOtherCommits.last?.committedAt
             )
         ]
     }
@@ -131,5 +164,27 @@ public enum PRActivityDetector {
         pullRequest: PullRequest
     ) -> [PullRequestEvent] {
         events.filter { preferences.allows(event: $0, for: pullRequest) }
+    }
+}
+
+private extension PullRequestCommit {
+    func otherLogins(comparedTo viewerLogin: String) -> [String] {
+        [authorLogin, committerLogin]
+            .compactMap { $0 }
+            .filter { $0.caseInsensitiveCompare(viewerLogin) != .orderedSame }
+    }
+}
+
+private extension Array where Element == String {
+    func uniquedCaseInsensitive() -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for login in self {
+            let key = login.lowercased()
+            if seen.insert(key).inserted {
+                result.append(login)
+            }
+        }
+        return result
     }
 }

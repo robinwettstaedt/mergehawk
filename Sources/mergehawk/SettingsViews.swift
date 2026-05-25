@@ -8,7 +8,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
     case notifications
     case sources
 
-    static let defaultWindowSize = CGSize(width: 560, height: 580)
+    static let defaultWindowSize = CGSize(width: 660, height: 580)
 
     var title: String {
         switch self {
@@ -388,6 +388,8 @@ private struct NotificationSettingsView: View {
                     activityPreferences.ciFailures = isEnabled
                 case .relationshipChanges:
                     activityPreferences.relationshipChanges = isEnabled
+                case .otherCommits:
+                    activityPreferences.otherCommits = isEnabled
                 }
                 preferences.set(activityPreferences, for: relationship)
                 controller.preferences = preferences
@@ -399,7 +401,14 @@ private struct NotificationSettingsView: View {
         relationship: PullRequestNotificationRelationship,
         activity: PullRequestNotificationActivity
     ) -> Bool {
-        !(relationship == .authored && activity == .relationshipChanges)
+        switch activity {
+        case .relationshipChanges:
+            relationship != .authored
+        case .otherCommits:
+            relationship == .authored
+        case .comments, .reviewActivity, .ciFailures:
+            true
+        }
     }
 }
 
@@ -409,7 +418,7 @@ private enum NotificationMatrixLayout {
 
     static func activityColumnWidth(for activity: PullRequestNotificationActivity) -> CGFloat {
         switch activity {
-        case .relationshipChanges:
+        case .relationshipChanges, .otherCommits:
             104
         case .comments, .reviewActivity, .ciFailures:
             68
@@ -443,6 +452,8 @@ private extension PullRequestNotificationActivity {
             "CI failed"
         case .relationshipChanges:
             "Assigned/\nRequested"
+        case .otherCommits:
+            "Other\ncommits"
         }
     }
 
@@ -456,6 +467,8 @@ private extension PullRequestNotificationActivity {
             "CI failures"
         case .relationshipChanges:
             "assigned or requested"
+        case .otherCommits:
+            "commits by others on authored PRs"
         }
     }
 }

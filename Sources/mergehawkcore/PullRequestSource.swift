@@ -70,6 +70,15 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewDecision: .approved,
                     commentCount: 5,
                     reviewCount: 2,
+                    recentCommits: [
+                        PullRequestCommit(
+                            oid: "PR_4_COMMIT_BASELINE",
+                            authoredAt: Date(timeIntervalSince1970: 1_777_806_000),
+                            committedAt: Date(timeIntervalSince1970: 1_777_806_000),
+                            authorLogin: "rw",
+                            committerLogin: "rw"
+                        )
+                    ],
                     isMine: true,
                     author: "rw",
                     headRefName: "MER-33-review-assignment-summary",
@@ -212,6 +221,22 @@ public final class MockPullRequestSource: PullRequestSource {
                     reviewDecision: .approved,
                     commentCount: 5,
                     reviewCount: 2,
+                    recentCommits: [
+                        PullRequestCommit(
+                            oid: "PR_4_COMMIT_BASELINE",
+                            authoredAt: Date(timeIntervalSince1970: 1_777_806_000),
+                            committedAt: Date(timeIntervalSince1970: 1_777_806_000),
+                            authorLogin: "rw",
+                            committerLogin: "rw"
+                        ),
+                        PullRequestCommit(
+                            oid: "PR_4_COMMIT_OTHER",
+                            authoredAt: Date(timeIntervalSince1970: 1_777_814_000),
+                            committedAt: Date(timeIntervalSince1970: 1_777_814_200),
+                            authorLogin: "platform-nora",
+                            committerLogin: "platform-nora"
+                        )
+                    ],
                     isMine: true,
                     author: "rw",
                     headRefName: "MER-33-review-assignment-summary",
@@ -395,6 +420,16 @@ public final class MockPullRequestSource: PullRequestSource {
                 createdAt: Date(timeIntervalSince1970: 1_777_798_800)
             ),
             PullRequestNotification(
+                event: PullRequestEvent(
+                    type: .otherCommitAdded,
+                    prId: notificationFixtureOtherCommitPullRequest.id,
+                    count: 1,
+                    actorLogin: "platform-nora"
+                ),
+                pullRequest: notificationFixtureOtherCommitPullRequest,
+                createdAt: Date(timeIntervalSince1970: 1_777_797_000)
+            ),
+            PullRequestNotification(
                 event: PullRequestEvent(type: .ciFailed, prId: notificationFixtureCIPullRequest.id),
                 pullRequest: notificationFixtureCIPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_795_200)
@@ -511,6 +546,24 @@ public final class MockPullRequestSource: PullRequestSource {
         mergeable: .unknown,
         draft: false,
         updatedAt: Date(timeIntervalSince1970: 1_777_795_200)
+    )
+
+    private static let notificationFixtureOtherCommitPullRequest = PullRequest(
+        id: "PR_NOTIFICATION_OTHER_COMMIT",
+        title: "Coordinate authored branch updates",
+        number: 46,
+        url: URL(string: "https://github.com/example/desktop/pull/46")!,
+        repo: "example/desktop",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isMine: true,
+        author: "agent-fixture",
+        headRefName: "authored-branch-updates",
+        mergeable: .mergeable,
+        draft: false,
+        updatedAt: Date(timeIntervalSince1970: 1_777_797_000)
     )
 
     private static let notificationFixtureChangesRequestedPullRequest = PullRequest(
