@@ -29,4 +29,14 @@ let mergehawkLaunchConfigurationTest: Void = {
             showsNotificationTypeFixtures: true
         )
     )
+    precondition(
+        LaunchConfiguration.current(
+            arguments: ["mergehawk"],
+            environment: ["MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS": "3"]
+        ) == LaunchConfiguration(
+            usesMockData: false,
+            suppressesMacOSNotifications: false,
+            mockRefreshDelaySeconds: 3
+        )
+    )
 }()
