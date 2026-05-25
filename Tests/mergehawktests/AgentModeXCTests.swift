@@ -61,7 +61,7 @@ final class AgentModeXCTests: XCTestCase {
         }
         XCTAssertEqual(
             notificationClient.records.map(\.eventType),
-            ["new_comment", "ci_failed", "relationship_added", "relationship_added"]
+            ["new_comment", "ci_failed", "other_commit_added", "relationship_added", "relationship_added"]
         )
     }
 
@@ -175,12 +175,12 @@ final class AgentModeXCTests: XCTestCase {
         }
         await waitUntil(timeout: 1.0) {
             await MainActor.run {
-                controller.visiblePullRequestNotifications.count == 4
+                controller.visiblePullRequestNotifications.count == 5
             }
         }
 
         await MainActor.run {
-            XCTAssertEqual(controller.attentionCount, 4)
+            XCTAssertEqual(controller.attentionCount, 5)
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
@@ -188,11 +188,11 @@ final class AgentModeXCTests: XCTestCase {
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
-            XCTAssertEqual(controller.attentionCount, 3)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
+            XCTAssertEqual(controller.attentionCount, 4)
 
             controller.markAllNotificationsRead()
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
             XCTAssertEqual(controller.attentionCount, 0)
             XCTAssertFalse(controller.hasAttention)
         }
@@ -213,7 +213,7 @@ final class AgentModeXCTests: XCTestCase {
         }
 
         await MainActor.run {
-            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 5)
             XCTAssertEqual(restoredController.attentionCount, 0)
         }
     }
@@ -325,9 +325,17 @@ final class AgentModeXCTests: XCTestCase {
         await MainActor.run {
             XCTAssertEqual(
                 Set(controller.visiblePullRequestNotifications.map(\.eventType)),
-                [.relationshipAdded, .newComment, .reviewApproved, .reviewCommented, .ciFailed, .changesRequested]
+                [
+                    .relationshipAdded,
+                    .newComment,
+                    .reviewApproved,
+                    .reviewCommented,
+                    .ciFailed,
+                    .changesRequested,
+                    .otherCommitAdded
+                ]
             )
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 7)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 8)
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
@@ -342,6 +350,11 @@ final class AgentModeXCTests: XCTestCase {
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
                     .contains("Assigned to you")
+            )
+            XCTAssertTrue(
+                controller.visiblePullRequestNotifications
+                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
+                    .contains("New commit by @platform-nora")
             )
             XCTAssertEqual(
                 Set(controller.visibleGitHubInboxNotifications.map(\.subjectType)),
@@ -371,6 +384,11 @@ final class AgentModeXCTests: XCTestCase {
                     reviewRequests: true
                 ),
                 "billing-platform-experiments": OwnerSourcePreferences(
+                    notifications: false,
+                    myPullRequests: true,
+                    reviewRequests: true
+                ),
+                "customer-success-platform": OwnerSourcePreferences(
                     notifications: false,
                     myPullRequests: true,
                     reviewRequests: true
@@ -543,6 +561,39 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertEqual(records[0].relationshipChanges, ["assigned"])
         XCTAssertEqual(records[1].relationshipChanges, ["direct_review_request"])
         XCTAssertEqual(records[2].relationshipChanges, ["assigned", "team_review_request"])
+    }
+
+    func testNotificationContentIncludesOtherCommitTitles() {
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        let events = [
+            PullRequestEvent(
+                type: .otherCommitAdded,
+                prId: "PR_1",
+                count: 1,
+                actorLogin: "frontend-sam"
+            ),
+            PullRequestEvent(
+                type: .otherCommitAdded,
+                prId: "PR_1",
+                count: 2
+            ),
+            PullRequestEvent(
+                type: .otherCommitAdded,
+                prId: "PR_1",
+                count: 1
+            )
+        ]
+
+        let records = NotificationContentBuilder.records(events: events, pullRequests: [pullRequest])
+
+        XCTAssertEqual(records.map(\.title), [
+            "New commit by @frontend-sam",
+            "2 commits by others",
+            "New commit by someone else"
+        ])
+        XCTAssertEqual(records.map(\.count), [1, 2, 1])
+        XCTAssertEqual(records.map(\.eventType), ["other_commit_added", "other_commit_added", "other_commit_added"])
+        XCTAssertEqual(records[0].actorLogin, "frontend-sam")
     }
 
     func testRecordingNotificationClientWritesJsonLines() throws {

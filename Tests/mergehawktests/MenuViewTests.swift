@@ -63,6 +63,29 @@ import mergehawkcore
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests.")
     precondition(PullRequestListCopy.noFilterMatches == "No PRs match these filters.")
+    let otherCommitNotificationPullRequest = PullRequest(
+        id: "other-commit",
+        title: "Other commit notification",
+        number: 13,
+        url: URL(string: "https://github.com/acme/mergehawk/pull/13")!,
+        repo: "acme/mergehawk",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        isMine: true,
+        author: "rw",
+        mergeable: .mergeable,
+        draft: false
+    )
+    precondition(PullRequestNotificationTitlePresentation.title(for: PullRequestNotification(
+        event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 1, actorLogin: "frontend-sam"),
+        pullRequest: otherCommitNotificationPullRequest
+    )) == "New commit by @frontend-sam")
+    precondition(PullRequestNotificationTitlePresentation.title(for: PullRequestNotification(
+        event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 2),
+        pullRequest: otherCommitNotificationPullRequest
+    )) == "2 commits by others")
     let metadataPullRequest = PullRequest(
         id: "metadata",
         title: "Metadata presentation",
@@ -440,6 +463,7 @@ import mergehawkcore
         reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
+        reviewRequestKind: .directAndTeam,
         isAssignedToViewer: true,
         isMine: true,
         author: "rw",
