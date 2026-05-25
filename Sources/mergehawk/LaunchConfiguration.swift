@@ -5,6 +5,7 @@ struct LaunchConfiguration: Equatable {
     var suppressesMacOSNotifications: Bool
     var notificationLogPath: String? = nil
     var showsNotificationTypeFixtures: Bool = false
+    var mockRefreshDelaySeconds: TimeInterval = 0
 
     static func current(
         arguments: [String] = CommandLine.arguments,
@@ -26,7 +27,8 @@ struct LaunchConfiguration: Equatable {
             suppressesMacOSNotifications: suppressesMacOSNotifications,
             notificationLogPath: value(after: "--notification-log", in: arguments)
                 ?? environment["MERGEHAWK_NOTIFICATION_LOG"],
-            showsNotificationTypeFixtures: showsNotificationTypeFixtures
+            showsNotificationTypeFixtures: showsNotificationTypeFixtures,
+            mockRefreshDelaySeconds: positiveTimeInterval(environment["MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS"]) ?? 0
         )
     }
 
@@ -52,5 +54,14 @@ struct LaunchConfiguration: Equatable {
         default:
             return false
         }
+    }
+
+    private static func positiveTimeInterval(_ value: String?) -> TimeInterval? {
+        guard let value,
+              let interval = TimeInterval(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              interval > 0 else {
+            return nil
+        }
+        return interval
     }
 }
