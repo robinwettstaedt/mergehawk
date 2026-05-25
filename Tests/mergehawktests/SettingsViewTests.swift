@@ -77,6 +77,7 @@ let mergehawkSourceCatalogSearchTest: Void = {
     precondition(SourceCatalogSearch.filteredCatalog(catalog, query: "missing").owners.isEmpty)
     precondition(SourceCatalogSearch.sourceCount(catalog) == 4)
     precondition(SourceCatalogSearch.sourceCount(SourceCatalogSearch.filteredCatalog(catalog, query: "merge")) == 1)
+    precondition(SourceCatalogSearch.sourceCount(SourceCatalog(repositories: [], accountLogin: "rw")) == 0)
     precondition(CountSearchPresentation.countLabel(for: 1, singular: "source", plural: "sources") == "1 source")
     precondition(CountSearchPresentation.countLabel(for: 4, singular: "source", plural: "sources") == "4 sources")
 }()

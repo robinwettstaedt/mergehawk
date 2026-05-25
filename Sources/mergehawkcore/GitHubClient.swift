@@ -58,8 +58,21 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
 
         public let nodes: [Node]
-        public init(nodes: [Node]) {
+        public let hasMetadata: Bool
+        public init(nodes: [Node], hasMetadata: Bool = true) {
             self.nodes = nodes
+            self.hasMetadata = hasMetadata
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case nodes
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let decodedNodes = try container.decodeIfPresent([Node?].self, forKey: .nodes) ?? []
+            self.nodes = decodedNodes.compactMap { $0 }
+            self.hasMetadata = decodedNodes.allSatisfy { $0 != nil }
         }
     }
 
@@ -383,6 +396,7 @@ public enum GitHubPullRequestNormalizer {
             reviewCount: node.reviews.totalCount,
             recentReviews: normalizeReviews(node.reviews, login: login),
             recentCommits: normalizeRecentCommits(node.commits),
+            hasRecentCommitMetadata: node.commits?.hasMetadata ?? false,
             reviewRequestKind: normalizeReviewRequestKind(
                 node.reviewRequests,
                 login: login,
@@ -572,7 +586,7 @@ public enum GitHubPullRequestNormalizer {
     }
 }
 
-public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
+public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitHubAppInstallationProviding, GitHubViewerProviding {
     public let sourceKind: DashboardSource = .github
 
     private struct PullRequestSearch {
@@ -583,6 +597,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
     private let tokenProvider: @Sendable () async throws -> String
     private let session: URLSession
     private let decoder = JSONDecoder()
+    private static let commitDateFormatter = ISO8601DateFormatter()
 
     public init(token: String, session: URLSession = .shared) {
         self.tokenProvider = { token }
@@ -629,13 +644,14 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             .map(\.id)
 
         guard !detailIds.isEmpty else {
-            return PullRequestFetchResult(
-                pullRequests: shallowPullRequests.map { pullRequest in
-                    if let previous = previousById[pullRequest.id] {
-                        return Self.mergingDashboardFields(from: pullRequest, withActivityFrom: previous)
-                    }
-                    return pullRequest
+            let pullRequests = shallowPullRequests.map { pullRequest in
+                if let previous = previousById[pullRequest.id] {
+                    return Self.mergingDashboardFields(from: pullRequest, withActivityFrom: previous)
                 }
+                return pullRequest
+            }
+            return PullRequestFetchResult(
+                pullRequests: await fillingMissingCommitMetadata(in: pullRequests)
             )
         }
 
@@ -645,20 +661,21 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
                 uniqueKeysWithValues: detailedPullRequests.map { ($0.id, $0) }
             )
             let requestedDetailIds = Set(detailIds)
-            return PullRequestFetchResult(
-                pullRequests: shallowPullRequests.map { pullRequest in
-                    if let detailed = detailsById[pullRequest.id] {
-                        return Self.mergingRelationshipFields(from: detailed, withRelationshipsFrom: pullRequest)
-                    }
-                    if let previous = previousById[pullRequest.id] {
-                        return Self.mergingDashboardFields(
-                            from: pullRequest,
-                            withActivityFrom: previous,
-                            preserveActivityCounts: requestedDetailIds.contains(pullRequest.id)
-                        )
-                    }
-                    return pullRequest
+            let pullRequests = shallowPullRequests.map { pullRequest in
+                if let detailed = detailsById[pullRequest.id] {
+                    return Self.mergingRelationshipFields(from: detailed, withRelationshipsFrom: pullRequest)
                 }
+                if let previous = previousById[pullRequest.id] {
+                    return Self.mergingDashboardFields(
+                        from: pullRequest,
+                        withActivityFrom: previous,
+                        preserveActivityCounts: requestedDetailIds.contains(pullRequest.id)
+                    )
+                }
+                return pullRequest
+            }
+            return PullRequestFetchResult(
+                pullRequests: await fillingMissingCommitMetadata(in: pullRequests)
             )
         } catch {
             if Self.isAuthenticationFailure(error) {
@@ -688,7 +705,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         for search in Self.pullRequestSearches(login: login) {
             let data = try await graphql(query: Self.pullRequestShallowSearchQuery, variables: ["query": .string(search.query)])
             let payload = try decoder.decode(GraphQLResponse<PullRequestSearchData>.self, from: data)
-            if let errors = payload.errors, !errors.isEmpty {
+            if let errors = payload.errors, hasNonIgnorableGraphQLErrors(errors) {
                 throw GitHubClientError.graphQLErrors(errors.map(\.message).joined(separator: "; "))
             }
             for node in payload.data?.search.nodes ?? [] {
@@ -707,7 +724,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         for chunk in ids.chunked(into: Self.detailRequestChunkSize) {
             let data = try await graphql(query: Self.pullRequestDetailQuery, variables: ["ids": .strings(chunk)])
             let payload = try decoder.decode(GraphQLResponse<PullRequestNodesData>.self, from: data)
-            if let errors = payload.errors, !errors.isEmpty {
+            if let errors = payload.errors, hasNonIgnorableGraphQLErrors(errors) {
                 throw GitHubClientError.graphQLErrors(errors.map(\.message).joined(separator: "; "))
             }
             pullRequests.append(contentsOf: (payload.data?.nodes ?? []).compactMap { node in
@@ -715,6 +732,52 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             })
         }
         return pullRequests
+    }
+
+    private func fillingMissingCommitMetadata(in pullRequests: [PullRequest]) async -> [PullRequest] {
+        var enrichedPullRequests: [PullRequest] = []
+        for pullRequest in pullRequests {
+            guard pullRequest.isMine, !pullRequest.hasRecentCommitMetadata else {
+                enrichedPullRequests.append(pullRequest)
+                continue
+            }
+            do {
+                let recentCommits = try await fetchPullRequestCommits(pullRequest)
+                enrichedPullRequests.append(Self.replacingRecentCommits(in: pullRequest, with: recentCommits))
+            } catch {
+                enrichedPullRequests.append(pullRequest)
+            }
+        }
+        return enrichedPullRequests
+    }
+
+    private func fetchPullRequestCommits(_ pullRequest: PullRequest) async throws -> [PullRequestCommit] {
+        let repoParts = pullRequest.repo.split(separator: "/", maxSplits: 1).map(String.init)
+        guard repoParts.count == 2 else {
+            return []
+        }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "api.github.com"
+        components.path = "/repos/\(repoParts[0])/\(repoParts[1])/pulls/\(pullRequest.number)/commits"
+        components.queryItems = [
+            URLQueryItem(name: "per_page", value: "100")
+        ]
+        guard let url = components.url else {
+            return []
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
+        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response, endpoint: "GitHub pull request commits")
+        return Array(try decoder.decode([GitHubPullRequestCommitResponse].self, from: data)
+            .compactMap(Self.normalizePullRequestCommit)
+            .suffix(20))
     }
 
     private static func needsDetail(shallow: PullRequest, previous: PullRequest?) -> Bool {
@@ -739,6 +802,55 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         return false
     }
 
+    private static func replacingRecentCommits(
+        in pullRequest: PullRequest,
+        with recentCommits: [PullRequestCommit]
+    ) -> PullRequest {
+        PullRequest(
+            id: pullRequest.id,
+            title: pullRequest.title,
+            number: pullRequest.number,
+            url: pullRequest.url,
+            repo: pullRequest.repo,
+            ciState: pullRequest.ciState,
+            reviewDecision: pullRequest.reviewDecision,
+            commentCount: pullRequest.commentCount,
+            commentActivityCount: pullRequest.commentActivityCount,
+            recentCommentActivities: pullRequest.recentCommentActivities,
+            reviewCount: pullRequest.reviewCount,
+            recentReviews: pullRequest.recentReviews,
+            recentCommits: recentCommits,
+            hasRecentCommitMetadata: true,
+            reviewRequestKind: pullRequest.reviewRequestKind,
+            isAssignedToViewer: pullRequest.isAssignedToViewer,
+            isMine: pullRequest.isMine,
+            author: pullRequest.author,
+            headRefName: pullRequest.headRefName,
+            mergeable: pullRequest.mergeable,
+            draft: pullRequest.draft,
+            createdAt: pullRequest.createdAt,
+            updatedAt: pullRequest.updatedAt
+        )
+    }
+
+    private static func normalizePullRequestCommit(
+        _ response: GitHubPullRequestCommitResponse
+    ) -> PullRequestCommit? {
+        guard
+            let authoredAt = commitDateFormatter.date(from: response.commit.author.date),
+            let committedAt = commitDateFormatter.date(from: response.commit.committer.date)
+        else {
+            return nil
+        }
+        return PullRequestCommit(
+            oid: response.sha,
+            authoredAt: authoredAt,
+            committedAt: committedAt,
+            authorLogin: response.author?.login,
+            committerLogin: response.committer?.login
+        )
+    }
+
     private static func mergingDashboardFields(
         from current: PullRequest,
         withActivityFrom previous: PullRequest,
@@ -758,6 +870,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             reviewCount: preserveActivityCounts ? previous.reviewCount : current.reviewCount,
             recentReviews: previous.recentReviews,
             recentCommits: current.recentCommits,
+            hasRecentCommitMetadata: current.hasRecentCommitMetadata,
             reviewRequestKind: current.reviewRequestKind,
             isAssignedToViewer: current.isAssignedToViewer,
             isMine: current.isMine,
@@ -788,6 +901,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             reviewCount: detailed.reviewCount,
             recentReviews: detailed.recentReviews,
             recentCommits: detailed.recentCommits,
+            hasRecentCommitMetadata: detailed.hasRecentCommitMetadata,
             reviewRequestKind: shallow.reviewRequestKind,
             isAssignedToViewer: shallow.isAssignedToViewer,
             isMine: shallow.isMine,
@@ -824,6 +938,27 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
         }
 
         return SourceCatalog(repositories: repositories, accountLogin: accountLogin)
+    }
+
+    public func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        var request = URLRequest(url: URL(string: "https://api.github.com/user/installations")!)
+        request.httpMethod = "GET"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
+        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response, endpoint: "GitHub App installations")
+        let payload = try decoder.decode(GitHubAppInstallationsResponse.self, from: data)
+        return GitHubAppInstallations(installations: payload.installations.map { installation in
+            GitHubAppInstallation(
+                id: installation.id,
+                accountLogin: installation.account.login,
+                accountType: installation.account.type,
+                repositorySelection: installation.repositorySelection,
+                htmlURL: installation.htmlURL
+            )
+        })
     }
 
     private static func pullRequestSearches(login: String) -> [PullRequestSearch] {
@@ -878,6 +1013,12 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
 
     private func accessToken() async throws -> String {
         try await tokenProvider()
+    }
+
+    private func hasNonIgnorableGraphQLErrors<DataPayload>(
+        _ errors: [GraphQLResponse<DataPayload>.GraphQLError]
+    ) -> Bool {
+        return errors.contains { !$0.isInaccessibleCommitMetadata }
     }
 
     static let detailRequestChunkSize = 20
@@ -1239,6 +1380,29 @@ private struct GraphQLRequest: Encodable {
     let variables: [String: GraphQLVariable]
 }
 
+private struct GitHubAppInstallationsResponse: Decodable {
+    let installations: [GitHubAppInstallationResponse]
+}
+
+private struct GitHubAppInstallationResponse: Decodable {
+    struct Account: Decodable {
+        let login: String
+        let type: String
+    }
+
+    let id: Int
+    let account: Account
+    let repositorySelection: GitHubAppInstallation.RepositorySelection
+    let htmlURL: URL?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case account
+        case repositorySelection = "repository_selection"
+        case htmlURL = "html_url"
+    }
+}
+
 private enum GraphQLVariable: Encodable {
     case string(String)
     case strings([String])
@@ -1257,10 +1421,30 @@ private enum GraphQLVariable: Encodable {
 private struct GraphQLResponse<DataPayload: Decodable>: Decodable {
     struct GraphQLError: Decodable {
         let message: String
+        let path: [GraphQLErrorPathComponent]?
+
+        var isInaccessibleCommitMetadata: Bool {
+            message == "Resource not accessible by integration"
+                && path?.contains(.field("commits")) == true
+        }
     }
 
     let data: DataPayload?
     let errors: [GraphQLError]?
+}
+
+private enum GraphQLErrorPathComponent: Decodable, Equatable {
+    case field(String)
+    case index(Int)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let string = try? container.decode(String.self) {
+            self = .field(string)
+        } else {
+            self = .index(try container.decode(Int.self))
+        }
+    }
 }
 
 private struct PullRequestSearchData: Decodable {
@@ -1285,6 +1469,26 @@ private struct ViewerResponse: Decodable {
         case avatarUrl = "avatar_url"
         case profileUrl = "html_url"
     }
+}
+
+private struct GitHubPullRequestCommitResponse: Decodable {
+    struct User: Decodable {
+        let login: String
+    }
+
+    struct Commit: Decodable {
+        struct Actor: Decodable {
+            let date: String
+        }
+
+        let author: Actor
+        let committer: Actor
+    }
+
+    let sha: String
+    let commit: Commit
+    let author: User?
+    let committer: User?
 }
 
 private extension Array {

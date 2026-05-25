@@ -149,12 +149,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func refresh() {
-        controller.refresh()
+        controller.refreshManually()
     }
 
     private func performKeyboardRefresh() {
         refreshMenuItemView?.showKeyboardSelection()
-        controller.refresh()
+        controller.refreshManually()
     }
 
     private func selectKeyboardTab(_ tab: DashboardController.MenuTab) -> Bool {

@@ -12,6 +12,20 @@ public protocol SourceCatalogProviding: AnyObject {
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog
 }
 
+public protocol GitHubAppInstallationProviding: AnyObject {
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations
+}
+
+public protocol GitHubViewerProviding: AnyObject {
+    func fetchViewer() async throws -> GitHubAccount
+}
+
+public typealias GitHubProviding = PullRequestSource
+    & SourceCatalogProviding
+    & GitHubAppInstallationProviding
+    & GitHubViewerProviding
+    & GitHubInboxProviding
+
 public protocol GitHubInboxProviding: AnyObject {
     func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult
     func markInboxThreadRead(threadId: String) async throws

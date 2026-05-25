@@ -33,6 +33,9 @@ import mergehawkcore
     precondition(GitHubSignInView.Copy.permissionText.contains("GitHub App"))
     precondition(GitHubInboxUnavailableCopy.title == "GitHub Inbox unavailable")
     precondition(GitHubInboxUnavailableCopy.message.contains("classic personal access token"))
+    precondition(GitHubAppRepositoryAccessCopy.buttonTitle == "Install or Manage Repository Access")
+    precondition(GitHubAppRepositoryAccessCopy.title(for: .noInstallations) == "Repository access not configured")
+    precondition(GitHubAppRepositoryAccessCopy.message(for: .noVisibleRepositories).contains("no accessible repositories"))
     let templateStatusIcon = StatusIcon.make(attention: false)
     precondition(templateStatusIcon.isTemplate)
     precondition(templateStatusIcon.size == NSSize(width: 26.5, height: 16))
@@ -178,6 +181,40 @@ import mergehawkcore
     precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: [])))
     precondition(statusBarController.performRefreshMenuItemKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: .command)))
     precondition(!statusBarController.performRefreshMenuItemKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: [])))
+
+    let manualRefreshClient = MenuFakeGitHubProvider(
+        sourceCatalogResult: .success(SourceCatalog(repositories: [
+            RepositorySource(owner: "rw", name: "story-tales")
+        ], accountLogin: "rw")),
+        installationsResult: .success(GitHubAppInstallations(installations: [
+            GitHubAppInstallation(
+                id: 1002,
+                accountLogin: "rw",
+                accountType: "User",
+                repositorySelection: .all
+            )
+        ]))
+    )
+    let manualRefreshController = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        automaticRefreshInterval: 0,
+        oauthSignIn: MenuOAuthSignIn(),
+        oauthGitHubClientFactory: { _ in manualRefreshClient }
+    )
+    Task {
+        await manualRefreshController.signInWithGitHub()
+    }
+    waitUntil(timeout: 1.0) {
+        manualRefreshClient.fetchInstallationsCount == 1
+    }
+    manualRefreshClient.installationsResult = .success(GitHubAppInstallations(installations: []))
+    let manualRefreshStatusBarController = StatusBarController(controller: manualRefreshController)
+    _ = manualRefreshStatusBarController.showMenuForTesting(selecting: .myPRs)
+    precondition(manualRefreshStatusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: .command)))
+    waitUntil(timeout: 1.0) {
+        manualRefreshClient.fetchInstallationsCount == 2
+            && manualRefreshController.gitHubAppRepositoryAccessStatus == .noInstallations
+    }
 
     controller.selectedTab = .reviewRequests
     precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "1", modifiers: .command)))
@@ -532,4 +569,52 @@ private func keyEvent(characters: String, modifiers: NSEvent.ModifierFlags) -> N
         isARepeat: false,
         keyCode: 0
     )!
+}
+
+@MainActor
+private struct MenuOAuthSignIn: GitHubOAuthSigningIn {
+    func signIn() async throws -> OAuthTokens {
+        OAuthTokens(accessToken: "oauth-access", refreshToken: "oauth-refresh", expiresAt: .distantFuture)
+    }
+}
+
+private final class MenuFakeGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    var sourceCatalogResult: Result<SourceCatalog, Error>
+    var installationsResult: Result<GitHubAppInstallations, Error>
+    private(set) var fetchInstallationsCount = 0
+
+    init(
+        sourceCatalogResult: Result<SourceCatalog, Error>,
+        installationsResult: Result<GitHubAppInstallations, Error>
+    ) {
+        self.sourceCatalogResult = sourceCatalogResult
+        self.installationsResult = installationsResult
+    }
+
+    func fetchViewer() async throws -> GitHubAccount {
+        GitHubAccount(login: "rw")
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        PullRequestFetchResult(pullRequests: [])
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        try sourceCatalogResult.get()
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        fetchInstallationsCount += 1
+        return try installationsResult.get()
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
 }
