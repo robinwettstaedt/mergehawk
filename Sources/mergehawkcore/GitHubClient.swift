@@ -14,6 +14,13 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public struct CommitConnection: Decodable, Equatable, Sendable {
         public struct Node: Decodable, Equatable, Sendable {
             public struct Commit: Decodable, Equatable, Sendable {
+                public struct GitActor: Decodable, Equatable, Sendable {
+                    public let user: User?
+                    public init(user: User?) {
+                        self.user = user
+                    }
+                }
+
                 public struct StatusCheckRollup: Decodable, Equatable, Sendable {
                     public let state: String?
                     public init(state: String?) {
@@ -21,8 +28,25 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
                     }
                 }
 
+                public let oid: String
+                public let authoredDate: String
+                public let committedDate: String
+                public let author: GitActor?
+                public let committer: GitActor?
                 public let statusCheckRollup: StatusCheckRollup?
-                public init(statusCheckRollup: StatusCheckRollup?) {
+                public init(
+                    oid: String = "",
+                    authoredDate: String = "",
+                    committedDate: String = "",
+                    author: GitActor? = nil,
+                    committer: GitActor? = nil,
+                    statusCheckRollup: StatusCheckRollup?
+                ) {
+                    self.oid = oid
+                    self.authoredDate = authoredDate
+                    self.committedDate = committedDate
+                    self.author = author
+                    self.committer = committer
                     self.statusCheckRollup = statusCheckRollup
                 }
             }
@@ -358,6 +382,7 @@ public enum GitHubPullRequestNormalizer {
             recentCommentActivities: normalizeCommentActivities(node),
             reviewCount: node.reviews.totalCount,
             recentReviews: normalizeReviews(node.reviews, login: login),
+            recentCommits: normalizeRecentCommits(node.commits),
             reviewRequestKind: normalizeReviewRequestKind(
                 node.reviewRequests,
                 login: login,
@@ -453,6 +478,23 @@ public enum GitHubPullRequestNormalizer {
             }
         }
         return (pullRequestComments + reviewThreadComments).sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private static func normalizeRecentCommits(
+        _ commits: GitHubPullRequestNode.CommitConnection?
+    ) -> [PullRequestCommit] {
+        commits?.nodes.compactMap { node in
+            guard !node.commit.oid.isEmpty else {
+                return nil
+            }
+            return PullRequestCommit(
+                oid: node.commit.oid,
+                authoredAt: normalizeDate(node.commit.authoredDate),
+                committedAt: normalizeDate(node.commit.committedDate),
+                authorLogin: node.commit.author?.user?.login,
+                committerLogin: node.commit.committer?.user?.login
+            )
+        } ?? []
     }
 
     public static func normalizeReviewState(_ state: String) -> PullRequestReviewState? {
@@ -715,6 +757,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             recentCommentActivities: previous.recentCommentActivities,
             reviewCount: preserveActivityCounts ? previous.reviewCount : current.reviewCount,
             recentReviews: previous.recentReviews,
+            recentCommits: current.recentCommits,
             reviewRequestKind: current.reviewRequestKind,
             isAssignedToViewer: current.isAssignedToViewer,
             isMine: current.isMine,
@@ -744,6 +787,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             recentCommentActivities: detailed.recentCommentActivities,
             reviewCount: detailed.reviewCount,
             recentReviews: detailed.recentReviews,
+            recentCommits: detailed.recentCommits,
             reviewRequestKind: shallow.reviewRequestKind,
             isAssignedToViewer: shallow.isAssignedToViewer,
             isMine: shallow.isMine,
@@ -911,9 +955,22 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
               repository {
                 nameWithOwner
               }
-              commits(last: 1) {
+              commits(last: 20) {
                 nodes {
                   commit {
+                    oid
+                    authoredDate
+                    committedDate
+                    author {
+                      user {
+                        login
+                      }
+                    }
+                    committer {
+                      user {
+                        login
+                      }
+                    }
                     statusCheckRollup {
                       state
                     }
@@ -1017,9 +1074,22 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding {
             repository {
               nameWithOwner
             }
-            commits(last: 1) {
+            commits(last: 20) {
               nodes {
                 commit {
+                  oid
+                  authoredDate
+                  committedDate
+                  author {
+                    user {
+                      login
+                    }
+                  }
+                  committer {
+                    user {
+                      login
+                    }
+                  }
                   statusCheckRollup {
                     state
                   }

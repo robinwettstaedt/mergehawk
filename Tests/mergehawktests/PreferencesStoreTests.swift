@@ -383,7 +383,9 @@ let mergehawkLegacyNotificationMatrixPreferenceTest: Void = {
     let preferences = PreferencesStore(defaults: defaults).notificationPreferences
 
     precondition(preferences.authored.relationshipChanges == false)
+    precondition(preferences.authored.otherCommits == false)
     precondition(preferences.assigned.relationshipChanges == false)
+    precondition(preferences.assigned.otherCommits == false)
 }()
 
 let mergehawkAuthMethodPreferenceTest: Void = {

@@ -12,6 +12,10 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         let shallow = GitHubClient.pullRequestShallowSearchQuery
         XCTAssertTrue(shallow.contains("search(query: $query, type: ISSUE, first: 50)"))
         XCTAssertTrue(shallow.contains("reviewRequests(first: 20)"))
+        XCTAssertTrue(shallow.contains("commits(last: 20)"))
+        XCTAssertTrue(shallow.contains("oid"))
+        XCTAssertTrue(shallow.contains("authoredDate"))
+        XCTAssertTrue(shallow.contains("committedDate"))
         XCTAssertTrue(shallow.contains("assignees(first: 20)"))
         XCTAssertTrue(shallow.contains("latestOpinionatedReviews(first: 20)"))
         XCTAssertTrue(shallow.contains("reviewThreads(first: 20)"))
@@ -21,6 +25,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         let detail = GitHubClient.pullRequestDetailQuery
         XCTAssertTrue(detail.contains("comments(last: 10)"))
         XCTAssertTrue(detail.contains("reviews(last: 10)"))
+        XCTAssertTrue(detail.contains("commits(last: 20)"))
         XCTAssertTrue(detail.contains("latestOpinionatedReviews(first: 20)"))
         XCTAssertTrue(detail.contains("reviewThreads(first: 20)"))
         XCTAssertTrue(detail.contains("comments(last: 10)"))
@@ -306,7 +311,16 @@ final class GitHubPullRequestFetchTests: XCTestCase {
           "repository": { "nameWithOwner": "acme/app" },
           "commits": {
             "nodes": [
-              { "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }
+              {
+                "commit": {
+                  "oid": "COMMIT_1",
+                  "authoredDate": "2026-05-02T11:00:00Z",
+                  "committedDate": "2026-05-02T11:05:00Z",
+                  "author": { "user": { "login": "rw" } },
+                  "committer": { "user": { "login": "rw" } },
+                  "statusCheckRollup": { "state": "SUCCESS" }
+                }
+              }
             ]
           },
           "author": { "login": "rw" }
