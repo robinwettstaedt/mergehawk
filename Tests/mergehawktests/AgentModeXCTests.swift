@@ -26,6 +26,17 @@ final class AgentModeXCTests: XCTestCase {
             ),
             LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true)
         )
+        XCTAssertEqual(
+            LaunchConfiguration.current(
+                arguments: ["mergehawk"],
+                environment: ["MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS": "3"]
+            ),
+            LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: false,
+                mockRefreshDelaySeconds: 3
+            )
+        )
     }
 
     func testMockModeStartsSignedInWithoutToken() async {
@@ -63,6 +74,41 @@ final class AgentModeXCTests: XCTestCase {
             notificationClient.records.map(\.eventType),
             ["new_comment", "ci_failed", "other_commit_added", "relationship_added", "relationship_added"]
         )
+    }
+
+    func testMockRefreshDelayKeepsRefreshIndicatorActive() async {
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                launchConfiguration: LaunchConfiguration(
+                    usesMockData: true,
+                    suppressesMacOSNotifications: true,
+                    mockRefreshDelaySeconds: 0.05
+                ),
+                automaticRefreshInterval: 0
+            )
+        }
+
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.state.syncedAt != nil
+            }
+        }
+
+        await MainActor.run {
+            controller.refresh()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.isRefreshing
+            }
+        }
+
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                !controller.isRefreshing
+            }
+        }
     }
 
     func testMacOSLocalNotificationsCanBeDisabled() async {

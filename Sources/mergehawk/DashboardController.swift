@@ -506,7 +506,7 @@ final class DashboardController: ObservableObject {
 
     func refresh() {
         Task {
-            await refreshDashboard()
+            await refreshDashboard(appliesMockRefreshDelay: true)
         }
     }
 
@@ -614,7 +614,7 @@ final class DashboardController: ObservableObject {
 
     func refreshSources() {
         Task {
-            await fetchSourceCatalog()
+            await fetchSourceCatalog(appliesMockRefreshDelay: true)
         }
     }
 
@@ -926,7 +926,7 @@ final class DashboardController: ObservableObject {
         preferencesStore.pullRequestSnapshotCache = cache
     }
 
-    private func fetchSourceCatalog() async {
+    private func fetchSourceCatalog(appliesMockRefreshDelay: Bool = false) async {
         guard let sourceCatalogProvider else {
             return
         }
@@ -936,6 +936,7 @@ final class DashboardController: ObservableObject {
         isRefreshingSources = true
         sourceErrorMessage = nil
         let installations = await fetchGitHubAppInstallationsForAccessStatus()
+        await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         do {
             let fetchedCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
                 accountLogin: account?.login ?? state.account?.login
@@ -1077,7 +1078,7 @@ final class DashboardController: ObservableObject {
         )
     }
 
-    private func sync() async {
+    private func sync(appliesMockRefreshDelay: Bool = false) async {
         guard let syncEngine else {
             return
         }
@@ -1086,6 +1087,7 @@ final class DashboardController: ObservableObject {
         }
         isRefreshing = true
         errorMessage = nil
+        await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         do {
             let nextState = try await syncEngine.sync()
             recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
@@ -1112,11 +1114,22 @@ final class DashboardController: ObservableObject {
         isRefreshing = false
     }
 
-    private func refreshDashboard() async {
+    private func refreshDashboard(appliesMockRefreshDelay: Bool = false) async {
         if canCheckGitHubAppRepositoryAccess {
-            await fetchSourceCatalog()
+            await fetchSourceCatalog(appliesMockRefreshDelay: appliesMockRefreshDelay)
         }
-        await sync()
+        await sync(appliesMockRefreshDelay: appliesMockRefreshDelay)
+    }
+
+    private func delayMockRefreshIfNeeded(applies: Bool) async {
+        guard applies,
+              launchConfiguration.usesMockData,
+              launchConfiguration.mockRefreshDelaySeconds > 0 else {
+            return
+        }
+
+        let nanoseconds = UInt64(launchConfiguration.mockRefreshDelaySeconds * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: nanoseconds)
     }
 
     private func isAuthenticationFailure(_ error: Error) -> Bool {

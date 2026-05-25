@@ -454,12 +454,11 @@ struct MenuControlButton: View {
         .buttonStyle(.plain)
         .contentShape(shape)
         .background {
-            shape.fill(.ultraThinMaterial)
             shape.fill(hoverFill)
         }
         .overlay(
             shape
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+                .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
         )
         .clipShape(shape)
         .onHover { isHovered = $0 }
@@ -469,6 +468,14 @@ struct MenuControlButton: View {
 
     private var hoverFill: Color {
         HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+    }
+}
+
+private enum MenuControlBorderPresentation {
+    static func color(colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.24)
+            : Color(nsColor: .separatorColor).opacity(0.72)
     }
 }
 
@@ -691,19 +698,17 @@ struct RefreshStatusControl: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, Layout.horizontalHorizontalPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: width, height: height)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .frame(width: width, height: height)
-        .contentShape(shape)
         .background {
-            shape.fill(.ultraThinMaterial)
             shape.fill(horizontalHoverFill)
         }
         .overlay(
             shape
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+                .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
         )
         .clipShape(shape)
         .onHover { isHovered = $0 }
