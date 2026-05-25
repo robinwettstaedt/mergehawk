@@ -185,14 +185,17 @@ private struct GitHubSettingsView: View {
                     Button("Sign Out", role: .destructive) {
                         controller.signOut()
                     }
+                    if controller.authMethod == .oauth {
+                        GitHubAppAccessNotes()
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("GitHub OAuth")
+                    Text("MergeHawk GitHub App")
                         .font(.headline)
                     (
-                        Text("Sign in through GitHub.com. MergeHawk requests broad OAuth repository access so it can read private PRs, but the app only performs ")
+                        Text("Sign in through GitHub.com with the MergeHawk GitHub App. Access is limited by your GitHub permissions and the repositories where the app is installed. MergeHawk only performs ")
                         + Text("read")
                             .bold()
                             .underline()
@@ -217,6 +220,8 @@ private struct GitHubSettingsView: View {
                         .disabled(controller.isRefreshing)
                         Spacer()
                     }
+
+                    GitHubAppAccessNotes()
                 }
 
                 DisclosureGroup(isExpanded: $showsTokenFallback) {
@@ -229,6 +234,7 @@ private struct GitHubSettingsView: View {
                             }
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Advanced fallback for restricted workplaces or debugging.")
+                            Text("Use a classic token for GitHub Inbox notifications in Notifications > Other.")
                             (
                                 Text("MergeHawk only ever needs ")
                                 + Text("read access")
@@ -241,16 +247,18 @@ private struct GitHubSettingsView: View {
                                 Text("• Select repo")
                                 Text("• Select read:user")
                                 Text("• Select read:org")
+                                Text("• Required for Notifications > Other")
                             }
                             .padding(.top, 4)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Fine-grained PAT:")
+                                Text("Fine-grained PAT for PR data:")
                                 Text("• Repository access for the repos MergeHawk monitors")
                                 Text("• Metadata: Read-only")
                                 Text("• Pull requests: Read-only")
                                 Text("• Issues: Read-only")
                                 Text("• Commit statuses: Read-only")
                                 Text("• Checks: Read-only")
+                                Text("• Does not support Notifications > Other")
                             }
                             .padding(.top, 4)
                         }
@@ -587,6 +595,19 @@ private struct SourcesSettingsView: View {
     }
 }
 
+private struct GitHubAppAccessNotes: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Private organization repositories require the MergeHawk GitHub App to be installed on that organization or selected repositories.")
+            Text("GitHub Inbox notifications in Notifications > Other require the classic personal access token fallback.")
+            Link("Install MergeHawk GitHub App", destination: MergeHawkAuthDefaults.installURL)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 private struct GitHubOAuthAccessButton: View {
     @ObservedObject var controller: DashboardController
 
@@ -596,14 +617,14 @@ private struct GitHubOAuthAccessButton: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.up.right.square")
-                Text("Manage GitHub OAuth Access")
+                Text("Manage GitHub App Access")
             }
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(Color.accentColor)
         }
         .buttonStyle(.plain)
         .disabled(controller.state.authStatus != .signedIn)
-        .help("Manage MergeHawk access in GitHub")
+        .help("Manage MergeHawk GitHub App access")
         .frame(maxWidth: .infinity, alignment: .center)
     }
 }

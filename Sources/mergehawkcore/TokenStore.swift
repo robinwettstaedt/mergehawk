@@ -54,6 +54,8 @@ public enum TokenStoreError: Error, LocalizedError {
 public final class KeychainTokenStore: TokenStore {
     private let service: String
     private let patAccount: String
+    private let githubAppAccount = "github-app-user"
+    private let legacyOAuthAccount = "oauth"
 
     public init(service: String = "com.mergehawk.github", account: String = "pat") {
         self.service = service
@@ -92,18 +94,19 @@ public final class KeychainTokenStore: TokenStore {
     }
 
     public func loadOAuthTokens() throws -> OAuthTokens? {
-        guard let data = try loadData(account: "oauth") else {
+        guard let data = try loadData(account: githubAppAccount) else {
             return nil
         }
         return try JSONDecoder().decode(OAuthTokens.self, from: data)
     }
 
     public func storeOAuthTokens(_ tokens: OAuthTokens) throws {
-        try storeData(try JSONEncoder().encode(tokens), account: "oauth")
+        try storeData(try JSONEncoder().encode(tokens), account: githubAppAccount)
     }
 
     public func clearOAuthTokens() throws {
-        try clear(account: "oauth")
+        try clear(account: githubAppAccount)
+        try clear(account: legacyOAuthAccount)
     }
 
     private func loadData(account: String) throws -> Data? {

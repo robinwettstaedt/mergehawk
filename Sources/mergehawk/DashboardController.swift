@@ -262,6 +262,12 @@ final class DashboardController: ObservableObject {
             .sorted(by: Self.compareInboxNotifications)
     }
 
+    var showsGitHubInboxUnavailableHint: Bool {
+        state.authStatus == .signedIn
+            && gitHubInboxProvider == nil
+            && !launchConfiguration.usesMockData
+    }
+
     var accountLabel: String {
         state.account?.login ?? "Not signed in"
     }
@@ -457,7 +463,13 @@ final class DashboardController: ObservableObject {
             try tokenStore.clearOAuthTokens()
             try tokenStore.storePAT(trimmed)
             account = viewer
-            configureGitHubSource(tokenProvider: { trimmed }, account: viewer, authMethod: .pat)
+            configureGitHubSource(
+                tokenProvider: { trimmed },
+                account: viewer,
+                authMethod: .pat,
+                allowsGitHubInboxNotifications: GitHubTokenCapabilities
+                    .supportsGitHubInboxNotifications(token: trimmed)
+            )
             await fetchSourceCatalog()
             await sync()
         } catch {
@@ -478,7 +490,8 @@ final class DashboardController: ObservableObject {
             configureGitHubSource(
                 tokenProvider: makeOAuthAccessTokenProvider(),
                 account: viewer,
-                authMethod: .oauth
+                authMethod: .oauth,
+                allowsGitHubInboxNotifications: false
             )
             await fetchSourceCatalog()
             await sync()
@@ -663,18 +676,31 @@ final class DashboardController: ObservableObject {
     }
 
     private func configureStoredOAuthSource() {
-        configureStoredGitHubSource(client: makeOAuthGitHubClient(), authMethod: .oauth)
+        configureStoredGitHubSource(
+            client: makeOAuthGitHubClient(),
+            authMethod: .oauth,
+            allowsGitHubInboxNotifications: false
+        )
     }
 
     private func configureStoredPATSource(token: String) {
-        configureStoredGitHubSource(client: GitHubClient(token: token), authMethod: .pat)
+        configureStoredGitHubSource(
+            client: GitHubClient(token: token),
+            authMethod: .pat,
+            allowsGitHubInboxNotifications: GitHubTokenCapabilities.supportsGitHubInboxNotifications(token: token)
+        )
     }
 
-    private func configureStoredGitHubSource(client: GitHubClient, authMethod: GitHubAuthMethod) {
+    private func configureStoredGitHubSource(
+        client: GitHubClient,
+        authMethod: GitHubAuthMethod,
+        allowsGitHubInboxNotifications: Bool
+    ) {
         restoreCachedGitHubDashboardIfAvailable()
         configureGitHubSource(
             client: client,
             authMethod: authMethod,
+            allowsGitHubInboxNotifications: allowsGitHubInboxNotifications,
             loginProvider: { [weak self] in
                 if let login = self?.account?.login {
                     return login
@@ -696,11 +722,13 @@ final class DashboardController: ObservableObject {
     private func configureGitHubSource(
         tokenProvider: @escaping @Sendable () async throws -> String,
         account: GitHubAccount,
-        authMethod: GitHubAuthMethod
+        authMethod: GitHubAuthMethod,
+        allowsGitHubInboxNotifications: Bool
     ) {
         configureGitHubSource(
             client: GitHubClient(tokenProvider: tokenProvider),
             authMethod: authMethod,
+            allowsGitHubInboxNotifications: allowsGitHubInboxNotifications,
             loginProvider: { account.login },
             accountProvider: { account }
         )
@@ -709,11 +737,18 @@ final class DashboardController: ObservableObject {
     private func configureGitHubSource(
         client: GitHubClient,
         authMethod: GitHubAuthMethod,
+        allowsGitHubInboxNotifications: Bool,
         loginProvider: @escaping () async throws -> String,
         accountProvider: @escaping () async throws -> GitHubAccount?
     ) {
         sourceCatalogProvider = client
-        gitHubInboxProvider = client
+        if allowsGitHubInboxNotifications {
+            gitHubInboxProvider = client
+        } else {
+            gitHubInboxProvider = nil
+            gitHubInboxNotifications = []
+            gitHubInboxSyncMetadata = .empty
+        }
         setAuthMethod(authMethod)
         syncEngine = SyncEngine(
             source: client,

@@ -17,6 +17,38 @@ import mergehawkcore
     precondition(controller.state.events.isEmpty)
 }()
 
+@MainActor let mergehawkGitHubAppAuthDoesNotSupportInboxNotificationsTest: Void = {
+    precondition(GitHubAuthMethod.oauth.label == "GitHub App")
+    precondition(!GitHubTokenCapabilities.supportsGitHubInboxNotifications(token: "github_pat_fine_grained"))
+    precondition(GitHubTokenCapabilities.supportsGitHubInboxNotifications(token: "ghp_classic"))
+}()
+
+@MainActor let mergehawkGitHubAppAuthShowsInboxUnavailableHintTest: Void = {
+    let suiteName = "mergehawk-github-app-inbox-unavailable-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let tokenStore = InMemoryTokenStore()
+    try! tokenStore.storeOAuthTokens(
+        OAuthTokens(accessToken: "access", refreshToken: "refresh", expiresAt: .distantFuture)
+    )
+    var preferencesStore = PreferencesStore(defaults: defaults)
+    preferencesStore.pullRequestSnapshotCache = signedInSnapshotCache()
+    preferencesStore.gitHubInboxNotifications = [inboxNotificationFixture()]
+
+    let controller = DashboardController(
+        tokenStore: tokenStore,
+        preferencesStore: preferencesStore,
+        automaticRefreshInterval: 0
+    )
+
+    precondition(controller.state.authStatus == .signedIn)
+    precondition(controller.showsGitHubInboxUnavailableHint)
+    precondition(controller.visibleGitHubInboxNotifications.isEmpty)
+}()
+
 @MainActor let mergehawkAutomaticRefreshTest: Void = {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
@@ -153,4 +185,43 @@ private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
         requestedValues.append(isEnabled)
         self.isEnabled = isEnabled
     }
+}
+
+private func signedInSnapshotCache() -> PullRequestSnapshotCache {
+    PullRequestSnapshotCache(
+        pullRequests: [
+            PullRequest(
+                id: "PR_1",
+                title: "Cached PR",
+                number: 12,
+                url: URL(string: "https://github.com/example/mergehawk/pull/12")!,
+                repo: "example/mergehawk",
+                ciState: .passing,
+                reviewDecision: .reviewRequired,
+                commentCount: 0,
+                reviewCount: 0,
+                isMine: true,
+                author: "rw",
+                mergeable: .mergeable,
+                draft: false
+            )
+        ],
+        account: GitHubAccount(login: "rw"),
+        fetchedAt: Date(timeIntervalSince1970: 1_777_800_000),
+        source: .github
+    )
+}
+
+private func inboxNotificationFixture() -> GitHubInboxNotification {
+    GitHubInboxNotification(
+        threadId: "issue-thread",
+        repo: "example/mergehawk",
+        subjectTitle: "Cached issue",
+        subjectType: "Issue",
+        reason: "mention",
+        unread: true,
+        updatedAt: Date(timeIntervalSince1970: 1_777_800_000),
+        threadURL: URL(string: "https://api.github.com/notifications/threads/issue-thread")!,
+        webURL: URL(string: "https://github.com/example/mergehawk/issues/1")!
+    )
 }

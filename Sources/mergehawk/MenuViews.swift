@@ -44,6 +44,11 @@ struct NotificationReadPresentation {
     static let markOtherAccessibilityLabel = "Mark other notification as read"
 }
 
+enum GitHubInboxUnavailableCopy {
+    static let title = "GitHub Inbox unavailable"
+    static let message = "Other GitHub notifications require signing in with a classic personal access token."
+}
+
 enum PullRequestNotificationTitlePresentation {
     static func title(for notification: PullRequestNotification) -> String {
         switch notification.eventType {
@@ -898,7 +903,11 @@ private struct NotificationListView: View {
             }
         case .other:
             if controller.visibleGitHubInboxNotifications.isEmpty {
-                EmptyMenuState(text: "No other GitHub notifications.")
+                if controller.showsGitHubInboxUnavailableHint {
+                    GitHubInboxUnavailableState()
+                } else {
+                    EmptyMenuState(text: "No other GitHub notifications.")
+                }
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 8) {
@@ -970,7 +979,7 @@ struct GitHubSignInView: View {
     enum Copy {
         static let title = "Connect GitHub"
         static let buttonTitle = "Sign in with GitHub"
-        static let permissionText = "MergeHawk requests GitHub OAuth access for PRs and notifications. It only reads GitHub data."
+        static let permissionText = "MergeHawk uses its GitHub App to read PR data from repositories where the app is installed."
     }
 
     @ObservedObject var controller: DashboardController
@@ -2021,5 +2030,26 @@ private struct EmptyMenuState: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct GitHubInboxUnavailableState: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "tray")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(GitHubInboxUnavailableCopy.title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(GitHubInboxUnavailableCopy.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 300)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
     }
 }

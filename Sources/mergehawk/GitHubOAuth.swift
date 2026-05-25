@@ -9,26 +9,36 @@ enum GitHubAuthMethod: String {
     var label: String {
         switch self {
         case .oauth:
-            "GitHub OAuth"
+            "GitHub App"
         case .pat:
             "Personal access token"
         }
     }
 }
 
+enum GitHubTokenCapabilities {
+    static func supportsGitHubInboxNotifications(token: String) -> Bool {
+        token.hasPrefix("ghp_")
+    }
+}
+
 enum MergeHawkAuthDefaults {
-    static let appID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_OAUTH_APP_ID"] ?? ""
-    static let clientID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_OAUTH_CLIENT_ID"] ?? ""
-    static let clientSecret = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_OAUTH_CLIENT_SECRET"] ?? ""
+    private static let productionAppID = "3854497"
+    private static let productionClientID = "Iv23li2wX6d8bxiM2goo"
+    private static let productionClientSecret = "508cfef8b6bd279aa3fd795cd5094a0fa83329ed"
+    private static let productionInstallURL = "https://github.com/apps/mergehawk/installations/new"
+    private static let productionManageURL = "https://github.com/settings/apps/authorizations"
+
+    static let appID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_ID"] ?? productionAppID
+    static let clientID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_CLIENT_ID"] ?? productionClientID
+    static let clientSecret = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_CLIENT_SECRET"] ?? productionClientSecret
     static let loopbackPort = 53683
     static let githubHost = URL(string: "https://github.com")!
-    static let scope = "read:user read:org repo notifications"
+    static let installURL = URL(
+        string: ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_INSTALL_URL"] ?? productionInstallURL
+    )!
     static var authorizedAppSettingsURL: URL {
-        if appID.isEmpty {
-            URL(string: "https://github.com/settings/applications")!
-        } else {
-            URL(string: "https://github.com/settings/connections/applications/\(appID)")!
-        }
+        URL(string: ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_MANAGE_URL"] ?? productionManageURL)!
     }
 
     static var clientCredentials: OAuthClientCredentials {
@@ -61,8 +71,7 @@ struct BrowserGitHubOAuthSignIn: GitHubOAuthSigningIn {
             clientID: MergeHawkAuthDefaults.clientID,
             clientSecret: MergeHawkAuthDefaults.clientSecret,
             host: MergeHawkAuthDefaults.githubHost,
-            loopbackPort: MergeHawkAuthDefaults.loopbackPort,
-            scope: MergeHawkAuthDefaults.scope
+            loopbackPort: MergeHawkAuthDefaults.loopbackPort
         )
     }
 }
@@ -129,9 +138,9 @@ enum GitHubOAuthError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingClientCredentials:
-            "GitHub OAuth is not configured. Set MERGEHAWK_GITHUB_OAUTH_CLIENT_ID and MERGEHAWK_GITHUB_OAUTH_CLIENT_SECRET, or add the MergeHawk OAuth app credentials."
+            "MergeHawk GitHub App auth is not configured. Add the MergeHawk GitHub App credentials."
         case .missingStoredCredentials:
-            "GitHub OAuth credentials are missing. Please sign in again."
+            "GitHub App credentials are missing. Please sign in again."
         }
     }
 }
