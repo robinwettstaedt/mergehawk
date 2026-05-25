@@ -165,6 +165,46 @@ import mergehawkcore
     precondition(controller.showsGitHubAppRepositoryAccessPrompt)
 }()
 
+@MainActor let mergehawkNoInstallationsStillPromptsWhenPullRequestsAreVisibleTest: Void = {
+    let fakeClient = FakeGitHubProvider(
+        sourceCatalogResult: .success(SourceCatalog(repositories: [], accountLogin: "rw")),
+        installationsResult: .success(GitHubAppInstallations(installations: [])),
+        pullRequests: [
+            PullRequest(
+                id: "PR_PUBLIC",
+                title: "Public authored PR",
+                number: 7,
+                url: URL(string: "https://github.com/rw/public-repo/pull/7")!,
+                repo: "rw/public-repo",
+                ciState: .passing,
+                reviewDecision: .reviewRequired,
+                commentCount: 0,
+                reviewCount: 0,
+                isMine: true,
+                author: "rw",
+                mergeable: .mergeable,
+                draft: false
+            )
+        ]
+    )
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        automaticRefreshInterval: 0,
+        oauthSignIn: FakeOAuthSignIn(),
+        oauthGitHubClientFactory: { _ in fakeClient }
+    )
+
+    Task {
+        await controller.signInWithGitHub()
+    }
+    waitUntil(timeout: 1.0) {
+        controller.state.pullRequests.count == 1
+    }
+
+    precondition(controller.gitHubAppRepositoryAccessStatus == .noInstallations)
+    precondition(controller.showsGitHubAppRepositoryAccessPrompt)
+}()
+
 @MainActor let mergehawkGitHubAppRepositoryAccessUsesInstallationManageURLTest: Void = {
     let manageURL = URL(string: "https://github.com/organizations/acme/settings/installations/1002")!
     let fakeClient = FakeGitHubProvider(
