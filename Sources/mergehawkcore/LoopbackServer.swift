@@ -11,7 +11,7 @@ public enum LoopbackServerError: LocalizedError {
         case .portInUse(let port):
             "Port \(port) is already in use. Try signing in again in a few seconds."
         case .bindFailed(let port, let underlying):
-            "Failed to bind OAuth callback port \(port): \(underlying.localizedDescription)"
+            "Failed to bind GitHub auth callback port \(port): \(underlying.localizedDescription)"
         }
     }
 }

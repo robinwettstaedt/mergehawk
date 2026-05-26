@@ -8,7 +8,7 @@ public enum OAuthFlowError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidHost:
-            "GitHub OAuth host must be a valid HTTPS URL."
+            "GitHub auth host must be a valid HTTPS URL."
         case .stateMismatch:
             "GitHub sign-in returned an invalid state. Please try again."
         case .tokenRequestFailed(let status):
@@ -60,7 +60,7 @@ public struct OAuthLoginFlow {
         clientSecret: String,
         host: URL,
         loopbackPort: Int,
-        scope: String,
+        scope: String? = nil,
         timeout: TimeInterval = 180
     ) async throws -> OAuthTokens {
         let normalizedHost = try Self.normalizeHost(host)
@@ -76,14 +76,17 @@ public struct OAuthLoginFlow {
         defer { server.stop() }
 
         var components = URLComponents(url: authEndpoint, resolvingAgainstBaseURL: false)!
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "client_id", value: clientID),
             URLQueryItem(name: "redirect_uri", value: redirectURL.absoluteString),
             URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "scope", value: scope),
             URLQueryItem(name: "code_challenge", value: pkce.challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256")
         ]
+        if let scope, scope.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            queryItems.append(URLQueryItem(name: "scope", value: scope))
+        }
+        components.queryItems = queryItems
         guard let authorizeURL = components.url else {
             throw URLError(.badURL)
         }

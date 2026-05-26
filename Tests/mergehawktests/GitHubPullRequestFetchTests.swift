@@ -99,6 +99,31 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertEqual(result.pullRequests.first?.reviewRequestKind, .team)
     }
 
+    func testInaccessibleCommitMetadataUsesPullRequestCommitsFallback() async throws {
+        let session = Self.mockSession()
+        var requestedCommitFallback = false
+        PullRequestFetchMockURLProtocol.handler = { request in
+            if request.url?.path == "/repos/acme/app/pulls/12/commits" {
+                requestedCommitFallback = true
+                return (Self.pullRequestCommitsResponse(), Self.okResponse(for: request))
+            }
+            return (Self.searchResponseWithInaccessibleCommitMetadata(), Self.okResponse(for: request))
+        }
+
+        let client = GitHubClient(token: "token", session: session)
+        let result = try await client.fetchPullRequests(
+            login: "rw",
+            previousPullRequests: [.fixture(commentActivityCount: 0, reviewCount: 0)]
+        )
+
+        XCTAssertEqual(result.pullRequests.count, 1)
+        XCTAssertEqual(result.pullRequests.first?.title, "Ship dashboard")
+        XCTAssertEqual(result.pullRequests.first?.recentCommits.map(\.oid), ["COMMIT_REST_1"])
+        XCTAssertEqual(result.pullRequests.first?.recentCommits.first?.authorLogin, "teammate")
+        XCTAssertEqual(result.pullRequests.first?.hasRecentCommitMetadata, true)
+        XCTAssertTrue(requestedCommitFallback)
+    }
+
     func testActionableCommentCountChangeTriggersDetailFetch() async throws {
         let session = Self.mockSession()
         var requestBodies: [String] = []
@@ -281,6 +306,43 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         """.utf8)
     }
 
+    private static func searchResponseWithInaccessibleCommitMetadata() -> Data {
+        Data("""
+        {
+          "data": {
+            "search": {
+              "nodes": [
+                \(pullRequestJSONWithCommits(#"{ "nodes": [null] }"#))
+              ]
+            }
+          },
+          "errors": [
+            {
+              "type": "FORBIDDEN",
+              "path": ["search", "nodes", 0, "commits", "nodes", 0],
+              "message": "Resource not accessible by integration"
+            }
+          ]
+        }
+        """.utf8)
+    }
+
+    private static func pullRequestCommitsResponse() -> Data {
+        Data("""
+        [
+          {
+            "sha": "COMMIT_REST_1",
+            "commit": {
+              "author": { "date": "2026-05-02T11:00:00Z" },
+              "committer": { "date": "2026-05-02T11:05:00Z" }
+            },
+            "author": { "login": "teammate" },
+            "committer": { "login": "teammate" }
+          }
+        ]
+        """.utf8)
+    }
+
     private static func pullRequestJSON(
         commentCount: Int,
         reviewCount: Int,
@@ -323,6 +385,32 @@ final class GitHubPullRequestFetchTests: XCTestCase {
               }
             ]
           },
+          "author": { "login": "rw" }
+        }
+        """
+    }
+
+    private static func pullRequestJSONWithCommits(_ commits: String) -> String {
+        """
+        {
+          "id": "PR_1",
+          "title": "Ship dashboard",
+          "number": 12,
+          "url": "https://github.com/acme/app/pull/12",
+          "createdAt": "2026-05-01T12:00:00Z",
+          "updatedAt": "2026-05-02T12:00:00Z",
+          "headRefName": "ship-dashboard",
+          "isDraft": false,
+          "mergeable": "MERGEABLE",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "comments": { "totalCount": 0 },
+          "reviews": { "totalCount": 0, "nodes": [] },
+          "latestOpinionatedReviews": { "totalCount": 0, "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "assignees": { "nodes": [] },
+          "repository": { "nameWithOwner": "acme/app" },
+          "commits": \(commits),
           "author": { "login": "rw" }
         }
         """
