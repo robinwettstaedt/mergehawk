@@ -54,7 +54,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-signed-out.png")
             )
             try render(
-                SettingsRootView(controller: signedOutController, selection: .github),
+                SettingsRootView(controller: signedOutController, settingsWindowState: SettingsWindowState(selection: .github)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-signed-out.png")
             )
@@ -71,7 +71,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
                 automaticRefreshInterval: 0,
                 oauthSignIn: VisualOAuthSignIn(),
-                oauthGitHubClientFactory: { _ in accessPromptClient }
+                oauthGitHubClientFactory: { _ in accessPromptClient },
+                urlOpener: { _ in }
             )
         }
         await waitUntil(timeout: 1.0) {
@@ -104,7 +105,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-repository-access-requested.png")
             )
             try render(
-                SettingsRootView(controller: accessPromptController, selection: .sources),
+                SettingsRootView(controller: accessPromptController, settingsWindowState: SettingsWindowState(selection: .sources)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources-repository-access.png")
             )
@@ -112,12 +113,12 @@ final class VisualVerificationXCTests: XCTestCase {
 
         try await MainActor.run {
             try render(
-                SettingsRootView(controller: controller, selection: .general),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .general)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-general.png")
             )
             try render(
-                SettingsRootView(controller: controller, selection: .notifications),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .notifications)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-notifications.png")
             )
@@ -212,14 +213,14 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-read.png"))
 
             try render(
-                SettingsRootView(controller: controller, selection: .sources),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .sources)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources.png")
             )
             try render(
                 SettingsRootView(
                     controller: controller,
-                    selection: .sources,
+                    settingsWindowState: SettingsWindowState(selection: .sources),
                     initialSourcesSearchState: ExpandableSearchState(isExpanded: true, query: "example")
                 ),
                 size: SettingsTab.defaultWindowSize,
@@ -289,7 +290,17 @@ final class VisualVerificationXCTests: XCTestCase {
 
 @MainActor
 private struct VisualOAuthSignIn: GitHubOAuthSigningIn {
-    func signIn() async throws -> OAuthTokens {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
         OAuthTokens(accessToken: "visual-access", refreshToken: "visual-refresh", expiresAt: .distantFuture)
     }
 }

@@ -34,22 +34,22 @@ enum SettingsTab: String, CaseIterable, Hashable {
 
 struct SettingsRootView: View {
     @ObservedObject var controller: DashboardController
-    @State private var selection = SettingsTab.general
+    @ObservedObject var settingsWindowState: SettingsWindowState
     private let initialSourcesSearchState: ExpandableSearchState
 
     init(
         controller: DashboardController,
-        selection: SettingsTab = .general,
+        settingsWindowState: SettingsWindowState,
         initialSourcesSearchState: ExpandableSearchState = ExpandableSearchState()
     ) {
         self.controller = controller
-        self._selection = State(initialValue: selection)
+        self.settingsWindowState = settingsWindowState
         self.initialSourcesSearchState = initialSourcesSearchState
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsTabBar(selection: $selection)
+            SettingsTabBar(selection: $settingsWindowState.selection)
                 .padding(.top, SettingsTabLayout.topPadding)
                 .padding(.bottom, SettingsTabLayout.bottomPadding)
 
@@ -67,7 +67,7 @@ struct SettingsRootView: View {
 
     @ViewBuilder
     private var selectedPane: some View {
-        switch selection {
+        switch settingsWindowState.selection {
         case .general:
             GeneralSettingsView(controller: controller)
         case .github:

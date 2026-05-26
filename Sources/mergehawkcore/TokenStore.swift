@@ -15,11 +15,9 @@ public struct OAuthTokens: Codable, Equatable, Sendable {
 
 public struct OAuthClientCredentials: Codable, Equatable, Sendable {
     public let clientID: String
-    public let clientSecret: String
 
-    public init(clientID: String, clientSecret: String) {
+    public init(clientID: String) {
         self.clientID = clientID
-        self.clientSecret = clientSecret
     }
 }
 

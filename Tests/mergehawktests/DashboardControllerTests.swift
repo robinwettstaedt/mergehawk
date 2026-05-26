@@ -601,7 +601,17 @@ private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
 
 @MainActor
 private struct FakeOAuthSignIn: GitHubOAuthSigningIn {
-    func signIn() async throws -> OAuthTokens {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
         OAuthTokens(accessToken: "oauth-access", refreshToken: "oauth-refresh", expiresAt: .distantFuture)
     }
 }

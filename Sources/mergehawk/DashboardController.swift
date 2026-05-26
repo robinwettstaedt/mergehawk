@@ -191,6 +191,10 @@ final class DashboardController: ObservableObject {
     var openSettingsWindow: ((SettingsTab) -> Void)?
     var openGitHubSettingsInPATMode = false
 
+    @Published private(set) var deviceFlowChallenge: DeviceFlowChallenge?
+    @Published private(set) var isRequestingDeviceCode = false
+    private var signInTask: Task<Void, Never>?
+
     private let tokenStore: TokenStore
     private let oauthSignIn: GitHubOAuthSigningIn
     private let oauthAccessTokenCache: OAuthAccessTokenCache
@@ -240,7 +244,7 @@ final class DashboardController: ObservableObject {
         urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
     ) {
         self.tokenStore = tokenStore
-        self.oauthSignIn = oauthSignIn ?? BrowserGitHubOAuthSignIn(tokenStore: tokenStore)
+        self.oauthSignIn = oauthSignIn ?? GitHubDeviceFlowSignIn(tokenStore: tokenStore)
         self.oauthAccessTokenCache = OAuthAccessTokenCache(tokenStore: tokenStore)
         self.preferencesStore = preferencesStore
         self.launchConfiguration = launchConfiguration
@@ -542,10 +546,36 @@ final class DashboardController: ObservableObject {
     }
 
     func signInWithGitHub() async {
+        signInTask?.cancel()
+        signInTask = nil
+        deviceFlowChallenge = nil
         errorMessage = nil
+        isRequestingDeviceCode = true
 
+        let challenge: DeviceFlowChallenge
         do {
-            let tokens = try await oauthSignIn.signIn()
+            challenge = try await oauthSignIn.requestDeviceCode()
+        } catch {
+            isRequestingDeviceCode = false
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        openURL(challenge.verificationURI)
+        deviceFlowChallenge = challenge
+        isRequestingDeviceCode = false
+
+        signInTask = Task { [weak self] in
+            await self?.completeDeviceFlowSignIn(challenge: challenge)
+        }
+    }
+
+    private func completeDeviceFlowSignIn(challenge: DeviceFlowChallenge) async {
+        do {
+            let tokens = try await oauthSignIn.pollForTokens(challenge: challenge)
+            deviceFlowChallenge = nil
+            signInTask = nil
+            guard !Task.isCancelled else { return }
             oauthAccessTokenCache.store(tokens)
             try tokenStore.clearPAT()
             let client = makeOAuthGitHubClient()
@@ -561,11 +591,25 @@ final class DashboardController: ObservableObject {
             await fetchSourceCatalog()
             await sync()
         } catch {
+            deviceFlowChallenge = nil
+            signInTask = nil
+            if Task.isCancelled || error is CancellationError { return }
             errorMessage = error.localizedDescription
         }
     }
 
+    func cancelDeviceFlowSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
+        deviceFlowChallenge = nil
+        isRequestingDeviceCode = false
+    }
+
     func signOut() {
+        signInTask?.cancel()
+        signInTask = nil
+        deviceFlowChallenge = nil
+        isRequestingDeviceCode = false
         do {
             oauthAccessTokenCache.clear()
             try tokenStore.clear()

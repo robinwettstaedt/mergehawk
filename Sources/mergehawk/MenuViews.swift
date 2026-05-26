@@ -1009,17 +1009,40 @@ private struct NotificationSubtabSegmentedControl: NSViewRepresentable {
 }
 
 struct GitHubSignInView: View {
+    enum Copy {
+        static let title = "Connect GitHub"
+        static let buttonTitle = "Sign in with GitHub"
+        static let permissionText = "MergeHawk uses its GitHub App to read PR data from repositories where the app is installed."
+        static let enterCodeTitle = "Enter code on GitHub"
+        static let enterCodeDetail = "Open GitHub and enter the code below to complete sign-in."
+        static let copyCode = "Copy Code"
+        static let openGitHub = "Open GitHub"
+        static let cancelSignIn = "Cancel"
+        static let patHint = "Using a personal access token?"
+        static let patButtonTitle = "Open Settings"
+    }
+
     @ObservedObject var controller: DashboardController
+    @State private var expiryTimeRemaining: String = ""
+    private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        if let challenge = controller.deviceFlowChallenge {
+            pendingView(challenge: challenge)
+        } else {
+            idleView
+        }
+    }
+
+    private var idleView: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
             VStack(spacing: 16) {
                 VStack(spacing: 6) {
-                    Text("Connect GitHub")
+                    Text(Self.Copy.title)
                         .font(.headline)
-                    Text("MergeHawk uses its GitHub App to read PR data from repositories where the app is installed.")
+                    Text(Self.Copy.permissionText)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -1030,7 +1053,7 @@ struct GitHubSignInView: View {
                     Button {
                         connect()
                     } label: {
-                        Text("Sign in with GitHub")
+                        Text(Self.Copy.buttonTitle)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
@@ -1039,9 +1062,9 @@ struct GitHubSignInView: View {
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(controller.isRefreshing)
+                    .disabled(controller.isRequestingDeviceCode)
 
-                    if controller.isRefreshing {
+                    if controller.isRequestingDeviceCode {
                         ProgressView()
                             .controlSize(.small)
                     }
@@ -1054,7 +1077,7 @@ struct GitHubSignInView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Button("Use access token instead") {
+                Button(Self.Copy.patHint) {
                     controller.showGitHubSettings(patMode: true)
                 }
                 .buttonStyle(.plain)
@@ -1069,9 +1092,71 @@ struct GitHubSignInView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
+    private func pendingView(challenge: DeviceFlowChallenge) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(Self.Copy.enterCodeTitle)
+                    .font(.headline)
+                Text(Self.Copy.enterCodeDetail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(challenge.userCode)
+                .font(.system(.title2, design: .monospaced).weight(.semibold))
+                .tracking(2)
+
+            HStack(spacing: 8) {
+                Button(Self.Copy.copyCode) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(challenge.userCode, forType: .string)
+                }
+
+                Link(Self.Copy.openGitHub, destination: challenge.verificationURI)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+            }
+
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                if !expiryTimeRemaining.isEmpty {
+                    Text(expiryTimeRemaining)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button(Self.Copy.cancelSignIn) {
+                controller.cancelDeviceFlowSignIn()
+            }
+            .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .onAppear { updateExpiryLabel(challenge: challenge) }
+        .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
+    }
+
     private func connect() {
         Task {
             await controller.signInWithGitHub()
+        }
+    }
+
+    private func updateExpiryLabel(challenge: DeviceFlowChallenge) {
+        let remaining = challenge.expiresAt.timeIntervalSinceNow
+        if remaining <= 0 {
+            expiryTimeRemaining = ""
+        } else {
+            let minutes = Int(remaining) / 60
+            let seconds = Int(remaining) % 60
+            expiryTimeRemaining = String(format: "Expires in %d:%02d", minutes, seconds)
         }
     }
 }
