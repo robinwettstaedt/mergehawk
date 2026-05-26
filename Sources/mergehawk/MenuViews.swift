@@ -44,6 +44,37 @@ struct NotificationReadPresentation {
     static let markOtherAccessibilityLabel = "Mark other notification as read"
 }
 
+enum GitHubInboxUnavailableCopy {
+    static let title = "GitHub Inbox unavailable"
+    static let message = "Other GitHub notifications require signing in with a classic personal access token."
+}
+
+enum GitHubAppRepositoryAccessCopy {
+    static let buttonTitle = "Install or Manage Repository Access"
+
+    static func title(for status: DashboardController.GitHubAppRepositoryAccessStatus) -> String {
+        switch status {
+        case .noInstallations:
+            "Repository access not configured"
+        case .noVisibleRepositories:
+            "No repositories visible to MergeHawk"
+        case .notApplicable, .unknown, .checking, .configured:
+            "Repository access"
+        }
+    }
+
+    static func message(for status: DashboardController.GitHubAppRepositoryAccessStatus) -> String {
+        switch status {
+        case .noInstallations:
+            "Install the MergeHawk GitHub App on your account or organization, then choose all repositories or the specific repositories MergeHawk should monitor."
+        case .noVisibleRepositories:
+            "The MergeHawk GitHub App is installed, but no accessible repositories are selected. Manage repository access on GitHub, then refresh sources."
+        case .notApplicable, .unknown, .checking, .configured:
+            "Manage which repositories MergeHawk can read through the GitHub App installation."
+        }
+    }
+}
+
 enum PullRequestNotificationTitlePresentation {
     static func title(for notification: PullRequestNotification) -> String {
         switch notification.eventType {
@@ -883,8 +914,10 @@ private struct NotificationListView: View {
     private var notificationContent: some View {
         switch controller.selectedNotificationSubtab {
         case .pullRequests:
-            if controller.visiblePullRequestNotifications.isEmpty {
-                EmptyMenuState(text: "No PR notifications.")
+            if controller.showsGitHubAppRepositoryAccessPrompt {
+                GitHubAppRepositoryAccessPrompt(controller: controller)
+            } else if controller.visiblePullRequestNotifications.isEmpty {
+                    EmptyMenuState(text: "No PR notifications.")
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 8) {
@@ -903,7 +936,11 @@ private struct NotificationListView: View {
             }
         case .other:
             if controller.visibleGitHubInboxNotifications.isEmpty {
-                EmptyMenuState(text: "No other GitHub notifications.")
+                if controller.showsGitHubInboxUnavailableHint {
+                    GitHubInboxUnavailableState()
+                } else {
+                    EmptyMenuState(text: "No other GitHub notifications.")
+                }
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 8) {
@@ -975,7 +1012,7 @@ struct GitHubSignInView: View {
     enum Copy {
         static let title = "Connect GitHub"
         static let buttonTitle = "Sign in with GitHub"
-        static let permissionText = "MergeHawk requests GitHub OAuth access for PRs and notifications. It only reads GitHub data."
+        static let permissionText = "MergeHawk uses its GitHub App to read PR data from repositories where the app is installed."
     }
 
     @ObservedObject var controller: DashboardController
@@ -1052,7 +1089,9 @@ private struct PullRequestListView: View {
     }
 
     var body: some View {
-        if !hasSourcePullRequests {
+        if controller.showsGitHubAppRepositoryAccessPrompt {
+            GitHubAppRepositoryAccessPrompt(controller: controller)
+        } else if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
         } else {
             ZStack(alignment: .topTrailing) {
@@ -2026,5 +2065,66 @@ private struct EmptyMenuState: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct GitHubAppRepositoryAccessPrompt: View {
+    @ObservedObject var controller: DashboardController
+    var minHeight: CGFloat? = nil
+
+    var body: some View {
+        VStack(spacing: 9) {
+            Image(systemName: "folder.badge.plus")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(GitHubAppRepositoryAccessCopy.title(for: controller.gitHubAppRepositoryAccessStatus))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(GitHubAppRepositoryAccessCopy.message(for: controller.gitHubAppRepositoryAccessStatus))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 340)
+            Button {
+                controller.openGitHubAppInstallation()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.right.square")
+                    Text(GitHubAppRepositoryAccessCopy.buttonTitle)
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+    }
+}
+
+private struct GitHubInboxUnavailableState: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "tray")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(GitHubInboxUnavailableCopy.title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(GitHubInboxUnavailableCopy.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 300)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
     }
 }

@@ -26,9 +26,11 @@ append_launch_environment() {
   fi
 }
 
-append_launch_environment "MERGEHAWK_GITHUB_OAUTH_CLIENT_ID"
-append_launch_environment "MERGEHAWK_GITHUB_OAUTH_CLIENT_SECRET"
-append_launch_environment "MERGEHAWK_GITHUB_OAUTH_APP_ID"
+append_launch_environment "MERGEHAWK_GITHUB_APP_ID"
+append_launch_environment "MERGEHAWK_GITHUB_APP_CLIENT_ID"
+append_launch_environment "MERGEHAWK_GITHUB_APP_CLIENT_SECRET"
+append_launch_environment "MERGEHAWK_GITHUB_APP_INSTALL_URL"
+append_launch_environment "MERGEHAWK_GITHUB_APP_MANAGE_URL"
 
 build_output="$(CONFIGURATION="${CONFIGURATION:-debug}" APP_NAME="$APP_NAME" BUNDLE_ID="$BUNDLE_ID" APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-mergehawk}" LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}" LAUNCH_ENVIRONMENT="$LAUNCH_ENVIRONMENT" scripts/build-app-bundle.sh)"
 printf '%s\n' "$build_output"

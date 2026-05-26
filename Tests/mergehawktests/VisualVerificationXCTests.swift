@@ -58,6 +58,48 @@ final class VisualVerificationXCTests: XCTestCase {
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-signed-out.png")
             )
+        }
+
+        let accessPromptClient = VisualGitHubProvider(
+            sourceCatalog: SourceCatalog(repositories: [], accountLogin: "rw"),
+            installations: GitHubAppInstallations(installations: [])
+        )
+        let accessPromptController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                oauthSignIn: VisualOAuthSignIn(),
+                oauthGitHubClientFactory: { _ in accessPromptClient }
+            )
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                accessPromptController.state.syncedAt != nil
+            }
+        }
+        await accessPromptController.signInWithGitHub()
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                accessPromptController.showsGitHubAppRepositoryAccessPrompt
+            }
+        }
+
+        try await MainActor.run {
+            accessPromptController.selectedTab = .myPRs
+            try renderMenu(
+                controller: accessPromptController,
+                to: outputURL.appendingPathComponent("menu-repository-access.png")
+            )
+            try render(
+                SettingsRootView(controller: accessPromptController, selection: .sources),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-sources-repository-access.png")
+            )
+        }
+
+        try await MainActor.run {
             try render(
                 SettingsRootView(controller: controller, selection: .general),
                 size: SettingsTab.defaultWindowSize,
@@ -185,4 +227,47 @@ final class VisualVerificationXCTests: XCTestCase {
 
         _ = window
     }
+}
+
+@MainActor
+private struct VisualOAuthSignIn: GitHubOAuthSigningIn {
+    func signIn() async throws -> OAuthTokens {
+        OAuthTokens(accessToken: "visual-access", refreshToken: "visual-refresh", expiresAt: .distantFuture)
+    }
+}
+
+private final class VisualGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    let sourceCatalog: SourceCatalog
+    let installations: GitHubAppInstallations
+
+    init(sourceCatalog: SourceCatalog, installations: GitHubAppInstallations) {
+        self.sourceCatalog = sourceCatalog
+        self.installations = installations
+    }
+
+    func fetchViewer() async throws -> GitHubAccount {
+        GitHubAccount(login: "rw")
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        PullRequestFetchResult(pullRequests: [])
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        sourceCatalog
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        installations
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
 }

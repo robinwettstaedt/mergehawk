@@ -365,6 +365,12 @@ public struct SourceCatalog: Codable, Equatable, Sendable {
 
     public static let empty = SourceCatalog(owners: [])
 
+    public var repositoryCount: Int {
+        owners.reduce(0) { count, owner in
+            count + owner.repositories.count
+        }
+    }
+
     public init(owners: [OwnerSource]) {
         self.owners = owners.sorted()
     }
@@ -377,6 +383,41 @@ public struct SourceCatalog: Codable, Equatable, Sendable {
         self.init(owners: repositoriesByOwner.map { owner, repositories in
             OwnerSource(owner: owner, repositories: repositories)
         })
+    }
+}
+
+public struct GitHubAppInstallations: Codable, Equatable, Sendable {
+    public let installations: [GitHubAppInstallation]
+
+    public init(installations: [GitHubAppInstallation]) {
+        self.installations = installations
+    }
+}
+
+public struct GitHubAppInstallation: Codable, Equatable, Sendable {
+    public enum RepositorySelection: String, Codable, Equatable, Sendable {
+        case all
+        case selected
+    }
+
+    public let id: Int
+    public let accountLogin: String
+    public let accountType: String
+    public let repositorySelection: RepositorySelection
+    public let htmlURL: URL?
+
+    public init(
+        id: Int,
+        accountLogin: String,
+        accountType: String,
+        repositorySelection: RepositorySelection,
+        htmlURL: URL? = nil
+    ) {
+        self.id = id
+        self.accountLogin = accountLogin
+        self.accountType = accountType
+        self.repositorySelection = repositorySelection
+        self.htmlURL = htmlURL
     }
 }
 
