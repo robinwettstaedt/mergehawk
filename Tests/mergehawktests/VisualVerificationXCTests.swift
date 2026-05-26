@@ -87,10 +87,21 @@ final class VisualVerificationXCTests: XCTestCase {
         }
 
         try await MainActor.run {
+            accessPromptController.selectedTab = .notifications
+            accessPromptController.selectedNotificationSubtab = .pullRequests
+            try renderMenu(
+                controller: accessPromptController,
+                to: outputURL.appendingPathComponent("menu-repository-access-notifications.png")
+            )
             accessPromptController.selectedTab = .myPRs
             try renderMenu(
                 controller: accessPromptController,
-                to: outputURL.appendingPathComponent("menu-repository-access.png")
+                to: outputURL.appendingPathComponent("menu-repository-access-authored.png")
+            )
+            accessPromptController.selectedTab = .reviewRequests
+            try renderMenu(
+                controller: accessPromptController,
+                to: outputURL.appendingPathComponent("menu-repository-access-requested.png")
             )
             try render(
                 SettingsRootView(controller: accessPromptController, selection: .sources),
@@ -123,12 +134,54 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-pinned.png"))
             controller.pinnedPullRequestIds = []
+            let populatedSourcePreferences = controller.sourcePreferences
+            controller.setOwnerPreferences(
+                owner: "mergehawk-labs",
+                preferences: OwnerSourcePreferences(
+                    notifications: true,
+                    myPullRequests: false,
+                    reviewRequests: true
+                )
+            )
+            controller.setOwnerPreferences(
+                owner: "customer-success-platform",
+                preferences: OwnerSourcePreferences(
+                    notifications: true,
+                    myPullRequests: false,
+                    reviewRequests: true
+                )
+            )
+            precondition(controller.sortedMyPullRequests.isEmpty)
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-empty.png"))
+            controller.sourcePreferences = populatedSourcePreferences
 
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
             controller.pinnedPullRequestIds = []
+            controller.setOwnerPreferences(
+                owner: "mergehawk-labs",
+                preferences: OwnerSourcePreferences(
+                    notifications: true,
+                    myPullRequests: true,
+                    reviewRequests: false
+                )
+            )
+            controller.setOwnerPreferences(
+                owner: "billing-platform-experiments",
+                preferences: OwnerSourcePreferences(
+                    notifications: true,
+                    myPullRequests: true,
+                    reviewRequests: false
+                )
+            )
+            precondition(controller.sortedReviewRequests.isEmpty)
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-empty.png")
+            )
+            controller.sourcePreferences = populatedSourcePreferences
 
             controller.selectedReviewRequestFilters = [.team]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-team.png"))
