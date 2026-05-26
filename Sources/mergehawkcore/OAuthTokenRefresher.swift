@@ -49,7 +49,7 @@ public struct OAuthTokenRefresher {
 
         let (data, responseAny) = try await load(request)
         guard let response = responseAny as? HTTPURLResponse else {
-            throw GitHubClientError.httpFailure(endpoint: "GitHub OAuth refresh", status: -1)
+            throw GitHubClientError.httpFailure(endpoint: "GitHub auth refresh", status: -1)
         }
         guard response.statusCode == 200 else {
             throw GitHubClientError.authRefreshFailed(

@@ -19,6 +19,34 @@ final class DashboardController: ObservableObject {
         var id: String { rawValue }
     }
 
+    enum GitHubAppRepositoryAccessStatus: Equatable {
+        case notApplicable
+        case unknown
+        case checking
+        case noInstallations
+        case noVisibleRepositories
+        case configured
+
+        var needsUserAction: Bool {
+            switch self {
+            case .noInstallations, .noVisibleRepositories:
+                true
+            case .notApplicable, .unknown, .checking, .configured:
+                false
+            }
+        }
+
+        static func resolved(installations: GitHubAppInstallations, sourceCatalog: SourceCatalog) -> Self {
+            guard !installations.installations.isEmpty else {
+                return .noInstallations
+            }
+            guard sourceCatalog.repositoryCount > 0 else {
+                return .noVisibleRepositories
+            }
+            return .configured
+        }
+    }
+
     enum PullRequestSortOption: String, CaseIterable, Identifiable {
         case createdDate
         case updatedDate
@@ -155,6 +183,8 @@ final class DashboardController: ObservableObject {
     @Published private(set) var isRefreshingSources = false
     @Published private(set) var sourceCatalogSyncedAt: Date?
     @Published private(set) var sourceErrorMessage: String?
+    @Published private(set) var gitHubAppRepositoryAccessStatus: GitHubAppRepositoryAccessStatus = .notApplicable
+    private var gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
     @Published private(set) var startsAtLogin: Bool
     @Published private(set) var authMethod: GitHubAuthMethod = .oauth
 
@@ -163,12 +193,15 @@ final class DashboardController: ObservableObject {
     private let tokenStore: TokenStore
     private let oauthSignIn: GitHubOAuthSigningIn
     private let oauthAccessTokenCache: OAuthAccessTokenCache
+    private let patGitHubClientFactory: (String) -> any GitHubProviding
+    private let oauthGitHubClientFactory: (@escaping @Sendable () async throws -> String) -> any GitHubProviding
     private let automaticRefreshIntervalOverride: TimeInterval?
     private let launchConfiguration: LaunchConfiguration
     private var preferencesStore: PreferencesStore
     private let launchAtLoginService: LaunchAtLoginServicing
     private let notificationClient: NotificationPosting
     private var sourceCatalogProvider: SourceCatalogProviding?
+    private var gitHubAppInstallationProvider: GitHubAppInstallationProviding?
     private var gitHubInboxProvider: GitHubInboxProviding?
     private let openURL: (URL) -> Void
     private var syncEngine: SyncEngine?
@@ -199,6 +232,10 @@ final class DashboardController: ObservableObject {
         notificationClient: NotificationPosting? = nil,
         automaticRefreshInterval: TimeInterval? = nil,
         oauthSignIn: GitHubOAuthSigningIn? = nil,
+        patGitHubClientFactory: @escaping (String) -> any GitHubProviding = { GitHubClient(token: $0) },
+        oauthGitHubClientFactory: @escaping (@escaping @Sendable () async throws -> String) -> any GitHubProviding = {
+            GitHubClient(tokenProvider: $0)
+        },
         urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
     ) {
         self.tokenStore = tokenStore
@@ -207,6 +244,8 @@ final class DashboardController: ObservableObject {
         self.preferencesStore = preferencesStore
         self.launchConfiguration = launchConfiguration
         self.openURL = urlOpener
+        self.patGitHubClientFactory = patGitHubClientFactory
+        self.oauthGitHubClientFactory = oauthGitHubClientFactory
         self.launchAtLoginService = launchAtLoginService
             ?? (launchConfiguration.usesMockData ? InMemoryLaunchAtLoginService() : LaunchAtLoginService())
         if let notificationClient {
@@ -260,6 +299,35 @@ final class DashboardController: ObservableObject {
         gitHubInboxNotifications
             .filter { sourcePreferences.allowsNotifications(for: $0.repo) }
             .sorted(by: Self.compareInboxNotifications)
+    }
+
+    var showsGitHubInboxUnavailableHint: Bool {
+        state.authStatus == .signedIn
+            && gitHubInboxProvider == nil
+            && !launchConfiguration.usesMockData
+    }
+
+    var showsGitHubAppRepositoryAccessPrompt: Bool {
+        guard state.authStatus == .signedIn
+            && authMethod == .oauth
+            && !launchConfiguration.usesMockData
+        else {
+            return false
+        }
+
+        switch gitHubAppRepositoryAccessStatus {
+        case .noInstallations:
+            return true
+        case .noVisibleRepositories, .unknown:
+            return !hasGitHubAppVisiblePullRequestData && sourceCatalog.repositoryCount == 0
+        case .notApplicable, .checking, .configured:
+            return false
+        }
+    }
+
+    private var hasGitHubAppVisiblePullRequestData: Bool {
+        !sourceFilteredMyPullRequests.isEmpty
+            || sourceFilteredReviewRequests.contains(where: Self.isRequestedPullRequest)
     }
 
     var accountLabel: String {
@@ -438,7 +506,7 @@ final class DashboardController: ObservableObject {
 
     func refresh() {
         Task {
-            await sync(appliesMockRefreshDelay: true)
+            await refreshDashboard(appliesMockRefreshDelay: true)
         }
     }
 
@@ -451,13 +519,20 @@ final class DashboardController: ObservableObject {
         }
 
         do {
-            let client = GitHubClient(token: trimmed)
+            let client = patGitHubClientFactory(trimmed)
             let viewer = try await client.fetchViewer()
             oauthAccessTokenCache.clear()
             try tokenStore.clearOAuthTokens()
             try tokenStore.storePAT(trimmed)
             account = viewer
-            configureGitHubSource(tokenProvider: { trimmed }, account: viewer, authMethod: .pat)
+            configureGitHubSource(
+                client: client,
+                authMethod: .pat,
+                allowsGitHubInboxNotifications: GitHubTokenCapabilities
+                    .supportsGitHubInboxNotifications(token: trimmed),
+                loginProvider: { viewer.login },
+                accountProvider: { viewer }
+            )
             await fetchSourceCatalog()
             await sync()
         } catch {
@@ -476,9 +551,11 @@ final class DashboardController: ObservableObject {
             let viewer = try await client.fetchViewer()
             account = viewer
             configureGitHubSource(
-                tokenProvider: makeOAuthAccessTokenProvider(),
-                account: viewer,
-                authMethod: .oauth
+                client: client,
+                authMethod: .oauth,
+                allowsGitHubInboxNotifications: false,
+                loginProvider: { viewer.login },
+                accountProvider: { viewer }
             )
             await fetchSourceCatalog()
             await sync()
@@ -496,8 +573,14 @@ final class DashboardController: ObservableObject {
         }
         account = nil
         preferencesStore.pullRequestSnapshotCache = .empty
+        pullRequestNotificationHistory = []
+        gitHubInboxNotifications = []
+        gitHubInboxSyncMetadata = .empty
         setAuthMethod(.oauth)
         sourceCatalogProvider = nil
+        gitHubAppInstallationProvider = nil
+        gitHubAppRepositoryAccessStatus = .notApplicable
+        gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         sourceCatalog = .empty
         sourceErrorMessage = nil
         configureSignedOutSource()
@@ -537,6 +620,10 @@ final class DashboardController: ObservableObject {
 
     func open(_ url: URL) {
         openURL(url)
+    }
+
+    func openGitHubAppInstallation() {
+        open(gitHubAppRepositoryAccessURL)
     }
 
     func isUnreadPullRequest(_ pullRequest: PullRequest) -> Bool {
@@ -663,18 +750,31 @@ final class DashboardController: ObservableObject {
     }
 
     private func configureStoredOAuthSource() {
-        configureStoredGitHubSource(client: makeOAuthGitHubClient(), authMethod: .oauth)
+        configureStoredGitHubSource(
+            client: makeOAuthGitHubClient(),
+            authMethod: .oauth,
+            allowsGitHubInboxNotifications: false
+        )
     }
 
     private func configureStoredPATSource(token: String) {
-        configureStoredGitHubSource(client: GitHubClient(token: token), authMethod: .pat)
+        configureStoredGitHubSource(
+            client: patGitHubClientFactory(token),
+            authMethod: .pat,
+            allowsGitHubInboxNotifications: GitHubTokenCapabilities.supportsGitHubInboxNotifications(token: token)
+        )
     }
 
-    private func configureStoredGitHubSource(client: GitHubClient, authMethod: GitHubAuthMethod) {
+    private func configureStoredGitHubSource(
+        client: any GitHubProviding,
+        authMethod: GitHubAuthMethod,
+        allowsGitHubInboxNotifications: Bool
+    ) {
         restoreCachedGitHubDashboardIfAvailable()
         configureGitHubSource(
             client: client,
             authMethod: authMethod,
+            allowsGitHubInboxNotifications: allowsGitHubInboxNotifications,
             loginProvider: { [weak self] in
                 if let login = self?.account?.login {
                     return login
@@ -688,32 +788,34 @@ final class DashboardController: ObservableObject {
             accountProvider: { [weak self] in self?.account }
         )
         Task {
-            await sync()
-            await fetchSourceCatalog()
+            await refreshDashboard()
         }
     }
 
     private func configureGitHubSource(
-        tokenProvider: @escaping @Sendable () async throws -> String,
-        account: GitHubAccount,
-        authMethod: GitHubAuthMethod
-    ) {
-        configureGitHubSource(
-            client: GitHubClient(tokenProvider: tokenProvider),
-            authMethod: authMethod,
-            loginProvider: { account.login },
-            accountProvider: { account }
-        )
-    }
-
-    private func configureGitHubSource(
-        client: GitHubClient,
+        client: any GitHubProviding,
         authMethod: GitHubAuthMethod,
+        allowsGitHubInboxNotifications: Bool,
         loginProvider: @escaping () async throws -> String,
         accountProvider: @escaping () async throws -> GitHubAccount?
     ) {
         sourceCatalogProvider = client
-        gitHubInboxProvider = client
+        if authMethod == .oauth {
+            gitHubAppInstallationProvider = client
+            gitHubAppRepositoryAccessStatus = .unknown
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+        } else {
+            gitHubAppInstallationProvider = nil
+            gitHubAppRepositoryAccessStatus = .notApplicable
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+        }
+        if allowsGitHubInboxNotifications {
+            gitHubInboxProvider = client
+        } else {
+            gitHubInboxProvider = nil
+            gitHubInboxNotifications = []
+            gitHubInboxSyncMetadata = .empty
+        }
         setAuthMethod(authMethod)
         syncEngine = SyncEngine(
             source: client,
@@ -735,6 +837,9 @@ final class DashboardController: ObservableObject {
         setAuthMethod(.oauth)
         sourceCatalog = .empty
         sourceCatalogProvider = nil
+        gitHubAppInstallationProvider = nil
+        gitHubAppRepositoryAccessStatus = .notApplicable
+        gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         gitHubInboxProvider = nil
         let source = EmptyPullRequestSource()
         syncEngine = SyncEngine(
@@ -755,6 +860,9 @@ final class DashboardController: ObservableObject {
             showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures
         )
         sourceCatalogProvider = source
+        gitHubAppInstallationProvider = nil
+        gitHubAppRepositoryAccessStatus = .notApplicable
+        gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         gitHubInboxProvider = source
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
         sourceCatalogSyncedAt = Date()
@@ -772,8 +880,8 @@ final class DashboardController: ObservableObject {
         )
     }
 
-    private func makeOAuthGitHubClient() -> GitHubClient {
-        GitHubClient(tokenProvider: makeOAuthAccessTokenProvider())
+    private func makeOAuthGitHubClient() -> any GitHubProviding {
+        oauthGitHubClientFactory(makeOAuthAccessTokenProvider())
     }
 
     private func makeOAuthAccessTokenProvider() -> @Sendable () async throws -> String {
@@ -827,13 +935,23 @@ final class DashboardController: ObservableObject {
         }
         isRefreshingSources = true
         sourceErrorMessage = nil
+        let installations = await fetchGitHubAppInstallationsForAccessStatus()
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         do {
-            sourceCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
+            let fetchedCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
                 accountLogin: account?.login ?? state.account?.login
             )
+            sourceCatalog = fetchedCatalog
             sourceCatalogSyncedAt = Date()
+            updateGitHubAppRepositoryAccessStatus(
+                installations: installations,
+                sourceCatalog: fetchedCatalog
+            )
         } catch {
+            updateGitHubAppRepositoryAccessStatus(
+                installations: installations,
+                sourceCatalog: nil
+            )
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
@@ -841,6 +959,72 @@ final class DashboardController: ObservableObject {
             }
         }
         isRefreshingSources = false
+    }
+
+    private var canCheckGitHubAppRepositoryAccess: Bool {
+        (state.authStatus == .signedIn || account != nil)
+            && authMethod == .oauth
+            && !launchConfiguration.usesMockData
+    }
+
+    private func fetchGitHubAppInstallationsForAccessStatus() async -> GitHubAppInstallations? {
+        guard canCheckGitHubAppRepositoryAccess else {
+            gitHubAppRepositoryAccessStatus = .notApplicable
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            return nil
+        }
+        guard let gitHubAppInstallationProvider else {
+            gitHubAppRepositoryAccessStatus = .unknown
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            return nil
+        }
+
+        gitHubAppRepositoryAccessStatus = .checking
+        do {
+            return try await gitHubAppInstallationProvider.fetchGitHubAppInstallations()
+        } catch {
+            if isAuthenticationFailure(error) {
+                handleAuthenticationFailure(error)
+            } else {
+                gitHubAppRepositoryAccessStatus = .unknown
+            }
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            return nil
+        }
+    }
+
+    private func updateGitHubAppRepositoryAccessStatus(
+        installations: GitHubAppInstallations?,
+        sourceCatalog: SourceCatalog?
+    ) {
+        guard canCheckGitHubAppRepositoryAccess else {
+            gitHubAppRepositoryAccessStatus = .notApplicable
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            return
+        }
+        guard let installations else {
+            gitHubAppRepositoryAccessStatus = .unknown
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            return
+        }
+        guard !installations.installations.isEmpty else {
+            gitHubAppRepositoryAccessStatus = .noInstallations
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            return
+        }
+        guard let sourceCatalog else {
+            gitHubAppRepositoryAccessStatus = .unknown
+            gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            return
+        }
+        let status = GitHubAppRepositoryAccessStatus.resolved(
+            installations: installations,
+            sourceCatalog: sourceCatalog
+        )
+        gitHubAppRepositoryAccessStatus = status
+        gitHubAppRepositoryAccessURL = status == .noVisibleRepositories
+            ? installations.installations.first?.htmlURL ?? MergeHawkAuthDefaults.installURL
+            : MergeHawkAuthDefaults.installURL
     }
 
     private func fetchGitHubInboxNotifications() async {
@@ -908,6 +1092,13 @@ final class DashboardController: ObservableObject {
             let nextState = try await syncEngine.sync()
             recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
             state = nextState
+            if authMethod == .oauth,
+               !launchConfiguration.usesMockData,
+               gitHubAppRepositoryAccessStatus != .noInstallations,
+               !nextState.pullRequests.isEmpty {
+                gitHubAppRepositoryAccessStatus = .configured
+                gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
+            }
             errorMessage = syncEngine.lastRefreshWarning
             if macOSLocalNotificationsEnabled {
                 notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
@@ -921,6 +1112,13 @@ final class DashboardController: ObservableObject {
             }
         }
         isRefreshing = false
+    }
+
+    private func refreshDashboard(appliesMockRefreshDelay: Bool = false) async {
+        if canCheckGitHubAppRepositoryAccess {
+            await fetchSourceCatalog(appliesMockRefreshDelay: appliesMockRefreshDelay)
+        }
+        await sync(appliesMockRefreshDelay: appliesMockRefreshDelay)
     }
 
     private func delayMockRefreshIfNeeded(applies: Bool) async {
@@ -991,7 +1189,7 @@ final class DashboardController: ObservableObject {
                 guard let self else {
                     break
                 }
-                await self.sync()
+                await self.refreshDashboard()
             }
         }
     }

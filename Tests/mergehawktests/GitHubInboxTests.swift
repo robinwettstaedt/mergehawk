@@ -112,6 +112,50 @@ final class GitHubInboxTests: XCTestCase {
         XCTAssertEqual(capturedRequest?.url?.absoluteString, "https://api.github.com/notifications/threads/123")
     }
 
+    func testFetchGitHubAppInstallationsParsesAccountsAndRepositorySelection() async throws {
+        let session = Self.mockSession()
+        var capturedRequest: URLRequest?
+        MockURLProtocol.handler = { request in
+            capturedRequest = request
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let data = Data("""
+            {
+              "total_count": 2,
+              "installations": [
+                {
+                  "id": 1001,
+                  "account": { "login": "rw", "type": "User" },
+                  "repository_selection": "all",
+                  "html_url": "https://github.com/settings/installations/1001"
+                },
+                {
+                  "id": 1002,
+                  "account": { "login": "acme", "type": "Organization" },
+                  "repository_selection": "selected",
+                  "html_url": "https://github.com/organizations/acme/settings/installations/1002"
+                }
+              ]
+            }
+            """.utf8)
+            return (data, response)
+        }
+
+        let client = GitHubClient(token: "token", session: session)
+        let result = try await client.fetchGitHubAppInstallations()
+
+        XCTAssertEqual(capturedRequest?.httpMethod, "GET")
+        XCTAssertEqual(capturedRequest?.url?.absoluteString, "https://api.github.com/user/installations")
+        XCTAssertEqual(capturedRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer token")
+        XCTAssertEqual(result.installations.map(\.accountLogin), ["rw", "acme"])
+        XCTAssertEqual(result.installations.map(\.repositorySelection), [.all, .selected])
+        XCTAssertEqual(result.installations.first?.htmlURL, URL(string: "https://github.com/settings/installations/1001"))
+    }
+
     private static func mockSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]

@@ -19,7 +19,7 @@ final class AuthCoreTests: XCTestCase {
     }
 
     @MainActor
-    func testOAuthLoginPersistsTokens() async throws {
+    func testOAuthLoginPersistsTokensWithoutScope() async throws {
         let store = InMemoryTokenStore()
         let redirectURL = try XCTUnwrap(URL(string: "http://127.0.0.1:53683/callback"))
         let server = FakeLoopbackServer(
@@ -33,7 +33,7 @@ final class AuthCoreTests: XCTestCase {
                 let queryItems = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
                 XCTAssertEqual(queryItems.first(where: { $0.name == "client_id" })?.value, "cid")
                 XCTAssertEqual(queryItems.first(where: { $0.name == "redirect_uri" })?.value, redirectURL.absoluteString)
-                XCTAssertEqual(queryItems.first(where: { $0.name == "scope" })?.value, "read:user read:org repo notifications")
+                XCTAssertNil(queryItems.first(where: { $0.name == "scope" })?.value)
                 XCTAssertEqual(queryItems.first(where: { $0.name == "state" })?.value, "state-123")
                 XCTAssertEqual(queryItems.first(where: { $0.name == "code_challenge_method" })?.value, "S256")
             },
@@ -66,13 +66,53 @@ final class AuthCoreTests: XCTestCase {
             clientSecret: "secret",
             host: URL(string: "https://github.com/path?ignored=true")!,
             loopbackPort: 53683,
-            scope: "read:user read:org repo notifications",
             timeout: 1
         )
 
         XCTAssertEqual(tokens.accessToken, "access")
         XCTAssertEqual(tokens.refreshToken, "refresh")
         XCTAssertEqual(try store.loadOAuthTokens(), tokens)
+    }
+
+    @MainActor
+    func testOAuthLoginIncludesExplicitScopeWhenProvided() async throws {
+        let store = InMemoryTokenStore()
+        let redirectURL = try XCTUnwrap(URL(string: "http://127.0.0.1:53683/callback"))
+        let server = FakeLoopbackServer(
+            redirectURL: redirectURL,
+            callback: (code: "code-123", state: "state-123")
+        )
+
+        let flow = OAuthLoginFlow(
+            tokenStore: store,
+            openURL: { url in
+                let queryItems = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+                XCTAssertEqual(queryItems.first(where: { $0.name == "scope" })?.value, "repo read:org")
+            },
+            dataProvider: { request in
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+                let data = Data("""
+                {"access_token":"access","token_type":"bearer","scope":"repo","expires_in":3600,"refresh_token":"refresh"}
+                """.utf8)
+                return (data, response)
+            },
+            makeLoopbackServer: { _ in server },
+            stateProvider: { "state-123" }
+        )
+
+        _ = try await flow.login(
+            clientID: "cid",
+            clientSecret: "secret",
+            host: URL(string: "https://github.com")!,
+            loopbackPort: 53683,
+            scope: "repo read:org",
+            timeout: 1
+        )
     }
 
     func testOAuthRefresherUsesDefaultClientCredentials() async throws {
