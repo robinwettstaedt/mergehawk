@@ -2,6 +2,13 @@
 import AppKit
 import Foundation
 import mergehawkcore
+import XCTest
+
+final class MenuViewTests: XCTestCase {
+    func testPullRequestListEmptyCopy() {
+        XCTAssertEqual(PullRequestListCopy.emptyReviewRequests, "No review requests or assigned PRs.")
+    }
+}
 
 @MainActor let mergehawkMenuViewTest: Void = {
     precondition(DashboardController.MenuTab.allCases.map(\.rawValue) == ["Notifications", "Authored", "Requested"])
@@ -66,7 +73,7 @@ import mergehawkcore
     precondition(NotificationReadPresentation.markPRAccessibilityLabel == "Mark PR notification as read")
     precondition(NotificationReadPresentation.markOtherAccessibilityLabel == "Mark other notification as read")
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
-    precondition(PullRequestListCopy.emptyReviewRequests == "No review requests.")
+    precondition(PullRequestListCopy.emptyReviewRequests == "No review requests or assigned PRs.")
     precondition(PullRequestListCopy.noFilterMatches == "No PRs match these filters.")
     let otherCommitNotificationPullRequest = PullRequest(
         id: "other-commit",
