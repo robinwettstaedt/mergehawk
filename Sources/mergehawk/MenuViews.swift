@@ -493,7 +493,7 @@ private enum HoverFillPresentation {
 
 enum PullRequestListCopy {
     static let emptyAuthored = "No authored PRs."
-    static let emptyReviewRequests = "No review requests."
+    static let emptyReviewRequests = "No review requests or assigned PRs."
     static let noFilterMatches = "No PRs match these filters."
 }
 
