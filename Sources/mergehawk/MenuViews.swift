@@ -878,7 +878,7 @@ private struct NotificationListView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 NotificationSubtabSegmentedControl(selection: $controller.selectedNotificationSubtab)
-                    .frame(width: 104, height: 18)
+                    .frame(width: 104, height: MenuControlButton.Layout.height)
 
                 Spacer()
 
@@ -1089,79 +1089,45 @@ private struct PullRequestListView: View {
     }
 
     var body: some View {
-        if controller.showsGitHubAppRepositoryAccessPrompt {
-            GitHubAppRepositoryAccessPrompt(controller: controller)
-        } else if !hasSourcePullRequests {
-            EmptyMenuState(text: emptyText)
-        } else {
-            ZStack(alignment: .topTrailing) {
-                VStack(spacing: 0) {
-                    toolbarControls
-                        .padding(.horizontal, 12)
-                        .padding(.top, 10)
-                        .padding(.bottom, 6)
-                        .background {
-                            if dropdownState.openMenu != nil {
-                                Color.clear
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        dropdownState.dismiss()
-                                    }
-                            }
-                        }
-
-                    ScrollView(.vertical, showsIndicators: false) {
-                        if visiblePullRequests.isEmpty {
-                            EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
-                                .frame(minHeight: 520)
-                        } else {
-                            LazyVStack(spacing: 8) {
-                                ForEach(visiblePullRequests) { pr in
-                                    PullRequestRow(
-                                        pullRequest: pr,
-                                        isAttention: controller.isUnreadPullRequest(pr),
-                                        isPinned: controller.isPinned(pr),
-                                        showsReviewRequestKind: mode == .reviewRequests,
-                                        showsAuthor: mode == .reviewRequests,
-                                        togglePin: {
-                                            controller.togglePin(pr)
-                                        }
-                                    ) {
-                                        controller.openPullRequest(pr)
-                                    }
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                toolbarControls
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+                    .background {
+                        if dropdownState.openMenu != nil {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    dropdownState.dismiss()
                                 }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.top, 5)
-                            .padding(.bottom, 12)
                         }
                     }
-                    .simultaneousGesture(TapGesture().onEnded {
-                        dismissTransientControls()
-                    })
-                }
 
-                if dropdownState.openMenu != nil {
-                    outsideDropdownDismissArea
-                }
-
-                if dropdownState.openMenu == .filter {
-                    filterMenu
-                        .padding(.top, 40)
-                        .padding(.trailing, 110)
-                        .zIndex(3)
-                }
-
-                if dropdownState.openMenu == .sort {
-                    sortMenu
-                        .padding(.top, 40)
-                        .padding(.trailing, 12)
-                        .zIndex(3)
-                }
+                content
             }
-            .onChange(of: dismissSignal) { _, _ in
-                dismissTransientControls()
+
+            if dropdownState.openMenu != nil {
+                outsideDropdownDismissArea
             }
+
+            if dropdownState.openMenu == .filter {
+                filterMenu
+                    .padding(.top, 40)
+                    .padding(.trailing, 110)
+                    .zIndex(3)
+            }
+
+            if dropdownState.openMenu == .sort {
+                sortMenu
+                    .padding(.top, 40)
+                    .padding(.trailing, 12)
+                    .zIndex(3)
+            }
+        }
+        .onChange(of: dismissSignal) { _, _ in
+            dismissTransientControls()
         }
     }
 
@@ -1171,6 +1137,42 @@ private struct PullRequestListView: View {
             controller.sortedMyPullRequests
         case .reviewRequests:
             controller.sortedReviewRequests
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if controller.showsGitHubAppRepositoryAccessPrompt {
+            GitHubAppRepositoryAccessPrompt(controller: controller)
+        } else if !hasSourcePullRequests {
+            EmptyMenuState(text: emptyText)
+        } else if visiblePullRequests.isEmpty {
+            EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
+        } else {
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 8) {
+                    ForEach(visiblePullRequests) { pr in
+                        PullRequestRow(
+                            pullRequest: pr,
+                            isAttention: controller.isUnreadPullRequest(pr),
+                            isPinned: controller.isPinned(pr),
+                            showsReviewRequestKind: mode == .reviewRequests,
+                            showsAuthor: mode == .reviewRequests,
+                            togglePin: {
+                                controller.togglePin(pr)
+                            }
+                        ) {
+                            controller.openPullRequest(pr)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 5)
+                .padding(.bottom, 12)
+            }
+            .simultaneousGesture(TapGesture().onEnded {
+                dismissTransientControls()
+            })
         }
     }
 
