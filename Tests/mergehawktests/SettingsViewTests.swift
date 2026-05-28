@@ -1,4 +1,5 @@
 @testable import mergehawk
+import AppKit
 import CoreGraphics
 import mergehawkcore
 
@@ -8,11 +9,13 @@ let mergehawkSettingsTabsTest: Void = {
         "GitHub",
         "Notifications",
         "Sources",
+        "About",
     ])
     precondition(SettingsTab.github.systemImage == "person.crop.circle.badge.checkmark")
     precondition(SettingsTab.notifications.systemImage == "bell")
     precondition(SettingsTab.sources.systemImage == "tray.full")
-    precondition(SettingsTab.defaultWindowSize == CGSize(width: 660, height: 580))
+    precondition(SettingsTab.about.systemImage == "info.circle")
+    precondition(SettingsTab.defaultWindowSize == CGSize(width: 500, height: 580))
     precondition(SettingsTabLayout.topPadding == 8)
     precondition(SettingsTabLayout.titleSize == 14)
     precondition(SettingsTabLayout.iconSize == 18)
@@ -38,6 +41,19 @@ let mergehawkNotificationMatrixSettingsModelTest: Void = {
 let mergehawkSourceSettingsCopyTest: Void = {
     precondition(SourceSettingsCopy.authoredTitle == "Authored")
     precondition(SourceSettingsCopy.requestedTitle == "Requested")
+}()
+
+let mergehawkAboutSettingsCopyTest: Void = {
+    precondition(AboutPanelContent.appName == "MergeHawk")
+    precondition(AboutPanelContent.credits == "Eyes on the pull requests that matter to you.")
+    precondition(AboutPanelContent.footer == "© 2026 Robin Wettstädt. MIT license.")
+    precondition(AboutPanelContent.links.map(\.title) == ["GitHub", "Website"])
+    precondition(AboutPanelContent.links.map(\.url.absoluteString) == [
+        "https://github.com/robinwettstaedt/mergehawk",
+        "https://mergehawk.dev",
+    ])
+    precondition(AboutPanelContent.versionText(bundle: .main) == "Version 0.1.0 (1)")
+    precondition(AboutPanelContent.logoImage()?.size == NSSize(width: 128, height: 128))
 }()
 
 let mergehawkSourceCatalogSearchTest: Void = {

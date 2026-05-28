@@ -60,6 +60,31 @@ done < <(
     -print0
 )
 
+APP_ICON_PNG="$ROOT_DIR/Design/mergehawk_logo_without_text.png"
+cp "$APP_ICON_PNG" "$APP_DIR/Contents/Resources/MergeHawkAppIcon.png"
+ICONSET_DIR="$APP_DIR/Contents/Resources/MergeHawkAppIcon.iconset"
+rm -rf "$ICONSET_DIR"
+mkdir -p "$ICONSET_DIR"
+tmp_icon_dir="$(mktemp -d)"
+cp "$APP_ICON_PNG" "$tmp_icon_dir/source.png"
+for spec in \
+  "16 icon_16x16.png" \
+  "32 icon_16x16@2x.png" \
+  "32 icon_32x32.png" \
+  "64 icon_32x32@2x.png" \
+  "128 icon_128x128.png" \
+  "256 icon_128x128@2x.png" \
+  "256 icon_256x256.png" \
+  "512 icon_256x256@2x.png" \
+  "512 icon_512x512.png" \
+  "1024 icon_512x512@2x.png"
+do
+  read -r pixel_size icon_name <<<"$spec"
+  sips -z "$pixel_size" "$pixel_size" "$tmp_icon_dir/source.png" --out "$ICONSET_DIR/$icon_name" >/dev/null
+done
+iconutil -c icns "$ICONSET_DIR" -o "$APP_DIR/Contents/Resources/MergeHawkAppIcon.icns"
+rm -rf "$ICONSET_DIR" "$tmp_icon_dir"
+
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -71,6 +96,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <string>__APP_EXECUTABLE_NAME__</string>
   <key>CFBundleIdentifier</key>
   <string>__BUNDLE_ID__</string>
+  <key>CFBundleIconFile</key>
+  <string>MergeHawkAppIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

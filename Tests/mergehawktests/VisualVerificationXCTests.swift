@@ -121,6 +121,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-notifications.png")
             )
+            try render(
+                SettingsRootView(controller: controller, selection: .about),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-about.png")
+            )
 
             controller.selectedTab = .notifications
             controller.selectedNotificationSubtab = .pullRequests
