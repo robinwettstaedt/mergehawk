@@ -23,12 +23,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
         statusBarController = StatusBarController(controller: controller)
-        controller.openSettingsWindow = { [weak self] in
-            self?.showSettingsWindow()
+        controller.openSettingsWindow = { [weak self] selection in
+            self?.showSettingsWindow(selection: selection)
         }
     }
 
-    private func showSettingsWindow() {
+    private func showSettingsWindow(selection: SettingsTab = .general) {
         let window: NSWindow
         if let settingsWindow {
             window = settingsWindow
@@ -43,13 +43,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "MergeHawk Settings"
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
-            window.contentView = NSHostingView(rootView: SettingsRootView(controller: controller))
             window.isReleasedWhenClosed = false
             window.collectionBehavior = [.moveToActiveSpace]
             window.center()
             settingsWindow = window
         }
 
+        window.contentView = NSHostingView(rootView: SettingsRootView(controller: controller, selection: selection))
+        window.setContentSize(SettingsTab.defaultWindowSize)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.makeMain()
