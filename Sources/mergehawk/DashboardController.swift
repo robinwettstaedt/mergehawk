@@ -188,7 +188,7 @@ final class DashboardController: ObservableObject {
     @Published private(set) var startsAtLogin: Bool
     @Published private(set) var authMethod: GitHubAuthMethod = .oauth
 
-    var openSettingsWindow: (() -> Void)?
+    var openSettingsWindow: ((SettingsTab) -> Void)?
 
     private let tokenStore: TokenStore
     private let oauthSignIn: GitHubOAuthSigningIn
@@ -587,8 +587,8 @@ final class DashboardController: ObservableObject {
         refresh()
     }
 
-    func showSettings() {
-        openSettingsWindow?()
+    func showSettings(selection: SettingsTab = .general) {
+        openSettingsWindow?(selection)
     }
 
     func setStartsAtLogin(_ startsAtLogin: Bool) {
