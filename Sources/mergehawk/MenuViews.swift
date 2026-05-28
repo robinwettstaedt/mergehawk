@@ -1009,46 +1009,59 @@ private struct NotificationSubtabSegmentedControl: NSViewRepresentable {
 }
 
 struct GitHubSignInView: View {
-    enum Copy {
-        static let title = "Connect GitHub"
-        static let buttonTitle = "Sign in with GitHub"
-        static let permissionText = "MergeHawk uses its GitHub App to read PR data from repositories where the app is installed."
-    }
-
     @ObservedObject var controller: DashboardController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(Self.Copy.title)
-                    .font(.headline)
-                Text(Self.Copy.permissionText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 10) {
-                Button(Self.Copy.buttonTitle) {
-                    connect()
+            VStack(spacing: 16) {
+                VStack(spacing: 6) {
+                    Text("Connect GitHub")
+                        .font(.headline)
+                    Text("MergeHawk uses its GitHub App to read PR data from repositories where the app is installed.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(controller.isRefreshing)
 
-                if controller.isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
+                HStack(spacing: 8) {
+                    Button {
+                        connect()
+                    } label: {
+                        Text("Sign in with GitHub")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 28)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(controller.isRefreshing)
+
+                    if controller.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
-            }
 
-            if let error = controller.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let error = controller.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("Use access token instead") {
+                    controller.showGitHubSettings(patMode: true)
+                }
+                .buttonStyle(.plain)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
 
             Spacer(minLength: 0)
         }
