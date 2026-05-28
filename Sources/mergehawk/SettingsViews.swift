@@ -396,6 +396,10 @@ private struct GitHubSettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
+            if controller.openGitHubSettingsInPATMode {
+                selectedSignInMode = .pat
+                controller.openGitHubSettingsInPATMode = false
+            }
             if controller.state.authStatus != .signedIn, selectedSignInMode == .pat {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     tokenFieldFocused = true

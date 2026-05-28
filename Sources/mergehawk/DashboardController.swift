@@ -189,6 +189,7 @@ final class DashboardController: ObservableObject {
     @Published private(set) var authMethod: GitHubAuthMethod = .oauth
 
     var openSettingsWindow: ((SettingsTab) -> Void)?
+    var openGitHubSettingsInPATMode = false
 
     private let tokenStore: TokenStore
     private let oauthSignIn: GitHubOAuthSigningIn
@@ -589,6 +590,11 @@ final class DashboardController: ObservableObject {
 
     func showSettings(selection: SettingsTab = .general) {
         openSettingsWindow?(selection)
+    }
+
+    func showGitHubSettings(patMode: Bool = false) {
+        openGitHubSettingsInPATMode = patMode
+        openSettingsWindow?(.github)
     }
 
     func setStartsAtLogin(_ startsAtLogin: Bool) {
