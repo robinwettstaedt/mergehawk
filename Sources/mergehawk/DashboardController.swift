@@ -47,6 +47,11 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    enum DeviceFlowPhase {
+        case enterCode
+        case loadingApp
+    }
+
     enum PullRequestSortOption: String, CaseIterable, Identifiable {
         case createdDate
         case updatedDate
@@ -190,6 +195,14 @@ final class DashboardController: ObservableObject {
 
     var openSettingsWindow: ((SettingsTab) -> Void)?
     var openGitHubSettingsInPATMode = false
+    var showDeviceFlowSignInMenu: (() -> Void)?
+
+    @Published private(set) var deviceFlowChallenge: DeviceFlowChallenge?
+    @Published private(set) var deviceFlowPhase: DeviceFlowPhase?
+    @Published private(set) var deviceFlowCodeCopiedAt: Date?
+    @Published private(set) var isRequestingDeviceCode = false
+    private var signInTask: Task<Void, Never>?
+    private var signInAttemptID = 0
 
     private let tokenStore: TokenStore
     private let oauthSignIn: GitHubOAuthSigningIn
@@ -204,7 +217,10 @@ final class DashboardController: ObservableObject {
     private var sourceCatalogProvider: SourceCatalogProviding?
     private var gitHubAppInstallationProvider: GitHubAppInstallationProviding?
     private var gitHubInboxProvider: GitHubInboxProviding?
-    private let openURL: (URL) -> Void
+    private let openURL: @MainActor (URL) -> Void
+    private let openDeviceFlowURL: @MainActor (URL) -> Void
+    private let copyStringToClipboard: @MainActor (String) -> Void
+    private let now: @MainActor () -> Date
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
@@ -237,14 +253,20 @@ final class DashboardController: ObservableObject {
         oauthGitHubClientFactory: @escaping (@escaping @Sendable () async throws -> String) -> any GitHubProviding = {
             GitHubClient(tokenProvider: $0)
         },
-        urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
+        urlOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        deviceFlowURLOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        clipboardWriter: @escaping @MainActor (String) -> Void = DashboardController.copyToPasteboard,
+        now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.tokenStore = tokenStore
-        self.oauthSignIn = oauthSignIn ?? BrowserGitHubOAuthSignIn(tokenStore: tokenStore)
+        self.oauthSignIn = oauthSignIn ?? GitHubDeviceFlowSignIn()
         self.oauthAccessTokenCache = OAuthAccessTokenCache(tokenStore: tokenStore)
         self.preferencesStore = preferencesStore
         self.launchConfiguration = launchConfiguration
         self.openURL = urlOpener
+        self.openDeviceFlowURL = deviceFlowURLOpener
+        self.copyStringToClipboard = clipboardWriter
+        self.now = now
         self.patGitHubClientFactory = patGitHubClientFactory
         self.oauthGitHubClientFactory = oauthGitHubClientFactory
         self.launchAtLoginService = launchAtLoginService
@@ -512,6 +534,7 @@ final class DashboardController: ObservableObject {
     }
 
     func signInWithToken(_ token: String) async {
+        cancelDeviceFlowSignIn()
         errorMessage = nil
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -541,15 +564,59 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    func signInWithGitHub() async {
+    func signInWithGitHub(keepsMenuVisible: Bool = false) async {
+        cancelDeviceFlowSignIn()
+        let attemptID = signInAttemptID
         errorMessage = nil
+        isRequestingDeviceCode = true
+
+        let challenge: DeviceFlowChallenge
+        do {
+            challenge = try await oauthSignIn.requestDeviceCode()
+        } catch {
+            guard isCurrentSignInAttempt(attemptID) else { return }
+            isRequestingDeviceCode = false
+            errorMessage = error.localizedDescription
+            return
+        }
+        guard isCurrentSignInAttempt(attemptID) else { return }
+
+        deviceFlowChallenge = challenge
+        deviceFlowPhase = .enterCode
+        isRequestingDeviceCode = false
+        openDeviceFlowURL(challenge.verificationURI)
+        if keepsMenuVisible {
+            showDeviceFlowSignInMenu?()
+        }
+
+        signInTask = Task { [weak self] in
+            await self?.completeDeviceFlowSignIn(challenge: challenge, attemptID: attemptID)
+        }
+    }
+
+    func copyDeviceFlowUserCode() {
+        guard let code = deviceFlowChallenge?.userCode else {
+            return
+        }
+        copyStringToClipboard(code)
+        deviceFlowCodeCopiedAt = now()
+    }
+
+    private func completeDeviceFlowSignIn(challenge: DeviceFlowChallenge, attemptID: Int) async {
+        defer {
+            if isCurrentSignInAttempt(attemptID) {
+                signInTask = nil
+            }
+        }
 
         do {
-            let tokens = try await oauthSignIn.signIn()
+            let tokens = try await oauthSignIn.pollForTokens(challenge: challenge)
+            guard shouldContinueSignIn(attemptID) else { return }
+            deviceFlowPhase = .loadingApp
             oauthAccessTokenCache.store(tokens)
-            try tokenStore.clearPAT()
             let client = makeOAuthGitHubClient()
             let viewer = try await client.fetchViewer()
+            guard shouldContinueSignIn(attemptID) else { return }
             account = viewer
             configureGitHubSource(
                 client: client,
@@ -559,13 +626,36 @@ final class DashboardController: ObservableObject {
                 accountProvider: { viewer }
             )
             await fetchSourceCatalog()
+            guard shouldContinueSignIn(attemptID) else { return }
             await sync()
+            guard shouldContinueSignIn(attemptID) else { return }
+            try tokenStore.storeOAuthTokens(tokens)
+            try tokenStore.clearPAT()
+            deviceFlowChallenge = nil
+            deviceFlowPhase = nil
+            deviceFlowCodeCopiedAt = nil
         } catch {
+            guard isCurrentSignInAttempt(attemptID) else { return }
+            deviceFlowChallenge = nil
+            deviceFlowPhase = nil
+            deviceFlowCodeCopiedAt = nil
+            if Task.isCancelled || error is CancellationError { return }
             errorMessage = error.localizedDescription
         }
     }
 
+    func cancelDeviceFlowSignIn() {
+        signInAttemptID += 1
+        signInTask?.cancel()
+        signInTask = nil
+        deviceFlowChallenge = nil
+        deviceFlowPhase = nil
+        deviceFlowCodeCopiedAt = nil
+        isRequestingDeviceCode = false
+    }
+
     func signOut() {
+        cancelDeviceFlowSignIn()
         do {
             oauthAccessTokenCache.clear()
             try tokenStore.clear()
@@ -595,6 +685,14 @@ final class DashboardController: ObservableObject {
     func showGitHubSettings(patMode: Bool = false) {
         openGitHubSettingsInPATMode = patMode
         openSettingsWindow?(.github)
+    }
+
+    private func isCurrentSignInAttempt(_ attemptID: Int) -> Bool {
+        signInAttemptID == attemptID
+    }
+
+    private func shouldContinueSignIn(_ attemptID: Int) -> Bool {
+        isCurrentSignInAttempt(attemptID) && !Task.isCancelled
     }
 
     func setStartsAtLogin(_ startsAtLogin: Bool) {
@@ -753,6 +851,11 @@ final class DashboardController: ObservableObject {
             configureSignedOutSource()
             refresh()
         }
+    }
+
+    private static func copyToPasteboard(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private func configureStoredOAuthSource() {
@@ -940,13 +1043,17 @@ final class DashboardController: ObservableObject {
             return
         }
         isRefreshingSources = true
+        defer { isRefreshingSources = false }
         sourceErrorMessage = nil
         let installations = await fetchGitHubAppInstallationsForAccessStatus()
+        guard !Task.isCancelled else { return }
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
+        guard !Task.isCancelled else { return }
         do {
             let fetchedCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
                 accountLogin: account?.login ?? state.account?.login
             )
+            guard !Task.isCancelled else { return }
             sourceCatalog = fetchedCatalog
             sourceCatalogSyncedAt = Date()
             updateGitHubAppRepositoryAccessStatus(
@@ -954,6 +1061,7 @@ final class DashboardController: ObservableObject {
                 sourceCatalog: fetchedCatalog
             )
         } catch {
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
             updateGitHubAppRepositoryAccessStatus(
                 installations: installations,
                 sourceCatalog: nil
@@ -964,7 +1072,6 @@ final class DashboardController: ObservableObject {
                 sourceErrorMessage = error.localizedDescription
             }
         }
-        isRefreshingSources = false
     }
 
     private var canCheckGitHubAppRepositoryAccess: Bool {
@@ -1092,10 +1199,13 @@ final class DashboardController: ObservableObject {
             return
         }
         isRefreshing = true
+        defer { isRefreshing = false }
         errorMessage = nil
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
+        guard !Task.isCancelled else { return }
         do {
             let nextState = try await syncEngine.sync()
+            guard !Task.isCancelled else { return }
             recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
             state = nextState
             if authMethod == .oauth,
@@ -1111,13 +1221,13 @@ final class DashboardController: ObservableObject {
             }
             await fetchGitHubInboxNotifications()
         } catch {
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
                 errorMessage = error.localizedDescription
             }
         }
-        isRefreshing = false
     }
 
     private func refreshDashboard(appliesMockRefreshDelay: Bool = false) async {

@@ -9,6 +9,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let controller: DashboardController
     private weak var refreshMenuItemView: RefreshMenuItemView?
     private var cancellables: Set<AnyCancellable> = []
+    private var isMenuOpen = false
 
     init(controller: DashboardController) {
         self.controller = controller
@@ -21,13 +22,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.tabShortcutHandler = { [weak self] tab in
             self?.selectKeyboardTab(tab) == true
         }
+        controller.showDeviceFlowSignInMenu = { [weak self] in
+            self?.showDeviceFlowSignInMenu()
+        }
         statusItem.menu = menu
         observeStatusButtonInputs()
         updateStatusButton()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        isMenuOpen = true
         rebuildMenu()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        isMenuOpen = false
     }
 
     func rebuildMenuForTesting() -> [NSMenuItem] {
@@ -117,6 +126,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             controller.selectedTab = tab
         }
         rebuildMenu()
+    }
+
+    private func showDeviceFlowSignInMenu() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self,
+                  self.controller.deviceFlowChallenge != nil,
+                  self.controller.state.authStatus == .signedOut else {
+                return
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            if !self.isMenuOpen {
+                self.showMenu()
+            }
+        }
     }
 
     private func refreshItem() -> NSMenuItem {
