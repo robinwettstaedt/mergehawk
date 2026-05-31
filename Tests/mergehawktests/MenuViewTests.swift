@@ -38,6 +38,13 @@ final class MenuViewTests: XCTestCase {
     precondition(GitHubSignInView.Copy.title == "Connect GitHub")
     precondition(GitHubSignInView.Copy.buttonTitle == "Sign in with GitHub")
     precondition(GitHubSignInView.Copy.permissionText.contains("GitHub App"))
+    precondition(GitHubSignInView.Copy.enterCodeTitle == "Enter code on GitHub")
+    precondition(GitHubSignInView.Copy.copyCode == "Copy Code")
+    precondition(GitHubSignInView.Copy.codeCopied == "Code copied to clipboard")
+    precondition(GitHubSignInView.Copy.openGitHub == "Open GitHub")
+    precondition(GitHubSignInView.Copy.loadingTitle == "Authorized")
+    precondition(GitHubSignInView.Copy.loadingDetail == "Loading MergeHawk...")
+    precondition(GitHubSignInView.Copy.patButtonTitle == "Open Settings")
     precondition(GitHubInboxUnavailableCopy.title == "GitHub Inbox unavailable")
     precondition(GitHubInboxUnavailableCopy.message.contains("classic personal access token"))
     precondition(GitHubAppRepositoryAccessCopy.buttonTitle == "Install or Manage Repository Access")
@@ -206,7 +213,8 @@ final class MenuViewTests: XCTestCase {
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: MenuOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in manualRefreshClient }
+        oauthGitHubClientFactory: { _ in manualRefreshClient },
+        deviceFlowURLOpener: { _ in }
     )
     Task {
         await manualRefreshController.signInWithGitHub()
@@ -580,7 +588,17 @@ private func keyEvent(characters: String, modifiers: NSEvent.ModifierFlags) -> N
 
 @MainActor
 private struct MenuOAuthSignIn: GitHubOAuthSigningIn {
-    func signIn() async throws -> OAuthTokens {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
         OAuthTokens(accessToken: "oauth-access", refreshToken: "oauth-refresh", expiresAt: .distantFuture)
     }
 }

@@ -42,7 +42,6 @@ public struct OAuthTokenRefresher {
         request.addValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Self.formURLEncoded([
             "client_id": defaultCredentials.clientID,
-            "client_secret": defaultCredentials.clientSecret,
             "grant_type": "refresh_token",
             "refresh_token": tokens.refreshToken
         ])

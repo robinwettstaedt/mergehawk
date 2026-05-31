@@ -54,10 +54,87 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-signed-out.png")
             )
             try render(
-                SettingsRootView(controller: signedOutController, selection: .github),
+                SettingsRootView(controller: signedOutController, settingsWindowState: SettingsWindowState(selection: .github)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-signed-out.png")
             )
+        }
+
+        let pendingSignInController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                oauthSignIn: VisualPendingOAuthSignIn(),
+                urlOpener: { _ in },
+                deviceFlowURLOpener: { _ in }
+            )
+        }
+        Task {
+            await pendingSignInController.signInWithGitHub()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                pendingSignInController.deviceFlowChallenge != nil
+            }
+        }
+        try await MainActor.run {
+            try renderMenu(
+                controller: pendingSignInController,
+                to: outputURL.appendingPathComponent("menu-sign-in-pending.png")
+            )
+            try render(
+                SettingsRootView(
+                    controller: pendingSignInController,
+                    settingsWindowState: SettingsWindowState(selection: .github)
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-github-sign-in-pending.png")
+            )
+            pendingSignInController.cancelDeviceFlowSignIn()
+        }
+
+        let loadingClient = VisualLoadingGitHubProvider()
+        let loadingSignInController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                oauthSignIn: VisualOAuthSignIn(),
+                oauthGitHubClientFactory: { _ in loadingClient },
+                urlOpener: { _ in },
+                deviceFlowURLOpener: { _ in }
+            )
+        }
+        Task {
+            await loadingSignInController.signInWithGitHub()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                loadingSignInController.deviceFlowPhase == .loadingApp
+            } && loadingClient.isWaitingForPullRequests
+        }
+        try await MainActor.run {
+            try renderMenu(
+                controller: loadingSignInController,
+                to: outputURL.appendingPathComponent("menu-sign-in-loading.png")
+            )
+            try render(
+                SettingsRootView(
+                    controller: loadingSignInController,
+                    settingsWindowState: SettingsWindowState(selection: .github)
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-github-sign-in-loading.png")
+            )
+            loadingClient.finishPullRequestFetch()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                loadingSignInController.state.authStatus == .signedIn
+            }
         }
 
         let accessPromptClient = VisualGitHubProvider(
@@ -71,7 +148,9 @@ final class VisualVerificationXCTests: XCTestCase {
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
                 automaticRefreshInterval: 0,
                 oauthSignIn: VisualOAuthSignIn(),
-                oauthGitHubClientFactory: { _ in accessPromptClient }
+                oauthGitHubClientFactory: { _ in accessPromptClient },
+                urlOpener: { _ in },
+                deviceFlowURLOpener: { _ in }
             )
         }
         await waitUntil(timeout: 1.0) {
@@ -104,7 +183,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-repository-access-requested.png")
             )
             try render(
-                SettingsRootView(controller: accessPromptController, selection: .sources),
+                SettingsRootView(controller: accessPromptController, settingsWindowState: SettingsWindowState(selection: .sources)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources-repository-access.png")
             )
@@ -112,17 +191,17 @@ final class VisualVerificationXCTests: XCTestCase {
 
         try await MainActor.run {
             try render(
-                SettingsRootView(controller: controller, selection: .general),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .general)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-general.png")
             )
             try render(
-                SettingsRootView(controller: controller, selection: .notifications),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .notifications)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-notifications.png")
             )
             try render(
-                SettingsRootView(controller: controller, selection: .about),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .about)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-about.png")
             )
@@ -212,14 +291,14 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-read.png"))
 
             try render(
-                SettingsRootView(controller: controller, selection: .sources),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .sources)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources.png")
             )
             try render(
                 SettingsRootView(
                     controller: controller,
-                    selection: .sources,
+                    settingsWindowState: SettingsWindowState(selection: .sources),
                     initialSourcesSearchState: ExpandableSearchState(isExpanded: true, query: "example")
                 ),
                 size: SettingsTab.defaultWindowSize,
@@ -289,9 +368,79 @@ final class VisualVerificationXCTests: XCTestCase {
 
 @MainActor
 private struct VisualOAuthSignIn: GitHubOAuthSigningIn {
-    func signIn() async throws -> OAuthTokens {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
         OAuthTokens(accessToken: "visual-access", refreshToken: "visual-refresh", expiresAt: .distantFuture)
     }
+}
+
+@MainActor
+private struct VisualPendingOAuthSignIn: GitHubOAuthSigningIn {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: Date().addingTimeInterval(900),
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        while !Task.isCancelled {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw CancellationError()
+    }
+}
+
+private final class VisualLoadingGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    private var pullRequestsContinuation: CheckedContinuation<PullRequestFetchResult, Never>?
+    var isWaitingForPullRequests: Bool {
+        pullRequestsContinuation != nil
+    }
+
+    func fetchViewer() async throws -> GitHubAccount {
+        GitHubAccount(login: "rw")
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        await withCheckedContinuation { continuation in
+            pullRequestsContinuation = continuation
+        }
+    }
+
+    func finishPullRequestFetch() {
+        pullRequestsContinuation?.resume(returning: PullRequestFetchResult(pullRequests: []))
+        pullRequestsContinuation = nil
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: "rw")
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 private final class VisualGitHubProvider: GitHubProviding {

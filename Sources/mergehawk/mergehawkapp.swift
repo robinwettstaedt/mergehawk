@@ -8,14 +8,27 @@ struct mergehawkApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsRootView(controller: appDelegate.controller)
+            SettingsRootView(
+                controller: appDelegate.controller,
+                settingsWindowState: appDelegate.settingsWindowState
+            )
         }
+    }
+}
+
+@MainActor
+final class SettingsWindowState: ObservableObject {
+    @Published var selection: SettingsTab
+
+    init(selection: SettingsTab = .general) {
+        self.selection = selection
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = DashboardController(launchConfiguration: .current())
+    let settingsWindowState = SettingsWindowState()
     private var statusBarController: StatusBarController?
     private var settingsWindow: NSWindow?
 
@@ -32,7 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window: NSWindow
         if let settingsWindow {
             window = settingsWindow
+            settingsWindowState.selection = selection
         } else {
+            settingsWindowState.selection = selection
             let size = SettingsTab.defaultWindowSize
             window = SettingsWindow(
                 contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
@@ -43,13 +58,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "MergeHawk Settings"
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
+            window.contentView = NSHostingView(
+                rootView: SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: settingsWindowState
+                )
+            )
             window.isReleasedWhenClosed = false
             window.collectionBehavior = [.moveToActiveSpace]
             window.center()
             settingsWindow = window
         }
 
-        window.contentView = NSHostingView(rootView: SettingsRootView(controller: controller, selection: selection))
         window.setContentSize(SettingsTab.defaultWindowSize)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
