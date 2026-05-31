@@ -60,6 +60,40 @@ final class VisualVerificationXCTests: XCTestCase {
             )
         }
 
+        let pendingSignInController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                oauthSignIn: VisualPendingOAuthSignIn(),
+                urlOpener: { _ in }
+            )
+        }
+        Task {
+            await pendingSignInController.signInWithGitHub()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                pendingSignInController.deviceFlowChallenge != nil
+            }
+        }
+        try await MainActor.run {
+            try renderMenu(
+                controller: pendingSignInController,
+                to: outputURL.appendingPathComponent("menu-sign-in-pending.png")
+            )
+            try render(
+                SettingsRootView(
+                    controller: pendingSignInController,
+                    settingsWindowState: SettingsWindowState(selection: .github)
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-github-sign-in-pending.png")
+            )
+            pendingSignInController.cancelDeviceFlowSignIn()
+        }
+
         let accessPromptClient = VisualGitHubProvider(
             sourceCatalog: SourceCatalog(repositories: [], accountLogin: "rw"),
             installations: GitHubAppInstallations(installations: [])
@@ -123,7 +157,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("settings-notifications.png")
             )
             try render(
-                SettingsRootView(controller: controller, selection: .about),
+                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .about)),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-about.png")
             )
@@ -302,6 +336,26 @@ private struct VisualOAuthSignIn: GitHubOAuthSigningIn {
 
     func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
         OAuthTokens(accessToken: "visual-access", refreshToken: "visual-refresh", expiresAt: .distantFuture)
+    }
+}
+
+@MainActor
+private struct VisualPendingOAuthSignIn: GitHubOAuthSigningIn {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: Date().addingTimeInterval(900),
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        while !Task.isCancelled {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw CancellationError()
     }
 }
 

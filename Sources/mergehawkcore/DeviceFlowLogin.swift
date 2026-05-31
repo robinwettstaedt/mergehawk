@@ -73,6 +73,9 @@ public struct DeviceFlowLogin {
         request.httpBody = formURLEncoded(["client_id": clientID])
 
         let (data, response) = try await load(request)
+        if let error = Self.deviceFlowError(from: data) {
+            throw error
+        }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw DeviceFlowError.requestFailed(status: (response as? HTTPURLResponse)?.statusCode ?? -1)
         }
@@ -96,8 +99,7 @@ public struct DeviceFlowLogin {
 
     public func pollForTokens(
         clientID: String,
-        challenge: DeviceFlowChallenge,
-        tokenStore: TokenStore
+        challenge: DeviceFlowChallenge
     ) async throws -> OAuthTokens {
         let scheme = challenge.verificationURI.scheme ?? "https"
         let host = challenge.verificationURI.host ?? "github.com"
@@ -111,6 +113,9 @@ public struct DeviceFlowLogin {
             }
             try await sleep(pollInterval)
             try Task.checkCancellation()
+            if now() >= challenge.expiresAt {
+                throw DeviceFlowError.codeExpired
+            }
 
             var request = URLRequest(url: tokenEndpoint)
             request.httpMethod = "POST"
@@ -134,7 +139,6 @@ public struct DeviceFlowLogin {
                     refreshToken: tokenResponse.refreshToken ?? "",
                     expiresAt: tokenResponse.expiresIn.map { now().addingTimeInterval(TimeInterval($0)) }
                 )
-                try tokenStore.storeOAuthTokens(tokens)
                 return tokens
             }
 
@@ -145,16 +149,8 @@ public struct DeviceFlowLogin {
                 case "slow_down":
                     pollInterval += 5
                     continue
-                case "access_denied":
-                    throw DeviceFlowError.accessDenied
-                case "expired_token":
-                    throw DeviceFlowError.codeExpired
-                case "unsupported_grant_type", "incorrect_client_credentials", "incorrect_device_code":
-                    throw DeviceFlowError.invalidResponse
-                case "device_flow_disabled":
-                    throw DeviceFlowError.deviceFlowDisabled
                 default:
-                    throw DeviceFlowError.invalidResponse
+                    throw Self.deviceFlowError(from: errorResponse)
                 }
             }
 
@@ -170,6 +166,28 @@ public struct DeviceFlowLogin {
         }
         .joined(separator: "&")
         return encoded.data(using: .utf8)
+    }
+
+    private static func deviceFlowError(from data: Data) -> DeviceFlowError? {
+        guard let response = try? JSONDecoder().decode(DeviceFlowErrorResponse.self, from: data) else {
+            return nil
+        }
+        return deviceFlowError(from: response)
+    }
+
+    private static func deviceFlowError(from response: DeviceFlowErrorResponse) -> DeviceFlowError {
+        switch response.error {
+        case "access_denied":
+            .accessDenied
+        case "expired_token":
+            .codeExpired
+        case "device_flow_disabled":
+            .deviceFlowDisabled
+        case "unsupported_grant_type", "incorrect_client_credentials", "incorrect_device_code":
+            .invalidResponse
+        default:
+            .invalidResponse
+        }
     }
 }
 

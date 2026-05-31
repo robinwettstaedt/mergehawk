@@ -47,15 +47,37 @@ final class AuthCoreTests: XCTestCase {
         }
     }
 
+    func testDeviceFlowRequestCodeMapsDeviceFlowDisabled() async throws {
+        let login = DeviceFlowLogin(
+            load: { _ in
+                let data = Data("""
+                {"error":"device_flow_disabled","error_description":"Device flow not enabled"}
+                """.utf8)
+                let response = HTTPURLResponse(url: URL(string: "https://github.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (data, response)
+            }
+        )
+
+        do {
+            _ = try await login.requestCode(clientID: "cid", host: URL(string: "https://github.com")!)
+            XCTFail("Expected deviceFlowDisabled error")
+        } catch let error as DeviceFlowError {
+            guard case .deviceFlowDisabled = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+        }
+    }
+
     // MARK: - DeviceFlowLogin.pollForTokens
 
     func testDeviceFlowPollSucceedsAfterAuthorizationPending() async throws {
-        var callCount = 0
+        let callCount = SendableBox(0)
         let login = DeviceFlowLogin(
             load: { _ in
-                callCount += 1
+                callCount.value += 1
                 let body: String
-                if callCount == 1 {
+                if callCount.value == 1 {
                     body = """
                     {"error":"authorization_pending","error_description":"Still waiting"}
                     """
@@ -72,7 +94,6 @@ final class AuthCoreTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 0) }
         )
 
-        let store = InMemoryTokenStore()
         let challenge = DeviceFlowChallenge(
             userCode: "XXXX-YYYY",
             deviceCode: "dc1",
@@ -81,21 +102,20 @@ final class AuthCoreTests: XCTestCase {
             interval: 5
         )
 
-        let tokens = try await login.pollForTokens(clientID: "cid", challenge: challenge, tokenStore: store)
+        let tokens = try await login.pollForTokens(clientID: "cid", challenge: challenge)
         XCTAssertEqual(tokens.accessToken, "new-access")
         XCTAssertEqual(tokens.refreshToken, "new-refresh")
-        XCTAssertEqual(callCount, 2)
-        XCTAssertEqual(try store.loadOAuthTokens(), tokens)
+        XCTAssertEqual(callCount.value, 2)
     }
 
     func testDeviceFlowSlowDownIncreasesInterval() async throws {
-        var callCount = 0
-        var recordedSleeps: [TimeInterval] = []
+        let callCount = SendableBox(0)
+        let recordedSleeps = SendableBox<[TimeInterval]>([])
         let login = DeviceFlowLogin(
             load: { _ in
-                callCount += 1
+                callCount.value += 1
                 let body: String
-                if callCount == 1 {
+                if callCount.value == 1 {
                     body = """
                     {"error":"slow_down","error_description":"Too fast"}
                     """
@@ -108,11 +128,10 @@ final class AuthCoreTests: XCTestCase {
                 let response = HTTPURLResponse(url: URL(string: "https://github.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 return (data, response)
             },
-            sleep: { interval in recordedSleeps.append(interval) },
+            sleep: { interval in recordedSleeps.value.append(interval) },
             now: { Date(timeIntervalSince1970: 0) }
         )
 
-        let store = InMemoryTokenStore()
         let challenge = DeviceFlowChallenge(
             userCode: "XXXX-YYYY",
             deviceCode: "dc1",
@@ -121,8 +140,8 @@ final class AuthCoreTests: XCTestCase {
             interval: 5
         )
 
-        _ = try await login.pollForTokens(clientID: "cid", challenge: challenge, tokenStore: store)
-        XCTAssertEqual(recordedSleeps, [5, 10])
+        _ = try await login.pollForTokens(clientID: "cid", challenge: challenge)
+        XCTAssertEqual(recordedSleeps.value, [5, 10])
     }
 
     func testDeviceFlowLocalExpiryThrowsBeforePoll() async throws {
@@ -144,7 +163,37 @@ final class AuthCoreTests: XCTestCase {
         )
 
         do {
-            _ = try await login.pollForTokens(clientID: "cid", challenge: challenge, tokenStore: InMemoryTokenStore())
+            _ = try await login.pollForTokens(clientID: "cid", challenge: challenge)
+            XCTFail("Expected codeExpired error")
+        } catch let error as DeviceFlowError {
+            guard case .codeExpired = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+        }
+    }
+
+    func testDeviceFlowLocalExpiryThrowsAfterSleepBeforePoll() async throws {
+        let now = SendableBox(Date(timeIntervalSince1970: 0))
+        let login = DeviceFlowLogin(
+            load: { _ in
+                XCTFail("Should not poll after code expires during sleep")
+                throw URLError(.unknown)
+            },
+            sleep: { _ in now.value = Date(timeIntervalSince1970: 901) },
+            now: { now.value }
+        )
+
+        let challenge = DeviceFlowChallenge(
+            userCode: "XXXX-YYYY",
+            deviceCode: "dc1",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: Date(timeIntervalSince1970: 900),
+            interval: 5
+        )
+
+        do {
+            _ = try await login.pollForTokens(clientID: "cid", challenge: challenge)
             XCTFail("Expected codeExpired error")
         } catch let error as DeviceFlowError {
             guard case .codeExpired = error else {
@@ -176,7 +225,7 @@ final class AuthCoreTests: XCTestCase {
         )
 
         do {
-            _ = try await login.pollForTokens(clientID: "cid", challenge: challenge, tokenStore: InMemoryTokenStore())
+            _ = try await login.pollForTokens(clientID: "cid", challenge: challenge)
             XCTFail("Expected accessDenied error")
         } catch let error as DeviceFlowError {
             guard case .accessDenied = error else {
@@ -208,7 +257,7 @@ final class AuthCoreTests: XCTestCase {
         )
 
         do {
-            _ = try await login.pollForTokens(clientID: "cid", challenge: challenge, tokenStore: InMemoryTokenStore())
+            _ = try await login.pollForTokens(clientID: "cid", challenge: challenge)
             XCTFail("Expected deviceFlowDisabled error")
         } catch let error as DeviceFlowError {
             guard case .deviceFlowDisabled = error else {
@@ -346,5 +395,13 @@ private final class CountingOAuthTokenStore: TokenStore {
 
     func clearOAuthTokens() throws {
         oauthTokens = nil
+    }
+}
+
+private final class SendableBox<Value>: @unchecked Sendable {
+    var value: Value
+
+    init(_ value: Value) {
+        self.value = value
     }
 }

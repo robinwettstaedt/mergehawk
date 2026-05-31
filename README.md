@@ -19,7 +19,7 @@ Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
 - GitHub App user token storage in macOS Keychain.
 - Advanced GitHub PAT fallback in Settings.
 
-GitHub Enterprise Server, device flow, auto-updates, widgets, multi-account support, and extra PR tabs are deferred.
+GitHub Enterprise Server, auto-updates, widgets, multi-account support, and extra PR tabs are deferred.
 
 ## Run
 

@@ -1023,12 +1023,10 @@ struct GitHubSignInView: View {
     }
 
     @ObservedObject var controller: DashboardController
-    @State private var expiryTimeRemaining: String = ""
-    private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         if let challenge = controller.deviceFlowChallenge {
-            pendingView(challenge: challenge)
+            DeviceFlowPendingSignInView(controller: controller, challenge: challenge)
         } else {
             idleView
         }
@@ -1092,14 +1090,27 @@ struct GitHubSignInView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private func pendingView(challenge: DeviceFlowChallenge) -> some View {
+    private func connect() {
+        Task {
+            await controller.signInWithGitHub()
+        }
+    }
+}
+
+struct DeviceFlowPendingSignInView: View {
+    @ObservedObject var controller: DashboardController
+    let challenge: DeviceFlowChallenge
+    @State private var expiryTimeRemaining: String = ""
+    private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Spacer(minLength: 0)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(Self.Copy.enterCodeTitle)
+                Text(GitHubSignInView.Copy.enterCodeTitle)
                     .font(.headline)
-                Text(Self.Copy.enterCodeDetail)
+                Text(GitHubSignInView.Copy.enterCodeDetail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1110,12 +1121,20 @@ struct GitHubSignInView: View {
                 .tracking(2)
 
             HStack(spacing: 8) {
-                Button(Self.Copy.copyCode) {
+                Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(challenge.userCode, forType: .string)
+                } label: {
+                    Text(GitHubSignInView.Copy.copyCode)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
+                .buttonStyle(.plain)
 
-                Link(Self.Copy.openGitHub, destination: challenge.verificationURI)
+                Link(GitHubSignInView.Copy.openGitHub, destination: challenge.verificationURI)
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
             }
@@ -1130,9 +1149,10 @@ struct GitHubSignInView: View {
                 }
             }
 
-            Button(Self.Copy.cancelSignIn) {
+            Button(GitHubSignInView.Copy.cancelSignIn) {
                 controller.cancelDeviceFlowSignIn()
             }
+            .buttonStyle(.plain)
             .foregroundStyle(.secondary)
 
             Spacer(minLength: 0)
@@ -1141,12 +1161,6 @@ struct GitHubSignInView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .onAppear { updateExpiryLabel(challenge: challenge) }
         .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
-    }
-
-    private func connect() {
-        Task {
-            await controller.signInWithGitHub()
-        }
     }
 
     private func updateExpiryLabel(challenge: DeviceFlowChallenge) {

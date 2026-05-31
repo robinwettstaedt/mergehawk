@@ -205,6 +205,95 @@ import mergehawkcore
     precondition(controller.showsGitHubAppRepositoryAccessPrompt)
 }()
 
+@MainActor let mergehawkDeviceFlowPendingStateCanCancelTest: Void = {
+    let oauthSignIn = WaitingOAuthSignIn()
+    var openedURL: URL?
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        automaticRefreshInterval: 0,
+        oauthSignIn: oauthSignIn,
+        urlOpener: { openedURL = $0 }
+    )
+
+    Task {
+        await controller.signInWithGitHub()
+    }
+    waitUntil(timeout: 1.0) {
+        controller.deviceFlowChallenge != nil && oauthSignIn.pollStarted
+    }
+
+    precondition(controller.deviceFlowChallenge?.userCode == "ABCD-1234")
+    precondition(!controller.isRequestingDeviceCode)
+    precondition(openedURL?.absoluteString == "https://github.com/login/device")
+
+    controller.cancelDeviceFlowSignIn()
+
+    precondition(controller.deviceFlowChallenge == nil)
+    precondition(!controller.isRequestingDeviceCode)
+    precondition(controller.state.authStatus == .signedOut)
+}()
+
+@MainActor let mergehawkSignOutDuringDeviceFlowViewerFetchDoesNotRestoreSessionTest: Void = {
+    let fakeClient = DelayedViewerGitHubProvider()
+    let tokenStore = InMemoryTokenStore()
+    let controller = DashboardController(
+        tokenStore: tokenStore,
+        automaticRefreshInterval: 0,
+        oauthSignIn: FakeOAuthSignIn(),
+        oauthGitHubClientFactory: { _ in fakeClient },
+        urlOpener: { _ in }
+    )
+
+    Task {
+        await controller.signInWithGitHub()
+    }
+    waitUntil(timeout: 1.0) {
+        fakeClient.viewerContinuation != nil
+    }
+
+    controller.signOut()
+    fakeClient.finishViewerFetch()
+    waitUntil(timeout: 1.0) {
+        fakeClient.viewerFetchCompleted
+    }
+    RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+
+    precondition(controller.state.authStatus == .signedOut)
+    precondition(controller.deviceFlowChallenge == nil)
+    precondition((try? tokenStore.loadOAuthTokens()) == nil)
+    precondition(fakeClient.fetchSourceCatalogCount == 0)
+    precondition(fakeClient.fetchPullRequestsCount == 0)
+}()
+
+@MainActor let mergehawkSignOutBeforeDeviceFlowPollReturnsDoesNotStoreTokensTest: Void = {
+    let oauthSignIn = DelayedPollOAuthSignIn()
+    let tokenStore = InMemoryTokenStore()
+    let controller = DashboardController(
+        tokenStore: tokenStore,
+        automaticRefreshInterval: 0,
+        oauthSignIn: oauthSignIn,
+        urlOpener: { _ in }
+    )
+
+    Task {
+        await controller.signInWithGitHub()
+    }
+    waitUntil(timeout: 1.0) {
+        controller.deviceFlowChallenge != nil && oauthSignIn.pollContinuation != nil
+    }
+
+    controller.signOut()
+    oauthSignIn.finishPolling()
+    waitUntil(timeout: 1.0) {
+        oauthSignIn.pollCompleted
+    }
+    RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+
+    precondition(controller.state.authStatus == .signedOut)
+    precondition(controller.deviceFlowChallenge == nil)
+    precondition((try? tokenStore.loadOAuthTokens()) == nil)
+}()
+
 @MainActor let mergehawkGitHubAppRepositoryAccessUsesInstallationManageURLTest: Void = {
     let manageURL = URL(string: "https://github.com/organizations/acme/settings/installations/1002")!
     let fakeClient = FakeGitHubProvider(
@@ -616,6 +705,60 @@ private struct FakeOAuthSignIn: GitHubOAuthSigningIn {
     }
 }
 
+@MainActor
+private final class WaitingOAuthSignIn: GitHubOAuthSigningIn {
+    private(set) var pollStarted = false
+
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        pollStarted = true
+        while !Task.isCancelled {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw CancellationError()
+    }
+}
+
+@MainActor
+private final class DelayedPollOAuthSignIn: GitHubOAuthSigningIn {
+    var pollContinuation: CheckedContinuation<OAuthTokens, Never>?
+    private(set) var pollCompleted = false
+
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        let tokens = await withCheckedContinuation { continuation in
+            pollContinuation = continuation
+        }
+        pollCompleted = true
+        return tokens
+    }
+
+    func finishPolling() {
+        pollContinuation?.resume(
+            returning: OAuthTokens(accessToken: "oauth-access", refreshToken: "oauth-refresh", expiresAt: .distantFuture)
+        )
+        pollContinuation = nil
+    }
+}
+
 private final class FakeGitHubProvider: GitHubProviding {
     enum TestError: Error, LocalizedError {
         case sourceCatalogFailed
@@ -661,6 +804,50 @@ private final class FakeGitHubProvider: GitHubProviding {
     func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
         fetchInstallationsCount += 1
         return try installationsResult.get()
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
+}
+
+private final class DelayedViewerGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    var viewerContinuation: CheckedContinuation<GitHubAccount, Never>?
+    private(set) var viewerFetchCompleted = false
+    private(set) var fetchSourceCatalogCount = 0
+    private(set) var fetchPullRequestsCount = 0
+
+    func fetchViewer() async throws -> GitHubAccount {
+        let viewer = await withCheckedContinuation { continuation in
+            viewerContinuation = continuation
+        }
+        viewerFetchCompleted = true
+        return viewer
+    }
+
+    func finishViewerFetch() {
+        viewerContinuation?.resume(returning: GitHubAccount(login: "rw"))
+        viewerContinuation = nil
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        fetchPullRequestsCount += 1
+        return PullRequestFetchResult(pullRequests: [])
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        fetchSourceCatalogCount += 1
+        return SourceCatalog(repositories: [], accountLogin: "rw")
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
     }
 
     func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {

@@ -51,11 +51,9 @@ protocol GitHubOAuthSigningIn {
 
 @MainActor
 struct GitHubDeviceFlowSignIn: GitHubOAuthSigningIn {
-    private let tokenStore: TokenStore
     private let deviceFlow: DeviceFlowLogin
 
-    init(tokenStore: TokenStore, deviceFlow: DeviceFlowLogin = DeviceFlowLogin()) {
-        self.tokenStore = tokenStore
+    init(deviceFlow: DeviceFlowLogin = DeviceFlowLogin()) {
         self.deviceFlow = deviceFlow
     }
 
@@ -72,8 +70,7 @@ struct GitHubDeviceFlowSignIn: GitHubOAuthSigningIn {
     func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
         try await deviceFlow.pollForTokens(
             clientID: MergeHawkAuthDefaults.clientID,
-            challenge: challenge,
-            tokenStore: tokenStore
+            challenge: challenge
         )
     }
 }
