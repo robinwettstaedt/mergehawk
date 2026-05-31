@@ -233,6 +233,30 @@ import mergehawkcore
     precondition(controller.state.authStatus == .signedOut)
 }()
 
+@MainActor let mergehawkMenuDeviceFlowSignInRequestsMenuRevealTest: Void = {
+    let oauthSignIn = WaitingOAuthSignIn()
+    var revealCount = 0
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        automaticRefreshInterval: 0,
+        oauthSignIn: oauthSignIn,
+        urlOpener: { _ in }
+    )
+    controller.showDeviceFlowSignInMenu = {
+        revealCount += 1
+    }
+
+    Task {
+        await controller.signInWithGitHub(keepsMenuVisible: true)
+    }
+    waitUntil(timeout: 1.0) {
+        controller.deviceFlowChallenge != nil && oauthSignIn.pollStarted
+    }
+
+    precondition(revealCount == 1)
+    controller.cancelDeviceFlowSignIn()
+}()
+
 @MainActor let mergehawkSignOutDuringDeviceFlowViewerFetchDoesNotRestoreSessionTest: Void = {
     let fakeClient = DelayedViewerGitHubProvider()
     let tokenStore = InMemoryTokenStore()

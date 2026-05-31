@@ -1092,7 +1092,7 @@ struct GitHubSignInView: View {
 
     private func connect() {
         Task {
-            await controller.signInWithGitHub()
+            await controller.signInWithGitHub(keepsMenuVisible: true)
         }
     }
 }

@@ -190,6 +190,7 @@ final class DashboardController: ObservableObject {
 
     var openSettingsWindow: ((SettingsTab) -> Void)?
     var openGitHubSettingsInPATMode = false
+    var showDeviceFlowSignInMenu: (() -> Void)?
 
     @Published private(set) var deviceFlowChallenge: DeviceFlowChallenge?
     @Published private(set) var isRequestingDeviceCode = false
@@ -547,7 +548,7 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    func signInWithGitHub() async {
+    func signInWithGitHub(keepsMenuVisible: Bool = false) async {
         cancelDeviceFlowSignIn()
         let attemptID = signInAttemptID
         errorMessage = nil
@@ -564,9 +565,12 @@ final class DashboardController: ObservableObject {
         }
         guard isCurrentSignInAttempt(attemptID) else { return }
 
-        openURL(challenge.verificationURI)
         deviceFlowChallenge = challenge
         isRequestingDeviceCode = false
+        openURL(challenge.verificationURI)
+        if keepsMenuVisible {
+            showDeviceFlowSignInMenu?()
+        }
 
         signInTask = Task { [weak self] in
             await self?.completeDeviceFlowSignIn(challenge: challenge, attemptID: attemptID)
