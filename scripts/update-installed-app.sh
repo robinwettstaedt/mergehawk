@@ -28,7 +28,6 @@ append_launch_environment() {
 
 append_launch_environment "MERGEHAWK_GITHUB_APP_ID"
 append_launch_environment "MERGEHAWK_GITHUB_APP_CLIENT_ID"
-append_launch_environment "MERGEHAWK_GITHUB_APP_CLIENT_SECRET"
 append_launch_environment "MERGEHAWK_GITHUB_APP_INSTALL_URL"
 append_launch_environment "MERGEHAWK_GITHUB_APP_MANAGE_URL"
 

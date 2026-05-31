@@ -34,22 +34,22 @@ enum SettingsTab: String, CaseIterable, Hashable {
 
 struct SettingsRootView: View {
     @ObservedObject var controller: DashboardController
-    @State private var selection = SettingsTab.general
+    @ObservedObject var settingsWindowState: SettingsWindowState
     private let initialSourcesSearchState: ExpandableSearchState
 
     init(
         controller: DashboardController,
-        selection: SettingsTab = .general,
+        settingsWindowState: SettingsWindowState,
         initialSourcesSearchState: ExpandableSearchState = ExpandableSearchState()
     ) {
         self.controller = controller
-        self._selection = State(initialValue: selection)
+        self.settingsWindowState = settingsWindowState
         self.initialSourcesSearchState = initialSourcesSearchState
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsTabBar(selection: $selection)
+            SettingsTabBar(selection: $settingsWindowState.selection)
                 .padding(.top, SettingsTabLayout.topPadding)
                 .padding(.bottom, SettingsTabLayout.bottomPadding)
 
@@ -67,7 +67,7 @@ struct SettingsRootView: View {
 
     @ViewBuilder
     private var selectedPane: some View {
-        switch selection {
+        switch settingsWindowState.selection {
         case .general:
             GeneralSettingsView(controller: controller)
         case .github:
@@ -312,41 +312,47 @@ private struct GitHubSettingsView: View {
                         }
                     } else {
                         VStack(spacing: 16) {
-                            Picker("Sign-in method", selection: $selectedSignInMode) {
-                                Text("GitHub App").tag(SignInMode.app)
-                                Text("Access Token").tag(SignInMode.pat)
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
+                            signInModeSelector
 
                             if selectedSignInMode == .app {
-                                VStack(spacing: 16) {
-                                    VStack(spacing: 6) {
-                                        Text("Sign in with MergeHawk GitHub App")
-                                            .font(.callout.weight(.medium))
-                                        Text("Access is scoped to your GitHub permissions and the repositories where the app is installed. MergeHawk only performs read API calls.")
-                                            .font(.callout)
-                                            .foregroundStyle(.secondary)
-                                            .multilineTextAlignment(.center)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .center)
+                                if let challenge = controller.deviceFlowChallenge {
+                                    DeviceFlowPendingSignInView(controller: controller, challenge: challenge)
+                                } else {
+                                    VStack(spacing: 16) {
+                                        VStack(spacing: 6) {
+                                            Text("Sign in with MergeHawk GitHub App")
+                                                .font(.callout.weight(.medium))
+                                            Text("Access is scoped to your GitHub permissions and the repositories where the app is installed. MergeHawk only performs read API calls.")
+                                                .font(.callout)
+                                                .foregroundStyle(.secondary)
+                                                .multilineTextAlignment(.center)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .center)
 
-                                    Button {
-                                        connectWithGitHub()
-                                    } label: {
-                                        Text("Sign in with GitHub")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundStyle(.white)
-                                            .padding(.horizontal, 16)
-                                            .frame(height: 28)
-                                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(controller.isRefreshing)
-                                    .frame(maxWidth: .infinity, alignment: .center)
+                                        HStack(spacing: 8) {
+                                            Button {
+                                                connectWithGitHub()
+                                            } label: {
+                                                Text("Sign in with GitHub")
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                    .foregroundStyle(.white)
+                                                    .padding(.horizontal, 16)
+                                                    .frame(height: 28)
+                                                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                            }
+                                            .buttonStyle(.plain)
+                                            .disabled(controller.isRequestingDeviceCode)
 
-                                    GitHubAppAccessNotes(showsInstallLink: true)
+                                            if controller.isRequestingDeviceCode {
+                                                ProgressView()
+                                                    .controlSize(.small)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .center)
+
+                                        GitHubAppAccessNotes(showsInstallLink: true)
+                                    }
                                 }
                             } else {
                                 VStack(alignment: .leading, spacing: 12) {
@@ -406,6 +412,38 @@ private struct GitHubSettingsView: View {
                 }
             }
         }
+    }
+
+    private var signInModeSelector: some View {
+        HStack(spacing: 0) {
+            signInModeButton("GitHub App", mode: .app)
+            signInModeButton("Access Token", mode: .pat)
+        }
+        .padding(3)
+        .background(Color.gray.opacity(0.18), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Sign-in method")
+    }
+
+    private func signInModeButton(_ title: String, mode: SignInMode) -> some View {
+        Button {
+            selectedSignInMode = mode
+        } label: {
+            Text(title)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(selectedSignInMode == mode ? Color.white : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .background {
+                    if selectedSignInMode == mode {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.accentColor)
+                    }
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selectedSignInMode == mode ? .isSelected : [])
     }
 
     private func connectWithGitHub() {
@@ -723,10 +761,10 @@ private struct GitHubAppAccessNotes: View {
                     .padding(.vertical, 10)
             }
         }
-        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
         )
     }
 
@@ -763,10 +801,10 @@ private struct PATAccessNotes: View {
                 footer: "Does not support Notifications > Other"
             )
         }
-        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
         )
     }
 

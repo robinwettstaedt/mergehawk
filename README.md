@@ -14,12 +14,12 @@ Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
 - First-sync silent baseline behavior.
 - Event detection for new comments, new reviews, failed CI, and changes requested.
 - Notification preferences for in-menu and macOS notifications.
-- GitHub App sign-in through a browser loopback callback.
+- GitHub App sign-in through the GitHub device flow.
 - GitHub PR fetching through GraphQL search.
 - GitHub App user token storage in macOS Keychain.
 - Advanced GitHub PAT fallback in Settings.
 
-GitHub Enterprise Server, device flow, auto-updates, widgets, multi-account support, and extra PR tabs are deferred.
+GitHub Enterprise Server, auto-updates, widgets, multi-account support, and extra PR tabs are deferred.
 
 ## Run
 
@@ -60,10 +60,10 @@ MergeHawk signs in through a GitHub App user access token. Before validating rea
 2. Click **New GitHub App**.
 3. Use `MergeHawk` as the application name.
 4. Use `https://github.com/robinwettstaedt/mergehawk` as the homepage URL.
-5. Use `http://127.0.0.1:53683/callback` as the authorization callback URL.
+5. Leave the callback URL field blank (device flow does not use a callback URL).
 6. Keep **Expire user authorization tokens** enabled.
 7. Leave **Request user authorization (OAuth) during installation** disabled.
-8. Leave **Device Flow** disabled.
+8. Enable **Device Flow**.
 9. Select **Any account** for installation.
 10. Use these repository permissions:
     - Metadata: Read-only
@@ -72,13 +72,12 @@ MergeHawk signs in through a GitHub App user access token. Before validating rea
     - Checks: Read-only
     - Commit statuses: Read-only
 11. Leave organization permissions empty.
-12. Register the app and generate a client secret.
+12. Register the app. No client secret is required.
 13. For local development overrides, save the credentials in `.env.local`:
 
 ```sh
 MERGEHAWK_GITHUB_APP_ID="..."
 MERGEHAWK_GITHUB_APP_CLIENT_ID="..."
-MERGEHAWK_GITHUB_APP_CLIENT_SECRET="..."
 MERGEHAWK_GITHUB_APP_INSTALL_URL="https://github.com/apps/mergehawk/installations/new"
 MERGEHAWK_GITHUB_APP_MANAGE_URL="https://github.com/settings/apps/authorizations"
 ```

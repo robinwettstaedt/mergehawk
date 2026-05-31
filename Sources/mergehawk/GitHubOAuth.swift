@@ -25,14 +25,11 @@ enum GitHubTokenCapabilities {
 enum MergeHawkAuthDefaults {
     private static let productionAppID = "3854497"
     private static let productionClientID = "Iv23li2wX6d8bxiM2goo"
-    private static let productionClientSecret = "***REMOVED***"
     private static let productionInstallURL = "https://github.com/apps/mergehawk/installations/new"
     private static let productionManageURL = "https://github.com/settings/apps/authorizations"
 
     static let appID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_ID"] ?? productionAppID
     static let clientID = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_CLIENT_ID"] ?? productionClientID
-    static let clientSecret = ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_CLIENT_SECRET"] ?? productionClientSecret
-    static let loopbackPort = 53683
     static let githubHost = URL(string: "https://github.com")!
     static let installURL = URL(
         string: ProcessInfo.processInfo.environment["MERGEHAWK_GITHUB_APP_INSTALL_URL"] ?? productionInstallURL
@@ -42,36 +39,38 @@ enum MergeHawkAuthDefaults {
     }
 
     static var clientCredentials: OAuthClientCredentials {
-        OAuthClientCredentials(clientID: clientID, clientSecret: clientSecret)
+        OAuthClientCredentials(clientID: clientID)
     }
 }
 
 @MainActor
 protocol GitHubOAuthSigningIn {
-    func signIn() async throws -> OAuthTokens
+    func requestDeviceCode() async throws -> DeviceFlowChallenge
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens
 }
 
 @MainActor
-struct BrowserGitHubOAuthSignIn: GitHubOAuthSigningIn {
-    private let tokenStore: TokenStore
+struct GitHubDeviceFlowSignIn: GitHubOAuthSigningIn {
+    private let deviceFlow: DeviceFlowLogin
 
-    init(tokenStore: TokenStore) {
-        self.tokenStore = tokenStore
+    init(deviceFlow: DeviceFlowLogin = DeviceFlowLogin()) {
+        self.deviceFlow = deviceFlow
     }
 
-    func signIn() async throws -> OAuthTokens {
-        guard !MergeHawkAuthDefaults.clientID.isEmpty, !MergeHawkAuthDefaults.clientSecret.isEmpty else {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        guard !MergeHawkAuthDefaults.clientID.isEmpty else {
             throw GitHubOAuthError.missingClientCredentials
         }
-
-        let flow = OAuthLoginFlow(tokenStore: tokenStore) { url in
-            NSWorkspace.shared.open(url)
-        }
-        return try await flow.login(
+        return try await deviceFlow.requestCode(
             clientID: MergeHawkAuthDefaults.clientID,
-            clientSecret: MergeHawkAuthDefaults.clientSecret,
-            host: MergeHawkAuthDefaults.githubHost,
-            loopbackPort: MergeHawkAuthDefaults.loopbackPort
+            host: MergeHawkAuthDefaults.githubHost
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        try await deviceFlow.pollForTokens(
+            clientID: MergeHawkAuthDefaults.clientID,
+            challenge: challenge
         )
     }
 }
