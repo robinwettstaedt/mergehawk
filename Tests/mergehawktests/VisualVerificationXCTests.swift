@@ -95,6 +95,48 @@ final class VisualVerificationXCTests: XCTestCase {
             pendingSignInController.cancelDeviceFlowSignIn()
         }
 
+        let loadingClient = VisualLoadingGitHubProvider()
+        let loadingSignInController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                oauthSignIn: VisualOAuthSignIn(),
+                oauthGitHubClientFactory: { _ in loadingClient },
+                urlOpener: { _ in },
+                deviceFlowURLOpener: { _ in }
+            )
+        }
+        Task {
+            await loadingSignInController.signInWithGitHub()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                loadingSignInController.deviceFlowPhase == .loadingApp
+            } && loadingClient.isWaitingForPullRequests
+        }
+        try await MainActor.run {
+            try renderMenu(
+                controller: loadingSignInController,
+                to: outputURL.appendingPathComponent("menu-sign-in-loading.png")
+            )
+            try render(
+                SettingsRootView(
+                    controller: loadingSignInController,
+                    settingsWindowState: SettingsWindowState(selection: .github)
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-github-sign-in-loading.png")
+            )
+            loadingClient.finishPullRequestFetch()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                loadingSignInController.state.authStatus == .signedIn
+            }
+        }
+
         let accessPromptClient = VisualGitHubProvider(
             sourceCatalog: SourceCatalog(repositories: [], accountLogin: "rw"),
             installations: GitHubAppInstallations(installations: [])
@@ -359,6 +401,46 @@ private struct VisualPendingOAuthSignIn: GitHubOAuthSigningIn {
         }
         throw CancellationError()
     }
+}
+
+private final class VisualLoadingGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    private var pullRequestsContinuation: CheckedContinuation<PullRequestFetchResult, Never>?
+    var isWaitingForPullRequests: Bool {
+        pullRequestsContinuation != nil
+    }
+
+    func fetchViewer() async throws -> GitHubAccount {
+        GitHubAccount(login: "rw")
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        await withCheckedContinuation { continuation in
+            pullRequestsContinuation = continuation
+        }
+    }
+
+    func finishPullRequestFetch() {
+        pullRequestsContinuation?.resume(returning: PullRequestFetchResult(pullRequests: []))
+        pullRequestsContinuation = nil
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: "rw")
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 private final class VisualGitHubProvider: GitHubProviding {

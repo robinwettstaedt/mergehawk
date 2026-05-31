@@ -1018,6 +1018,8 @@ struct GitHubSignInView: View {
         static let copyCode = "Copy Code"
         static let codeCopied = "Code copied to clipboard"
         static let openGitHub = "Open GitHub"
+        static let loadingTitle = "Authorized"
+        static let loadingDetail = "Loading MergeHawk..."
         static let cancelSignIn = "Cancel"
         static let patHint = "Using a personal access token?"
         static let patButtonTitle = "Open Settings"
@@ -1108,6 +1110,23 @@ struct DeviceFlowPendingSignInView: View {
         VStack(alignment: .leading, spacing: 14) {
             Spacer(minLength: 0)
 
+            if controller.deviceFlowPhase == .loadingApp {
+                loadingAppContent
+            } else {
+                enterCodeContent
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .animation(.easeInOut(duration: 0.16), value: controller.deviceFlowCodeCopiedAt)
+        .onAppear { updateExpiryLabel(challenge: challenge) }
+        .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
+    }
+
+    private var enterCodeContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(GitHubSignInView.Copy.enterCodeTitle)
                     .font(.headline)
@@ -1168,14 +1187,20 @@ struct DeviceFlowPendingSignInView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-
-            Spacer(minLength: 0)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .animation(.easeInOut(duration: 0.16), value: controller.deviceFlowCodeCopiedAt)
-        .onAppear { updateExpiryLabel(challenge: challenge) }
-        .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
+    }
+
+    private var loadingAppContent: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.regular)
+            Text(GitHubSignInView.Copy.loadingTitle)
+                .font(.headline)
+            Text(GitHubSignInView.Copy.loadingDetail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func updateExpiryLabel(challenge: DeviceFlowChallenge) {

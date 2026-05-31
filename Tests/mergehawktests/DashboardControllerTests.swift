@@ -234,6 +234,7 @@ import mergehawkcore
     }
 
     precondition(controller.deviceFlowChallenge?.userCode == "ABCD-1234")
+    precondition(controller.deviceFlowPhase == .enterCode)
     precondition(controller.deviceFlowCodeCopiedAt == nil)
     precondition(!controller.isRequestingDeviceCode)
     precondition(foregroundOpenedURL == nil)
@@ -252,6 +253,7 @@ import mergehawkcore
     controller.cancelDeviceFlowSignIn()
 
     precondition(controller.deviceFlowChallenge == nil)
+    precondition(controller.deviceFlowPhase == nil)
     precondition(controller.deviceFlowCodeCopiedAt == nil)
     precondition(!controller.isRequestingDeviceCode)
     precondition(controller.state.authStatus == .signedOut)
@@ -279,6 +281,7 @@ import mergehawkcore
     }
 
     precondition(revealCount == 1)
+    precondition(controller.deviceFlowPhase == .enterCode)
 
     controller.cancelDeviceFlowSignIn()
 }()
@@ -302,6 +305,7 @@ import mergehawkcore
         fakeClient.viewerContinuation != nil
     }
 
+    precondition(controller.deviceFlowPhase == .loadingApp)
     controller.signOut()
     fakeClient.finishViewerFetch()
     waitUntil(timeout: 1.0) {
@@ -311,6 +315,7 @@ import mergehawkcore
 
     precondition(controller.state.authStatus == .signedOut)
     precondition(controller.deviceFlowChallenge == nil)
+    precondition(controller.deviceFlowPhase == nil)
     precondition((try? tokenStore.loadOAuthTokens()) == nil)
     precondition(fakeClient.fetchSourceCatalogCount == 0)
     precondition(fakeClient.fetchPullRequestsCount == 0)
@@ -334,6 +339,7 @@ import mergehawkcore
         controller.deviceFlowChallenge != nil && oauthSignIn.pollContinuation != nil
     }
 
+    precondition(controller.deviceFlowPhase == .enterCode)
     controller.signOut()
     oauthSignIn.finishPolling()
     waitUntil(timeout: 1.0) {
@@ -343,7 +349,29 @@ import mergehawkcore
 
     precondition(controller.state.authStatus == .signedOut)
     precondition(controller.deviceFlowChallenge == nil)
+    precondition(controller.deviceFlowPhase == nil)
     precondition((try? tokenStore.loadOAuthTokens()) == nil)
+}()
+
+@MainActor let mergehawkDeviceFlowPollFailureClearsPhaseTest: Void = {
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        automaticRefreshInterval: 0,
+        oauthSignIn: FailingPollOAuthSignIn(),
+        urlOpener: { _ in },
+        deviceFlowURLOpener: { _ in }
+    )
+
+    Task {
+        await controller.signInWithGitHub()
+    }
+    waitUntil(timeout: 1.0) {
+        controller.errorMessage != nil
+    }
+
+    precondition(controller.state.authStatus == .signedOut)
+    precondition(controller.deviceFlowChallenge == nil)
+    precondition(controller.deviceFlowPhase == nil)
 }()
 
 @MainActor let mergehawkDeviceFlowPendingStateStaysVisibleUntilDashboardReadyTest: Void = {
@@ -366,6 +394,7 @@ import mergehawkcore
     }
 
     precondition(controller.deviceFlowChallenge?.userCode == "ABCD-1234")
+    precondition(controller.deviceFlowPhase == .loadingApp)
     precondition(controller.state.authStatus == .signedOut)
     precondition((try? tokenStore.loadOAuthTokens()) == nil)
 
@@ -375,6 +404,7 @@ import mergehawkcore
     }
 
     precondition(controller.deviceFlowChallenge == nil)
+    precondition(controller.deviceFlowPhase == nil)
     precondition((try? tokenStore.loadOAuthTokens()) != nil)
 }()
 
@@ -846,6 +876,23 @@ private final class DelayedPollOAuthSignIn: GitHubOAuthSigningIn {
             returning: OAuthTokens(accessToken: "oauth-access", refreshToken: "oauth-refresh", expiresAt: .distantFuture)
         )
         pollContinuation = nil
+    }
+}
+
+@MainActor
+private struct FailingPollOAuthSignIn: GitHubOAuthSigningIn {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        throw DeviceFlowError.accessDenied
     }
 }
 

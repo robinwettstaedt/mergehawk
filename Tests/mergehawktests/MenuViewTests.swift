@@ -42,6 +42,8 @@ final class MenuViewTests: XCTestCase {
     precondition(GitHubSignInView.Copy.copyCode == "Copy Code")
     precondition(GitHubSignInView.Copy.codeCopied == "Code copied to clipboard")
     precondition(GitHubSignInView.Copy.openGitHub == "Open GitHub")
+    precondition(GitHubSignInView.Copy.loadingTitle == "Authorized")
+    precondition(GitHubSignInView.Copy.loadingDetail == "Loading MergeHawk...")
     precondition(GitHubSignInView.Copy.patButtonTitle == "Open Settings")
     precondition(GitHubInboxUnavailableCopy.title == "GitHub Inbox unavailable")
     precondition(GitHubInboxUnavailableCopy.message.contains("classic personal access token"))

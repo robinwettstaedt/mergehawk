@@ -47,6 +47,11 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    enum DeviceFlowPhase {
+        case enterCode
+        case loadingApp
+    }
+
     enum PullRequestSortOption: String, CaseIterable, Identifiable {
         case createdDate
         case updatedDate
@@ -193,6 +198,7 @@ final class DashboardController: ObservableObject {
     var showDeviceFlowSignInMenu: (() -> Void)?
 
     @Published private(set) var deviceFlowChallenge: DeviceFlowChallenge?
+    @Published private(set) var deviceFlowPhase: DeviceFlowPhase?
     @Published private(set) var deviceFlowCodeCopiedAt: Date?
     @Published private(set) var isRequestingDeviceCode = false
     private var signInTask: Task<Void, Never>?
@@ -576,6 +582,7 @@ final class DashboardController: ObservableObject {
         guard isCurrentSignInAttempt(attemptID) else { return }
 
         deviceFlowChallenge = challenge
+        deviceFlowPhase = .enterCode
         isRequestingDeviceCode = false
         openDeviceFlowURL(challenge.verificationURI)
         if keepsMenuVisible {
@@ -605,6 +612,7 @@ final class DashboardController: ObservableObject {
         do {
             let tokens = try await oauthSignIn.pollForTokens(challenge: challenge)
             guard shouldContinueSignIn(attemptID) else { return }
+            deviceFlowPhase = .loadingApp
             oauthAccessTokenCache.store(tokens)
             let client = makeOAuthGitHubClient()
             let viewer = try await client.fetchViewer()
@@ -624,10 +632,12 @@ final class DashboardController: ObservableObject {
             try tokenStore.storeOAuthTokens(tokens)
             try tokenStore.clearPAT()
             deviceFlowChallenge = nil
+            deviceFlowPhase = nil
             deviceFlowCodeCopiedAt = nil
         } catch {
             guard isCurrentSignInAttempt(attemptID) else { return }
             deviceFlowChallenge = nil
+            deviceFlowPhase = nil
             deviceFlowCodeCopiedAt = nil
             if Task.isCancelled || error is CancellationError { return }
             errorMessage = error.localizedDescription
@@ -639,6 +649,7 @@ final class DashboardController: ObservableObject {
         signInTask?.cancel()
         signInTask = nil
         deviceFlowChallenge = nil
+        deviceFlowPhase = nil
         deviceFlowCodeCopiedAt = nil
         isRequestingDeviceCode = false
     }
