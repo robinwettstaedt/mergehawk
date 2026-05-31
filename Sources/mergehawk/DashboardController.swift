@@ -193,6 +193,7 @@ final class DashboardController: ObservableObject {
     var showDeviceFlowSignInMenu: (() -> Void)?
 
     @Published private(set) var deviceFlowChallenge: DeviceFlowChallenge?
+    @Published private(set) var deviceFlowCodeCopiedAt: Date?
     @Published private(set) var isRequestingDeviceCode = false
     private var signInTask: Task<Void, Never>?
     private var signInAttemptID = 0
@@ -210,7 +211,10 @@ final class DashboardController: ObservableObject {
     private var sourceCatalogProvider: SourceCatalogProviding?
     private var gitHubAppInstallationProvider: GitHubAppInstallationProviding?
     private var gitHubInboxProvider: GitHubInboxProviding?
-    private let openURL: (URL) -> Void
+    private let openURL: @MainActor (URL) -> Void
+    private let openDeviceFlowURL: @MainActor (URL) -> Void
+    private let copyStringToClipboard: @MainActor (String) -> Void
+    private let now: @MainActor () -> Date
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
@@ -243,7 +247,10 @@ final class DashboardController: ObservableObject {
         oauthGitHubClientFactory: @escaping (@escaping @Sendable () async throws -> String) -> any GitHubProviding = {
             GitHubClient(tokenProvider: $0)
         },
-        urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
+        urlOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        deviceFlowURLOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        clipboardWriter: @escaping @MainActor (String) -> Void = DashboardController.copyToPasteboard,
+        now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.tokenStore = tokenStore
         self.oauthSignIn = oauthSignIn ?? GitHubDeviceFlowSignIn()
@@ -251,6 +258,9 @@ final class DashboardController: ObservableObject {
         self.preferencesStore = preferencesStore
         self.launchConfiguration = launchConfiguration
         self.openURL = urlOpener
+        self.openDeviceFlowURL = deviceFlowURLOpener
+        self.copyStringToClipboard = clipboardWriter
+        self.now = now
         self.patGitHubClientFactory = patGitHubClientFactory
         self.oauthGitHubClientFactory = oauthGitHubClientFactory
         self.launchAtLoginService = launchAtLoginService
@@ -567,7 +577,8 @@ final class DashboardController: ObservableObject {
 
         deviceFlowChallenge = challenge
         isRequestingDeviceCode = false
-        openURL(challenge.verificationURI)
+        copyDeviceFlowUserCode()
+        openDeviceFlowURL(challenge.verificationURI)
         if keepsMenuVisible {
             showDeviceFlowSignInMenu?()
         }
@@ -575,6 +586,14 @@ final class DashboardController: ObservableObject {
         signInTask = Task { [weak self] in
             await self?.completeDeviceFlowSignIn(challenge: challenge, attemptID: attemptID)
         }
+    }
+
+    func copyDeviceFlowUserCode() {
+        guard let code = deviceFlowChallenge?.userCode else {
+            return
+        }
+        copyStringToClipboard(code)
+        deviceFlowCodeCopiedAt = now()
     }
 
     private func completeDeviceFlowSignIn(challenge: DeviceFlowChallenge, attemptID: Int) async {
@@ -606,9 +625,11 @@ final class DashboardController: ObservableObject {
             try tokenStore.storeOAuthTokens(tokens)
             try tokenStore.clearPAT()
             deviceFlowChallenge = nil
+            deviceFlowCodeCopiedAt = nil
         } catch {
             guard isCurrentSignInAttempt(attemptID) else { return }
             deviceFlowChallenge = nil
+            deviceFlowCodeCopiedAt = nil
             if Task.isCancelled || error is CancellationError { return }
             errorMessage = error.localizedDescription
         }
@@ -619,6 +640,7 @@ final class DashboardController: ObservableObject {
         signInTask?.cancel()
         signInTask = nil
         deviceFlowChallenge = nil
+        deviceFlowCodeCopiedAt = nil
         isRequestingDeviceCode = false
     }
 
@@ -819,6 +841,11 @@ final class DashboardController: ObservableObject {
             configureSignedOutSource()
             refresh()
         }
+    }
+
+    private static func copyToPasteboard(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private func configureStoredOAuthSource() {

@@ -123,7 +123,8 @@ import mergehawkcore
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
         oauthGitHubClientFactory: { _ in fakeClient },
-        urlOpener: { openedURL = $0 }
+        urlOpener: { openedURL = $0 },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -151,7 +152,8 @@ import mergehawkcore
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in fakeClient }
+        oauthGitHubClientFactory: { _ in fakeClient },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -191,7 +193,8 @@ import mergehawkcore
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in fakeClient }
+        oauthGitHubClientFactory: { _ in fakeClient },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -207,12 +210,20 @@ import mergehawkcore
 
 @MainActor let mergehawkDeviceFlowPendingStateCanCancelTest: Void = {
     let oauthSignIn = WaitingOAuthSignIn()
-    var openedURL: URL?
+    let firstCopyDate = Date(timeIntervalSince1970: 1_777_800_000)
+    let secondCopyDate = Date(timeIntervalSince1970: 1_777_800_001)
+    var currentDate = firstCopyDate
+    var foregroundOpenedURL: URL?
+    var deviceFlowOpenedURL: URL?
+    var copiedCodes: [String] = []
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: oauthSignIn,
-        urlOpener: { openedURL = $0 }
+        urlOpener: { foregroundOpenedURL = $0 },
+        deviceFlowURLOpener: { deviceFlowOpenedURL = $0 },
+        clipboardWriter: { copiedCodes.append($0) },
+        now: { currentDate }
     )
 
     Task {
@@ -223,12 +234,21 @@ import mergehawkcore
     }
 
     precondition(controller.deviceFlowChallenge?.userCode == "ABCD-1234")
+    precondition(controller.deviceFlowCodeCopiedAt == firstCopyDate)
     precondition(!controller.isRequestingDeviceCode)
-    precondition(openedURL?.absoluteString == "https://github.com/login/device")
+    precondition(foregroundOpenedURL == nil)
+    precondition(deviceFlowOpenedURL?.absoluteString == "https://github.com/login/device")
+    precondition(copiedCodes == ["ABCD-1234"])
+
+    currentDate = secondCopyDate
+    controller.copyDeviceFlowUserCode()
+    precondition(controller.deviceFlowCodeCopiedAt == secondCopyDate)
+    precondition(copiedCodes == ["ABCD-1234", "ABCD-1234"])
 
     controller.cancelDeviceFlowSignIn()
 
     precondition(controller.deviceFlowChallenge == nil)
+    precondition(controller.deviceFlowCodeCopiedAt == nil)
     precondition(!controller.isRequestingDeviceCode)
     precondition(controller.state.authStatus == .signedOut)
 }()
@@ -240,7 +260,8 @@ import mergehawkcore
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: oauthSignIn,
-        urlOpener: { _ in }
+        deviceFlowURLOpener: { _ in },
+        clipboardWriter: { _ in }
     )
     controller.showDeviceFlowSignInMenu = {
         revealCount += 1
@@ -254,6 +275,7 @@ import mergehawkcore
     }
 
     precondition(revealCount == 1)
+
     controller.cancelDeviceFlowSignIn()
 }()
 
@@ -265,7 +287,8 @@ import mergehawkcore
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
         oauthGitHubClientFactory: { _ in fakeClient },
-        urlOpener: { _ in }
+        urlOpener: { _ in },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -296,7 +319,8 @@ import mergehawkcore
         tokenStore: tokenStore,
         automaticRefreshInterval: 0,
         oauthSignIn: oauthSignIn,
-        urlOpener: { _ in }
+        urlOpener: { _ in },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -326,7 +350,8 @@ import mergehawkcore
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
         oauthGitHubClientFactory: { _ in fakeClient },
-        urlOpener: { _ in }
+        urlOpener: { _ in },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -369,7 +394,8 @@ import mergehawkcore
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
         oauthGitHubClientFactory: { _ in fakeClient },
-        urlOpener: { openedURL = $0 }
+        urlOpener: { openedURL = $0 },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -418,7 +444,8 @@ import mergehawkcore
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in fakeClient }
+        oauthGitHubClientFactory: { _ in fakeClient },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -455,7 +482,8 @@ import mergehawkcore
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
         oauthGitHubClientFactory: { _ in fakeClient },
-        urlOpener: { openedURL = $0 }
+        urlOpener: { openedURL = $0 },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -502,7 +530,8 @@ import mergehawkcore
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in fakeClient }
+        oauthGitHubClientFactory: { _ in fakeClient },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -537,7 +566,8 @@ import mergehawkcore
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: FakeOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in fakeClient }
+        oauthGitHubClientFactory: { _ in fakeClient },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {
@@ -622,7 +652,8 @@ import mergehawkcore
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0.05,
         oauthSignIn: FakeOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in fakeClient }
+        oauthGitHubClientFactory: { _ in fakeClient },
+        deviceFlowURLOpener: { _ in }
     )
 
     Task {

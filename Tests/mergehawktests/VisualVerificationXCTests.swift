@@ -67,7 +67,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
                 automaticRefreshInterval: 0,
                 oauthSignIn: VisualPendingOAuthSignIn(),
-                urlOpener: { _ in }
+                urlOpener: { _ in },
+                deviceFlowURLOpener: { _ in }
             )
         }
         Task {
@@ -106,7 +107,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 automaticRefreshInterval: 0,
                 oauthSignIn: VisualOAuthSignIn(),
                 oauthGitHubClientFactory: { _ in accessPromptClient },
-                urlOpener: { _ in }
+                urlOpener: { _ in },
+                deviceFlowURLOpener: { _ in }
             )
         }
         await waitUntil(timeout: 1.0) {

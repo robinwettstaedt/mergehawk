@@ -1016,6 +1016,7 @@ struct GitHubSignInView: View {
         static let enterCodeTitle = "Enter code on GitHub"
         static let enterCodeDetail = "Open GitHub and enter the code below to complete sign-in."
         static let copyCode = "Copy Code"
+        static let codeCopied = "Code copied to clipboard"
         static let openGitHub = "Open GitHub"
         static let cancelSignIn = "Cancel"
         static let patHint = "Using a personal access token?"
@@ -1122,8 +1123,9 @@ struct DeviceFlowPendingSignInView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(challenge.userCode, forType: .string)
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        controller.copyDeviceFlowUserCode()
+                    }
                 } label: {
                     Text(GitHubSignInView.Copy.copyCode)
                         .font(.system(size: 13, weight: .semibold))
@@ -1137,6 +1139,18 @@ struct DeviceFlowPendingSignInView: View {
                 Link(GitHubSignInView.Copy.openGitHub, destination: challenge.verificationURI)
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
+            }
+
+            if controller.deviceFlowCodeCopiedAt != nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.green)
+                    Text(GitHubSignInView.Copy.codeCopied)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             HStack(spacing: 8) {
@@ -1159,6 +1173,7 @@ struct DeviceFlowPendingSignInView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .animation(.easeInOut(duration: 0.16), value: controller.deviceFlowCodeCopiedAt)
         .onAppear { updateExpiryLabel(challenge: challenge) }
         .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
     }

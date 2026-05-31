@@ -40,6 +40,7 @@ final class MenuViewTests: XCTestCase {
     precondition(GitHubSignInView.Copy.permissionText.contains("GitHub App"))
     precondition(GitHubSignInView.Copy.enterCodeTitle == "Enter code on GitHub")
     precondition(GitHubSignInView.Copy.copyCode == "Copy Code")
+    precondition(GitHubSignInView.Copy.codeCopied == "Code copied to clipboard")
     precondition(GitHubSignInView.Copy.openGitHub == "Open GitHub")
     precondition(GitHubSignInView.Copy.patButtonTitle == "Open Settings")
     precondition(GitHubInboxUnavailableCopy.title == "GitHub Inbox unavailable")
@@ -210,7 +211,8 @@ final class MenuViewTests: XCTestCase {
         tokenStore: InMemoryTokenStore(),
         automaticRefreshInterval: 0,
         oauthSignIn: MenuOAuthSignIn(),
-        oauthGitHubClientFactory: { _ in manualRefreshClient }
+        oauthGitHubClientFactory: { _ in manualRefreshClient },
+        deviceFlowURLOpener: { _ in }
     )
     Task {
         await manualRefreshController.signInWithGitHub()
