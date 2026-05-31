@@ -577,7 +577,6 @@ final class DashboardController: ObservableObject {
 
         deviceFlowChallenge = challenge
         isRequestingDeviceCode = false
-        copyDeviceFlowUserCode()
         openDeviceFlowURL(challenge.verificationURI)
         if keepsMenuVisible {
             showDeviceFlowSignInMenu?()

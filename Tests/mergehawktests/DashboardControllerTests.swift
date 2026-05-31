@@ -234,10 +234,14 @@ import mergehawkcore
     }
 
     precondition(controller.deviceFlowChallenge?.userCode == "ABCD-1234")
-    precondition(controller.deviceFlowCodeCopiedAt == firstCopyDate)
+    precondition(controller.deviceFlowCodeCopiedAt == nil)
     precondition(!controller.isRequestingDeviceCode)
     precondition(foregroundOpenedURL == nil)
     precondition(deviceFlowOpenedURL?.absoluteString == "https://github.com/login/device")
+    precondition(copiedCodes.isEmpty)
+
+    controller.copyDeviceFlowUserCode()
+    precondition(controller.deviceFlowCodeCopiedAt == firstCopyDate)
     precondition(copiedCodes == ["ABCD-1234"])
 
     currentDate = secondCopyDate
