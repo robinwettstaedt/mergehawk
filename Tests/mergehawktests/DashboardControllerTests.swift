@@ -294,6 +294,37 @@ import mergehawkcore
     precondition((try? tokenStore.loadOAuthTokens()) == nil)
 }()
 
+@MainActor let mergehawkDeviceFlowPendingStateStaysVisibleUntilDashboardReadyTest: Void = {
+    let fakeClient = DelayedSyncGitHubProvider()
+    let tokenStore = InMemoryTokenStore()
+    let controller = DashboardController(
+        tokenStore: tokenStore,
+        automaticRefreshInterval: 0,
+        oauthSignIn: FakeOAuthSignIn(),
+        oauthGitHubClientFactory: { _ in fakeClient },
+        urlOpener: { _ in }
+    )
+
+    Task {
+        await controller.signInWithGitHub()
+    }
+    waitUntil(timeout: 1.0) {
+        fakeClient.pullRequestsContinuation != nil
+    }
+
+    precondition(controller.deviceFlowChallenge?.userCode == "ABCD-1234")
+    precondition(controller.state.authStatus == .signedOut)
+    precondition((try? tokenStore.loadOAuthTokens()) == nil)
+
+    fakeClient.finishPullRequestFetch()
+    waitUntil(timeout: 1.0) {
+        controller.state.authStatus == .signedIn
+    }
+
+    precondition(controller.deviceFlowChallenge == nil)
+    precondition((try? tokenStore.loadOAuthTokens()) != nil)
+}()
+
 @MainActor let mergehawkGitHubAppRepositoryAccessUsesInstallationManageURLTest: Void = {
     let manageURL = URL(string: "https://github.com/organizations/acme/settings/installations/1002")!
     let fakeClient = FakeGitHubProvider(
@@ -844,6 +875,43 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
         fetchSourceCatalogCount += 1
         return SourceCatalog(repositories: [], accountLogin: "rw")
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
+}
+
+private final class DelayedSyncGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    var pullRequestsContinuation: CheckedContinuation<PullRequestFetchResult, Never>?
+
+    func fetchViewer() async throws -> GitHubAccount {
+        GitHubAccount(login: "rw")
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        await withCheckedContinuation { continuation in
+            pullRequestsContinuation = continuation
+        }
+    }
+
+    func finishPullRequestFetch() {
+        pullRequestsContinuation?.resume(returning: PullRequestFetchResult(pullRequests: []))
+        pullRequestsContinuation = nil
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: "rw")
     }
 
     func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {

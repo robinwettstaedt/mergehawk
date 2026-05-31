@@ -583,9 +583,6 @@ final class DashboardController: ObservableObject {
         do {
             let tokens = try await oauthSignIn.pollForTokens(challenge: challenge)
             guard shouldContinueSignIn(attemptID) else { return }
-            deviceFlowChallenge = nil
-            try tokenStore.storeOAuthTokens(tokens)
-            try tokenStore.clearPAT()
             oauthAccessTokenCache.store(tokens)
             let client = makeOAuthGitHubClient()
             let viewer = try await client.fetchViewer()
@@ -601,6 +598,10 @@ final class DashboardController: ObservableObject {
             await fetchSourceCatalog()
             guard shouldContinueSignIn(attemptID) else { return }
             await sync()
+            guard shouldContinueSignIn(attemptID) else { return }
+            try tokenStore.storeOAuthTokens(tokens)
+            try tokenStore.clearPAT()
+            deviceFlowChallenge = nil
         } catch {
             guard isCurrentSignInAttempt(attemptID) else { return }
             deviceFlowChallenge = nil
