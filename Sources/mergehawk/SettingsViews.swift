@@ -349,6 +349,14 @@ private struct GitHubSettingsView: View {
                                         .frame(maxWidth: .infinity, alignment: .center)
                                         .padding(.vertical, 8)
 
+                                        if let error = controller.errorMessage {
+                                            Text(error)
+                                                .font(.caption)
+                                                .foregroundStyle(.red)
+                                                .frame(maxWidth: .infinity, alignment: .center)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+
                                         GitHubAppAccessNotes(showsInstallLink: true, switchToPAT: {
                                             selectedSignInMode = .pat
                                         })
@@ -389,7 +397,15 @@ private struct GitHubSettingsView: View {
                                             }
                                             .font(.caption)
                                         }
+
+                                        Text(controller.errorMessage ?? "")
+                                            .font(.caption)
+                                            .foregroundStyle(.red)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .frame(minHeight: 14)
+                                            .opacity(controller.errorMessage != nil ? 1 : 0)
                                     }
+                                    .padding(.vertical, 8)
 
                                     PATAccessNotes()
                                 }
@@ -397,11 +413,6 @@ private struct GitHubSettingsView: View {
                         }
                     }
 
-                    if let error = controller.errorMessage {
-                        Text(error)
-                            .foregroundStyle(.red)
-                            .font(.caption)
-                    }
                 }
                 .padding(.top, 20)
                 .padding(.horizontal, 20)
