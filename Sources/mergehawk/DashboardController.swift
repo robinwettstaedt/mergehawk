@@ -1255,6 +1255,11 @@ final class DashboardController: ObservableObject {
             await fetchSourceCatalog(appliesMockRefreshDelay: appliesMockRefreshDelay)
         }
         await sync(appliesMockRefreshDelay: appliesMockRefreshDelay)
+        // sync() establishes authStatus — if the catalog check was skipped earlier
+        // because auth wasn't ready yet, run it now that we know we're signed in.
+        if canCheckGitHubAppRepositoryAccess && gitHubAppRepositoryAccessStatus == .unknown {
+            await fetchSourceCatalog()
+        }
     }
 
     private func delayMockRefreshIfNeeded(applies: Bool) async {
