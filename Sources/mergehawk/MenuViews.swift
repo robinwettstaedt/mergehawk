@@ -1104,6 +1104,7 @@ struct DeviceFlowPendingSignInView: View {
     @ObservedObject var controller: DashboardController
     let challenge: DeviceFlowChallenge
     @State private var expiryTimeRemaining: String = ""
+    @State private var justCopied: Bool = false
     private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -1120,13 +1121,12 @@ struct DeviceFlowPendingSignInView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .animation(.easeInOut(duration: 0.16), value: controller.deviceFlowCodeCopiedAt)
         .onAppear { updateExpiryLabel(challenge: challenge) }
         .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
     }
 
     private var enterCodeContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(GitHubSignInView.Copy.enterCodeTitle)
                     .font(.headline)
@@ -1136,43 +1136,52 @@ struct DeviceFlowPendingSignInView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text(challenge.userCode)
-                .font(.system(.title2, design: .monospaced).weight(.semibold))
-                .tracking(2)
-
             HStack(spacing: 8) {
+                Text(challenge.userCode)
+                    .font(.system(.title2, design: .monospaced).weight(.semibold))
+                    .tracking(2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
                 Button {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        controller.copyDeviceFlowUserCode()
+                    controller.copyDeviceFlowUserCode()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        justCopied = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            justCopied = false
+                        }
                     }
                 } label: {
-                    Text(GitHubSignInView.Copy.copyCode)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(justCopied ? Color.green : Color.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.plain)
-
-                Link(GitHubSignInView.Copy.openGitHub, destination: challenge.verificationURI)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
             }
 
-            if let copiedAt = controller.deviceFlowCodeCopiedAt {
-                DeviceFlowCodeCopiedConfirmation()
-                    .id(copiedAt)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+            Link(destination: challenge.verificationURI) {
+                HStack(spacing: 4) {
+                    Text(GitHubSignInView.Copy.openGitHub)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
             }
+            .font(.system(size: 13, weight: .medium))
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 ProgressView()
                     .controlSize(.small)
                 if !expiryTimeRemaining.isEmpty {
                     Text(expiryTimeRemaining)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
@@ -1180,7 +1189,8 @@ struct DeviceFlowPendingSignInView: View {
                 controller.cancelDeviceFlowSignIn()
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .font(.subheadline)
+            .foregroundStyle(.tertiary)
         }
     }
 
@@ -1209,37 +1219,6 @@ struct DeviceFlowPendingSignInView: View {
     }
 }
 
-private struct DeviceFlowCodeCopiedConfirmation: View {
-    @State private var isVisible = true
-    @State private var hideTimer: Timer?
-
-    var body: some View {
-        if isVisible {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.green)
-                Text(GitHubSignInView.Copy.codeCopied)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-            .onAppear {
-                let timer = Timer(timeInterval: 2, repeats: false) { _ in
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        isVisible = false
-                    }
-                }
-                RunLoop.main.add(timer, forMode: .common)
-                RunLoop.main.add(timer, forMode: .eventTracking)
-                hideTimer = timer
-            }
-            .onDisappear {
-                hideTimer?.invalidate()
-                hideTimer = nil
-            }
-        }
-    }
-}
 
 private extension RunLoop.Mode {
     static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
