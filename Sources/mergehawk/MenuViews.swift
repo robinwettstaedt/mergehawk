@@ -1026,6 +1026,8 @@ struct GitHubSignInView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    @State private var isHoveringSignIn: Bool = false
+    @State private var isHoveringPAT: Bool = false
 
     var body: some View {
         if let challenge = controller.deviceFlowChallenge {
@@ -1039,31 +1041,40 @@ struct GitHubSignInView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 16) {
-                VStack(spacing: 6) {
-                    Text(Self.Copy.title)
-                        .font(.headline)
-                    Text(Self.Copy.permissionText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            VStack(spacing: 20) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 88, height: 88)
 
                 HStack(spacing: 8) {
                     Button {
                         connect()
                     } label: {
-                        Text(Self.Copy.buttonTitle)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .frame(height: 28)
-                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        HStack(spacing: 6) {
+                            if let mark = Self.gitHubMarkImage {
+                                Image(nsImage: mark)
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .frame(width: 14, height: 14)
+                            }
+                            Text(Self.Copy.buttonTitle)
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(height: 30)
+                        .background(
+                            Color.accentColor.opacity(isHoveringSignIn ? 0.8 : 1.0),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        )
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
                     .disabled(controller.isRequestingDeviceCode)
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: 0.12)) { isHoveringSignIn = hovering }
+                    }
 
                     if controller.isRequestingDeviceCode {
                         ProgressView()
@@ -1078,12 +1089,16 @@ struct GitHubSignInView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Button(Self.Copy.patHint) {
+                Button("Use a personal access token instead") {
                     controller.showGitHubSettings(patMode: true)
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isHoveringPAT ? Color.secondary : Color(nsColor: .tertiaryLabelColor))
+                .underline(isHoveringPAT)
+                .onHover { hovering in
+                    isHoveringPAT = hovering
+                }
             }
             .frame(maxWidth: .infinity, alignment: .center)
 
@@ -1091,6 +1106,13 @@ struct GitHubSignInView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private static var gitHubMarkImage: NSImage? {
+        guard let url = Bundle.main.url(forResource: "GitHubMark", withExtension: "svg"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.isTemplate = true
+        return image
     }
 
     private func connect() {
@@ -1105,6 +1127,7 @@ struct DeviceFlowPendingSignInView: View {
     let challenge: DeviceFlowChallenge
     @State private var expiryTimeRemaining: String = ""
     @State private var justCopied: Bool = false
+    @State private var isHoveringCopy: Bool = false
     private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -1127,13 +1150,19 @@ struct DeviceFlowPendingSignInView: View {
 
     private var enterCodeContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(GitHubSignInView.Copy.enterCodeTitle)
+            HStack(spacing: 0) {
+                Text("Enter code on ")
                     .font(.headline)
-                Text(GitHubSignInView.Copy.enterCodeDetail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Link(destination: challenge.verificationURI) {
+                    HStack(spacing: 3) {
+                        Text("GitHub")
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .font(.headline)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
             }
 
             HStack(spacing: 8) {
@@ -1146,38 +1175,28 @@ struct DeviceFlowPendingSignInView: View {
 
                 Button {
                     controller.copyDeviceFlowUserCode()
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        justCopied = true
-                    }
+                    withAnimation(.easeInOut(duration: 0.15)) { justCopied = true }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            justCopied = false
-                        }
+                        withAnimation(.easeInOut(duration: 0.15)) { justCopied = false }
                     }
                 } label: {
                     Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(justCopied ? Color.green : Color.secondary)
+                        .foregroundStyle(justCopied ? Color.green : (isHoveringCopy ? Color.primary : Color.secondary))
                         .frame(width: 22, height: 22)
+                        .scaleEffect(isHoveringCopy && !justCopied ? 1.2 : 1.0)
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.plain)
-            }
-
-            Link(destination: challenge.verificationURI) {
-                HStack(spacing: 4) {
-                    Text(GitHubSignInView.Copy.openGitHub)
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .semibold))
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) { isHoveringCopy = hovering }
                 }
             }
-            .font(.system(size: 13, weight: .medium))
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
 
-            HStack(spacing: 6) {
-                ProgressView()
-                    .controlSize(.small)
+            HStack(spacing: 5) {
+                Image(systemName: "clock")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
                 if !expiryTimeRemaining.isEmpty {
                     Text(expiryTimeRemaining)
                         .font(.caption)
