@@ -1108,7 +1108,7 @@ struct GitHubSignInView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private static var gitHubMarkImage: NSImage? {
+    static var gitHubMarkImage: NSImage? {
         guard let url = Bundle.main.url(forResource: "GitHubMark", withExtension: "svg"),
               let image = NSImage(contentsOf: url) else { return nil }
         image.isTemplate = true
@@ -2272,8 +2272,9 @@ struct GitHubAppRepositoryAccessPrompt: View {
                 controller.openGitHubAppInstallation()
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.right.square")
                     Text(GitHubAppRepositoryAccessCopy.buttonTitle)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 11, weight: .semibold))
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
