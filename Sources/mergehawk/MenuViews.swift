@@ -2254,40 +2254,97 @@ struct GitHubAppRepositoryAccessPrompt: View {
     @ObservedObject var controller: DashboardController
     var minHeight: CGFloat? = nil
 
+    private struct ContextRow {
+        let icon: String
+        let text: String
+    }
+
     var body: some View {
-        VStack(spacing: 9) {
-            Image(systemName: "folder.badge.plus")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-            Text(GitHubAppRepositoryAccessCopy.title(for: controller.gitHubAppRepositoryAccessStatus))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text(GitHubAppRepositoryAccessCopy.message(for: controller.gitHubAppRepositoryAccessStatus))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 340)
-            Button {
-                controller.openGitHubAppInstallation()
-            } label: {
-                HStack(spacing: 5) {
-                    Text(GitHubAppRepositoryAccessCopy.buttonTitle)
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 11, weight: .semibold))
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            VStack(spacing: 20) {
+                VStack(spacing: 10) {
+                    Image(systemName: headerIconName)
+                        .font(.system(size: 34, weight: .light))
+                        .foregroundStyle(.secondary)
+                    Text(GitHubAppRepositoryAccessCopy.title(for: controller.gitHubAppRepositoryAccessStatus))
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
                 }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                contextBox
+
+                Button { controller.openGitHubAppInstallation() } label: {
+                    HStack(spacing: 5) {
+                        Text(GitHubAppRepositoryAccessCopy.buttonTitle)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 30)
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .controlSize(.small)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, 24)
+
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: .infinity)
-        .padding(.horizontal, 24)
+    }
+
+    private var headerIconName: String {
+        switch controller.gitHubAppRepositoryAccessStatus {
+        case .noVisibleRepositories: "folder.badge.minus"
+        default: "folder.badge.plus"
+        }
+    }
+
+    private var contextRows: [ContextRow] {
+        switch controller.gitHubAppRepositoryAccessStatus {
+        case .noInstallations:
+            [
+                ContextRow(icon: "building.2", text: "Install MergeHawk GitHub App on your account or organization."),
+                ContextRow(icon: "folder", text: "Choose all repositories or specific ones for MergeHawk to monitor.")
+            ]
+        case .noVisibleRepositories:
+            [
+                ContextRow(icon: "checkmark.circle", text: "The MergeHawk GitHub App is installed."),
+                ContextRow(icon: "folder", text: "No repositories are selected — manage access on GitHub, then refresh sources.")
+            ]
+        default:
+            [ContextRow(icon: "folder.badge.plus", text: GitHubAppRepositoryAccessCopy.message(for: controller.gitHubAppRepositoryAccessStatus))]
+        }
+    }
+
+    private var contextBox: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(contextRows.enumerated()), id: \.offset) { index, row in
+                if index > 0 { Divider() }
+                noteRow(icon: row.icon, text: row.text)
+            }
+        }
+        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.gray.opacity(0.22), lineWidth: 1))
+    }
+
+    private func noteRow(icon: String, text: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, alignment: .center)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 
