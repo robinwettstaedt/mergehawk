@@ -54,11 +54,11 @@ enum GitHubAppRepositoryAccessCopy {
 
     static func title(for status: DashboardController.GitHubAppRepositoryAccessStatus) -> String {
         switch status {
-        case .noInstallations:
+        case .noInstallations, .unknown:
             "Repository access not configured"
         case .noVisibleRepositories:
             "No repositories visible to MergeHawk"
-        case .notApplicable, .unknown, .checking, .configured:
+        case .notApplicable, .checking, .configured:
             "Repository access"
         }
     }
@@ -1026,6 +1026,8 @@ struct GitHubSignInView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    @State private var isHoveringSignIn: Bool = false
+    @State private var isHoveringPAT: Bool = false
 
     var body: some View {
         if let challenge = controller.deviceFlowChallenge {
@@ -1039,31 +1041,40 @@ struct GitHubSignInView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 16) {
-                VStack(spacing: 6) {
-                    Text(Self.Copy.title)
-                        .font(.headline)
-                    Text(Self.Copy.permissionText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            VStack(spacing: 20) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 88, height: 88)
 
                 HStack(spacing: 8) {
                     Button {
                         connect()
                     } label: {
-                        Text(Self.Copy.buttonTitle)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .frame(height: 28)
-                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        HStack(spacing: 6) {
+                            if let mark = Self.gitHubMarkImage {
+                                Image(nsImage: mark)
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .frame(width: 14, height: 14)
+                            }
+                            Text(Self.Copy.buttonTitle)
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(height: 30)
+                        .background(
+                            Color.accentColor.opacity(isHoveringSignIn ? 0.8 : 1.0),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        )
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
                     .disabled(controller.isRequestingDeviceCode)
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: 0.12)) { isHoveringSignIn = hovering }
+                    }
 
                     if controller.isRequestingDeviceCode {
                         ProgressView()
@@ -1078,12 +1089,16 @@ struct GitHubSignInView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Button(Self.Copy.patHint) {
+                Button("Use a personal access token instead") {
                     controller.showGitHubSettings(patMode: true)
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isHoveringPAT ? Color.secondary : Color(nsColor: .tertiaryLabelColor))
+                .underline(isHoveringPAT)
+                .onHover { hovering in
+                    isHoveringPAT = hovering
+                }
             }
             .frame(maxWidth: .infinity, alignment: .center)
 
@@ -1091,6 +1106,13 @@ struct GitHubSignInView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    static var gitHubMarkImage: NSImage? {
+        guard let url = Bundle.main.url(forResource: "GitHubMark", withExtension: "svg"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.isTemplate = true
+        return image
     }
 
     private func connect() {
@@ -1104,6 +1126,8 @@ struct DeviceFlowPendingSignInView: View {
     @ObservedObject var controller: DashboardController
     let challenge: DeviceFlowChallenge
     @State private var expiryTimeRemaining: String = ""
+    @State private var justCopied: Bool = false
+    @State private var isHoveringCopy: Bool = false
     private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -1120,65 +1144,63 @@ struct DeviceFlowPendingSignInView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .animation(.easeInOut(duration: 0.16), value: controller.deviceFlowCodeCopiedAt)
         .onAppear { updateExpiryLabel(challenge: challenge) }
         .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
     }
 
     private var enterCodeContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(GitHubSignInView.Copy.enterCodeTitle)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 0) {
+                Text("Enter code on ")
                     .font(.headline)
-                Text(GitHubSignInView.Copy.enterCodeDetail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Text(challenge.userCode)
-                .font(.system(.title2, design: .monospaced).weight(.semibold))
-                .tracking(2)
-
-            HStack(spacing: 8) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        controller.copyDeviceFlowUserCode()
+                Link(destination: challenge.verificationURI) {
+                    HStack(spacing: 3) {
+                        Text("GitHub")
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10, weight: .bold))
                     }
-                } label: {
-                    Text(GitHubSignInView.Copy.copyCode)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .font(.headline)
                 }
                 .buttonStyle(.plain)
-
-                Link(GitHubSignInView.Copy.openGitHub, destination: challenge.verificationURI)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
-            }
-
-            if controller.deviceFlowCodeCopiedAt != nil {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.green)
-                    Text(GitHubSignInView.Copy.codeCopied)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .foregroundStyle(Color.accentColor)
             }
 
             HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
+                Text(challenge.userCode)
+                    .font(.system(.title2, design: .monospaced).weight(.semibold))
+                    .tracking(2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                Button {
+                    controller.copyDeviceFlowUserCode()
+                    withAnimation(.easeInOut(duration: 0.15)) { justCopied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation(.easeInOut(duration: 0.15)) { justCopied = false }
+                    }
+                } label: {
+                    Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(justCopied ? Color.green : (isHoveringCopy ? Color.primary : Color.secondary))
+                        .frame(width: 22, height: 22)
+                        .scaleEffect(isHoveringCopy && !justCopied ? 1.2 : 1.0)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) { isHoveringCopy = hovering }
+                }
+            }
+
+            HStack(spacing: 5) {
+                Image(systemName: "clock")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
                 if !expiryTimeRemaining.isEmpty {
                     Text(expiryTimeRemaining)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
@@ -1186,7 +1208,8 @@ struct DeviceFlowPendingSignInView: View {
                 controller.cancelDeviceFlowSignIn()
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .font(.subheadline)
+            .foregroundStyle(.tertiary)
         }
     }
 
@@ -1213,6 +1236,11 @@ struct DeviceFlowPendingSignInView: View {
             expiryTimeRemaining = String(format: "Expires in %d:%02d", minutes, seconds)
         }
     }
+}
+
+
+private extension RunLoop.Mode {
+    static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
 }
 
 private struct PullRequestListView: View {
@@ -2226,39 +2254,109 @@ struct GitHubAppRepositoryAccessPrompt: View {
     @ObservedObject var controller: DashboardController
     var minHeight: CGFloat? = nil
 
+    private struct ContextRow {
+        let icon: String
+        let text: String
+    }
+
     var body: some View {
-        VStack(spacing: 9) {
-            Image(systemName: "folder.badge.plus")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-            Text(GitHubAppRepositoryAccessCopy.title(for: controller.gitHubAppRepositoryAccessStatus))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text(GitHubAppRepositoryAccessCopy.message(for: controller.gitHubAppRepositoryAccessStatus))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 340)
-            Button {
-                controller.openGitHubAppInstallation()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.right.square")
-                    Text(GitHubAppRepositoryAccessCopy.buttonTitle)
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            VStack(spacing: 20) {
+                VStack(spacing: 10) {
+                    Image(systemName: headerIconName)
+                        .font(.system(size: 34, weight: .light))
+                        .foregroundStyle(.secondary)
+                    Text(GitHubAppRepositoryAccessCopy.title(for: controller.gitHubAppRepositoryAccessStatus))
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
                 }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                VStack(spacing: 12) {
+                    contextBox
+
+                    Button { controller.openGitHubAppInstallation() } label: {
+                        HStack(spacing: 6) {
+                            if let mark = GitHubSignInView.gitHubMarkImage {
+                                Image(nsImage: mark)
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .frame(width: 14, height: 14)
+                            }
+                            Text(GitHubAppRepositoryAccessCopy.buttonTitle)
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: 30)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(maxWidth: 340)
             }
-            .buttonStyle(.plain)
-            .controlSize(.small)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, 24)
+
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: .infinity)
-        .padding(.horizontal, 24)
+    }
+
+    private var headerIconName: String {
+        switch controller.gitHubAppRepositoryAccessStatus {
+        case .noVisibleRepositories: "folder.badge.minus"
+        default: "folder.badge.plus"
+        }
+    }
+
+    private var contextRows: [ContextRow] {
+        switch controller.gitHubAppRepositoryAccessStatus {
+        case .noInstallations:
+            [
+                ContextRow(icon: "building.2", text: "Install MergeHawk GitHub App on your account or organization."),
+                ContextRow(icon: "folder", text: "Choose all repositories or specific ones for MergeHawk to monitor.")
+            ]
+        case .noVisibleRepositories:
+            [
+                ContextRow(icon: "checkmark.circle", text: "The MergeHawk GitHub App is installed."),
+                ContextRow(icon: "folder", text: "No repositories are selected — manage access on GitHub, then refresh sources.")
+            ]
+        default:
+            [
+                ContextRow(icon: "building.2", text: "Install MergeHawk GitHub App on your account or organization."),
+                ContextRow(icon: "folder", text: "Choose all repositories or specific ones for MergeHawk to monitor.")
+            ]
+        }
+    }
+
+    private var contextBox: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(contextRows.enumerated()), id: \.offset) { index, row in
+                if index > 0 { Divider() }
+                noteRow(icon: row.icon, text: row.text)
+            }
+        }
+        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.gray.opacity(0.22), lineWidth: 1))
+    }
+
+    private func noteRow(icon: String, text: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, alignment: .center)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 
