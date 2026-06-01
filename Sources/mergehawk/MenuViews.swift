@@ -2273,21 +2273,28 @@ struct GitHubAppRepositoryAccessPrompt: View {
                         .multilineTextAlignment(.center)
                 }
 
-                contextBox
+                VStack(spacing: 12) {
+                    contextBox
 
-                Button { controller.openGitHubAppInstallation() } label: {
-                    HStack(spacing: 5) {
-                        Text(GitHubAppRepositoryAccessCopy.buttonTitle)
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .semibold))
+                    Button { controller.openGitHubAppInstallation() } label: {
+                        HStack(spacing: 6) {
+                            if let mark = GitHubSignInView.gitHubMarkImage {
+                                Image(nsImage: mark)
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .frame(width: 14, height: 14)
+                            }
+                            Text(GitHubAppRepositoryAccessCopy.buttonTitle)
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(height: 30)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(height: 30)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .fixedSize(horizontal: true, vertical: false)
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.horizontal, 24)
@@ -2343,6 +2350,7 @@ struct GitHubAppRepositoryAccessPrompt: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
     }

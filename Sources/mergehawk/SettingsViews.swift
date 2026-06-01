@@ -113,8 +113,7 @@ private struct SettingsTabBar: View {
                         selection = tab
                     } label: {
                         VStack(spacing: 4) {
-                            Image(systemName: tab.systemImage)
-                                .font(.system(size: SettingsTabLayout.iconSize, weight: .semibold))
+                            tabIcon(for: tab)
                                 .frame(height: SettingsTabLayout.iconHeight)
                             Text(tab.title)
                                 .font(.system(size: SettingsTabLayout.labelSize, weight: .semibold))
@@ -141,6 +140,20 @@ private struct SettingsTabBar: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func tabIcon(for tab: SettingsTab) -> some View {
+        if tab == .github, let mark = GitHubSignInView.gitHubMarkImage {
+            Image(nsImage: mark)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: SettingsTabLayout.iconSize, height: SettingsTabLayout.iconSize)
+        } else {
+            Image(systemName: tab.systemImage)
+                .font(.system(size: SettingsTabLayout.iconSize, weight: .semibold))
+        }
     }
 }
 
