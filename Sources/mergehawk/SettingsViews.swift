@@ -9,7 +9,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
     case sources
     case about
 
-    static let defaultWindowSize = CGSize(width: 500, height: 580)
+    static let defaultWindowSize = CGSize(width: 500, height: 700)
 
     var title: String {
         switch self {
@@ -113,8 +113,7 @@ private struct SettingsTabBar: View {
                         selection = tab
                     } label: {
                         VStack(spacing: 4) {
-                            Image(systemName: tab.systemImage)
-                                .font(.system(size: SettingsTabLayout.iconSize, weight: .semibold))
+                            tabIcon(for: tab)
                                 .frame(height: SettingsTabLayout.iconHeight)
                             Text(tab.title)
                                 .font(.system(size: SettingsTabLayout.labelSize, weight: .semibold))
@@ -141,6 +140,20 @@ private struct SettingsTabBar: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func tabIcon(for tab: SettingsTab) -> some View {
+        if tab == .github, let mark = GitHubSignInView.gitHubMarkImage {
+            Image(nsImage: mark)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: SettingsTabLayout.iconSize, height: SettingsTabLayout.iconSize)
+        } else {
+            Image(systemName: tab.systemImage)
+                .font(.system(size: SettingsTabLayout.iconSize, weight: .semibold))
+        }
     }
 }
 
@@ -319,27 +332,24 @@ private struct GitHubSettingsView: View {
                                     DeviceFlowPendingSignInView(controller: controller, challenge: challenge)
                                 } else {
                                     VStack(spacing: 16) {
-                                        VStack(spacing: 6) {
-                                            Text("Sign in with MergeHawk GitHub App")
-                                                .font(.callout.weight(.medium))
-                                            Text("Access is scoped to your GitHub permissions and the repositories where the app is installed. MergeHawk only performs read API calls.")
-                                                .font(.callout)
-                                                .foregroundStyle(.secondary)
-                                                .multilineTextAlignment(.center)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .center)
-
                                         HStack(spacing: 8) {
                                             Button {
                                                 connectWithGitHub()
                                             } label: {
-                                                Text("Sign in with GitHub")
-                                                    .font(.system(size: 13, weight: .semibold))
-                                                    .foregroundStyle(.white)
-                                                    .padding(.horizontal, 16)
-                                                    .frame(height: 28)
-                                                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                                HStack(spacing: 6) {
+                                                    if let mark = GitHubSignInView.gitHubMarkImage {
+                                                        Image(nsImage: mark)
+                                                            .resizable()
+                                                            .renderingMode(.template)
+                                                            .frame(width: 14, height: 14)
+                                                    }
+                                                    Text("Sign in with GitHub")
+                                                        .font(.system(size: 13, weight: .semibold))
+                                                }
+                                                .foregroundStyle(.white)
+                                                .padding(.horizontal, 16)
+                                                .frame(height: 30)
+                                                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                                             }
                                             .buttonStyle(.plain)
                                             .disabled(controller.isRequestingDeviceCode)
@@ -350,33 +360,65 @@ private struct GitHubSettingsView: View {
                                             }
                                         }
                                         .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding(.vertical, 8)
 
-                                        GitHubAppAccessNotes(showsInstallLink: true)
+                                        if let error = controller.errorMessage {
+                                            Text(error)
+                                                .font(.caption)
+                                                .foregroundStyle(.red)
+                                                .frame(maxWidth: .infinity, alignment: .center)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+
+                                        GitHubAppAccessNotes(showsInstallLink: true, switchToPAT: {
+                                            selectedSignInMode = .pat
+                                        })
                                     }
                                 }
                             } else {
                                 VStack(alignment: .leading, spacing: 12) {
+                                    PATContextNotes()
+
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text("Personal Access Token")
-                                            .font(.callout.weight(.medium))
-                                        Text("Advanced fallback for restricted workplaces or debugging. MergeHawk only ever needs read access to your GitHub data.")
-                                            .font(.callout)
-                                            .foregroundStyle(.secondary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
+                                        HStack(spacing: 8) {
+                                            SecureField("github_pat_... or ghp_...", text: $token)
+                                                .textFieldStyle(.roundedBorder)
+                                                .controlSize(.large)
+                                                .focused($tokenFieldFocused)
+                                                .onSubmit { connectWithToken() }
 
-                                    HStack(spacing: 8) {
-                                        SecureField("github_pat_... or ghp_...", text: $token)
-                                            .textFieldStyle(.roundedBorder)
-                                            .focused($tokenFieldFocused)
-                                            .onSubmit { connectWithToken() }
-
-                                        Button("Connect") {
-                                            connectWithToken()
+                                            Button {
+                                                connectWithToken()
+                                            } label: {
+                                                Text("Connect")
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                    .foregroundStyle(.white)
+                                                    .padding(.horizontal, 16)
+                                                    .frame(height: 30)
+                                                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                            }
+                                            .buttonStyle(.plain)
+                                            .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                            .opacity(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1.0)
                                         }
-                                        .buttonStyle(.borderedProminent)
-                                        .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                        Link(destination: URL(string: "https://github.com/settings/tokens/new")!) {
+                                            HStack(spacing: 3) {
+                                                Text("Create a classic token on GitHub")
+                                                Image(systemName: "arrow.up.right")
+                                                    .font(.system(size: 9, weight: .semibold))
+                                            }
+                                            .font(.caption)
+                                        }
+
+                                        Text(controller.errorMessage ?? "")
+                                            .font(.caption)
+                                            .foregroundStyle(.red)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .frame(minHeight: 14)
+                                            .opacity(controller.errorMessage != nil ? 1 : 0)
                                     }
+                                    .padding(.vertical, 8)
 
                                     PATAccessNotes()
                                 }
@@ -384,11 +426,6 @@ private struct GitHubSettingsView: View {
                         }
                     }
 
-                    if let error = controller.errorMessage {
-                        Text(error)
-                            .foregroundStyle(.red)
-                            .font(.caption)
-                    }
                 }
                 .padding(.top, 20)
                 .padding(.horizontal, 20)
@@ -417,7 +454,7 @@ private struct GitHubSettingsView: View {
     private var signInModeSelector: some View {
         HStack(spacing: 0) {
             signInModeButton("GitHub App", mode: .app)
-            signInModeButton("Access Token", mode: .pat)
+            signInModeButton("Personal Access Token", mode: .pat)
         }
         .padding(3)
         .background(Color.gray.opacity(0.18), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -431,13 +468,14 @@ private struct GitHubSettingsView: View {
         } label: {
             Text(title)
                 .font(.callout.weight(.semibold))
-                .foregroundStyle(selectedSignInMode == mode ? Color.white : Color.secondary)
+                .foregroundStyle(selectedSignInMode == mode ? Color.primary : Color.secondary)
                 .frame(maxWidth: .infinity)
                 .frame(height: 28)
                 .background {
                     if selectedSignInMode == mode {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.accentColor)
+                            .fill(.thinMaterial)
+                            .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
                     }
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -741,6 +779,7 @@ private struct SourcesSettingsView: View {
 
 private struct GitHubAppAccessNotes: View {
     var showsInstallLink: Bool
+    var switchToPAT: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -749,17 +788,77 @@ private struct GitHubAppAccessNotes: View {
                 text: "Private organization repositories require the MergeHawk GitHub App to be installed on that organization or selected repositories."
             )
             Divider()
-            noteRow(
-                icon: "bell.badge",
-                text: "GitHub Inbox notifications in Notifications > Other require the classic personal access token fallback."
-            )
+            patNoteRow
             if showsInstallLink {
                 Divider()
-                Link("Install MergeHawk GitHub App", destination: MergeHawkAuthDefaults.installURL)
-                    .font(.callout)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                Link(destination: MergeHawkAuthDefaults.installURL) {
+                    HStack(spacing: 4) {
+                        Text("Install MergeHawk GitHub App")
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
+        }
+        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
+        )
+    }
+
+    private var patNoteRow: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "bell.badge")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, alignment: .center)
+            Group {
+                Text("GitHub Inbox notifications in Notifications > Other require the classic ")
+                + Text("personal access token").foregroundColor(switchToPAT != nil ? .accentColor : .secondary).underline(switchToPAT != nil)
+                + Text(" fallback.")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture { switchToPAT?() }
+    }
+
+    private func noteRow(icon: String, text: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, alignment: .center)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct PATContextNotes: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            noteRow(
+                icon: "building.2",
+                text: "Use this if your organization restricts OAuth apps, or if you need GitHub Inbox notifications (Notifications > Other)."
+            )
+            Divider()
+            noteRow(
+                icon: "lock",
+                text: "MergeHawk only requests read-only access — it never writes to your account."
+            )
         }
         .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
@@ -790,6 +889,7 @@ private struct PATAccessNotes: View {
             noteRow(
                 icon: "key",
                 title: "Classic PAT",
+                isRecommended: true,
                 scopes: ["repo", "read:user", "read:org"],
                 footer: "Required for Notifications > Other"
             )
@@ -808,21 +908,36 @@ private struct PATAccessNotes: View {
         )
     }
 
-    private func noteRow(icon: String, title: String, scopes: [String], footer: String) -> some View {
+    private func noteRow(icon: String, title: String, isRecommended: Bool = false, scopes: [String], footer: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .frame(width: 22, alignment: .center)
                 .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.primary)
-                ForEach(scopes, id: \.self) { scope in
-                    Text(scope)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.primary)
+                    if isRecommended {
+                        Text("Recommended")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    }
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(scopes, id: \.self) { scope in
+                        Text(scope)
+                            .font(.system(size: 10, design: .monospaced).weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    }
                 }
                 Text(footer)
                     .font(.caption)
@@ -844,8 +959,8 @@ private struct GitHubOAuthAccessButton: View {
             controller.open(MergeHawkAuthDefaults.authorizedAppSettingsURL)
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "arrow.up.right.square")
                 Text("Manage GitHub App Authorization")
+                Image(systemName: "arrow.up.right")
             }
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(Color.accentColor)
@@ -865,8 +980,8 @@ private struct GitHubAppInstallationButton: View {
             controller.openGitHubAppInstallation()
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "arrow.up.right.square")
                 Text(GitHubAppRepositoryAccessCopy.buttonTitle)
+                Image(systemName: "arrow.up.right")
             }
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(Color.accentColor)

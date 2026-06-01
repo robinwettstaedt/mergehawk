@@ -1,6 +1,84 @@
 @testable import mergehawk
 import Foundation
 import mergehawkcore
+import XCTest
+
+final class DashboardControllerXCTests: XCTestCase {
+    @MainActor
+    func testDeviceFlowCopyConfirmationClearsAfterFirstCopy() {
+        let oauthSignIn = WaitingOAuthSignIn()
+        let copyDate = Date(timeIntervalSince1970: 1_777_800_000)
+        var copiedCodes: [String] = []
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0,
+            oauthSignIn: oauthSignIn,
+            deviceFlowURLOpener: { _ in },
+            clipboardWriter: { copiedCodes.append($0) },
+            now: { copyDate }
+        )
+
+        Task {
+            await controller.signInWithGitHub()
+        }
+        waitUntil(timeout: 1.0) {
+            controller.deviceFlowChallenge != nil && oauthSignIn.pollStarted
+        }
+
+        controller.copyDeviceFlowUserCode()
+        XCTAssertEqual(controller.deviceFlowCodeCopiedAt, copyDate)
+        XCTAssertEqual(copiedCodes, ["ABCD-1234"])
+
+        waitUntil(timeout: 2.5) {
+            controller.deviceFlowCodeCopiedAt == nil
+        }
+
+        controller.cancelDeviceFlowSignIn()
+    }
+
+    @MainActor
+    func testDeviceFlowCopyConfirmationRestartsAfterRepeatedCopy() {
+        let oauthSignIn = WaitingOAuthSignIn()
+        let firstCopyDate = Date(timeIntervalSince1970: 1_777_800_000)
+        let secondCopyDate = Date(timeIntervalSince1970: 1_777_800_001)
+        var currentDate = firstCopyDate
+        var copiedCodes: [String] = []
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0,
+            oauthSignIn: oauthSignIn,
+            deviceFlowURLOpener: { _ in },
+            clipboardWriter: { copiedCodes.append($0) },
+            now: { currentDate }
+        )
+
+        Task {
+            await controller.signInWithGitHub()
+        }
+        waitUntil(timeout: 1.0) {
+            controller.deviceFlowChallenge != nil && oauthSignIn.pollStarted
+        }
+
+        controller.copyDeviceFlowUserCode()
+        XCTAssertEqual(controller.deviceFlowCodeCopiedAt, firstCopyDate)
+        XCTAssertEqual(copiedCodes, ["ABCD-1234"])
+
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(1.2))
+        currentDate = secondCopyDate
+        controller.copyDeviceFlowUserCode()
+        XCTAssertEqual(controller.deviceFlowCodeCopiedAt, secondCopyDate)
+        XCTAssertEqual(copiedCodes, ["ABCD-1234", "ABCD-1234"])
+
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(1.1))
+        XCTAssertEqual(controller.deviceFlowCodeCopiedAt, secondCopyDate)
+
+        waitUntil(timeout: 2.5) {
+            controller.deviceFlowCodeCopiedAt == nil
+        }
+
+        controller.cancelDeviceFlowSignIn()
+    }
+}
 
 @MainActor let mergehawkSignedOutStartsEmptyTest: Void = {
     let controller = DashboardController(
