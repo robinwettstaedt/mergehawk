@@ -9,7 +9,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
     case sources
     case about
 
-    static let defaultWindowSize = CGSize(width: 500, height: 580)
+    static let defaultWindowSize = CGSize(width: 500, height: 700)
 
     var title: String {
         switch self {
@@ -356,19 +356,13 @@ private struct GitHubSettingsView: View {
                                 }
                             } else {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("Personal Access Token")
-                                            .font(.callout.weight(.medium))
-                                        Text("Use this if your organization restricts OAuth apps, or if you need GitHub Inbox notifications (Notifications > Other). MergeHawk only requests read-only access — it never writes to your account.")
-                                            .font(.callout)
-                                            .foregroundStyle(.secondary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
+                                    PATContextNotes()
 
                                     VStack(alignment: .leading, spacing: 6) {
                                         HStack(spacing: 8) {
                                             SecureField("github_pat_... or ghp_...", text: $token)
                                                 .textFieldStyle(.roundedBorder)
+                                                .controlSize(.large)
                                                 .focused($tokenFieldFocused)
                                                 .onSubmit { connectWithToken() }
 
@@ -436,7 +430,7 @@ private struct GitHubSettingsView: View {
     private var signInModeSelector: some View {
         HStack(spacing: 0) {
             signInModeButton("GitHub App", mode: .app)
-            signInModeButton("Access Token", mode: .pat)
+            signInModeButton("Personal Access Token", mode: .pat)
         }
         .padding(3)
         .background(Color.gray.opacity(0.18), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -811,6 +805,42 @@ private struct GitHubAppAccessNotes: View {
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture { switchToPAT?() }
+    }
+
+    private func noteRow(icon: String, text: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, alignment: .center)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct PATContextNotes: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            noteRow(
+                icon: "building.2",
+                text: "Use this if your organization restricts OAuth apps, or if you need GitHub Inbox notifications (Notifications > Other)."
+            )
+            Divider()
+            noteRow(
+                icon: "lock",
+                text: "MergeHawk only requests read-only access — it never writes to your account."
+            )
+        }
+        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
+        )
     }
 
     private func noteRow(icon: String, text: String) -> some View {
