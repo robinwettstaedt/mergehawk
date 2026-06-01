@@ -54,11 +54,11 @@ enum GitHubAppRepositoryAccessCopy {
 
     static func title(for status: DashboardController.GitHubAppRepositoryAccessStatus) -> String {
         switch status {
-        case .noInstallations:
+        case .noInstallations, .unknown:
             "Repository access not configured"
         case .noVisibleRepositories:
             "No repositories visible to MergeHawk"
-        case .notApplicable, .unknown, .checking, .configured:
+        case .notApplicable, .checking, .configured:
             "Repository access"
         }
     }
@@ -2289,12 +2289,13 @@ struct GitHubAppRepositoryAccessPrompt: View {
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 30)
                         .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     }
                     .buttonStyle(.plain)
                 }
-                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: 340)
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.horizontal, 24)
@@ -2324,7 +2325,10 @@ struct GitHubAppRepositoryAccessPrompt: View {
                 ContextRow(icon: "folder", text: "No repositories are selected — manage access on GitHub, then refresh sources.")
             ]
         default:
-            [ContextRow(icon: "folder.badge.plus", text: GitHubAppRepositoryAccessCopy.message(for: controller.gitHubAppRepositoryAccessStatus))]
+            [
+                ContextRow(icon: "building.2", text: "Install MergeHawk GitHub App on your account or organization."),
+                ContextRow(icon: "folder", text: "Choose all repositories or specific ones for MergeHawk to monitor.")
+            ]
         }
     }
 
