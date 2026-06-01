@@ -1160,16 +1160,10 @@ struct DeviceFlowPendingSignInView: View {
                     .foregroundStyle(Color.accentColor)
             }
 
-            if controller.deviceFlowCodeCopiedAt != nil {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.green)
-                    Text(GitHubSignInView.Copy.codeCopied)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            if let copiedAt = controller.deviceFlowCodeCopiedAt {
+                DeviceFlowCodeCopiedConfirmation()
+                    .id(copiedAt)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             HStack(spacing: 8) {
@@ -1213,6 +1207,42 @@ struct DeviceFlowPendingSignInView: View {
             expiryTimeRemaining = String(format: "Expires in %d:%02d", minutes, seconds)
         }
     }
+}
+
+private struct DeviceFlowCodeCopiedConfirmation: View {
+    @State private var isVisible = true
+    @State private var hideTimer: Timer?
+
+    var body: some View {
+        if isVisible {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.green)
+                Text(GitHubSignInView.Copy.codeCopied)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .onAppear {
+                let timer = Timer(timeInterval: 2, repeats: false) { _ in
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        isVisible = false
+                    }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                RunLoop.main.add(timer, forMode: .eventTracking)
+                hideTimer = timer
+            }
+            .onDisappear {
+                hideTimer?.invalidate()
+                hideTimer = nil
+            }
+        }
+    }
+}
+
+private extension RunLoop.Mode {
+    static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
 }
 
 private struct PullRequestListView: View {

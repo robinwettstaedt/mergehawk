@@ -202,6 +202,7 @@ final class DashboardController: ObservableObject {
     @Published private(set) var deviceFlowCodeCopiedAt: Date?
     @Published private(set) var isRequestingDeviceCode = false
     private var signInTask: Task<Void, Never>?
+    private var deviceFlowCodeCopiedClearTask: Task<Void, Never>?
     private var signInAttemptID = 0
 
     private let tokenStore: TokenStore
@@ -599,7 +600,20 @@ final class DashboardController: ObservableObject {
             return
         }
         copyStringToClipboard(code)
-        deviceFlowCodeCopiedAt = now()
+        let copiedAt = now()
+        deviceFlowCodeCopiedAt = copiedAt
+        deviceFlowCodeCopiedClearTask?.cancel()
+        deviceFlowCodeCopiedClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self?.deviceFlowCodeCopiedAt == copiedAt else {
+                    return
+                }
+                self?.deviceFlowCodeCopiedAt = nil
+                self?.deviceFlowCodeCopiedClearTask = nil
+            }
+        }
     }
 
     private func completeDeviceFlowSignIn(challenge: DeviceFlowChallenge, attemptID: Int) async {
@@ -633,12 +647,12 @@ final class DashboardController: ObservableObject {
             try tokenStore.clearPAT()
             deviceFlowChallenge = nil
             deviceFlowPhase = nil
-            deviceFlowCodeCopiedAt = nil
+            clearDeviceFlowCodeCopiedState()
         } catch {
             guard isCurrentSignInAttempt(attemptID) else { return }
             deviceFlowChallenge = nil
             deviceFlowPhase = nil
-            deviceFlowCodeCopiedAt = nil
+            clearDeviceFlowCodeCopiedState()
             if Task.isCancelled || error is CancellationError { return }
             errorMessage = error.localizedDescription
         }
@@ -650,8 +664,14 @@ final class DashboardController: ObservableObject {
         signInTask = nil
         deviceFlowChallenge = nil
         deviceFlowPhase = nil
-        deviceFlowCodeCopiedAt = nil
+        clearDeviceFlowCodeCopiedState()
         isRequestingDeviceCode = false
+    }
+
+    private func clearDeviceFlowCodeCopiedState() {
+        deviceFlowCodeCopiedClearTask?.cancel()
+        deviceFlowCodeCopiedClearTask = nil
+        deviceFlowCodeCopiedAt = nil
     }
 
     func signOut() {
