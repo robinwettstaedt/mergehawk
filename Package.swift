@@ -12,11 +12,17 @@ let package = Package(
         .executable(name: "mergehawk", targets: ["mergehawk"]),
         .executable(name: "mergehawkcoretestrunner", targets: ["mergehawkcoretestrunner"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2")
+    ],
     targets: [
         .target(name: "mergehawkcore"),
         .executableTarget(
             name: "mergehawk",
-            dependencies: ["mergehawkcore"],
+            dependencies: [
+                "mergehawkcore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             resources: [
                 .process("Resources")
             ]
