@@ -35,15 +35,18 @@ enum SettingsTab: String, CaseIterable, Hashable {
 struct SettingsRootView: View {
     @ObservedObject var controller: DashboardController
     @ObservedObject var settingsWindowState: SettingsWindowState
+    @ObservedObject var softwareUpdateController: SoftwareUpdateController
     private let initialSourcesSearchState: ExpandableSearchState
 
-    init(
+    @MainActor init(
         controller: DashboardController,
         settingsWindowState: SettingsWindowState,
+        softwareUpdateController: SoftwareUpdateController,
         initialSourcesSearchState: ExpandableSearchState = ExpandableSearchState()
     ) {
         self.controller = controller
         self.settingsWindowState = settingsWindowState
+        self.softwareUpdateController = softwareUpdateController
         self.initialSourcesSearchState = initialSourcesSearchState
     }
 
@@ -69,7 +72,10 @@ struct SettingsRootView: View {
     private var selectedPane: some View {
         switch settingsWindowState.selection {
         case .general:
-            GeneralSettingsView(controller: controller)
+            GeneralSettingsView(
+                controller: controller,
+                softwareUpdateController: softwareUpdateController
+            )
         case .github:
             GitHubSettingsView(controller: controller)
         case .notifications:
@@ -159,6 +165,7 @@ private struct SettingsTabBar: View {
 
 private struct GeneralSettingsView: View {
     @ObservedObject var controller: DashboardController
+    @ObservedObject var softwareUpdateController: SoftwareUpdateController
 
     var body: some View {
         Form {
@@ -174,9 +181,47 @@ private struct GeneralSettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
+
+            if softwareUpdateController.isAvailable {
+                HStack {
+                    Text(GeneralUpdateCopy.updateApplicationTitle)
+                    Spacer()
+                    Button {
+                        softwareUpdateController.checkForUpdates()
+                    } label: {
+                        Text(GeneralUpdateCopy.manualCheckTitle)
+                            .frame(minWidth: 150)
+                    }
+                    .disabled(!softwareUpdateController.canCheckForUpdates)
+                }
+
+                Toggle(isOn: Binding(
+                    get: {
+                        softwareUpdateController.automaticallyChecksForUpdates
+                    },
+                    set: { isEnabled in
+                        softwareUpdateController.automaticallyChecksForUpdates = isEnabled
+                    }
+                )) {
+                    HStack(spacing: 8) {
+                        Text(GeneralUpdateCopy.automaticChecksTitle)
+                        Image(systemName: "questionmark.circle")
+                            .foregroundStyle(.secondary)
+                            .help(GeneralUpdateCopy.automaticChecksHelp)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
         }
         .formStyle(.grouped)
     }
+}
+
+enum GeneralUpdateCopy {
+    static let updateApplicationTitle = "Update application"
+    static let automaticChecksTitle = "Automatically check for updates"
+    static let automaticChecksHelp = "MergeHawk checks GitHub Releases in the background and lets you install newer versions."
+    static let manualCheckTitle = "Check for Updates..."
 }
 
 struct AboutPanelContent {

@@ -8,3 +8,4 @@ dist-renderer
 .worktrees/
 .verification/
 .env.local
+scripts/release-github.local.env
