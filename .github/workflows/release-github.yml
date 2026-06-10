@@ -16,9 +16,6 @@ on:
         required: true
         default: true
         type: boolean
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: write
@@ -38,9 +35,26 @@ jobs:
       NOTARYTOOL_PROFILE: mergehawk-notary
       REPO_SPARKLE_FEED_URL: ${{ vars.SPARKLE_FEED_URL }}
       REPO_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
-      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
 
     steps:
+      - name: Validate trusted release ref
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]]; then
+            echo "GitHub releases must be started manually from a protected branch." >&2
+            exit 2
+          fi
+          if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
+            echo "GitHub releases must run from a protected branch, not $GITHUB_REF_TYPE." >&2
+            exit 2
+          fi
+          if [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "GitHub releases must run from a protected branch." >&2
+            exit 2
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -51,12 +65,56 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -f scripts/release-github.env ]]; then
-            set -a
-            # shellcheck source=/dev/null
-            source scripts/release-github.env
-            set +a
-          fi
+          load_repo_safe_defaults() {
+            local file="scripts/release-github.env"
+            local line
+            local line_number=0
+            local key
+            local value
+
+            [[ -f "$file" ]] || return 0
+
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line_number=$((line_number + 1))
+              line="${line#"${line%%[![:space:]]*}"}"
+              line="${line%"${line##*[![:space:]]}"}"
+
+              [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+              if [[ "$line" == export[[:space:]]* ]]; then
+                line="${line#export}"
+                line="${line#"${line%%[![:space:]]*}"}"
+              fi
+              if [[ ! "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+                echo "Unsupported release env syntax in $file:$line_number" >&2
+                exit 2
+              fi
+
+              key="${BASH_REMATCH[1]}"
+              value="${BASH_REMATCH[2]}"
+              value="${value#"${value%%[![:space:]]*}"}"
+              value="${value%"${value##*[![:space:]]}"}"
+              if [[ ${#value} -ge 2 ]]; then
+                if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+                  value="${value:1:${#value}-2}"
+                elif [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+                  value="${value:1:${#value}-2}"
+                fi
+              fi
+
+              case "$key" in
+                SPARKLE_FEED_URL|SPARKLE_PUBLIC_KEY)
+                  printf -v "$key" '%s' "$value"
+                  export "$key"
+                  ;;
+                *)
+                  echo "Unsupported release env key in $file:$line_number: $key" >&2
+                  exit 2
+                  ;;
+              esac
+            done < "$file"
+          }
+
+          load_repo_safe_defaults
 
           if [[ -n "${REPO_SPARKLE_FEED_URL:-}" ]]; then
             SPARKLE_FEED_URL="$REPO_SPARKLE_FEED_URL"
@@ -200,3 +258,5 @@ jobs:
           fi
 
           scripts/release-github.sh "${args[@]}"
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
