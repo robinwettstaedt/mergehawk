@@ -54,6 +54,10 @@ jobs:
             echo "GitHub releases must run from a protected branch." >&2
             exit 2
           fi
+          if [[ "$GITHUB_REF_NAME" != "main" ]]; then
+            echo "GitHub releases must run from main, not $GITHUB_REF_NAME." >&2
+            exit 2
+          fi
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -136,20 +140,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version_tag="$GITHUB_REF_NAME"
+          version_tag="${{ inputs.version }}"
+          build_number="${{ inputs.build }}"
+          if [[ -z "$build_number" ]]; then
             build_number="$GITHUB_RUN_NUMBER"
+          fi
+          draft_arg=""
+          if [[ "${{ inputs.draft }}" == "true" ]]; then
             draft_arg="--draft"
-          else
-            version_tag="${{ inputs.version }}"
-            build_number="${{ inputs.build }}"
-            if [[ -z "$build_number" ]]; then
-              build_number="$GITHUB_RUN_NUMBER"
-            fi
-            draft_arg=""
-            if [[ "${{ inputs.draft }}" == "true" ]]; then
-              draft_arg="--draft"
-            fi
           fi
 
           if [[ -z "$version_tag" ]]; then
