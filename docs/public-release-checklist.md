@@ -33,8 +33,16 @@ Mac App Store pipeline to release from the same branch.
       data instead of `source`-ing them.
 - [x] Working-tree secret scan is clean (no tokens, private keys, `.p12`,
       `client_secret`; auth uses Keychain + device flow).
-- [ ] Run a secret scan across the **full Git history**, not just the working
-      tree (e.g. `gitleaks detect`/`trufflehog`). History is what becomes public.
+- [x] Ran a secret scan across the **full Git history** (`gitleaks detect`).
+      Found a historical GitHub OAuth **client secret** in `GitHubOAuth.swift`,
+      removed from the tree when auth moved to device flow. The current app and
+      release pipeline do not use a client secret.
+- [ ] **Revoke** that leaked client secret in the app's GitHub settings:
+      generate a new client secret, then delete the leaked one (GitHub requires
+      at least one to exist; the new one can stay unused). Revoking makes the
+      value in history dead, so a history rewrite is **not** required — just
+      re-run `gitleaks detect` before flipping public to confirm nothing else
+      remains.
 - [ ] Confirm `scripts/release-github.local.env` is saved in a password manager
       and the on-disk copy is deleted from every machine and worktree.
 - [ ] Confirm any GitHub App identifiers referenced in code/docs are public
