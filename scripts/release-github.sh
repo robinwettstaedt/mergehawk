@@ -3,19 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_ENV_FILE="${RELEASE_ENV_FILE:-$ROOT_DIR/scripts/release-github.env}"
-if [[ -f "$RELEASE_ENV_FILE" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$RELEASE_ENV_FILE"
-  set +a
-fi
 RELEASE_LOCAL_ENV_FILE="${RELEASE_LOCAL_ENV_FILE:-$ROOT_DIR/scripts/release-github.local.env}"
-if [[ -f "$RELEASE_LOCAL_ENV_FILE" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$RELEASE_LOCAL_ENV_FILE"
-  set +a
-fi
 VERSION_TAG=""
 BUILD_NUMBER=""
 DRAFT=0
@@ -29,6 +17,58 @@ DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-}"
 SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
 SPARKLE_PRIVATE_KEY="${SPARKLE_PRIVATE_KEY:-}"
 SPARKLE_KEY_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-ed25519}"
+
+load_release_env_file() {
+  local file="$1"
+  local line
+  local line_number=0
+  local key
+  local value
+
+  [[ -f "$file" ]] || return 0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line_number=$((line_number + 1))
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+    if [[ "$line" == export[[:space:]]* ]]; then
+      line="${line#export}"
+      line="${line#"${line%%[![:space:]]*}"}"
+    fi
+    if [[ ! "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      echo "Unsupported release env syntax in $file:$line_number" >&2
+      exit 2
+    fi
+
+    key="${BASH_REMATCH[1]}"
+    value="${BASH_REMATCH[2]}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    if [[ ${#value} -ge 2 ]]; then
+      if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+        value="${value:1:${#value}-2}"
+      elif [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+    fi
+
+    case "$key" in
+      SPARKLE_FEED_URL|SPARKLE_PUBLIC_KEY|DEVELOPER_ID_APPLICATION|NOTARYTOOL_PROFILE|DOWNLOAD_URL_PREFIX|SPARKLE_GENERATE_APPCAST|SPARKLE_PRIVATE_KEY|SPARKLE_KEY_ACCOUNT)
+        printf -v "$key" '%s' "$value"
+        export "$key"
+        ;;
+      *)
+        echo "Unsupported release env key in $file:$line_number: $key" >&2
+        exit 2
+        ;;
+    esac
+  done < "$file"
+}
+
+load_release_env_file "$RELEASE_ENV_FILE"
+load_release_env_file "$RELEASE_LOCAL_ENV_FILE"
 
 usage() {
   cat <<'USAGE'

@@ -56,8 +56,10 @@ APP_PATH="/path/to/MergeHawk.app" scripts/update-installed-app.sh
 
 MergeHawk's direct-download distribution path uses GitHub Releases and Sparkle.
 The committed release defaults live in `scripts/release-github.env`. That file
-contains only repo-safe values: the public Sparkle appcast URL and the Sparkle
-public key embedded in GitHub-distributed app bundles.
+contains only repo-safe `KEY=value` entries: the public Sparkle appcast URL and
+the Sparkle public key embedded in GitHub-distributed app bundles. Release
+scripts parse this file as inert configuration data rather than executing it as
+shell.
 
 The local release script builds a Developer ID signed app, packages it for
 download, notarizes it, generates a Sparkle appcast, and publishes the release
@@ -101,16 +103,19 @@ support required-reviewer protection rules. After the repository is public, add
 the repository owner as a required reviewer for the `release` environment before
 publishing non-draft releases.
 
-Run the workflow manually with a version such as `v0.1.0`. It defaults to a
-draft release. Later, pushing a `v*` tag also runs the workflow and still creates
-a draft release:
+Run the workflow manually from a protected branch with a version such as
+`v0.1.0`. It defaults to a draft release. The workflow creates and pushes the
+tag after building from the protected branch; pushing a `v*` tag does not start a
+release workflow.
 
 ```sh
 git checkout main
 git pull origin main
-git tag -a v0.1.0 -m "MergeHawk 0.1.0"
-git push origin v0.1.0
+gh workflow run "GitHub Release" --ref main -f version=v0.1.0 -f draft=true
 ```
+
+Keep the workflow on a protected branch, and keep the `release` environment
+restricted to trusted reviewers before publishing non-draft releases.
 
 Private repository releases are useful for internal testing, but public Sparkle
 updates require the appcast and downloadable app artifact to be reachable
