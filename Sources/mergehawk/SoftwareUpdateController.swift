@@ -24,26 +24,22 @@ protocol SoftwareUpdateBackend: AnyObject {
 
 @MainActor
 final class SoftwareUpdateController: ObservableObject {
-    @Published private(set) var isAvailable: Bool
-    @Published private(set) var canCheckForUpdates: Bool
-    @Published var automaticallyChecksForUpdates: Bool {
-        didSet {
-            guard !isRefreshingFromBackend, automaticallyChecksForUpdates != oldValue else {
-                return
-            }
-            backend?.automaticallyChecksForUpdates = automaticallyChecksForUpdates
-            refreshFromBackend()
-        }
-    }
-
     private var backend: (any SoftwareUpdateBackend)?
-    private var isRefreshingFromBackend = false
 
     init(backend: (any SoftwareUpdateBackend)? = nil) {
         self.backend = backend
-        self.isAvailable = backend != nil
-        self.canCheckForUpdates = backend?.canCheckForUpdates ?? false
-        self.automaticallyChecksForUpdates = backend?.automaticallyChecksForUpdates ?? false
+    }
+
+    var isAvailable: Bool { backend != nil }
+
+    var canCheckForUpdates: Bool { backend?.canCheckForUpdates ?? false }
+
+    var automaticallyChecksForUpdates: Bool {
+        get { backend?.automaticallyChecksForUpdates ?? false }
+        set {
+            objectWillChange.send()
+            backend?.automaticallyChecksForUpdates = newValue
+        }
     }
 
     static func disabled() -> SoftwareUpdateController {
@@ -66,25 +62,15 @@ final class SoftwareUpdateController: ObservableObject {
 
     func enableSparkleIfConfigured(bundle: Bundle = .main) {
         guard backend == nil, let sparkleBackend = SparkleSoftwareUpdateBackend(bundle: bundle) else {
-            refreshFromBackend()
             return
         }
+        objectWillChange.send()
         backend = sparkleBackend
-        isAvailable = true
-        refreshFromBackend()
     }
 
     func checkForUpdates() {
+        objectWillChange.send()
         backend?.checkForUpdates()
-        refreshFromBackend()
-    }
-
-    private func refreshFromBackend() {
-        isRefreshingFromBackend = true
-        isAvailable = backend != nil
-        canCheckForUpdates = backend?.canCheckForUpdates ?? false
-        automaticallyChecksForUpdates = backend?.automaticallyChecksForUpdates ?? false
-        isRefreshingFromBackend = false
     }
 }
 
