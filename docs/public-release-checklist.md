@@ -1,40 +1,92 @@
 # Public Repository Checklist
 
-Use this before changing `robinwettstaedt/mergehawk` from private to public.
+Steps to take `robinwettstaedt/mergehawk` from a private repository to a public
+one without leaking secrets or weakening the release supply chain.
 
-## Before Making the Repository Public
+The work is split into two tracks:
 
-- Confirm `scripts/release-github.local.env` has been copied to a password
-  manager and deleted locally.
-- Run a secret scan across the working tree and Git history.
-- Review `.env`, token, certificate, and signing-key patterns in `.gitignore`.
-- Confirm the MIT license is present.
-- Confirm `SECURITY.md` is present and uses the intended private report
-  address.
-- Add public-facing install, update, and support documentation.
-- Confirm the GitHub App setup instructions do not expose secrets and only use
-  public app identifiers.
-- Confirm GitHub Issues are enabled if public bug reports are wanted.
-- Confirm Pull Request creation is restricted to collaborators only.
-- Confirm Wiki, Projects, and Discussions are disabled.
-- Confirm Dependabot vulnerability alerts and security updates are enabled.
-- Confirm the default branch protection still blocks force pushes and branch
-  deletion.
-- Decide whether the first public GitHub Release should be draft, prerelease,
-  or stable.
+- **Inside the repo** — code, config, and committed files. Most of this is
+  already in place; the boxes below record what to re-verify before flipping.
+- **GitHub settings (outside the repo)** — repository, branch, and environment
+  settings that live in GitHub's UI/API, not in the tree. Some are blocked on a
+  paid plan or on the repo being public and can only be completed at flip time
+  or after.
 
-## After Making the Repository Public
+## Release model (context)
 
-- Add required reviewer protection to the `release` GitHub environment.
-- Move release signing/notary secrets from repository secrets to environment
-  secrets if GitHub exposes that option for the now-public repository.
-- Run one manual draft release workflow to verify signing, notarization, DMG
-  packaging, and Sparkle appcast generation.
-- Verify the public `appcast.xml` and DMG URLs are reachable without GitHub
-  authentication.
-- Install the GitHub-distributed build and confirm the General settings update
-  controls are visible.
-- Run a manual Sparkle update check against a newer draft/internal test release
-  before publishing a user-facing update.
-- Revisit repository topics, description, and README badges once the release
-  channel is proven.
+Releases run **only** via manual `workflow_dispatch` of the `GitHub Release`
+workflow from the protected `main` branch. The workflow refuses to run on any
+other event, ref type, unprotected branch, or non-`main` branch, and it creates
+and pushes the `v*` tag itself. There is intentionally **no tag-push trigger**.
+Keeping `main` the single release source also keeps the door open for a future
+Mac App Store pipeline to release from the same branch.
+
+## Inside the repo
+
+- [x] MIT `LICENSE` present.
+- [x] `SECURITY.md` present (confirm the report address is the intended one
+      before publishing).
+- [x] `scripts/release-github.local.env` is gitignored; only repo-safe values
+      (public Sparkle feed URL + public EdDSA key) live in
+      `scripts/release-github.env`.
+- [x] Release scripts and the workflow parse env files as inert `KEY=value`
+      data instead of `source`-ing them.
+- [x] Working-tree secret scan is clean (no tokens, private keys, `.p12`,
+      `client_secret`; auth uses Keychain + device flow).
+- [ ] Run a secret scan across the **full Git history**, not just the working
+      tree (e.g. `gitleaks detect`/`trufflehog`). History is what becomes public.
+- [ ] Confirm `scripts/release-github.local.env` is saved in a password manager
+      and the on-disk copy is deleted from every machine and worktree.
+- [ ] Confirm any GitHub App identifiers referenced in code/docs are public
+      client IDs only — no app private key or client secret.
+- [ ] Add public-facing install / update / support docs to the README.
+- [ ] Decide whether the first public GitHub Release is draft, prerelease, or
+      stable.
+
+## GitHub settings — before making the repo public
+
+These can be done while still private.
+
+- [ ] **Branch protection on `main`** blocks force pushes and deletions, and
+      keeps `enforce_admins` on. (Currently configured — re-verify it survives
+      the flip.) This is what the workflow's protected-branch gate relies on.
+- [ ] **Repository → Settings → Secrets and variables → Actions**: confirm the
+      release secrets exist and are correct (run
+      `scripts/configure-github-release-secrets.sh --dry-run`). They currently
+      live as repository secrets because environment required-reviewers are not
+      available on a private Free plan.
+- [ ] Decide feature surface: enable **Issues** if you want public bug reports;
+      keep **Wiki / Projects / Discussions** off unless wanted.
+- [ ] Restrict who can open PRs / push to collaborators only.
+- [ ] Enable **Dependabot** alerts and security updates.
+- [ ] Review repository **topics, description, and social preview** for a public
+      audience.
+
+## At flip time / after making the repo public
+
+Required-reviewer and environment branch policies for the `release` environment
+require a **public** repo (or a paid plan), so they cannot be set while private
+Free. Do these once public:
+
+- [ ] **`release` environment → required reviewers**: add the repo owner so
+      signing/notarization secrets are gated behind a manual approval before any
+      release job can read them. (Currently the `release` environment has **no
+      protection rules** — the in-repo protected-`main` gate is the only control
+      until this is added.)
+- [ ] **`release` environment → deployment branch rule**: restrict deployments
+      to `main` only.
+- [ ] Move the release signing/notary/Sparkle secrets from **repository**
+      secrets to **environment** secrets scoped to `release`.
+- [ ] Enable **secret scanning** and **push protection** (free on public repos).
+- [ ] Confirm branch protection and the `release` environment survived the
+      visibility change.
+
+## Validate the public release channel
+
+- [ ] Run one manual **draft** release from `main` and verify signing,
+      notarization, DMG packaging, and Sparkle appcast generation succeed.
+- [ ] Confirm the public `appcast.xml` and DMG URLs are reachable **without**
+      GitHub authentication (public Sparkle updates require anonymous access).
+- [ ] Install the GitHub-distributed build and confirm the General settings
+      update controls appear and a manual "Check for Updates" works against a
+      newer internal/draft release before publishing a user-facing update.

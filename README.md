@@ -103,10 +103,10 @@ support required-reviewer protection rules. After the repository is public, add
 the repository owner as a required reviewer for the `release` environment before
 publishing non-draft releases.
 
-Run the workflow manually from a protected branch with a version such as
-`v0.1.0`. It defaults to a draft release. The workflow creates and pushes the
-tag after building from the protected branch; pushing a `v*` tag does not start a
-release workflow.
+Run the workflow manually from the protected `main` branch with a version such
+as `v0.1.0`. It defaults to a draft release. The workflow creates and pushes the
+tag after building from `main`; releases only run from `main`, and pushing a
+`v*` tag does not start a release workflow.
 
 ```sh
 git checkout main
@@ -114,8 +114,8 @@ git pull origin main
 gh workflow run "GitHub Release" --ref main -f version=v0.1.0 -f draft=true
 ```
 
-Keep the workflow on a protected branch, and keep the `release` environment
-restricted to trusted reviewers before publishing non-draft releases.
+Keep `main` protected, and keep the `release` environment restricted to trusted
+reviewers before publishing non-draft releases.
 
 Private repository releases are useful for internal testing, but public Sparkle
 updates require the appcast and downloadable app artifact to be reachable
