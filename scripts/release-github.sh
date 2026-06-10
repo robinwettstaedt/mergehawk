@@ -107,6 +107,9 @@ find_generate_appcast() {
 run_generate_appcast() {
   if [[ -n "$SPARKLE_PRIVATE_KEY" ]]; then
     echo "+ generate_appcast --ed-key-file - --download-url-prefix $DOWNLOAD_URL_PREFIX $APPCAST_INPUT_DIR"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      return
+    fi
     printf '%s' "$SPARKLE_PRIVATE_KEY" | "$GENERATE_APPCAST" --ed-key-file - --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$APPCAST_INPUT_DIR"
   else
     log_run "$GENERATE_APPCAST" --account "$SPARKLE_KEY_ACCOUNT" --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$APPCAST_INPUT_DIR"
@@ -264,42 +267,44 @@ elif [[ -z "$DOWNLOAD_URL_PREFIX" ]]; then
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
-  echo "Would build MergeHawk $MARKETING_VERSION ($BUILD_NUMBER)"
-  echo "Would use Sparkle feed: $SPARKLE_FEED_URL"
-  echo "Would use appcast download prefix: $DOWNLOAD_URL_PREFIX"
-  exit 0
+  echo "Dry run: printing the release command plan for MergeHawk $MARKETING_VERSION ($BUILD_NUMBER); no commands run."
+  echo "Sparkle feed: $SPARKLE_FEED_URL"
+  echo "Appcast download prefix: $DOWNLOAD_URL_PREFIX"
 fi
 
-rm -rf "$RELEASE_ROOT"
-mkdir -p "$DMG_ROOT" "$APPCAST_INPUT_DIR"
+log_run rm -rf "$RELEASE_ROOT"
+log_run mkdir -p "$DMG_ROOT" "$APPCAST_INPUT_DIR"
 
-env \
-  CONFIGURATION=release \
-  APP_DIR="$APP_DIR" \
-  CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
-  CODE_SIGN_OPTIONS=runtime \
-  MARKETING_VERSION="$MARKETING_VERSION" \
-  BUILD_NUMBER="$BUILD_NUMBER" \
-  DISTRIBUTION_CHANNEL=github \
-  SPARKLE_FEED_URL="$SPARKLE_FEED_URL" \
-  SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
-  "$ROOT_DIR/scripts/build-app-bundle.sh" >/dev/null
+echo "+ scripts/build-app-bundle.sh (release, channel=github, $MARKETING_VERSION/$BUILD_NUMBER)"
+if [[ "$DRY_RUN" == "0" ]]; then
+  env \
+    CONFIGURATION=release \
+    APP_DIR="$APP_DIR" \
+    CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
+    CODE_SIGN_OPTIONS=runtime \
+    MARKETING_VERSION="$MARKETING_VERSION" \
+    BUILD_NUMBER="$BUILD_NUMBER" \
+    DISTRIBUTION_CHANNEL=github \
+    SPARKLE_FEED_URL="$SPARKLE_FEED_URL" \
+    SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
+    "$ROOT_DIR/scripts/build-app-bundle.sh" >/dev/null
+fi
 
 GENERATE_APPCAST="$(find_generate_appcast)"
-if [[ -z "$GENERATE_APPCAST" ]]; then
+if [[ -z "$GENERATE_APPCAST" && "$DRY_RUN" == "0" ]]; then
   echo "Could not find Sparkle generate_appcast. Build once or pass --generate-appcast PATH." >&2
   exit 2
 fi
 
-ditto "$APP_DIR" "$DMG_ROOT/MergeHawk.app"
-ln -s /Applications "$DMG_ROOT/Applications"
+log_run ditto "$APP_DIR" "$DMG_ROOT/MergeHawk.app"
+log_run ln -s /Applications "$DMG_ROOT/Applications"
 log_run hdiutil create -volname MergeHawk -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH"
 log_run codesign --force --sign "$DEVELOPER_ID_APPLICATION" "$DMG_PATH"
 log_run xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARYTOOL_PROFILE" --wait
 log_run xcrun stapler staple "$DMG_PATH"
 run_generate_appcast
 
-if [[ ! -f "$APPCAST_PATH" ]]; then
+if [[ ! -f "$APPCAST_PATH" && "$DRY_RUN" == "0" ]]; then
   echo "Expected appcast not found: $APPCAST_PATH" >&2
   exit 2
 fi
@@ -315,4 +320,8 @@ if [[ "$DRAFT" == "1" ]]; then
 fi
 log_run gh "${release_args[@]}"
 
-echo "Published GitHub release $VERSION_TAG"
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "Dry run complete: printed the release command plan for $VERSION_TAG; nothing was published."
+else
+  echo "Published GitHub release $VERSION_TAG"
+fi
