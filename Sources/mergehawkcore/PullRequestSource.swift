@@ -72,7 +72,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_750_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_805_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_779_619_600)
                 ),
                 PullRequest(
                     id: "PR_4",
@@ -99,7 +99,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_760_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_806_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_369_200)
                 ),
                 PullRequest(
                     id: "PR_6",
@@ -117,7 +117,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_765_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_816_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_426_800)
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -136,7 +136,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .unknown,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_770_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_807_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_780_656_400)
                 ),
                 PullRequest(
                     id: "PR_3",
@@ -157,7 +157,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_780_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_808_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_088_400)
                 ),
                 PullRequest(
                     id: "PR_7",
@@ -176,11 +176,11 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .unknown,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_785_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_810_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_416_000)
                 ),
                 PullRequest(
                     id: "PR_5",
-                    title: "refactor(MER-41): Surface stale review requests",
+                    title: "refactor(MER-41): Surface stale review requests and consolidate the reviewer assignment summary into a single daily digest",
                     number: 52,
                     url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/52")!,
                     repo: "mergehawk-labs/review-router",
@@ -195,7 +195,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .conflicting,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_790_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_809_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_777_805_200)
                 )
             ],
             [
@@ -223,7 +223,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_750_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_815_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_779_619_600)
                 ),
                 PullRequest(
                     id: "PR_4",
@@ -257,7 +257,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_760_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_806_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_369_200)
                 ),
                 PullRequest(
                     id: "PR_6",
@@ -275,7 +275,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_765_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_816_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_426_800)
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -295,7 +295,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_770_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_807_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_780_656_400)
                 ),
                 PullRequest(
                     id: "PR_3",
@@ -316,7 +316,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .mergeable,
                     draft: true,
                     createdAt: Date(timeIntervalSince1970: 1_777_780_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_808_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_088_400)
                 ),
                 PullRequest(
                     id: "PR_7",
@@ -335,11 +335,11 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .unknown,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_785_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_810_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_781_416_000)
                 ),
                 PullRequest(
                     id: "PR_5",
-                    title: "refactor(MER-41): Surface stale review requests",
+                    title: "refactor(MER-41): Surface stale review requests and consolidate the reviewer assignment summary into a single daily digest",
                     number: 52,
                     url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/52")!,
                     repo: "mergehawk-labs/review-router",
@@ -354,7 +354,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     mergeable: .conflicting,
                     draft: false,
                     createdAt: Date(timeIntervalSince1970: 1_777_790_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_809_000)
+                    updatedAt: Date(timeIntervalSince1970: 1_777_805_200)
                 )
             ]
         ]

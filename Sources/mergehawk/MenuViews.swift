@@ -471,6 +471,67 @@ struct MenuControlButton: View {
     }
 }
 
+struct SortControlButton: View {
+    let directionSymbolName: String
+    let title: String
+    let isMenuOpen: Bool
+    let directionHelp: String
+    let menuHelp: String
+    let toggleDirection: () -> Void
+    let openMenu: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var directionHovered = false
+    @State private var menuHovered = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6)
+
+        HStack(spacing: 0) {
+            Button(action: toggleDirection) {
+                Image(systemName: directionSymbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.secondary)
+                    .frame(width: 26, height: MenuControlButton.Layout.height)
+                    .background(HoverFillPresentation.fill(isHovered: directionHovered, colorScheme: colorScheme))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { directionHovered = $0 }
+            .help(directionHelp)
+            .accessibilityLabel(directionHelp)
+
+            Rectangle()
+                .fill(MenuControlBorderPresentation.color(colorScheme: colorScheme))
+                .frame(width: 1, height: MenuControlButton.Layout.height - 10)
+
+            Button(action: openMenu) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isMenuOpen ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: MenuControlButton.Layout.height)
+                .background(HoverFillPresentation.fill(isHovered: menuHovered, colorScheme: colorScheme))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { menuHovered = $0 }
+            .help(menuHelp)
+            .accessibilityLabel(menuHelp)
+        }
+        .overlay(
+            shape
+                .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
+        )
+        .clipShape(shape)
+    }
+}
+
 private enum MenuControlBorderPresentation {
     static func color(colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
@@ -519,6 +580,31 @@ enum PullRequestPinPresentation {
 
     static func label(isPinned: Bool) -> String {
         isPinned ? "Unpin PR" : "Pin PR"
+    }
+}
+
+enum PullRequestAgePresentation {
+    static func shortText(for date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        switch seconds {
+        case ..<60:
+            return "now"
+        case ..<3_600:
+            return "\(Int(seconds / 60))m"
+        case ..<86_400:
+            return "\(Int(seconds / 3_600))h"
+        case ..<604_800:
+            return "\(Int(seconds / 86_400))d"
+        case ..<31_536_000:
+            return "\(Int(seconds / 604_800))w"
+        default:
+            return "\(Int(seconds / 31_536_000))y"
+        }
+    }
+
+    static func label(for date: Date, now: Date = Date()) -> String {
+        let text = shortText(for: date, now: now)
+        return text == "now" ? "Updated just now" : "Updated \(text) ago"
     }
 }
 
@@ -772,68 +858,121 @@ struct RefreshStatusControl: View {
     }
 }
 
-private struct MenuTabSegmentedControl: NSViewRepresentable {
+struct MenuSegmentedControl<Value: Hashable>: View {
+    struct Segment {
+        let value: Value
+        var title: String = ""
+        var systemImageName: String?
+        let width: CGFloat
+        var help: String?
+    }
+
+    @Binding var selection: Value
+    let segments: [Segment]
+    var height: CGFloat = 28
+    var font: Font = .system(size: 13, weight: .medium)
+    var iconPointSize: CGFloat = 12
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+
+        HStack(spacing: 0) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                segmentButton(segment, index: index)
+            }
+        }
+        .frame(height: height)
+        .background(shape.fill(containerFill))
+        .overlay(shape.stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1))
+        .clipShape(shape)
+    }
+
+    @ViewBuilder
+    private func segmentButton(_ segment: Segment, index: Int) -> some View {
+        let isSelected = segment.value == selection
+        let showsDivider = index > 0 && !isSelected && segments[index - 1].value != selection
+
+        Button {
+            if selection != segment.value {
+                selection = segment.value
+            }
+        } label: {
+            HStack(spacing: 5) {
+                if let name = segment.systemImageName {
+                    Image(systemName: name)
+                        .font(.system(size: iconPointSize, weight: .semibold))
+                }
+                if !segment.title.isEmpty {
+                    Text(segment.title)
+                        .font(font)
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .frame(width: segment.width, height: height)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(selectedFill)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
+                        )
+                        .padding(2)
+                }
+            }
+            .overlay(alignment: .leading) {
+                if showsDivider {
+                    Rectangle()
+                        .fill(MenuControlBorderPresentation.color(colorScheme: colorScheme))
+                        .frame(width: 1, height: height - 14)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(segment.help ?? "")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    private var containerFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.035)
+    }
+
+    private var selectedFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.13) : Color.white.opacity(0.95)
+    }
+}
+
+private struct MenuTabSegmentedControl: View {
     @Binding var selection: DashboardController.MenuTab
     let attentionCount: Int
 
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(
-            labels: Array(repeating: "", count: DashboardController.MenuTab.allCases.count),
-            trackingMode: .selectOne,
-            target: context.coordinator,
-            action: #selector(Coordinator.selectTab(_:))
-        )
-        control.segmentStyle = .rounded
-        control.controlSize = .regular
-        for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
-            configure(control, segment: index, for: tab)
-        }
-        return control
+    var body: some View {
+        MenuSegmentedControl(selection: $selection, segments: segments)
     }
 
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.selection = $selection
-        control.selectedSegment = DashboardController.MenuTab.allCases.firstIndex(of: selection) ?? 0
-        for (index, tab) in DashboardController.MenuTab.allCases.enumerated() {
-            configure(control, segment: index, for: tab)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(selection: $selection)
-    }
-
-    final class Coordinator: NSObject {
-        var selection: Binding<DashboardController.MenuTab>
-
-        init(selection: Binding<DashboardController.MenuTab>) {
-            self.selection = selection
-        }
-
-        @objc func selectTab(_ sender: NSSegmentedControl) {
-            guard DashboardController.MenuTab.allCases.indices.contains(sender.selectedSegment) else {
-                return
+    private var segments: [MenuSegmentedControl<DashboardController.MenuTab>.Segment] {
+        DashboardController.MenuTab.allCases.map { tab in
+            switch tab {
+            case .notifications:
+                MenuSegmentedControl.Segment(
+                    value: tab,
+                    title: MenuNotificationTabPresentation.label(for: attentionCount),
+                    systemImageName: "bell",
+                    width: MenuRootView.Layout.notificationTabSegmentWidth,
+                    help: MenuTabShortcutHint.title(for: tab)
+                )
+            case .myPRs, .reviewRequests:
+                MenuSegmentedControl.Segment(
+                    value: tab,
+                    title: tab.rawValue,
+                    width: MenuRootView.Layout.textTabSegmentWidth,
+                    help: MenuTabShortcutHint.title(for: tab)
+                )
             }
-            selection.wrappedValue = DashboardController.MenuTab.allCases[sender.selectedSegment]
-        }
-    }
-
-    private func configure(
-        _ control: NSSegmentedControl,
-        segment index: Int,
-        for tab: DashboardController.MenuTab
-    ) {
-        switch tab {
-        case .notifications:
-            control.setLabel(MenuNotificationTabPresentation.label(for: attentionCount), forSegment: index)
-            control.setImage(MenuNotificationTabPresentation.image(for: attentionCount), forSegment: index)
-            control.setWidth(MenuRootView.Layout.notificationTabSegmentWidth, forSegment: index)
-            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
-        case .myPRs, .reviewRequests:
-            control.setLabel(tab.rawValue, forSegment: index)
-            control.setImage(nil, forSegment: index)
-            control.setWidth(MenuRootView.Layout.textTabSegmentWidth, forSegment: index)
-            control.setToolTip(MenuTabShortcutHint.title(for: tab), forSegment: index)
         }
     }
 }
@@ -961,50 +1100,19 @@ private struct NotificationListView: View {
     }
 }
 
-private struct NotificationSubtabSegmentedControl: NSViewRepresentable {
+private struct NotificationSubtabSegmentedControl: View {
     @Binding var selection: DashboardController.NotificationSubtab
 
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(
-            labels: DashboardController.NotificationSubtab.allCases.map(\.rawValue),
-            trackingMode: .selectOne,
-            target: context.coordinator,
-            action: #selector(Coordinator.selectSubtab(_:))
+    var body: some View {
+        MenuSegmentedControl(
+            selection: $selection,
+            segments: DashboardController.NotificationSubtab.allCases.map { subtab in
+                MenuSegmentedControl.Segment(value: subtab, title: subtab.rawValue, width: 52)
+            },
+            height: MenuControlButton.Layout.height,
+            font: .system(size: 11, weight: .medium),
+            iconPointSize: 10
         )
-        control.segmentStyle = .rounded
-        control.controlSize = .mini
-        control.font = .systemFont(ofSize: 10.5, weight: .medium)
-        for index in DashboardController.NotificationSubtab.allCases.indices {
-            control.setWidth(52, forSegment: index)
-        }
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.selection = $selection
-        control.selectedSegment = DashboardController.NotificationSubtab.allCases.firstIndex(of: selection) ?? 0
-        for index in DashboardController.NotificationSubtab.allCases.indices {
-            control.setWidth(52, forSegment: index)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(selection: $selection)
-    }
-
-    final class Coordinator: NSObject {
-        var selection: Binding<DashboardController.NotificationSubtab>
-
-        init(selection: Binding<DashboardController.NotificationSubtab>) {
-            self.selection = selection
-        }
-
-        @objc func selectSubtab(_ sender: NSSegmentedControl) {
-            guard DashboardController.NotificationSubtab.allCases.indices.contains(sender.selectedSegment) else {
-                return
-            }
-            selection.wrappedValue = DashboardController.NotificationSubtab.allCases[sender.selectedSegment]
-        }
     }
 }
 
@@ -1456,14 +1564,19 @@ private struct PullRequestListView: View {
     }
 
     private var sortButton: some View {
-        optionButton(
-            symbolName: "arrow.up.arrow.down",
+        SortControlButton(
+            directionSymbolName: controller.pullRequestSortDirection.isAscending ? "arrow.up" : "arrow.down",
             title: controller.pullRequestSortOption.label,
-            isOpen: dropdownState.openMenu == .sort,
-            help: "Sort pull requests"
-        ) {
-            dropdownState.toggle(.sort)
-        }
+            isMenuOpen: dropdownState.openMenu == .sort,
+            directionHelp: controller.pullRequestSortDirection.isAscending ? "Sorted oldest first" : "Sorted newest first",
+            menuHelp: "Sort pull requests",
+            toggleDirection: {
+                controller.pullRequestSortDirection = controller.pullRequestSortDirection.toggled
+            },
+            openMenu: {
+                dropdownState.toggle(.sort)
+            }
+        )
     }
 
     private func dismissTransientControls() {
@@ -1823,33 +1936,48 @@ private struct PullRequestRow: View {
                                 .font(.subheadline.weight(.semibold))
                                 .lineLimit(2)
                         }
-                        Spacer(minLength: 0)
-                        Text("#\(pullRequest.number)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
+                            .alignmentGuide(.firstTextBaseline) { $0.height - 4 }
+                    }
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(pullRequest.repo)
                             .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text("·")
+                            .fixedSize()
+                        Text("#\(pullRequest.number)")
                             .fixedSize()
                             .layoutPriority(1)
+                        Spacer(minLength: 8)
+                        Text(PullRequestAgePresentation.shortText(for: pullRequest.updatedAt))
+                            .fixedSize()
+                            .layoutPriority(1)
+                            .help(PullRequestAgePresentation.label(for: pullRequest.updatedAt))
                     }
-                    Text(PullRequestRowMetadataPresentation.text(
-                        for: pullRequest,
-                        showsAuthor: showsAuthor
-                    ))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if showsAuthor {
+                            Text("·")
+                                .fixedSize()
+                            Text("@\(pullRequest.author)")
+                                .lineLimit(1)
+                                .fixedSize()
+                                .layoutPriority(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
                         CIStatusIndicator(ciState: pullRequest.ciState)
-                        ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                        CommentCountIndicator(count: pullRequest.commentCount)
+                        if pullRequest.commentCount > 0 {
+                            CommentCountIndicator(count: pullRequest.commentCount)
+                        }
                         if showsReviewRequestKind {
                             ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
                             if pullRequest.isAssignedToViewer {
@@ -2078,9 +2206,11 @@ struct CIStatusIndicator: View {
     let ciState: CIState
 
     var body: some View {
-        Circle()
-            .fill(kind.color)
-            .frame(width: 10, height: 10)
+        Image(systemName: kind.symbolName)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(kind.color)
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: 17, height: 17)
             .accessibilityLabel(kind.label)
             .help(kind.label)
     }
@@ -2091,6 +2221,19 @@ struct CIStatusIndicator: View {
 }
 
 private extension CIStatusIndicator.Kind {
+    var symbolName: String {
+        switch self {
+        case .failing:
+            "xmark.octagon.fill"
+        case .running:
+            "clock.fill"
+        case .successful:
+            "checkmark.circle.fill"
+        case .unknown:
+            "questionmark.circle"
+        }
+    }
+
     var color: Color {
         switch self {
         case .failing:
@@ -2145,8 +2288,8 @@ struct ReviewDecisionIndicator: View {
         Image(systemName: kind.symbolName)
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(kind.color)
-            .font(.caption.weight(.semibold))
-            .frame(width: 16, height: 16)
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: 17, height: 17)
             .accessibilityLabel(kind.label)
             .help(kind.label)
     }
@@ -2177,7 +2320,7 @@ private extension ReviewDecisionIndicator.Kind {
         case .changesRequested:
             .red
         case .reviewRequired:
-            .orange
+            .secondary
         case .unknown:
             .secondary
         }
