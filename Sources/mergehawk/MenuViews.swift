@@ -2200,7 +2200,7 @@ struct CIStatusIndicator: View {
         Image(systemName: kind.symbolName)
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(kind.color)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: kind.pointSize, weight: .semibold))
             .frame(width: 17, height: 17)
             .accessibilityLabel(kind.label)
             .help(kind.label)
@@ -2222,6 +2222,18 @@ private extension CIStatusIndicator.Kind {
             "checkmark.circle.fill"
         case .unknown:
             "questionmark.circle"
+        }
+    }
+
+    // clock.fill is a standalone symbol whose disc renders larger than the
+    // enclosed .circle.fill/.octagon.fill glyphs at the same size, so nudge it
+    // down to keep every CI indicator optically the same size.
+    var pointSize: CGFloat {
+        switch self {
+        case .running:
+            11
+        case .failing, .successful, .unknown:
+            13
         }
     }
 
@@ -2279,7 +2291,7 @@ struct ReviewDecisionIndicator: View {
         Image(systemName: kind.symbolName)
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(kind.color)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: kind.pointSize, weight: .semibold))
             .frame(width: 17, height: 17)
             .accessibilityLabel(kind.label)
             .help(kind.label)
@@ -2301,6 +2313,18 @@ private extension ReviewDecisionIndicator.Kind {
             "eye.fill"
         case .unknown:
             "questionmark.diamond.fill"
+        }
+    }
+
+    // eye.fill is a wide standalone symbol that reads larger than the enclosed
+    // seal/triangle/diamond glyphs at the same size, so nudge it down to keep
+    // every review-decision indicator optically the same size.
+    var pointSize: CGFloat {
+        switch self {
+        case .reviewRequired:
+            11
+        case .approved, .changesRequested, .unknown:
+            13
         }
     }
 
