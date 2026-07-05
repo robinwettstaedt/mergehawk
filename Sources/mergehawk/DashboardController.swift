@@ -68,6 +68,19 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    enum PullRequestSortDirection: String, CaseIterable, Identifiable {
+        case descending
+        case ascending
+
+        var id: String { rawValue }
+
+        var isAscending: Bool { self == .ascending }
+
+        var toggled: PullRequestSortDirection {
+            self == .ascending ? .descending : .ascending
+        }
+    }
+
     enum PullRequestFilterOption: String, CaseIterable, Identifiable {
         case all
         case needsAttention
@@ -153,6 +166,11 @@ final class DashboardController: ObservableObject {
     @Published var pullRequestSortOption: PullRequestSortOption {
         didSet {
             preferencesStore.pullRequestSortOption = pullRequestSortOption
+        }
+    }
+    @Published var pullRequestSortDirection: PullRequestSortDirection {
+        didSet {
+            preferencesStore.pullRequestSortDirection = pullRequestSortDirection
         }
     }
     @Published var selectedPullRequestFilters: Set<PullRequestFilterOption> {
@@ -285,6 +303,7 @@ final class DashboardController: ObservableObject {
         self.preferences = preferencesStore.notificationPreferences
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
+        self.pullRequestSortDirection = preferencesStore.pullRequestSortDirection
         self.selectedPullRequestFilters = preferencesStore.selectedPullRequestFilters
         self.selectedReviewRequestFilters = preferencesStore.selectedReviewRequestFilters
         self.pinnedPullRequestIds = preferencesStore.pinnedPullRequestIds
@@ -393,7 +412,8 @@ final class DashboardController: ObservableObject {
                 attentionPullRequestIds: unreadPullRequestNotificationIds
             ),
             pinnedIds: pinnedPullRequestIds,
-            by: pullRequestSortOption
+            by: pullRequestSortOption,
+            direction: pullRequestSortDirection
         )
     }
 
@@ -404,7 +424,8 @@ final class DashboardController: ObservableObject {
                 by: selectedReviewRequestFilters
             ),
             pinnedIds: pinnedPullRequestIds,
-            by: pullRequestSortOption
+            by: pullRequestSortOption,
+            direction: pullRequestSortDirection
         )
     }
 
@@ -507,13 +528,18 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    static func sorted(_ pullRequests: [PullRequest], by option: PullRequestSortOption) -> [PullRequest] {
-        pullRequests.sorted { lhs, rhs in
+    static func sorted(
+        _ pullRequests: [PullRequest],
+        by option: PullRequestSortOption,
+        direction: PullRequestSortDirection = .descending
+    ) -> [PullRequest] {
+        let ascending = direction.isAscending
+        return pullRequests.sorted { lhs, rhs in
             switch option {
             case .createdDate:
-                compare(lhs, rhs, by: \.createdAt)
+                compare(lhs, rhs, by: \.createdAt, ascending: ascending)
             case .updatedDate:
-                compare(lhs, rhs, by: \.updatedAt)
+                compare(lhs, rhs, by: \.updatedAt, ascending: ascending)
             }
         }
     }
@@ -521,11 +547,13 @@ final class DashboardController: ObservableObject {
     static func sortedWithPins(
         _ pullRequests: [PullRequest],
         pinnedIds: Set<String>,
-        by option: PullRequestSortOption
+        by option: PullRequestSortOption,
+        direction: PullRequestSortDirection = .descending
     ) -> [PullRequest] {
         let pinned = pullRequests.filter { pinnedIds.contains($0.id) }
         let unpinned = pullRequests.filter { !pinnedIds.contains($0.id) }
-        return sorted(pinned, by: option) + sorted(unpinned, by: option)
+        return sorted(pinned, by: option, direction: direction)
+            + sorted(unpinned, by: option, direction: direction)
     }
 
     func refresh() {
@@ -1338,12 +1366,13 @@ final class DashboardController: ObservableObject {
     private static func compare<Value: Comparable>(
         _ lhs: PullRequest,
         _ rhs: PullRequest,
-        by value: (PullRequest) -> Value
+        by value: (PullRequest) -> Value,
+        ascending: Bool = false
     ) -> Bool {
         let lhsValue = value(lhs)
         let rhsValue = value(rhs)
         if lhsValue != rhsValue {
-            return lhsValue > rhsValue
+            return ascending ? lhsValue < rhsValue : lhsValue > rhsValue
         }
         if lhs.createdAt != rhs.createdAt {
             return lhs.createdAt > rhs.createdAt

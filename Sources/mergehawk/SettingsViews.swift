@@ -66,6 +66,17 @@ struct SettingsRootView: View {
             height: SettingsTab.defaultWindowSize.height
         )
         .ignoresSafeArea(.container, edges: .top)
+        .background(settingsTabShortcuts)
+    }
+
+    private var settingsTabShortcuts: some View {
+        ForEach(Array(SettingsTab.allCases.enumerated()), id: \.element) { index, tab in
+            Button("") {
+                settingsWindowState.selection = tab
+            }
+            .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            .hidden()
+        }
     }
 
     @ViewBuilder
@@ -214,6 +225,20 @@ private struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .safeAreaInset(edge: .bottom) {
+            Form {
+                Section {
+                    Text("Try pressing ")
+                        + Text("⌘1").foregroundColor(.accentColor).fontWeight(.semibold)
+                        + Text("–").foregroundColor(.accentColor).fontWeight(.semibold)
+                        + Text("⌘5").foregroundColor(.accentColor).fontWeight(.semibold)
+                        + Text(" to switch tabs in MergeHawk!")
+                }
+            }
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+            .frame(height: 64)
+        }
     }
 }
 
