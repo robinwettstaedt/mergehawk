@@ -128,6 +128,21 @@ struct PreferencesStore {
         }
     }
 
+    var pullRequestSortDirection: DashboardController.PullRequestSortDirection {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "pullRequests.sortDirection"),
+                let direction = DashboardController.PullRequestSortDirection(rawValue: rawValue)
+            else {
+                return .descending
+            }
+            return direction
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "pullRequests.sortDirection")
+        }
+    }
+
     var selectedPullRequestFilters: Set<DashboardController.PullRequestFilterOption> {
         get {
             if defaults.object(forKey: "pullRequests.filterOptions") != nil {
