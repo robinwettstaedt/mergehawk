@@ -1,0 +1,214 @@
+name: GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+      build:
+        description: "CFBundleVersion build number. Defaults to the workflow run number."
+        required: false
+        type: string
+      draft:
+        description: "Create the GitHub Release as a draft"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, Sign, Notarize, and Draft Release
+    runs-on: macos-15
+    environment: release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DEVELOPER_ID_APPLICATION: ${{ vars.DEVELOPER_ID_APPLICATION }}
+      NOTARYTOOL_PROFILE: mergehawk-notary
+      REPO_SPARKLE_FEED_URL: ${{ vars.SPARKLE_FEED_URL }}
+      REPO_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+
+    steps:
+      - name: Validate trusted release ref
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]]; then
+            echo "GitHub releases must be started manually from a protected branch." >&2
+            exit 2
+          fi
+          if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
+            echo "GitHub releases must run from a protected branch, not $GITHUB_REF_TYPE." >&2
+            exit 2
+          fi
+          if [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "GitHub releases must run from a protected branch." >&2
+            exit 2
+          fi
+          if [[ "$GITHUB_REF_NAME" != "main" ]]; then
+            echo "GitHub releases must run from main, not $GITHUB_REF_NAME." >&2
+            exit 2
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load repo-safe release defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # shellcheck source=scripts/lib/release-env.sh
+          source scripts/lib/release-env.sh
+          load_release_env_file scripts/release-github.env SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY
+
+          if [[ -n "${REPO_SPARKLE_FEED_URL:-}" ]]; then
+            SPARKLE_FEED_URL="$REPO_SPARKLE_FEED_URL"
+          fi
+          if [[ -n "${REPO_SPARKLE_PUBLIC_KEY:-}" ]]; then
+            SPARKLE_PUBLIC_KEY="$REPO_SPARKLE_PUBLIC_KEY"
+          fi
+          SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-}"
+          SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY:-}"
+
+          {
+            echo "SPARKLE_FEED_URL=$SPARKLE_FEED_URL"
+            echo "SPARKLE_PUBLIC_KEY=$SPARKLE_PUBLIC_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve release inputs
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version_tag="${{ inputs.version }}"
+          build_number="${{ inputs.build }}"
+          if [[ -z "$build_number" ]]; then
+            build_number="$GITHUB_RUN_NUMBER"
+          fi
+          draft_arg=""
+          if [[ "${{ inputs.draft }}" == "true" ]]; then
+            draft_arg="--draft"
+          fi
+
+          if [[ -z "$version_tag" ]]; then
+            echo "version is required" >&2
+            exit 2
+          fi
+
+          if [[ -z "${SPARKLE_FEED_URL:-}" ]]; then
+            SPARKLE_FEED_URL="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml"
+            echo "SPARKLE_FEED_URL=$SPARKLE_FEED_URL" >> "$GITHUB_ENV"
+          fi
+
+          {
+            echo "version_tag=$version_tag"
+            echo "build_number=$build_number"
+            echo "draft_arg=$draft_arg"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for name in \
+            DEVELOPER_ID_APPLICATION \
+            SPARKLE_PUBLIC_KEY \
+            SPARKLE_PRIVATE_KEY \
+            DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 \
+            DEVELOPER_ID_CERTIFICATE_PASSWORD \
+            APPLE_ID \
+            APPLE_TEAM_ID \
+            APPLE_APP_SPECIFIC_PASSWORD
+          do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            printf 'Missing release configuration:\n' >&2
+            printf '  %s\n' "${missing[@]}" >&2
+            exit 2
+          fi
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Import Developer ID certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          keychain_path="$RUNNER_TEMP/mergehawk-release.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate_path="$RUNNER_TEMP/developer-id-application.p12"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security default-keychain -s "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          printf '%s' "$DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+        env:
+          DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+
+      - name: Configure notarization credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xcrun notarytool store-credentials "$NOTARYTOOL_PROFILE" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Build and create draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          args=(
+            --version "${{ steps.release.outputs.version_tag }}"
+            --build "${{ steps.release.outputs.build_number }}"
+            --feed-url "$SPARKLE_FEED_URL"
+            --sparkle-public-key "$SPARKLE_PUBLIC_KEY"
+          )
+
+          if [[ -n "${{ steps.release.outputs.draft_arg }}" ]]; then
+            args+=("${{ steps.release.outputs.draft_arg }}")
+          fi
+
+          scripts/release-github.sh "${args[@]}"
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}

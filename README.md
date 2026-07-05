@@ -19,7 +19,7 @@ Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
 - GitHub App user token storage in macOS Keychain.
 - Advanced GitHub PAT fallback in Settings.
 
-GitHub Enterprise Server, auto-updates, widgets, multi-account support, and extra PR tabs are deferred.
+GitHub Enterprise Server, widgets, multi-account support, and extra PR tabs are deferred.
 
 ## Run
 
@@ -51,6 +51,75 @@ By default this updates `/Applications/MergeHawk.app` if present, then
 ```sh
 APP_PATH="/path/to/MergeHawk.app" scripts/update-installed-app.sh
 ```
+
+## GitHub Release Distribution
+
+MergeHawk's direct-download distribution path uses GitHub Releases and Sparkle.
+The committed release defaults live in `scripts/release-github.env`. That file
+contains only repo-safe `KEY=value` entries: the public Sparkle appcast URL and
+the Sparkle public key embedded in GitHub-distributed app bundles. Release
+scripts parse this file as inert configuration data rather than executing it as
+shell.
+
+The local release script builds a Developer ID signed app, packages it for
+download, notarizes it, generates a Sparkle appcast, and publishes the release
+assets with the GitHub CLI:
+
+```sh
+DEVELOPER_ID_APPLICATION="Developer ID Application: Example (TEAMID)" \
+NOTARYTOOL_PROFILE="mergehawk-notary" \
+scripts/release-github.sh \
+  --version v0.1.0 \
+  --build 1 \
+  --draft
+```
+
+The Sparkle private key is a signing secret. It is stored in the macOS login
+Keychain for local releases and must not be committed. To export it for a
+password manager or GitHub Actions secret:
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys -x /path/to/sparkle-private-key.txt
+```
+
+Store that file's contents in the GitHub Actions secret `SPARKLE_PRIVATE_KEY`,
+then delete the exported file.
+
+GitHub Actions can also create draft releases with
+`.github/workflows/release-github.yml`. The workflow reads the committed Sparkle
+URL/public key defaults and needs these GitHub repository settings:
+
+- Repository variable `DEVELOPER_ID_APPLICATION`
+- Optional repository variables `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_KEY` if
+  the committed defaults should be overridden
+- Repository secrets `SPARKLE_PRIVATE_KEY`,
+  `DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64`,
+  `DEVELOPER_ID_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, and
+  `APPLE_APP_SPECIFIC_PASSWORD`
+
+The workflow targets the `release` GitHub environment. For private repositories
+on GitHub Free, Pro, or Team plans, GitHub accepts the environment but does not
+support required-reviewer protection rules. After the repository is public, add
+the repository owner as a required reviewer for the `release` environment before
+publishing non-draft releases.
+
+Run the workflow manually from the protected `main` branch with a version such
+as `v0.1.0`. It defaults to a draft release. The workflow creates and pushes the
+tag after building from `main`; releases only run from `main`, and pushing a
+`v*` tag does not start a release workflow.
+
+```sh
+git checkout main
+git pull origin main
+gh workflow run "GitHub Release" --ref main -f version=v0.1.0 -f draft=true
+```
+
+Keep `main` protected, and keep the `release` environment restricted to trusted
+reviewers before publishing non-draft releases.
+
+Private repository releases are useful for internal testing, but public Sparkle
+updates require the appcast and downloadable app artifact to be reachable
+without GitHub authentication.
 
 ## GitHub App Setup
 
