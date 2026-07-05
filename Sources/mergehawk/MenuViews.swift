@@ -999,15 +999,6 @@ enum MenuNotificationTabPresentation {
             "\(attentionCount) new PR updates"
         }
     }
-
-    static func image(for attentionCount: Int) -> NSImage? {
-        let image = NSImage(
-            systemSymbolName: "bell",
-            accessibilityDescription: help(for: attentionCount)
-        )
-        image?.isTemplate = true
-        return image
-    }
 }
 
 private struct NotificationListView: View {
