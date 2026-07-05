@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-debug}"
 DEFAULT_CODE_SIGN_IDENTITY="MergeHawk Local Code Signing"
 CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
+CODE_SIGN_OPTIONS="${CODE_SIGN_OPTIONS:-}"
 APP_NAME="${APP_NAME:-MergeHawk.app}"
 APP_BUNDLE_NAME="${APP_NAME%.app}"
 BUNDLE_ID="${BUNDLE_ID:-com.mergehawk.app}"
@@ -13,12 +14,34 @@ APP_DIR="${APP_DIR:-$ROOT_DIR/.build/$APP_NAME}"
 EXECUTABLE="$ROOT_DIR/.build/arm64-apple-macosx/$CONFIGURATION/mergehawk"
 LAUNCH_ARGUMENTS="${LAUNCH_ARGUMENTS:-}"
 LAUNCH_ENVIRONMENT="${LAUNCH_ENVIRONMENT:-}"
+MARKETING_VERSION="${MARKETING_VERSION:-0.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
+DISTRIBUTION_CHANNEL="${DISTRIBUTION_CHANNEL:-development}"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-}"
+SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY:-}"
+
+case "$DISTRIBUTION_CHANNEL" in
+  development|github)
+    ;;
+  *)
+    echo "DISTRIBUTION_CHANNEL must be development or github" >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$DISTRIBUTION_CHANNEL" == "github" ]]; then
+  if [[ -z "$SPARKLE_FEED_URL" || -z "$SPARKLE_PUBLIC_KEY" ]]; then
+    echo "GitHub distribution builds require SPARKLE_FEED_URL and SPARKLE_PUBLIC_KEY" >&2
+    exit 2
+  fi
+fi
 
 cd "$ROOT_DIR"
 mkdir -p "$ROOT_DIR/.build/clang-module-cache" "$ROOT_DIR/.build/swiftpm-cache"
 export CLANG_MODULE_CACHE_PATH="$ROOT_DIR/.build/clang-module-cache"
 export SWIFTPM_CACHE_PATH="$ROOT_DIR/.build/swiftpm-cache"
-swift build --disable-sandbox --product mergehawk ${CONFIGURATION:+--configuration "$CONFIGURATION"}
+swift build --disable-sandbox --product mergehawk ${CONFIGURATION:+--configuration "$CONFIGURATION"} \
+  -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
@@ -59,6 +82,12 @@ done < <(
     -name "mergehawk_*.bundle" \
     -print0
 )
+
+SPARKLE_FRAMEWORK="$(find "$ROOT_DIR/.build/artifacts" -path "*/Sparkle.framework" -type d -print -quit 2>/dev/null || true)"
+if [[ -n "$SPARKLE_FRAMEWORK" ]]; then
+  mkdir -p "$APP_DIR/Contents/Frameworks"
+  ditto "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
+fi
 
 APP_ICON_PNG="$ROOT_DIR/Design/mergehawk_logo_without_text.png"
 cp "$APP_ICON_PNG" "$APP_DIR/Contents/Resources/MergeHawkAppIcon.png"
@@ -105,9 +134,11 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>__MARKETING_VERSION__</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>__BUILD_NUMBER__</string>
+  <key>MergeHawkDistributionChannel</key>
+  <string>__DISTRIBUTION_CHANNEL__</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
@@ -120,18 +151,49 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-/usr/bin/python3 - "$APP_DIR/Contents/Info.plist" "$APP_EXECUTABLE_NAME" "$BUNDLE_ID" "$APP_BUNDLE_NAME" "$LAUNCH_ARGUMENTS" "$LAUNCH_ENVIRONMENT" <<'PY'
+/usr/bin/python3 - \
+  "$APP_DIR/Contents/Info.plist" \
+  "$APP_EXECUTABLE_NAME" \
+  "$BUNDLE_ID" \
+  "$APP_BUNDLE_NAME" \
+  "$LAUNCH_ARGUMENTS" \
+  "$LAUNCH_ENVIRONMENT" \
+  "$MARKETING_VERSION" \
+  "$BUILD_NUMBER" \
+  "$DISTRIBUTION_CHANNEL" \
+  "$SPARKLE_FEED_URL" \
+  "$SPARKLE_PUBLIC_KEY" <<'PY'
 import plistlib
 import shlex
 import sys
 
-path, executable_name, bundle_id, app_name, launch_args, launch_environment = sys.argv[1:]
+(
+    path,
+    executable_name,
+    bundle_id,
+    app_name,
+    launch_args,
+    launch_environment,
+    marketing_version,
+    build_number,
+    distribution_channel,
+    sparkle_feed_url,
+    sparkle_public_key,
+) = sys.argv[1:]
 with open(path, "rb") as handle:
     plist = plistlib.load(handle)
 
 plist["CFBundleExecutable"] = executable_name
 plist["CFBundleIdentifier"] = bundle_id
 plist["CFBundleName"] = app_name
+plist["CFBundleShortVersionString"] = marketing_version
+plist["CFBundleVersion"] = build_number
+plist["MergeHawkDistributionChannel"] = distribution_channel
+
+if distribution_channel == "github":
+    plist["SUFeedURL"] = sparkle_feed_url
+    plist["SUPublicEDKey"] = sparkle_public_key
+    plist["SUEnableAutomaticChecks"] = True
 
 environment = {}
 for assignment in shlex.split(launch_environment):
@@ -150,7 +212,11 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]] && security find-identity -v -p codesigning 2>
 fi
 
 if [[ -n "$CODE_SIGN_IDENTITY" ]]; then
-  codesign --force --deep --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+  if [[ -n "$CODE_SIGN_OPTIONS" ]]; then
+    codesign --force --deep --options "$CODE_SIGN_OPTIONS" --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+  else
+    codesign --force --deep --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+  fi
 else
   codesign --force --deep --sign - "$APP_DIR"
 fi

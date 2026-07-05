@@ -15,7 +15,7 @@ let mergehawkSettingsTabsTest: Void = {
     precondition(SettingsTab.notifications.systemImage == "bell")
     precondition(SettingsTab.sources.systemImage == "tray.full")
     precondition(SettingsTab.about.systemImage == "info.circle")
-    precondition(SettingsTab.defaultWindowSize == CGSize(width: 500, height: 580))
+    precondition(SettingsTab.defaultWindowSize == CGSize(width: 500, height: 700))
     precondition(SettingsTabLayout.topPadding == 8)
     precondition(SettingsTabLayout.titleSize == 14)
     precondition(SettingsTabLayout.iconSize == 18)
@@ -54,6 +54,13 @@ let mergehawkAboutSettingsCopyTest: Void = {
     ])
     precondition(AboutPanelContent.versionText(bundle: .main) == "Version 0.1.0 (1)")
     precondition(AboutPanelContent.logoImage()?.size == NSSize(width: 128, height: 128))
+}()
+
+let mergehawkGeneralUpdateSettingsCopyTest: Void = {
+    precondition(GeneralUpdateCopy.updateApplicationTitle == "Update application")
+    precondition(GeneralUpdateCopy.automaticChecksTitle == "Automatically check for updates")
+    precondition(GeneralUpdateCopy.manualCheckTitle == "Check for Updates...")
+    precondition(GeneralUpdateCopy.automaticChecksHelp == "MergeHawk checks GitHub Releases in the background and lets you install newer versions.")
 }()
 
 let mergehawkSourceCatalogSearchTest: Void = {

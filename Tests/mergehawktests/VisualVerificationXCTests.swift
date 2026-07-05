@@ -54,7 +54,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-signed-out.png")
             )
             try render(
-                SettingsRootView(controller: signedOutController, settingsWindowState: SettingsWindowState(selection: .github)),
+                SettingsRootView(
+                    controller: signedOutController,
+                    settingsWindowState: SettingsWindowState(selection: .github),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-signed-out.png")
             )
@@ -87,7 +91,8 @@ final class VisualVerificationXCTests: XCTestCase {
             try render(
                 SettingsRootView(
                     controller: pendingSignInController,
-                    settingsWindowState: SettingsWindowState(selection: .github)
+                    settingsWindowState: SettingsWindowState(selection: .github),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-sign-in-pending.png")
@@ -124,7 +129,8 @@ final class VisualVerificationXCTests: XCTestCase {
             try render(
                 SettingsRootView(
                     controller: loadingSignInController,
-                    settingsWindowState: SettingsWindowState(selection: .github)
+                    settingsWindowState: SettingsWindowState(selection: .github),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-sign-in-loading.png")
@@ -183,7 +189,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-repository-access-requested.png")
             )
             try render(
-                SettingsRootView(controller: accessPromptController, settingsWindowState: SettingsWindowState(selection: .sources)),
+                SettingsRootView(
+                    controller: accessPromptController,
+                    settingsWindowState: SettingsWindowState(selection: .sources),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources-repository-access.png")
             )
@@ -191,21 +201,41 @@ final class VisualVerificationXCTests: XCTestCase {
 
         try await MainActor.run {
             try render(
-                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .general)),
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .general),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-general.png")
             )
             try render(
-                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .notifications)),
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .general),
+                    softwareUpdateController: SoftwareUpdateController.testing()
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-general-updates.png")
+            )
+            try render(
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .notifications),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-notifications.png")
             )
             try render(
-                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .about)),
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .about),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-about.png")
             )
-
             controller.selectedTab = .notifications
             controller.selectedNotificationSubtab = .pullRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications.png"))
@@ -291,7 +321,11 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-read.png"))
 
             try render(
-                SettingsRootView(controller: controller, settingsWindowState: SettingsWindowState(selection: .sources)),
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .sources),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
                 size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources.png")
             )
@@ -299,6 +333,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 SettingsRootView(
                     controller: controller,
                     settingsWindowState: SettingsWindowState(selection: .sources),
+                    softwareUpdateController: SoftwareUpdateController.disabled(),
                     initialSourcesSearchState: ExpandableSearchState(isExpanded: true, query: "example")
                 ),
                 size: SettingsTab.defaultWindowSize,

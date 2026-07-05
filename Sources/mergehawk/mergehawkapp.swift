@@ -10,7 +10,8 @@ struct mergehawkApp: App {
         Settings {
             SettingsRootView(
                 controller: appDelegate.controller,
-                settingsWindowState: appDelegate.settingsWindowState
+                settingsWindowState: appDelegate.settingsWindowState,
+                softwareUpdateController: appDelegate.softwareUpdateController
             )
         }
     }
@@ -29,11 +30,13 @@ final class SettingsWindowState: ObservableObject {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = DashboardController(launchConfiguration: .current())
     let settingsWindowState = SettingsWindowState()
+    let softwareUpdateController = SoftwareUpdateController.disabled()
     private var statusBarController: StatusBarController?
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        softwareUpdateController.enableSparkleIfConfigured()
         UNUserNotificationCenter.current().delegate = self
         statusBarController = StatusBarController(controller: controller)
         controller.openSettingsWindow = { [weak self] selection in
@@ -61,7 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.contentView = NSHostingView(
                 rootView: SettingsRootView(
                     controller: controller,
-                    settingsWindowState: settingsWindowState
+                    settingsWindowState: settingsWindowState,
+                    softwareUpdateController: softwareUpdateController
                 )
             )
             window.isReleasedWhenClosed = false
