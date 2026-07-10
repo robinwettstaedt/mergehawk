@@ -358,21 +358,28 @@ final class VisualVerificationXCTests: XCTestCase {
         controller: DashboardController,
         to url: URL
     ) throws {
-        try render(
-            MenuRootView(
-                controller: controller
-            )
-                .background(.regularMaterial),
-            size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height),
-            to: url
-        )
+        let view = MenuRootView(controller: controller)
+            .background(.regularMaterial)
+        let size = CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
+
+        try render(view, size: size, appearance: .darkAqua, to: url)
+
+        let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
+        let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
+        try render(view, size: size, appearance: .aqua, to: lightURL)
     }
 
     @MainActor
-    private func render<Content: View>(_ view: Content, size: CGSize, to url: URL) throws {
+    private func render<Content: View>(
+        _ view: Content,
+        size: CGSize,
+        appearance: NSAppearance.Name = .darkAqua,
+        to url: URL
+    ) throws {
         let frame = NSRect(origin: .zero, size: size)
         let hostingView = NSHostingView(rootView: view)
         hostingView.frame = frame
+        hostingView.appearance = NSAppearance(named: appearance)
 
         let window = NSWindow(
             contentRect: frame,
@@ -380,6 +387,7 @@ final class VisualVerificationXCTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.appearance = NSAppearance(named: appearance)
         window.contentView = hostingView
         hostingView.layoutSubtreeIfNeeded()
         hostingView.displayIfNeeded()

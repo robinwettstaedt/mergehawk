@@ -536,7 +536,7 @@ private enum MenuControlBorderPresentation {
     static func color(colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
             ? Color.white.opacity(0.24)
-            : Color(nsColor: .separatorColor).opacity(0.72)
+            : Color.black.opacity(0.13)
     }
 }
 
@@ -548,7 +548,7 @@ private enum HoverFillPresentation {
 
         return colorScheme == .dark
             ? Color.white.opacity(0.07)
-            : Color.white.opacity(0.35)
+            : Color.black.opacity(0.05)
     }
 }
 
@@ -623,6 +623,7 @@ struct MenuRootView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    @Environment(\.colorScheme) private var colorScheme
     @State private var dismissTransientPRControlsSignal = 0
 
     var body: some View {
@@ -633,6 +634,14 @@ struct MenuRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: Self.Layout.width, height: Self.Layout.height)
+        .background(scrim)
+    }
+
+    @ViewBuilder
+    private var scrim: some View {
+        if colorScheme == .light {
+            Color(nsColor: .windowBackgroundColor).opacity(0.55)
+        }
     }
 
     private var topBar: some View {
@@ -2052,6 +2061,8 @@ private struct TransparentCardStyle: ViewModifier {
         content
             .background {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(restFill)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(hoverFill)
             }
             .overlay {
@@ -2060,6 +2071,12 @@ private struct TransparentCardStyle: ViewModifier {
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var restFill: Color {
+        colorScheme == .dark
+            ? .clear
+            : Color.white.opacity(0.5)
     }
 
     private var hoverFill: Color {
@@ -2071,9 +2088,7 @@ private struct TransparentCardStyle: ViewModifier {
             return accentColor
         }
 
-        return colorScheme == .dark
-            ? Color.white.opacity(0.24)
-            : Color(nsColor: .separatorColor).opacity(0.72)
+        return MenuControlBorderPresentation.color(colorScheme: colorScheme)
     }
 }
 
