@@ -536,7 +536,7 @@ private enum MenuControlBorderPresentation {
     static func color(colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
             ? Color.white.opacity(0.24)
-            : Color(nsColor: .separatorColor).opacity(0.72)
+            : Color.black.opacity(0.13)
     }
 }
 
@@ -548,7 +548,7 @@ private enum HoverFillPresentation {
 
         return colorScheme == .dark
             ? Color.white.opacity(0.07)
-            : Color.white.opacity(0.35)
+            : Color.black.opacity(0.05)
     }
 }
 
@@ -611,7 +611,11 @@ enum PullRequestAgePresentation {
 struct MenuRootView: View {
     enum Layout {
         static let width: CGFloat = 420
-        static let height: CGFloat = 650
+        static let contentHeight: CGFloat = 650
+        static let footerRowCount: CGFloat = 4
+        static let footerHeight: CGFloat = FooterSeparatorLayout.height + footerRowCount * FooterActionLayout.rowHeight
+            + FooterActionLayout.footerBottomPadding
+        static let height: CGFloat = contentHeight + footerHeight
         static let topBarHeight: CGFloat = 45
         static let tabSwitcherWidth: CGFloat = 320
         static let tabSwitcherLeadingInset: CGFloat = 5
@@ -623,7 +627,29 @@ struct MenuRootView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    @ObservedObject var footerModel: MenuFooterModel
+    let dismissMenu: () -> Void
+    let showSettings: () -> Void
+    let showAbout: () -> Void
+    let quit: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var dismissTransientPRControlsSignal = 0
+
+    init(
+        controller: DashboardController,
+        footerModel: MenuFooterModel,
+        dismissMenu: @escaping () -> Void = {},
+        showSettings: @escaping () -> Void = {},
+        showAbout: @escaping () -> Void = {},
+        quit: @escaping () -> Void = {}
+    ) {
+        self.controller = controller
+        self.footerModel = footerModel
+        self.dismissMenu = dismissMenu
+        self.showSettings = showSettings
+        self.showAbout = showAbout
+        self.quit = quit
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -631,8 +657,46 @@ struct MenuRootView: View {
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            footer
         }
         .frame(width: Self.Layout.width, height: Self.Layout.height)
+        .background(menuSurface)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 0) {
+            FooterSeparatorView()
+            MenuFooterActionRow(
+                title: "Refresh",
+                shortcutKey: "R",
+                isFlashed: footerModel.isFlashing,
+                action: {
+                    controller.refresh()
+                }
+            )
+            MenuFooterActionRow(title: "Settings", shortcutKey: ",") {
+                dismissMenu()
+                showSettings()
+            }
+            MenuFooterActionRow(title: "About MergeHawk", shortcutKey: nil) {
+                dismissMenu()
+                showAbout()
+            }
+            MenuFooterActionRow(title: "Quit", shortcutKey: "Q") {
+                dismissMenu()
+                quit()
+            }
+        }
+        .padding(.bottom, FooterActionLayout.footerBottomPadding)
+    }
+
+    private var menuSurface: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor).opacity(0.55)
+            if colorScheme == .light {
+                Color.black.opacity(0.03)
+            }
+        }
     }
 
     private var topBar: some View {
@@ -704,6 +768,137 @@ struct MenuRootView: View {
         dismissTransientPRControlsSignal += 1
     }
 
+}
+
+@MainActor
+final class MenuFooterModel: ObservableObject {
+    @Published private(set) var refreshFlashCount: Int = 0
+    @Published fileprivate var isFlashing: Bool = false
+
+    private var flashResetWorkItem: DispatchWorkItem?
+
+    func flashRefresh() {
+        refreshFlashCount += 1
+        flashResetWorkItem?.cancel()
+        isFlashing = true
+        let resetWorkItem = DispatchWorkItem { [weak self] in
+            self?.isFlashing = false
+        }
+        flashResetWorkItem = resetWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + FooterActionLayout.keyboardSelectionDuration,
+            execute: resetWorkItem
+        )
+    }
+}
+
+enum FooterSeparatorLayout {
+    static let horizontalPadding: CGFloat = 10
+    static let verticalPadding: CGFloat = 6
+    static let height: CGFloat = 13
+}
+
+enum FooterActionLayout {
+    static let rowHeight: CGFloat = 24
+    // Breathing room between the last footer row and the menu's bottom rounded corner,
+    // intentionally mirroring the separator gap above the first footer row.
+    static let footerBottomPadding: CGFloat = FooterSeparatorLayout.verticalPadding
+    static let selectionInsetX: CGFloat = 5
+    static let selectionInsetY: CGFloat = 1
+    static let selectionCornerRadius: CGFloat = 5
+    static let titleLeading: CGFloat = 14
+    static let shortcutTrailing: CGFloat = 9
+    static let shortcutColumnSpacing: CGFloat = 2
+    // Reserve one key column so every shortcut has the same width and each ⌘ aligns.
+    static let shortcutKeyColumnWidth: CGFloat = 12
+    static let keyboardSelectionDuration: TimeInterval = 0.1
+    static let mouseClickFeedbackDuration: TimeInterval = 0.12
+}
+
+struct FooterSeparatorView: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(height: 1)
+            .padding(.horizontal, FooterSeparatorLayout.horizontalPadding)
+            .padding(.vertical, FooterSeparatorLayout.verticalPadding)
+    }
+}
+
+struct MenuFooterActionRow: View {
+    let title: String
+    let shortcutKey: String?
+    var isFlashed = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+    @StateObject private var clickFeedback = MenuFooterClickFeedback()
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(title)
+                .font(.menuFont())
+                .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .labelColor))
+                .padding(.leading, FooterActionLayout.titleLeading)
+            Spacer(minLength: 0)
+            if let shortcutKey {
+                HStack(spacing: FooterActionLayout.shortcutColumnSpacing) {
+                    Text("⌘")
+                    Text(shortcutKey)
+                        .frame(width: FooterActionLayout.shortcutKeyColumnWidth, alignment: .leading)
+                }
+                .font(.menuFont())
+                .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .tertiaryLabelColor))
+                .padding(.trailing, FooterActionLayout.shortcutTrailing)
+            }
+        }
+        .frame(height: FooterActionLayout.rowHeight)
+        .contentShape(Rectangle())
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: FooterActionLayout.selectionCornerRadius)
+                    .fill(Color(nsColor: .selectedContentBackgroundColor))
+                    .padding(.horizontal, FooterActionLayout.selectionInsetX)
+                    .padding(.vertical, FooterActionLayout.selectionInsetY)
+            }
+        }
+        .onHover { isHovering = $0 }
+        .onTapGesture {
+            clickFeedback.perform(action)
+        }
+    }
+
+    private var isSelected: Bool {
+        (isHovering || isFlashed) && !clickFeedback.suppressesSelection
+    }
+}
+
+@MainActor
+final class MenuFooterClickFeedback: ObservableObject {
+    @Published private(set) var suppressesSelection = false
+    private(set) var isActive = false
+
+    func perform(_ action: @escaping () -> Void) {
+        guard !isActive else {
+            return
+        }
+
+        isActive = true
+        suppressesSelection = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + FooterActionLayout.mouseClickFeedbackDuration) {
+            self.suppressesSelection = false
+            DispatchQueue.main.async {
+                self.isActive = false
+                action()
+            }
+        }
+    }
+}
+
+private extension Font {
+    static func menuFont() -> Font {
+        Font(NSFont.menuFont(ofSize: 0))
+    }
 }
 
 struct RefreshStatusControl: View {
@@ -2052,6 +2247,8 @@ private struct TransparentCardStyle: ViewModifier {
         content
             .background {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(restFill)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(hoverFill)
             }
             .overlay {
@@ -2060,6 +2257,12 @@ private struct TransparentCardStyle: ViewModifier {
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var restFill: Color {
+        colorScheme == .light
+            ? Color.white.opacity(0.95)
+            : Color(nsColor: .controlBackgroundColor).opacity(0.5)
     }
 
     private var hoverFill: Color {
@@ -2071,9 +2274,9 @@ private struct TransparentCardStyle: ViewModifier {
             return accentColor
         }
 
-        return colorScheme == .dark
-            ? Color.white.opacity(0.24)
-            : Color(nsColor: .separatorColor).opacity(0.72)
+        return colorScheme == .light
+            ? Color.black.opacity(0.17)
+            : MenuControlBorderPresentation.color(colorScheme: colorScheme)
     }
 }
 
@@ -2197,11 +2400,9 @@ struct CIStatusIndicator: View {
     let ciState: CIState
 
     var body: some View {
-        Image(systemName: kind.symbolName)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(kind.color)
-            .font(.system(size: kind.pointSize, weight: .semibold))
-            .frame(width: 17, height: 17)
+        Circle()
+            .fill(kind.color.opacity(0.65))
+            .frame(width: 8, height: 8)
             .accessibilityLabel(kind.label)
             .help(kind.label)
     }
@@ -2212,31 +2413,6 @@ struct CIStatusIndicator: View {
 }
 
 private extension CIStatusIndicator.Kind {
-    var symbolName: String {
-        switch self {
-        case .failing:
-            "xmark.octagon.fill"
-        case .running:
-            "clock.fill"
-        case .successful:
-            "checkmark.circle.fill"
-        case .unknown:
-            "questionmark.circle"
-        }
-    }
-
-    // clock.fill is a standalone symbol whose disc renders larger than the
-    // enclosed .circle.fill/.octagon.fill glyphs at the same size, so nudge it
-    // down to keep every CI indicator optically the same size.
-    var pointSize: CGFloat {
-        switch self {
-        case .running:
-            11
-        case .failing, .successful, .unknown:
-            13
-        }
-    }
-
     var color: Color {
         switch self {
         case .failing:
