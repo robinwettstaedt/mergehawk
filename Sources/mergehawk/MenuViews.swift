@@ -632,7 +632,6 @@ struct MenuRootView: View {
     let showSettings: () -> Void
     let showAbout: () -> Void
     let quit: () -> Void
-    @Environment(\.colorScheme) private var colorScheme
     @State private var dismissTransientPRControlsSignal = 0
 
     init(
@@ -660,7 +659,7 @@ struct MenuRootView: View {
             footer
         }
         .frame(width: Self.Layout.width, height: Self.Layout.height)
-        .background(scrim)
+        .background(menuSurface)
     }
 
     private var footer: some View {
@@ -690,11 +689,8 @@ struct MenuRootView: View {
         .padding(.bottom, FooterActionLayout.footerBottomPadding)
     }
 
-    @ViewBuilder
-    private var scrim: some View {
-        if colorScheme == .light {
-            Color(nsColor: .windowBackgroundColor).opacity(0.55)
-        }
+    private var menuSurface: some View {
+        Color(nsColor: .windowBackgroundColor).opacity(0.55)
     }
 
     private var topBar: some View {
@@ -2258,9 +2254,7 @@ private struct TransparentCardStyle: ViewModifier {
     }
 
     private var restFill: Color {
-        colorScheme == .dark
-            ? .clear
-            : Color.white.opacity(0.5)
+        Color(nsColor: .controlBackgroundColor).opacity(0.5)
     }
 
     private var hoverFill: Color {
