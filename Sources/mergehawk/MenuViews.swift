@@ -632,6 +632,7 @@ struct MenuRootView: View {
     let showSettings: () -> Void
     let showAbout: () -> Void
     let quit: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var dismissTransientPRControlsSignal = 0
 
     init(
@@ -690,7 +691,12 @@ struct MenuRootView: View {
     }
 
     private var menuSurface: some View {
-        Color(nsColor: .windowBackgroundColor).opacity(0.55)
+        ZStack {
+            Color(nsColor: .windowBackgroundColor).opacity(0.55)
+            if colorScheme == .light {
+                Color.black.opacity(0.03)
+            }
+        }
     }
 
     private var topBar: some View {
@@ -2254,7 +2260,9 @@ private struct TransparentCardStyle: ViewModifier {
     }
 
     private var restFill: Color {
-        Color(nsColor: .controlBackgroundColor).opacity(0.5)
+        colorScheme == .light
+            ? Color.white.opacity(0.95)
+            : Color(nsColor: .controlBackgroundColor).opacity(0.5)
     }
 
     private var hoverFill: Color {
@@ -2266,7 +2274,9 @@ private struct TransparentCardStyle: ViewModifier {
             return accentColor
         }
 
-        return MenuControlBorderPresentation.color(colorScheme: colorScheme)
+        return colorScheme == .light
+            ? Color.black.opacity(0.17)
+            : MenuControlBorderPresentation.color(colorScheme: colorScheme)
     }
 }
 
