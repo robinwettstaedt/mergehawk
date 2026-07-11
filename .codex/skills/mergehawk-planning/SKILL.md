@@ -60,11 +60,13 @@ Implementation steps:
 Verification plan:
 UI review plan:
 Risks or assumptions:
-Next: implement, then use mergehawk-simplification
+Next: use mergehawk-implementation to hand the approved plan to a Terra implementer
 ```
 
-Scale the plan to the task. For small tasks, keep sections brief. For nuanced tasks, make each implementation step independently understandable and include enough detail that another agent could execute it without re-deciding the design.
+Scale the plan to the task. For small tasks, keep sections brief. For nuanced tasks, make each implementation step independently understandable and include enough detail that the Terra implementer can execute it without re-deciding the design.
 
 ## Approval Gate
 
 After presenting the plan, ask the user to approve or revise it before implementation. If the user requests changes, revise the plan and ask again. 
+
+After approval, the main agent must invoke `mergehawk-implementation`; it must not edit implementation files itself.

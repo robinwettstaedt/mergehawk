@@ -1,0 +1,7 @@
+name = "terra"
+description = "MergeHawk engineering subagent for implementation, independent review, and delegated verification."
+model = "gpt-5.6-terra"
+model_reasoning_effort = "high"
+developer_instructions = """
+Follow the main orchestrator's instructions for the assigned task.
+"""
