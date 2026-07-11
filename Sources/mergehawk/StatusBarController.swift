@@ -32,6 +32,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         controller.showDeviceFlowSignInMenu = { [weak self] in
             self?.showDeviceFlowSignInMenu()
         }
+        menu.removeVerticalEdgePadding()
         statusItem.menu = menu
         observeStatusButtonInputs()
         updateStatusButton()
@@ -322,6 +323,26 @@ private final class StatusBarMenu: NSMenu {
     var tabShortcutHandler: ((DashboardController.MenuTab) -> Bool)?
     var settingsKeyHandler: (() -> Void)?
     var quitKeyHandler: (() -> Void)?
+
+    // NSMenu reserves 5pt of vertical padding above and below the item area that item views
+    // cannot cover, which shows as a raw vibrancy strip beneath the footer. There is no public
+    // API to remove it, so this uses the private -[NSMenu _setHasPadding:onEdge:]. The
+    // responds(to:) guard makes this a graceful no-op (falling back to the default insets) if a
+    // future macOS removes the selector.
+    func removeVerticalEdgePadding() {
+        let selector = NSSelectorFromString("_setHasPadding:onEdge:")
+        guard responds(to: selector) else {
+            return
+        }
+        let setHasPadding = unsafeBitCast(
+            method(for: selector),
+            to: (@convention(c) (NSMenu, Selector, ObjCBool, Int) -> Void).self
+        )
+        // NSRectEdge raw values: 1 = minY, 3 = maxY. Clear both so the top and bottom insets
+        // are removed regardless of coordinate-system flippedness.
+        setHasPadding(self, selector, false, 1)
+        setHasPadding(self, selector, false, 3)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let tab = menuTabShortcut(for: event), tabShortcutHandler?(tab) == true {
