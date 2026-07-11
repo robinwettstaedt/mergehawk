@@ -396,6 +396,7 @@ private struct GitHubSettingsView: View {
                     } else {
                         VStack(spacing: 16) {
                             signInModeSelector
+                                .disabled(controller.isSigningInWithToken)
 
                             if selectedSignInMode == .app {
                                 if let challenge = controller.deviceFlowChallenge {
@@ -456,20 +457,37 @@ private struct GitHubSettingsView: View {
                                                 .controlSize(.large)
                                                 .focused($tokenFieldFocused)
                                                 .onSubmit { connectWithToken() }
+                                                .disabled(controller.isSigningInWithToken)
 
-                                            Button {
-                                                connectWithToken()
-                                            } label: {
-                                                Text("Connect")
-                                                    .font(.system(size: 13, weight: .semibold))
-                                                    .foregroundStyle(.white)
-                                                    .padding(.horizontal, 16)
-                                                    .frame(height: 30)
-                                                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                            ZStack {
+                                                Button {
+                                                    connectWithToken()
+                                                } label: {
+                                                    Text("Connect")
+                                                        .opacity(controller.isSigningInWithToken ? 0 : 1)
+                                                        .font(.system(size: 13, weight: .semibold))
+                                                        .foregroundStyle(.white)
+                                                        .padding(.horizontal, 16)
+                                                        .frame(height: 30)
+                                                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                                }
+                                                .buttonStyle(.plain)
+                                                .disabled(
+                                                    token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                                        || controller.isSigningInWithToken
+                                                )
+                                                .opacity(
+                                                    token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                                        && !controller.isSigningInWithToken ? 0.45 : 1.0
+                                                )
+                                                .accessibilityLabel(controller.isSigningInWithToken ? "Connecting…" : "Connect")
+
+                                                if controller.isSigningInWithToken {
+                                                    PATSignInProgressView()
+                                                        .allowsHitTesting(false)
+                                                        .accessibilityHidden(true)
+                                                }
                                             }
-                                            .buttonStyle(.plain)
-                                            .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                            .opacity(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1.0)
                                         }
 
                                         Link(destination: URL(string: "https://github.com/settings/tokens/new")!) {
@@ -567,6 +585,23 @@ private struct GitHubSettingsView: View {
                 token = ""
             }
         }
+    }
+}
+
+private struct PATSignInProgressView: View {
+    @State private var rotation = 0.0
+
+    var body: some View {
+        Circle()
+            .trim(from: 0.15, to: 0.85)
+            .stroke(Color.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            .frame(width: 14, height: 14)
+            .rotationEffect(.degrees(rotation))
+            .onAppear {
+                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
     }
 }
 

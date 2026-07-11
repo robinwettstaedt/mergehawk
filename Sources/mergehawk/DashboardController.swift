@@ -219,6 +219,7 @@ final class DashboardController: ObservableObject {
     @Published private(set) var deviceFlowPhase: DeviceFlowPhase?
     @Published private(set) var deviceFlowCodeCopiedAt: Date?
     @Published private(set) var isRequestingDeviceCode = false
+    @Published private(set) var isSigningInWithToken = false
     private var signInTask: Task<Void, Never>?
     private var deviceFlowCodeCopiedClearTask: Task<Void, Never>?
     private var signInAttemptID = 0
@@ -563,6 +564,7 @@ final class DashboardController: ObservableObject {
     }
 
     func signInWithToken(_ token: String) async {
+        guard !isSigningInWithToken else { return }
         cancelDeviceFlowSignIn()
         errorMessage = nil
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -570,6 +572,8 @@ final class DashboardController: ObservableObject {
             errorMessage = "Paste a GitHub personal access token."
             return
         }
+        isSigningInWithToken = true
+        defer { isSigningInWithToken = false }
 
         do {
             let client = patGitHubClientFactory(trimmed)
@@ -594,6 +598,7 @@ final class DashboardController: ObservableObject {
     }
 
     func signInWithGitHub(keepsMenuVisible: Bool = false) async {
+        guard !isSigningInWithToken else { return }
         cancelDeviceFlowSignIn()
         let attemptID = signInAttemptID
         errorMessage = nil
