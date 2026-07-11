@@ -614,6 +614,7 @@ struct MenuRootView: View {
         static let contentHeight: CGFloat = 650
         static let footerRowCount: CGFloat = 4
         static let footerHeight: CGFloat = FooterSeparatorLayout.height + footerRowCount * FooterActionLayout.rowHeight
+            + FooterActionLayout.footerBottomPadding
         static let height: CGFloat = contentHeight + footerHeight
         static let topBarHeight: CGFloat = 45
         static let tabSwitcherWidth: CGFloat = 320
@@ -686,6 +687,7 @@ struct MenuRootView: View {
                 quit()
             }
         }
+        .padding(.bottom, FooterActionLayout.footerBottomPadding)
     }
 
     @ViewBuilder
@@ -796,6 +798,9 @@ enum FooterSeparatorLayout {
 
 enum FooterActionLayout {
     static let rowHeight: CGFloat = 24
+    // Breathing room between the last footer row and the menu's bottom rounded corner,
+    // intentionally mirroring the separator gap above the first footer row.
+    static let footerBottomPadding: CGFloat = FooterSeparatorLayout.verticalPadding
     static let selectionInsetX: CGFloat = 5
     static let selectionInsetY: CGFloat = 1
     static let selectionCornerRadius: CGFloat = 5
