@@ -7,6 +7,8 @@ description: Use after implementing or modifying MergeHawk code, before mergehaw
 
 Use this after implementation and before `mergehawk-review`. It may also be used after a meaningful implementation slice when the diff is starting to look complex.
 
+The Terra implementer owns simplification of its changes. The main agent may identify simplification goals and inspect the result, but it must send all edits back to the implementer rather than modifying files itself.
+
 ## Goal
 
 Refine recently changed code so it is direct, readable, consistent with the codebase, and no more defensive or abstract than the current issue requires. Preserve behavior exactly.

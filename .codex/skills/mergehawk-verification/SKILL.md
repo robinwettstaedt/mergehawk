@@ -7,6 +7,8 @@ description: Use during and after implementing a MergeHawk issue to verify meani
 
 Use this during implementation after meaningful slices. For final verification, use this after `mergehawk-review` before telling the user the work is ready for review.
 
+The main agent orchestrates final verification and evaluates the evidence. It may run verification commands itself or delegate them, but any delegated verification agent must use the repo-scoped `terra` agent type. Any source, test, fixture, script, or documentation change discovered during verification must be sent to the Terra implementer; the main agent must not make the edit itself.
+
 ## Goal
 
 Verify the implementation enough that the user can review behavior rather than discover basic breakage. Keep verification scoped to the issue and the approved plan.
