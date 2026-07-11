@@ -358,7 +358,7 @@ final class VisualVerificationXCTests: XCTestCase {
         controller: DashboardController,
         to url: URL
     ) throws {
-        let view = MenuRootView(controller: controller)
+        let view = MenuRootView(controller: controller, footerModel: MenuFooterModel())
             .background(.regularMaterial)
         let size = CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
 

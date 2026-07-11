@@ -8,6 +8,82 @@ final class MenuViewTests: XCTestCase {
     func testPullRequestListEmptyCopy() {
         XCTAssertEqual(PullRequestListCopy.emptyReviewRequests, "No review requests or assigned PRs.")
     }
+
+    // MER-58 regression: during NSMenu tracking, key equivalents are matched against the open
+    // menu's native items first and then the app's main menu — the hosted view hierarchy is never
+    // consulted. Hidden native trap items are required so ⌘, and ⌘Q do not fall through to the
+    // SwiftUI Settings scene's auto-generated main-menu items.
+    @MainActor
+    func testStatusMenuAddsHiddenKeyEquivalentTrapItems() {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0
+        )
+        let statusBarController = StatusBarController(controller: controller)
+        let items = statusBarController.rebuildMenuForTesting()
+        XCTAssertEqual(items.count, 3)
+        XCTAssertNotNil(items[0].view)
+
+        let settingsTrapItem = items[1]
+        XCTAssertEqual(settingsTrapItem.title, "Settings")
+        XCTAssertEqual(settingsTrapItem.keyEquivalent, ",")
+        XCTAssertTrue(settingsTrapItem.isHidden)
+        XCTAssertTrue(settingsTrapItem.allowsKeyEquivalentWhenHidden)
+
+        let quitTrapItem = items[2]
+        XCTAssertEqual(quitTrapItem.title, "Quit")
+        XCTAssertEqual(quitTrapItem.keyEquivalent, "q")
+        XCTAssertTrue(quitTrapItem.isHidden)
+        XCTAssertTrue(quitTrapItem.allowsKeyEquivalentWhenHidden)
+
+        var settingsSelections: [SettingsTab] = []
+        controller.openSettingsWindow = { selection in
+            settingsSelections.append(selection)
+        }
+        var quitInvocationCount = 0
+        statusBarController.setQuitActionForTesting {
+            quitInvocationCount += 1
+        }
+
+        _ = settingsTrapItem.target?.perform(settingsTrapItem.action, with: settingsTrapItem)
+        XCTAssertEqual(settingsSelections, [.general])
+        _ = quitTrapItem.target?.perform(quitTrapItem.action, with: quitTrapItem)
+        XCTAssertEqual(quitInvocationCount, 1)
+    }
+
+    @MainActor
+    func testHostedMenuViewConsumesKeyEquivalents() throws {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0
+        )
+        let statusBarController = StatusBarController(controller: controller)
+        let items = statusBarController.rebuildMenuForTesting()
+        let hostedView = try XCTUnwrap(items[0].view)
+
+        XCTAssertEqual(statusBarController.refreshFlashCountForTesting(), 0)
+        XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: "r", modifiers: .command)))
+        XCTAssertEqual(statusBarController.refreshFlashCountForTesting(), 1)
+        XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: "r", modifiers: [])))
+        XCTAssertEqual(statusBarController.refreshFlashCountForTesting(), 1)
+
+        var settingsSelections: [SettingsTab] = []
+        controller.openSettingsWindow = { selection in
+            settingsSelections.append(selection)
+        }
+        var quitInvocationCount = 0
+        statusBarController.setQuitActionForTesting {
+            quitInvocationCount += 1
+        }
+        XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: ",", modifiers: [])))
+        XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: "q", modifiers: [])))
+        XCTAssertEqual(settingsSelections, [])
+        XCTAssertEqual(quitInvocationCount, 0)
+        XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: ",", modifiers: .command)))
+        XCTAssertEqual(settingsSelections, [.general])
+        XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: "q", modifiers: .command)))
+        XCTAssertEqual(quitInvocationCount, 1)
+    }
 }
 
 @MainActor let mergehawkMenuViewTest: Void = {
@@ -160,22 +236,19 @@ final class MenuViewTests: XCTestCase {
     )
     let statusBarController = StatusBarController(controller: controller)
     let statusMenuItems = statusBarController.rebuildMenuForTesting()
-    precondition(statusMenuItems.count == 6)
+    precondition(statusMenuItems.count == 3)
     precondition(statusMenuItems[0].view != nil)
-    precondition(statusMenuItems[1].view != nil)
-    precondition(statusMenuItems[1].isSeparatorItem == false)
-    precondition(statusMenuItems[2].title == "Refresh")
-    precondition(statusMenuItems[2].keyEquivalent == "")
-    precondition(statusMenuItems[2].action == NSSelectorFromString("refresh"))
-    precondition(statusMenuItems[2].target as AnyObject? === statusBarController)
-    precondition(statusMenuItems[2].view != nil)
-    precondition(statusMenuItems[3].title == "Settings")
-    precondition(statusMenuItems[3].keyEquivalent == ",")
-    precondition(statusMenuItems[4].title == "About MergeHawk")
-    precondition(statusMenuItems[4].isSeparatorItem == false)
-    precondition(statusMenuItems[5].title == "Quit")
-    precondition(statusMenuItems[5].keyEquivalent == "q")
-    precondition(statusMenuItems.dropFirst(2).contains(where: \.isSeparatorItem) == false)
+    // Hidden native key-equivalent trap items: during NSMenu tracking only native items of the
+    // open menu outrank the app's main menu, so these keep ⌘, and ⌘Q from reaching the SwiftUI
+    // Settings scene's auto-generated main-menu items (MER-58 regression).
+    precondition(statusMenuItems[1].title == "Settings")
+    precondition(statusMenuItems[1].keyEquivalent == ",")
+    precondition(statusMenuItems[1].isHidden)
+    precondition(statusMenuItems[1].allowsKeyEquivalentWhenHidden)
+    precondition(statusMenuItems[2].title == "Quit")
+    precondition(statusMenuItems[2].keyEquivalent == "q")
+    precondition(statusMenuItems[2].isHidden)
+    precondition(statusMenuItems[2].allowsKeyEquivalentWhenHidden)
 
     precondition(isRefreshKeyEvent(keyEvent(characters: "r", modifiers: .command)))
     precondition(isRefreshKeyEvent(keyEvent(characters: "R", modifiers: .command)))
@@ -189,12 +262,28 @@ final class MenuViewTests: XCTestCase {
     precondition(menuTabShortcut(for: keyEvent(characters: "1", modifiers: [.command, .shift])) == nil)
     precondition(menuTabShortcut(for: keyEvent(characters: "4", modifiers: .command)) == nil)
     precondition(menuTabShortcut(for: keyEvent(characters: "r", modifiers: .command)) == nil)
-    precondition(!statusBarController.refreshMenuItemIsSelectedForTesting())
+    precondition(isSettingsKeyEvent(keyEvent(characters: ",", modifiers: .command)))
+    precondition(!isSettingsKeyEvent(keyEvent(characters: ",", modifiers: [])))
+    precondition(isQuitKeyEvent(keyEvent(characters: "q", modifiers: .command)))
+    precondition(isQuitKeyEvent(keyEvent(characters: "Q", modifiers: .command)))
+    precondition(!isQuitKeyEvent(keyEvent(characters: "q", modifiers: [])))
+
+    precondition(statusBarController.refreshFlashCountForTesting() == 0)
     precondition(statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: .command)))
-    precondition(statusBarController.refreshMenuItemIsSelectedForTesting())
+    precondition(statusBarController.refreshFlashCountForTesting() == 1)
     precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: [])))
-    precondition(statusBarController.performRefreshMenuItemKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: .command)))
-    precondition(!statusBarController.performRefreshMenuItemKeyEquivalentForTesting(keyEvent(characters: "r", modifiers: [])))
+    precondition(statusBarController.refreshFlashCountForTesting() == 1)
+
+    var quitInvocationCount = 0
+    statusBarController.setQuitActionForTesting {
+        quitInvocationCount += 1
+    }
+    precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: ",", modifiers: [])))
+    precondition(!statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "q", modifiers: [])))
+    precondition(quitInvocationCount == 0)
+    precondition(statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: ",", modifiers: .command)))
+    precondition(statusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "q", modifiers: .command)))
+    precondition(quitInvocationCount == 1)
 
     let manualRefreshClient = MenuFakeGitHubProvider(
         sourceCatalogResult: .success(SourceCatalog(repositories: [
@@ -241,7 +330,7 @@ final class MenuViewTests: XCTestCase {
     signedInController.selectedTab = .reviewRequests
     let revealedMenuItems = signedInStatusBarController.showMenuForTesting(selecting: .notifications)
     precondition(signedInController.selectedTab == .notifications)
-    precondition(revealedMenuItems.count == 6)
+    precondition(revealedMenuItems.count == 3)
     precondition(revealedMenuItems[0].view != nil)
     signedInController.selectedTab = .reviewRequests
     precondition(signedInStatusBarController.performMenuKeyEquivalentForTesting(keyEvent(characters: "1", modifiers: .command)))
@@ -560,7 +649,12 @@ private func signedInMockController() -> DashboardController {
 }
 
 @MainActor
-private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
+private func waitUntil(
+    timeout: TimeInterval,
+    file: StaticString = #file,
+    line: UInt = #line,
+    condition: () -> Bool
+) {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() {
@@ -568,7 +662,7 @@ private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
         }
         RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
     }
-    preconditionFailure("Timed out waiting for condition")
+    preconditionFailure("Timed out waiting for condition", file: file, line: line)
 }
 
 private func keyEvent(characters: String, modifiers: NSEvent.ModifierFlags) -> NSEvent {

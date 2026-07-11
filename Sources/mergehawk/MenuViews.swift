@@ -611,7 +611,10 @@ enum PullRequestAgePresentation {
 struct MenuRootView: View {
     enum Layout {
         static let width: CGFloat = 420
-        static let height: CGFloat = 650
+        static let contentHeight: CGFloat = 650
+        static let footerRowCount: CGFloat = 4
+        static let footerHeight: CGFloat = FooterSeparatorLayout.height + footerRowCount * FooterActionLayout.rowHeight
+        static let height: CGFloat = contentHeight + footerHeight
         static let topBarHeight: CGFloat = 45
         static let tabSwitcherWidth: CGFloat = 320
         static let tabSwitcherLeadingInset: CGFloat = 5
@@ -623,8 +626,29 @@ struct MenuRootView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    @ObservedObject var footerModel: MenuFooterModel
+    let dismissMenu: () -> Void
+    let showSettings: () -> Void
+    let showAbout: () -> Void
+    let quit: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var dismissTransientPRControlsSignal = 0
+
+    init(
+        controller: DashboardController,
+        footerModel: MenuFooterModel,
+        dismissMenu: @escaping () -> Void = {},
+        showSettings: @escaping () -> Void = {},
+        showAbout: @escaping () -> Void = {},
+        quit: @escaping () -> Void = {}
+    ) {
+        self.controller = controller
+        self.footerModel = footerModel
+        self.dismissMenu = dismissMenu
+        self.showSettings = showSettings
+        self.showAbout = showAbout
+        self.quit = quit
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -632,9 +656,36 @@ struct MenuRootView: View {
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            footer
         }
         .frame(width: Self.Layout.width, height: Self.Layout.height)
         .background(scrim)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 0) {
+            FooterSeparatorView()
+            MenuFooterActionRow(
+                title: "Refresh",
+                shortcut: "⌘R",
+                isFlashed: footerModel.isFlashing,
+                action: {
+                    controller.refresh()
+                }
+            )
+            MenuFooterActionRow(title: "Settings", shortcut: "⌘,") {
+                dismissMenu()
+                showSettings()
+            }
+            MenuFooterActionRow(title: "About MergeHawk", shortcut: nil) {
+                dismissMenu()
+                showAbout()
+            }
+            MenuFooterActionRow(title: "Quit", shortcut: "⌘Q") {
+                dismissMenu()
+                quit()
+            }
+        }
     }
 
     @ViewBuilder
@@ -713,6 +764,105 @@ struct MenuRootView: View {
         dismissTransientPRControlsSignal += 1
     }
 
+}
+
+@MainActor
+final class MenuFooterModel: ObservableObject {
+    @Published private(set) var refreshFlashCount: Int = 0
+    @Published fileprivate var isFlashing: Bool = false
+
+    private var flashResetWorkItem: DispatchWorkItem?
+
+    func flashRefresh() {
+        refreshFlashCount += 1
+        flashResetWorkItem?.cancel()
+        isFlashing = true
+        let resetWorkItem = DispatchWorkItem { [weak self] in
+            self?.isFlashing = false
+        }
+        flashResetWorkItem = resetWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + FooterActionLayout.keyboardSelectionDuration,
+            execute: resetWorkItem
+        )
+    }
+}
+
+enum FooterSeparatorLayout {
+    static let horizontalPadding: CGFloat = 10
+    static let verticalPadding: CGFloat = 6
+    static let height: CGFloat = 13
+}
+
+enum FooterActionLayout {
+    static let rowHeight: CGFloat = 24
+    static let selectionInsetX: CGFloat = 5
+    static let selectionInsetY: CGFloat = 1
+    static let selectionCornerRadius: CGFloat = 5
+    static let titleLeading: CGFloat = 14
+    static let shortcutTrailing: CGFloat = 9
+    static let shortcutKern: CGFloat = 2
+    static let keyboardSelectionDuration: TimeInterval = 0.1
+}
+
+struct FooterSeparatorView: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(height: 1)
+            .padding(.horizontal, FooterSeparatorLayout.horizontalPadding)
+            .padding(.vertical, FooterSeparatorLayout.verticalPadding)
+    }
+}
+
+struct MenuFooterActionRow: View {
+    let title: String
+    let shortcut: String?
+    var isFlashed = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(title)
+                .font(.menuFont())
+                .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .labelColor))
+                .padding(.leading, FooterActionLayout.titleLeading)
+            Spacer(minLength: 0)
+            if let shortcut {
+                Text(shortcut)
+                    .font(.menuFont())
+                    .kerning(FooterActionLayout.shortcutKern)
+                    .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .tertiaryLabelColor))
+                    .padding(.trailing, FooterActionLayout.shortcutTrailing)
+            }
+        }
+        .frame(height: FooterActionLayout.rowHeight)
+        .contentShape(Rectangle())
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: FooterActionLayout.selectionCornerRadius)
+                    .fill(Color(nsColor: .selectedContentBackgroundColor))
+                    .padding(.horizontal, FooterActionLayout.selectionInsetX)
+                    .padding(.vertical, FooterActionLayout.selectionInsetY)
+            }
+        }
+        .onHover { isHovering = $0 }
+        .onTapGesture {
+            action()
+        }
+    }
+
+    private var isSelected: Bool {
+        isHovering || isFlashed
+    }
+}
+
+private extension Font {
+    static func menuFont() -> Font {
+        Font(NSFont.menuFont(ofSize: 0))
+    }
 }
 
 struct RefreshStatusControl: View {
