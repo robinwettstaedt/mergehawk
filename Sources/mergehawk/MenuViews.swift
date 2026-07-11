@@ -668,21 +668,21 @@ struct MenuRootView: View {
             FooterSeparatorView()
             MenuFooterActionRow(
                 title: "Refresh",
-                shortcut: "⌘R",
+                shortcutKey: "R",
                 isFlashed: footerModel.isFlashing,
                 action: {
                     controller.refresh()
                 }
             )
-            MenuFooterActionRow(title: "Settings", shortcut: "⌘,") {
+            MenuFooterActionRow(title: "Settings", shortcutKey: ",") {
                 dismissMenu()
                 showSettings()
             }
-            MenuFooterActionRow(title: "About MergeHawk", shortcut: nil) {
+            MenuFooterActionRow(title: "About MergeHawk", shortcutKey: nil) {
                 dismissMenu()
                 showAbout()
             }
-            MenuFooterActionRow(title: "Quit", shortcut: "⌘Q") {
+            MenuFooterActionRow(title: "Quit", shortcutKey: "Q") {
                 dismissMenu()
                 quit()
             }
@@ -806,7 +806,9 @@ enum FooterActionLayout {
     static let selectionCornerRadius: CGFloat = 5
     static let titleLeading: CGFloat = 14
     static let shortcutTrailing: CGFloat = 9
-    static let shortcutKern: CGFloat = 2
+    static let shortcutColumnSpacing: CGFloat = 2
+    // Reserve one key column so every shortcut has the same width and each ⌘ aligns.
+    static let shortcutKeyColumnWidth: CGFloat = 12
     static let keyboardSelectionDuration: TimeInterval = 0.1
 }
 
@@ -822,7 +824,7 @@ struct FooterSeparatorView: View {
 
 struct MenuFooterActionRow: View {
     let title: String
-    let shortcut: String?
+    let shortcutKey: String?
     var isFlashed = false
     let action: () -> Void
 
@@ -835,12 +837,15 @@ struct MenuFooterActionRow: View {
                 .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .labelColor))
                 .padding(.leading, FooterActionLayout.titleLeading)
             Spacer(minLength: 0)
-            if let shortcut {
-                Text(shortcut)
-                    .font(.menuFont())
-                    .kerning(FooterActionLayout.shortcutKern)
-                    .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .tertiaryLabelColor))
-                    .padding(.trailing, FooterActionLayout.shortcutTrailing)
+            if let shortcutKey {
+                HStack(spacing: FooterActionLayout.shortcutColumnSpacing) {
+                    Text("⌘")
+                    Text(shortcutKey)
+                        .frame(width: FooterActionLayout.shortcutKeyColumnWidth, alignment: .leading)
+                }
+                .font(.menuFont())
+                .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .tertiaryLabelColor))
+                .padding(.trailing, FooterActionLayout.shortcutTrailing)
             }
         }
         .frame(height: FooterActionLayout.rowHeight)
