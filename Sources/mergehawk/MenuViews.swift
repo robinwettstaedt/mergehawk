@@ -2396,11 +2396,9 @@ struct CIStatusIndicator: View {
     let ciState: CIState
 
     var body: some View {
-        Image(systemName: kind.symbolName)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(kind.color)
-            .font(.system(size: kind.pointSize, weight: .semibold))
-            .frame(width: 17, height: 17)
+        Circle()
+            .fill(kind.color.opacity(0.65))
+            .frame(width: 8, height: 8)
             .accessibilityLabel(kind.label)
             .help(kind.label)
     }
@@ -2411,31 +2409,6 @@ struct CIStatusIndicator: View {
 }
 
 private extension CIStatusIndicator.Kind {
-    var symbolName: String {
-        switch self {
-        case .failing:
-            "xmark.octagon.fill"
-        case .running:
-            "clock.fill"
-        case .successful:
-            "checkmark.circle.fill"
-        case .unknown:
-            "questionmark.circle"
-        }
-    }
-
-    // clock.fill is a standalone symbol whose disc renders larger than the
-    // enclosed .circle.fill/.octagon.fill glyphs at the same size, so nudge it
-    // down to keep every CI indicator optically the same size.
-    var pointSize: CGFloat {
-        switch self {
-        case .running:
-            11
-        case .failing, .successful, .unknown:
-            13
-        }
-    }
-
     var color: Color {
         switch self {
         case .failing:
