@@ -24,7 +24,7 @@ Use compact work-product context. Do not rely on subagents having the full conve
 
 ## Reviewers
 
-Spawn two independent subagents when subagent tools are available.
+Spawn two independent subagents using the repo-scoped `terra` agent type configured in `.codex/agents/terra.toml`. Do not use generic or differently configured reviewers. If Terra is unavailable, stop and report the blocker rather than silently reducing or substituting review.
 
 ### Spec Reviewer
 
@@ -65,11 +65,13 @@ The main agent owns judgment. Reviewer feedback is not automatically correct.
 
 For every actionable finding, choose one outcome:
 
-- `fixed`: implement the change and run the lightest relevant check
+- `accepted`: send the finding and requested change to the original Terra implementer, then inspect its result and the lightest relevant check
 - `rejected`: explain why the finding is not correct for this codebase or issue
 - `deferred`: report it as valid but outside the current scope, and suggest follow-up only when useful
 
-Fix blocking correctness, security, data-loss, and clear spec misses before final verification unless the user explicitly decides otherwise.
+The main agent owns this triage but must not edit the implementation. Send accepted findings back to the original Terra implementer whenever it remains available. If replacement is necessary, use another repo-scoped Terra implementer and include the approved plan, current diff, checks, and accepted findings.
+
+Fix blocking correctness, security, data-loss, and clear spec misses through the implementer before final verification unless the user explicitly decides otherwise.
 
 If a finding conflicts with the approved direction or would materially expand scope, stop and ask the user before implementing it.
 
@@ -83,7 +85,7 @@ Prefer asking the original reviewer to verify only:
 - whether rejected or deferred findings have a sound rationale
 - whether the fix introduced obvious new issues
 
-Do not run an open-ended review loop by default. If a recheck still finds substantial issues, fix once more when the path is clear; otherwise report the remaining decision or scope question to the user.
+Do not run an open-ended review loop by default. If a recheck still finds substantial issues, instruct the Terra implementer once more when the path is clear; otherwise report the remaining decision or scope question to the user.
 
 ## Output
 
@@ -95,7 +97,7 @@ Report:
 Reviewers:
 Spec findings:
 Code findings:
-Fixed:
+Accepted and implemented:
 Rejected:
 Deferred or reported:
 Focused checks run after fixes:
