@@ -5,6 +5,69 @@ import XCTest
 
 final class DashboardControllerXCTests: XCTestCase {
     @MainActor
+    func testPATSignInTracksLoadingAndPreventsConcurrentAttempts() async throws {
+        let client = DelayedViewerGitHubProvider()
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in client }
+        )
+
+        let firstSignIn = Task { await controller.signInWithToken("github_pat_token") }
+        try await waitUntilAsync { client.viewerContinuation != nil }
+
+        XCTAssertTrue(controller.isSigningInWithToken)
+
+        await controller.signInWithToken("github_pat_second_token")
+        XCTAssertEqual(client.fetchViewerCount, 1)
+
+        client.finishViewerFetch()
+        await firstSignIn.value
+
+        XCTAssertFalse(controller.isSigningInWithToken)
+        XCTAssertEqual(controller.state.authStatus, .signedIn)
+    }
+
+    @MainActor
+    func testGitHubAppSignInDoesNotBeginDuringPATSignIn() async throws {
+        let client = DelayedViewerGitHubProvider()
+        let oauthSignIn = RecordingOAuthSignIn()
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0,
+            oauthSignIn: oauthSignIn,
+            patGitHubClientFactory: { _ in client }
+        )
+
+        let patSignIn = Task { await controller.signInWithToken("github_pat_token") }
+        try await waitUntilAsync { client.viewerContinuation != nil }
+
+        await controller.signInWithGitHub()
+
+        XCTAssertEqual(oauthSignIn.requestDeviceCodeCount, 0)
+        XCTAssertNil(controller.deviceFlowChallenge)
+        XCTAssertTrue(controller.isSigningInWithToken)
+
+        client.finishViewerFetch()
+        await patSignIn.value
+    }
+
+    @MainActor
+    func testPATSignInClearsLoadingAfterFailure() async {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in FailingViewerGitHubProvider() }
+        )
+
+        await controller.signInWithToken("github_pat_token")
+
+        XCTAssertFalse(controller.isSigningInWithToken)
+        XCTAssertEqual(controller.errorMessage, FailingViewerGitHubProvider.TestError.failed.localizedDescription)
+        XCTAssertEqual(controller.state.authStatus, .signedOut)
+    }
+
+    @MainActor
     func testDeviceFlowCopyConfirmationClearsAfterFirstCopy() {
         let oauthSignIn = WaitingOAuthSignIn()
         let copyDate = Date(timeIntervalSince1970: 1_777_800_000)
@@ -78,6 +141,22 @@ final class DashboardControllerXCTests: XCTestCase {
 
         controller.cancelDeviceFlowSignIn()
     }
+
+    @MainActor
+    private func waitUntilAsync(condition: @escaping @MainActor () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(1)
+        while Date() < deadline {
+            if condition() {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw TestTimeout.timedOut
+    }
+}
+
+private enum TestTimeout: Error {
+    case timedOut
 }
 
 @MainActor let mergehawkSignedOutStartsEmptyTest: Void = {
@@ -1032,10 +1111,12 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     var viewerContinuation: CheckedContinuation<GitHubAccount, Never>?
     private(set) var viewerFetchCompleted = false
+    private(set) var fetchViewerCount = 0
     private(set) var fetchSourceCatalogCount = 0
     private(set) var fetchPullRequestsCount = 0
 
     func fetchViewer() async throws -> GitHubAccount {
+        fetchViewerCount += 1
         let viewer = await withCheckedContinuation { continuation in
             viewerContinuation = continuation
         }
@@ -1070,6 +1151,61 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
     }
 
     func markInboxThreadRead(threadId: String) async throws {}
+}
+
+private final class FailingViewerGitHubProvider: GitHubProviding {
+    enum TestError: Error, LocalizedError {
+        case failed
+
+        var errorDescription: String? { "Viewer failed" }
+    }
+
+    let sourceKind: DashboardSource = .github
+
+    func fetchViewer() async throws -> GitHubAccount {
+        throw TestError.failed
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        PullRequestFetchResult(pullRequests: [])
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: accountLogin)
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
+}
+
+@MainActor
+private final class RecordingOAuthSignIn: GitHubOAuthSigningIn {
+    private(set) var requestDeviceCodeCount = 0
+
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        requestDeviceCodeCount += 1
+        return DeviceFlowChallenge(
+            userCode: "ABCD-1234",
+            deviceCode: "fake-device-code",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: .distantFuture,
+            interval: 5
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        OAuthTokens(accessToken: "access", refreshToken: "refresh", expiresAt: .distantFuture)
+    }
 }
 
 private final class DelayedSyncGitHubProvider: GitHubProviding {
