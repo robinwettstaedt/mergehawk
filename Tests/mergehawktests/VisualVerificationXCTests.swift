@@ -64,6 +64,64 @@ final class VisualVerificationXCTests: XCTestCase {
             )
         }
 
+        try await MainActor.run {
+            let patIdleController = DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+            patIdleController.openGitHubSettingsInPATMode = true
+            try render(
+                SettingsRootView(
+                    controller: patIdleController,
+                    settingsWindowState: SettingsWindowState(selection: .github),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-github-pat-idle.png")
+            )
+        }
+
+        let patLoadingClient = VisualPATLoadingGitHubProvider()
+        let patLoadingController = await MainActor.run {
+            let controller = DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                patGitHubClientFactory: { _ in patLoadingClient }
+            )
+            controller.openGitHubSettingsInPATMode = true
+            return controller
+        }
+        Task {
+            await patLoadingController.signInWithToken("github_pat_visual")
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                patLoadingController.isSigningInWithToken
+            } && patLoadingClient.isWaitingForViewer
+        }
+        try await MainActor.run {
+            try render(
+                SettingsRootView(
+                    controller: patLoadingController,
+                    settingsWindowState: SettingsWindowState(selection: .github),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                size: SettingsTab.defaultWindowSize,
+                to: outputURL.appendingPathComponent("settings-github-pat-loading.png"),
+                pausesAnimations: true
+            )
+            patLoadingClient.finishViewerFetch()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                !patLoadingController.isSigningInWithToken
+            }
+        }
+
         let pendingSignInController = await MainActor.run {
             DashboardController(
                 tokenStore: InMemoryTokenStore(),
@@ -374,12 +432,17 @@ final class VisualVerificationXCTests: XCTestCase {
         _ view: Content,
         size: CGSize,
         appearance: NSAppearance.Name = .darkAqua,
-        to url: URL
+        to url: URL,
+        pausesAnimations: Bool = false
     ) throws {
         let frame = NSRect(origin: .zero, size: size)
         let hostingView = NSHostingView(rootView: view)
         hostingView.frame = frame
         hostingView.appearance = NSAppearance(named: appearance)
+        if pausesAnimations {
+            hostingView.wantsLayer = true
+            hostingView.layer?.speed = 0
+        }
 
         let window = NSWindow(
             contentRect: frame,
@@ -469,6 +532,44 @@ private final class VisualLoadingGitHubProvider: GitHubProviding {
     func finishPullRequestFetch() {
         pullRequestsContinuation?.resume(returning: PullRequestFetchResult(pullRequests: []))
         pullRequestsContinuation = nil
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: "rw")
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+
+    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
+        GitHubInboxFetchResult(notifications: [], metadata: metadata)
+    }
+
+    func markInboxThreadRead(threadId: String) async throws {}
+}
+
+private final class VisualPATLoadingGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    private var viewerContinuation: CheckedContinuation<GitHubAccount, Never>?
+    var isWaitingForViewer: Bool { viewerContinuation != nil }
+
+    func fetchViewer() async throws -> GitHubAccount {
+        await withCheckedContinuation { continuation in
+            viewerContinuation = continuation
+        }
+    }
+
+    func finishViewerFetch() {
+        viewerContinuation?.resume(returning: GitHubAccount(login: "rw"))
+        viewerContinuation = nil
+    }
+
+    func fetchPullRequests(
+        login: String,
+        previousPullRequests: [PullRequest]
+    ) async throws -> PullRequestFetchResult {
+        PullRequestFetchResult(pullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
