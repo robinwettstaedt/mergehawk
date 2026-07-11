@@ -84,6 +84,32 @@ final class MenuViewTests: XCTestCase {
         XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: "q", modifiers: .command)))
         XCTAssertEqual(quitInvocationCount, 1)
     }
+
+    @MainActor
+    func testMenuFooterClickFeedbackSuppressesSelectionAndIgnoresRepeatedClicks() async {
+        let feedback = MenuFooterClickFeedback()
+        var actionCount = 0
+        var selectionWasSuppressedWhenActionRan: Bool?
+
+        feedback.perform {
+            actionCount += 1
+            selectionWasSuppressedWhenActionRan = feedback.suppressesSelection
+        }
+        feedback.perform {
+            actionCount += 1
+        }
+
+        XCTAssertTrue(feedback.suppressesSelection)
+        XCTAssertTrue(feedback.isActive)
+        XCTAssertEqual(actionCount, 0)
+
+        try? await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertFalse(feedback.suppressesSelection)
+        XCTAssertFalse(feedback.isActive)
+        XCTAssertEqual(actionCount, 1)
+        XCTAssertEqual(selectionWasSuppressedWhenActionRan, false)
+    }
 }
 
 @MainActor let mergehawkMenuViewTest: Void = {

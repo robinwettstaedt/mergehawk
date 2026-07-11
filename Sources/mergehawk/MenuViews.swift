@@ -810,6 +810,7 @@ enum FooterActionLayout {
     // Reserve one key column so every shortcut has the same width and each ⌘ aligns.
     static let shortcutKeyColumnWidth: CGFloat = 12
     static let keyboardSelectionDuration: TimeInterval = 0.1
+    static let mouseClickFeedbackDuration: TimeInterval = 0.12
 }
 
 struct FooterSeparatorView: View {
@@ -829,6 +830,7 @@ struct MenuFooterActionRow: View {
     let action: () -> Void
 
     @State private var isHovering = false
+    @StateObject private var clickFeedback = MenuFooterClickFeedback()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -860,12 +862,34 @@ struct MenuFooterActionRow: View {
         }
         .onHover { isHovering = $0 }
         .onTapGesture {
-            action()
+            clickFeedback.perform(action)
         }
     }
 
     private var isSelected: Bool {
-        isHovering || isFlashed
+        (isHovering || isFlashed) && !clickFeedback.suppressesSelection
+    }
+}
+
+@MainActor
+final class MenuFooterClickFeedback: ObservableObject {
+    @Published private(set) var suppressesSelection = false
+    private(set) var isActive = false
+
+    func perform(_ action: @escaping () -> Void) {
+        guard !isActive else {
+            return
+        }
+
+        isActive = true
+        suppressesSelection = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + FooterActionLayout.mouseClickFeedbackDuration) {
+            self.suppressesSelection = false
+            DispatchQueue.main.async {
+                self.isActive = false
+                action()
+            }
+        }
     }
 }
 
