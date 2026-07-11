@@ -7,7 +7,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = StatusBarMenu()
     private let controller: DashboardController
-    private weak var refreshMenuItemView: RefreshMenuItemView?
+    private let footerModel = MenuFooterModel()
+    private var quitAction: () -> Void = { NSApp.terminate(nil) }
     private var cancellables: Set<AnyCancellable> = []
     private var isMenuOpen = false
 
@@ -22,9 +23,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.tabShortcutHandler = { [weak self] tab in
             self?.selectKeyboardTab(tab) == true
         }
+        menu.settingsKeyHandler = { [weak self] in
+            self?.dismissAndShowSettings()
+        }
+        menu.quitKeyHandler = { [weak self] in
+            self?.dismissAndQuit()
+        }
         controller.showDeviceFlowSignInMenu = { [weak self] in
             self?.showDeviceFlowSignInMenu()
         }
+        menu.removeVerticalEdgePadding()
         statusItem.menu = menu
         observeStatusButtonInputs()
         updateStatusButton()
@@ -48,12 +56,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.performKeyEquivalent(with: event)
     }
 
-    func refreshMenuItemIsSelectedForTesting() -> Bool {
-        refreshMenuItemView?.isSelectedForTesting == true
+    func refreshFlashCountForTesting() -> Int {
+        footerModel.refreshFlashCount
     }
 
-    func performRefreshMenuItemKeyEquivalentForTesting(_ event: NSEvent) -> Bool {
-        refreshMenuItemView?.performKeyEquivalent(with: event) == true
+    func setQuitActionForTesting(_ action: @escaping () -> Void) {
+        quitAction = action
     }
 
     func statusButtonHasAttentionForTesting() -> Bool {
@@ -101,11 +109,24 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let hostingView = MenuRootHostingView(
             controller: controller,
+            footerModel: footerModel,
             refreshKeyHandler: { [weak self] in
                 self?.performKeyboardRefresh()
             },
             tabShortcutHandler: { [weak self] tab in
                 self?.selectKeyboardTab(tab) == true
+            },
+            dismissMenu: { [weak self] in
+                self?.dismissMenu()
+            },
+            showSettings: { [weak self] in
+                self?.controller.showSettings()
+            },
+            showAbout: { [weak self] in
+                self?.controller.showSettings(selection: .about)
+            },
+            quit: { [weak self] in
+                self?.quitAction()
             }
         )
         hostingView.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
@@ -113,12 +134,40 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let item = NSMenuItem()
         item.view = hostingView
         menu.addItem(item)
+        menu.addItem(makeKeyEquivalentTrapItem(
+            title: "Settings",
+            action: #selector(handleSettingsKeyEquivalent),
+            keyEquivalent: ","
+        ))
+        menu.addItem(makeKeyEquivalentTrapItem(
+            title: "Quit",
+            action: #selector(handleQuitKeyEquivalent),
+            keyEquivalent: "q"
+        ))
+    }
 
-        menu.addItem(footerSeparatorItem())
-        menu.addItem(refreshItem())
-        menu.addItem(actionItem("Settings", action: #selector(showSettings), keyEquivalent: ","))
-        menu.addItem(actionItem("About MergeHawk", action: #selector(showAbout), keyEquivalent: ""))
-        menu.addItem(actionItem("Quit", action: #selector(quit), keyEquivalent: "q"))
+    // During NSMenu tracking, key equivalents are matched against the open menu's own native
+    // items first and then forwarded straight to the app's main menu — the hosted view hierarchy
+    // is never consulted. Hidden native items are the only way to outrank the main menu (e.g. the
+    // SwiftUI Settings scene's auto-generated ⌘, item) while the menu is open.
+    private func makeKeyEquivalentTrapItem(
+        title: String,
+        action: Selector,
+        keyEquivalent: String
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.target = self
+        item.isHidden = true
+        item.allowsKeyEquivalentWhenHidden = true
+        return item
+    }
+
+    @objc private func handleSettingsKeyEquivalent() {
+        dismissAndShowSettings()
+    }
+
+    @objc private func handleQuitKeyEquivalent() {
+        dismissAndQuit()
     }
 
     private func prepareMenu(selecting tab: DashboardController.MenuTab?) {
@@ -142,41 +191,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func refreshItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "Refresh", action: #selector(refresh), keyEquivalent: "")
-        item.target = self
-        let view = RefreshMenuItemView(target: self, action: #selector(refresh))
-        view.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: FooterActionLayout.rowHeight)
-        item.view = view
-        refreshMenuItemView = view
-        return item
-    }
-
-    private func footerSeparatorItem() -> NSMenuItem {
-        let item = NSMenuItem()
-        let view = NSHostingView(rootView: FooterSeparatorView())
-        view.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: MenuRootView.Layout.width,
-            height: FooterSeparatorLayout.height
-        )
-        item.view = view
-        return item
-    }
-
-    private func actionItem(_ title: String, action: Selector, keyEquivalent: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
-        item.target = self
-        return item
-    }
-
-    @objc private func refresh() {
-        controller.refresh()
-    }
-
     private func performKeyboardRefresh() {
-        refreshMenuItemView?.showKeyboardSelection()
+        footerModel.flashRefresh()
         controller.refresh()
     }
 
@@ -188,31 +204,55 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         return true
     }
 
-    @objc private func showSettings() {
+    private func dismissMenu() {
+        menu.cancelTracking()
+    }
+
+    private func dismissAndShowSettings() {
+        dismissMenu()
         controller.showSettings()
     }
 
-    @objc private func showAbout() {
-        controller.showSettings(selection: .about)
-    }
-
-    @objc private func quit() {
-        NSApp.terminate(nil)
+    private func dismissAndQuit() {
+        dismissMenu()
+        quitAction()
     }
 }
 
 private final class MenuRootHostingView: NSHostingView<MenuRootView> {
     private let refreshKeyHandler: () -> Void
     private let tabShortcutHandler: (DashboardController.MenuTab) -> Bool
+    private let settingsKeyHandler: () -> Void
+    private let quitKeyHandler: () -> Void
 
     init(
         controller: DashboardController,
+        footerModel: MenuFooterModel,
         refreshKeyHandler: @escaping () -> Void,
-        tabShortcutHandler: @escaping (DashboardController.MenuTab) -> Bool
+        tabShortcutHandler: @escaping (DashboardController.MenuTab) -> Bool,
+        dismissMenu: @escaping () -> Void,
+        showSettings: @escaping () -> Void,
+        showAbout: @escaping () -> Void,
+        quit: @escaping () -> Void
     ) {
         self.refreshKeyHandler = refreshKeyHandler
         self.tabShortcutHandler = tabShortcutHandler
-        super.init(rootView: MenuRootView(controller: controller))
+        self.settingsKeyHandler = {
+            dismissMenu()
+            showSettings()
+        }
+        self.quitKeyHandler = {
+            dismissMenu()
+            quit()
+        }
+        super.init(rootView: MenuRootView(
+            controller: controller,
+            footerModel: footerModel,
+            dismissMenu: dismissMenu,
+            showSettings: showSettings,
+            showAbout: showAbout,
+            quit: quit
+        ))
     }
 
     @available(*, unavailable)
@@ -239,12 +279,39 @@ private final class MenuRootHostingView: NSHostingView<MenuRootView> {
         }
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let tab = menuTabShortcut(for: event), tabShortcutHandler(tab) {
+            return true
+        }
+        if isRefreshKeyEvent(event) {
+            refreshKeyHandler()
+            return true
+        }
+        if isSettingsKeyEvent(event) {
+            settingsKeyHandler()
+            return true
+        }
+        if isQuitKeyEvent(event) {
+            quitKeyHandler()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if let tab = menuTabShortcut(for: event), tabShortcutHandler(tab) {
             return
         }
         if isRefreshKeyEvent(event) {
             refreshKeyHandler()
+            return
+        }
+        if isSettingsKeyEvent(event) {
+            settingsKeyHandler()
+            return
+        }
+        if isQuitKeyEvent(event) {
+            quitKeyHandler()
             return
         }
         super.keyDown(with: event)
@@ -254,6 +321,28 @@ private final class MenuRootHostingView: NSHostingView<MenuRootView> {
 private final class StatusBarMenu: NSMenu {
     var refreshKeyHandler: (() -> Void)?
     var tabShortcutHandler: ((DashboardController.MenuTab) -> Bool)?
+    var settingsKeyHandler: (() -> Void)?
+    var quitKeyHandler: (() -> Void)?
+
+    // NSMenu reserves 5pt of vertical padding above and below the item area that item views
+    // cannot cover, which shows as a raw vibrancy strip beneath the footer. There is no public
+    // API to remove it, so this uses the private -[NSMenu _setHasPadding:onEdge:]. The
+    // responds(to:) guard makes this a graceful no-op (falling back to the default insets) if a
+    // future macOS removes the selector.
+    func removeVerticalEdgePadding() {
+        let selector = NSSelectorFromString("_setHasPadding:onEdge:")
+        guard responds(to: selector) else {
+            return
+        }
+        let setHasPadding = unsafeBitCast(
+            method(for: selector),
+            to: (@convention(c) (NSMenu, Selector, ObjCBool, Int) -> Void).self
+        )
+        // NSRectEdge raw values: 1 = minY, 3 = maxY. Clear both so the top and bottom insets
+        // are removed regardless of coordinate-system flippedness.
+        setHasPadding(self, selector, false, 1)
+        setHasPadding(self, selector, false, 3)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let tab = menuTabShortcut(for: event), tabShortcutHandler?(tab) == true {
@@ -263,32 +352,31 @@ private final class StatusBarMenu: NSMenu {
             refreshKeyHandler?()
             return true
         }
+        if isSettingsKeyEvent(event) {
+            settingsKeyHandler?()
+            return true
+        }
+        if isQuitKeyEvent(event) {
+            quitKeyHandler?()
+            return true
+        }
         return super.performKeyEquivalent(with: event)
     }
-}
-
-private enum FooterSeparatorLayout {
-    static let horizontalPadding: CGFloat = 10
-    static let verticalPadding: CGFloat = 6
-    static let height: CGFloat = 13
-}
-
-private enum FooterActionLayout {
-    static let rowHeight: CGFloat = 24
-    static let selectionInsetX: CGFloat = 5
-    static let selectionInsetY: CGFloat = 1
-    static let selectionCornerRadius: CGFloat = 5
-    static let titleLeading: CGFloat = 14
-    static let titleWidthPadding: CGFloat = 4
-    static let shortcutTrailing: CGFloat = 9
-    static let shortcutWidthPadding: CGFloat = 8
-    static let shortcutKern: CGFloat = 2
-    static let keyboardSelectionDuration: TimeInterval = 0.1
 }
 
 func isRefreshKeyEvent(_ event: NSEvent) -> Bool {
     let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     return modifiers == .command && event.charactersIgnoringModifiers?.lowercased() == "r"
+}
+
+func isSettingsKeyEvent(_ event: NSEvent) -> Bool {
+    let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    return modifiers == .command && event.charactersIgnoringModifiers == ","
+}
+
+func isQuitKeyEvent(_ event: NSEvent) -> Bool {
+    let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    return modifiers == .command && event.charactersIgnoringModifiers?.lowercased() == "q"
 }
 
 func menuTabShortcut(for event: NSEvent) -> DashboardController.MenuTab? {
@@ -301,180 +389,6 @@ func menuTabShortcut(for event: NSEvent) -> DashboardController.MenuTab? {
         return nil
     }
     return DashboardController.MenuTab.allCases[index - 1]
-}
-
-private final class RefreshMenuItemView: NSControl {
-    private let titleField = NSTextField(labelWithString: "Refresh")
-    private let shortcutField = NSTextField(labelWithString: "⌘R")
-    private var isHovering = false {
-        didSet {
-            updateSelectionAppearance(from: oldValue, to: isHovering)
-        }
-    }
-    private var isKeyboardSelecting = false {
-        didSet {
-            updateSelectionAppearance(from: oldValue, to: isKeyboardSelecting)
-        }
-    }
-    private var keyboardSelectionResetWorkItem: DispatchWorkItem?
-
-    init(target: AnyObject, action: Selector) {
-        super.init(frame: .zero)
-        self.target = target
-        self.action = action
-        setup()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var acceptsFirstResponder: Bool {
-        true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect],
-            owner: self
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        sendAction(action, to: target)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard isRefreshKeyEvent(event) else {
-            return super.performKeyEquivalent(with: event)
-        }
-        performKeyboardRefresh()
-        return true
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard isRefreshKeyEvent(event) else {
-            super.keyDown(with: event)
-            return
-        }
-        performKeyboardRefresh()
-    }
-
-    func showKeyboardSelection() {
-        keyboardSelectionResetWorkItem?.cancel()
-        isKeyboardSelecting = true
-        let resetWorkItem = DispatchWorkItem { [weak self] in
-            self?.isKeyboardSelecting = false
-        }
-        keyboardSelectionResetWorkItem = resetWorkItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + FooterActionLayout.keyboardSelectionDuration,
-            execute: resetWorkItem
-        )
-    }
-
-    private func performKeyboardRefresh() {
-        showKeyboardSelection()
-        sendAction(action, to: target)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard isSelected else {
-            return
-        }
-        NSColor.selectedContentBackgroundColor.setFill()
-        NSBezierPath(
-            roundedRect: bounds.insetBy(dx: FooterActionLayout.selectionInsetX, dy: FooterActionLayout.selectionInsetY),
-            xRadius: FooterActionLayout.selectionCornerRadius,
-            yRadius: FooterActionLayout.selectionCornerRadius
-        ).fill()
-    }
-
-    override func layout() {
-        super.layout()
-        let titleSize = titleField.intrinsicContentSize
-        let shortcutSize = shortcutField.intrinsicContentSize
-        let titleWidth = titleSize.width + FooterActionLayout.titleWidthPadding
-        let shortcutWidth = shortcutSize.width + FooterActionLayout.shortcutWidthPadding
-        titleField.frame = NSRect(
-            x: FooterActionLayout.titleLeading,
-            y: (bounds.height - titleSize.height) / 2,
-            width: min(titleWidth, bounds.width - FooterActionLayout.titleLeading - FooterActionLayout.shortcutTrailing - shortcutWidth),
-            height: titleSize.height
-        )
-        shortcutField.frame = NSRect(
-            x: bounds.width - FooterActionLayout.shortcutTrailing - shortcutWidth,
-            y: (bounds.height - shortcutSize.height) / 2,
-            width: shortcutWidth,
-            height: shortcutSize.height
-        )
-    }
-
-    private func setup() {
-        titleField.font = .menuFont(ofSize: 0)
-        shortcutField.font = .menuFont(ofSize: 0)
-        titleField.drawsBackground = false
-        shortcutField.drawsBackground = false
-        titleField.isSelectable = false
-        shortcutField.isSelectable = false
-        shortcutField.alignment = .right
-        updateColors()
-        addSubview(titleField)
-        addSubview(shortcutField)
-    }
-
-    private func updateColors() {
-        titleField.textColor = isSelected ? .selectedMenuItemTextColor : .labelColor
-        let shortcutColor: NSColor = isSelected ? .selectedMenuItemTextColor : .tertiaryLabelColor
-        shortcutField.attributedStringValue = NSAttributedString(
-            string: shortcutField.stringValue,
-            attributes: [
-                .font: shortcutField.font ?? NSFont.menuFont(ofSize: 0),
-                .foregroundColor: shortcutColor,
-                .kern: FooterActionLayout.shortcutKern
-            ]
-        )
-    }
-
-    private var isSelected: Bool {
-        isHovering || isKeyboardSelecting
-    }
-
-    var isSelectedForTesting: Bool {
-        isSelected
-    }
-
-    private func updateSelectionAppearance(from oldValue: Bool, to newValue: Bool) {
-        guard oldValue != newValue else {
-            return
-        }
-        updateColors()
-        needsDisplay = true
-    }
-}
-
-private struct FooterSeparatorView: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(height: 1)
-            .padding(.horizontal, FooterSeparatorLayout.horizontalPadding)
-            .padding(.vertical, FooterSeparatorLayout.verticalPadding)
-    }
 }
 
 enum StatusIcon {
