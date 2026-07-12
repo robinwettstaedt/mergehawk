@@ -115,6 +115,43 @@ enum SettingsTabLayout {
     static let labelSize: CGFloat = 11
 }
 
+private struct SettingsSurface: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let darkFillOpacity: Double
+    var showsBorder = false
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+
+        content
+            .background(fill, in: shape)
+            .overlay {
+                if showsBorder {
+                    shape.stroke(border, lineWidth: 1)
+                }
+            }
+    }
+
+    private var fill: Color {
+        colorScheme == .dark
+            ? Color.gray.opacity(darkFillOpacity)
+            : Color.black.opacity(0.035)
+    }
+
+    private var border: Color {
+        colorScheme == .dark
+            ? Color.gray.opacity(0.22)
+            : Color.black.opacity(0.10)
+    }
+}
+
+private extension View {
+    func settingsSurface(darkFillOpacity: Double, showsBorder: Bool = false) -> some View {
+        modifier(SettingsSurface(darkFillOpacity: darkFillOpacity, showsBorder: showsBorder))
+    }
+}
+
 private struct SettingsTabBar: View {
     @Binding var selection: SettingsTab
 
@@ -545,7 +582,7 @@ private struct GitHubSettingsView: View {
             signInModeButton("Personal Access Token", mode: .pat)
         }
         .padding(3)
-        .background(Color.gray.opacity(0.18), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .settingsSurface(darkFillOpacity: 0.18)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sign-in method")
     }
@@ -908,11 +945,7 @@ private struct GitHubAppAccessNotes: View {
                 .padding(.vertical, 10)
             }
         }
-        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
-        )
+        .settingsSurface(darkFillOpacity: 0.14, showsBorder: true)
     }
 
     private var patNoteRow: some View {
@@ -965,11 +998,7 @@ private struct PATContextNotes: View {
                 text: "MergeHawk only requests read-only access — it never writes to your account."
             )
         }
-        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
-        )
+        .settingsSurface(darkFillOpacity: 0.14, showsBorder: true)
     }
 
     private func noteRow(icon: String, text: String) -> some View {
@@ -1006,11 +1035,7 @@ private struct PATAccessNotes: View {
                 footer: "Does not support Notifications > Other"
             )
         }
-        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
-        )
+        .settingsSurface(darkFillOpacity: 0.14, showsBorder: true)
     }
 
     private func noteRow(icon: String, title: String, isRecommended: Bool = false, scopes: [String], footer: String) -> some View {

@@ -53,13 +53,12 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: signedOutController,
                 to: outputURL.appendingPathComponent("menu-signed-out.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: signedOutController,
                     settingsWindowState: SettingsWindowState(selection: .github),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-signed-out.png")
             )
         }
@@ -72,14 +71,16 @@ final class VisualVerificationXCTests: XCTestCase {
                 automaticRefreshInterval: 0
             )
             patIdleController.openGitHubSettingsInPATMode = true
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: patIdleController,
                     settingsWindowState: SettingsWindowState(selection: .github),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
-                to: outputURL.appendingPathComponent("settings-github-pat-idle.png")
+                to: outputURL.appendingPathComponent("settings-github-pat-idle.png"),
+                prepareLightRender: {
+                    patIdleController.openGitHubSettingsInPATMode = true
+                }
             )
         }
 
@@ -104,15 +105,17 @@ final class VisualVerificationXCTests: XCTestCase {
             } && patLoadingClient.isWaitingForViewer
         }
         try await MainActor.run {
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: patLoadingController,
                     settingsWindowState: SettingsWindowState(selection: .github),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-pat-loading.png"),
-                pausesAnimations: true
+                pausesAnimations: true,
+                prepareLightRender: {
+                    patLoadingController.openGitHubSettingsInPATMode = true
+                }
             )
             patLoadingClient.finishViewerFetch()
         }
@@ -146,13 +149,12 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: pendingSignInController,
                 to: outputURL.appendingPathComponent("menu-sign-in-pending.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: pendingSignInController,
                     settingsWindowState: SettingsWindowState(selection: .github),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-sign-in-pending.png")
             )
             pendingSignInController.cancelDeviceFlowSignIn()
@@ -184,13 +186,12 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: loadingSignInController,
                 to: outputURL.appendingPathComponent("menu-sign-in-loading.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: loadingSignInController,
                     settingsWindowState: SettingsWindowState(selection: .github),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-github-sign-in-loading.png")
             )
             loadingClient.finishPullRequestFetch()
@@ -246,52 +247,47 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: accessPromptController,
                 to: outputURL.appendingPathComponent("menu-repository-access-requested.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: accessPromptController,
                     settingsWindowState: SettingsWindowState(selection: .sources),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources-repository-access.png")
             )
         }
 
         try await MainActor.run {
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: controller,
                     settingsWindowState: SettingsWindowState(selection: .general),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-general.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: controller,
                     settingsWindowState: SettingsWindowState(selection: .general),
                     softwareUpdateController: SoftwareUpdateController.testing()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-general-updates.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: controller,
                     settingsWindowState: SettingsWindowState(selection: .notifications),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-notifications.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: controller,
                     settingsWindowState: SettingsWindowState(selection: .about),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-about.png")
             )
             controller.selectedTab = .notifications
@@ -433,23 +429,21 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.markAllNotificationsRead()
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-read.png"))
 
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: controller,
                     settingsWindowState: SettingsWindowState(selection: .sources),
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources.png")
             )
-            try render(
+            try renderSettings(
                 SettingsRootView(
                     controller: controller,
                     settingsWindowState: SettingsWindowState(selection: .sources),
                     softwareUpdateController: SoftwareUpdateController.disabled(),
                     initialSourcesSearchState: ExpandableSearchState(isExpanded: true, query: "example")
                 ),
-                size: SettingsTab.defaultWindowSize,
                 to: outputURL.appendingPathComponent("settings-sources-search-example.png")
             )
         }
@@ -480,6 +474,38 @@ final class VisualVerificationXCTests: XCTestCase {
         let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
         let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
         try render(view, size: size, appearance: .aqua, to: lightURL)
+    }
+
+    @MainActor
+    private func renderSettings<Content: View>(
+        _ makeView: @autoclosure () -> Content,
+        to url: URL,
+        pausesAnimations: Bool = false,
+        prepareLightRender: () -> Void = {}
+    ) throws {
+        let size = SettingsTab.defaultWindowSize
+        let darkView = makeView()
+            .background(Color(nsColor: .windowBackgroundColor))
+        try render(
+            darkView,
+            size: size,
+            appearance: .darkAqua,
+            to: url,
+            pausesAnimations: pausesAnimations
+        )
+
+        prepareLightRender()
+        let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
+        let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
+        let lightView = makeView()
+            .background(Color(nsColor: .windowBackgroundColor))
+        try render(
+            lightView,
+            size: size,
+            appearance: .aqua,
+            to: lightURL,
+            pausesAnimations: pausesAnimations
+        )
     }
 
     @MainActor
