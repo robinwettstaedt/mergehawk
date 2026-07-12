@@ -188,6 +188,11 @@ final class DashboardController: ObservableObject {
             preferencesStore.pinnedPullRequestIds = pinnedPullRequestIds
         }
     }
+    @Published var hiddenPullRequestIds: Set<String> {
+        didSet {
+            preferencesStore.hiddenPullRequestIds = hiddenPullRequestIds
+        }
+    }
     @Published var sourcePreferences: SourcePreferences {
         didSet {
             preferencesStore.sourcePreferences = sourcePreferences
@@ -308,6 +313,7 @@ final class DashboardController: ObservableObject {
         self.selectedPullRequestFilters = preferencesStore.selectedPullRequestFilters
         self.selectedReviewRequestFilters = preferencesStore.selectedReviewRequestFilters
         self.pinnedPullRequestIds = preferencesStore.pinnedPullRequestIds
+        self.hiddenPullRequestIds = preferencesStore.hiddenPullRequestIds
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.sourceCatalog = preferencesStore.sourceCatalog
         self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
@@ -406,13 +412,17 @@ final class DashboardController: ObservableObject {
     }
 
     var sortedMyPullRequests: [PullRequest] {
-        return Self.sortedWithPins(
-            Self.filtered(
-                sourceFilteredMyPullRequests,
-                by: selectedPullRequestFilters,
-                attentionPullRequestIds: unreadPullRequestNotificationIds
-            ),
+        Self.sortedWithPins(
+            filteredMyPullRequests.filter { !hiddenPullRequestIds.contains($0.id) },
             pinnedIds: pinnedPullRequestIds,
+            by: pullRequestSortOption,
+            direction: pullRequestSortDirection
+        )
+    }
+
+    var hiddenMyPullRequests: [PullRequest] {
+        Self.sorted(
+            filteredMyPullRequests.filter { hiddenPullRequestIds.contains($0.id) },
             by: pullRequestSortOption,
             direction: pullRequestSortDirection
         )
@@ -420,13 +430,33 @@ final class DashboardController: ObservableObject {
 
     var sortedReviewRequests: [PullRequest] {
         Self.sortedWithPins(
-            Self.filteredReviewRequests(
-                sourceFilteredReviewRequests,
-                by: selectedReviewRequestFilters
-            ),
+            filteredReviewRequests.filter { !hiddenPullRequestIds.contains($0.id) },
             pinnedIds: pinnedPullRequestIds,
             by: pullRequestSortOption,
             direction: pullRequestSortDirection
+        )
+    }
+
+    var hiddenReviewRequests: [PullRequest] {
+        Self.sorted(
+            filteredReviewRequests.filter { hiddenPullRequestIds.contains($0.id) },
+            by: pullRequestSortOption,
+            direction: pullRequestSortDirection
+        )
+    }
+
+    private var filteredMyPullRequests: [PullRequest] {
+        Self.filtered(
+            sourceFilteredMyPullRequests,
+            by: selectedPullRequestFilters,
+            attentionPullRequestIds: unreadPullRequestNotificationIds
+        )
+    }
+
+    private var filteredReviewRequests: [PullRequest] {
+        Self.filteredReviewRequests(
+            sourceFilteredReviewRequests,
+            by: selectedReviewRequestFilters
         )
     }
 
@@ -791,11 +821,25 @@ final class DashboardController: ObservableObject {
         pinnedPullRequestIds.contains(pullRequest.id)
     }
 
+    func isHidden(_ pullRequest: PullRequest) -> Bool {
+        hiddenPullRequestIds.contains(pullRequest.id)
+    }
+
     func togglePin(_ pullRequest: PullRequest) {
         if pinnedPullRequestIds.contains(pullRequest.id) {
             pinnedPullRequestIds.remove(pullRequest.id)
         } else {
+            hiddenPullRequestIds.remove(pullRequest.id)
             pinnedPullRequestIds.insert(pullRequest.id)
+        }
+    }
+
+    func toggleHide(_ pullRequest: PullRequest) {
+        if hiddenPullRequestIds.contains(pullRequest.id) {
+            hiddenPullRequestIds.remove(pullRequest.id)
+        } else {
+            pinnedPullRequestIds.remove(pullRequest.id)
+            hiddenPullRequestIds.insert(pullRequest.id)
         }
     }
 

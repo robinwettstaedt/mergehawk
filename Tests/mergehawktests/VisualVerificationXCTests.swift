@@ -306,6 +306,32 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-pinned.png"))
             controller.pinnedPullRequestIds = []
+            controller.hiddenPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(2).map(\.id))
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-hidden-collapsed.png"))
+            try render(
+                PullRequestListView(
+                    controller: controller,
+                    mode: .authored,
+                    hiddenPullRequestsExpanded: true
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(.regularMaterial),
+                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded.png")
+            )
+            try render(
+                PullRequestListView(
+                    controller: controller,
+                    mode: .authored,
+                    hiddenPullRequestsExpanded: true
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(.regularMaterial),
+                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                appearance: .aqua,
+                to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded-light.png")
+            )
+            controller.hiddenPullRequestIds = []
             let populatedSourcePreferences = controller.sourcePreferences
             controller.setOwnerPreferences(
                 owner: "mergehawk-labs",
@@ -332,6 +358,35 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
             controller.pinnedPullRequestIds = []
+            controller.hiddenPullRequestIds = Set(controller.sortedReviewRequests.prefix(2).map(\.id))
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-hidden-collapsed.png")
+            )
+            try render(
+                PullRequestListView(
+                    controller: controller,
+                    mode: .reviewRequests,
+                    hiddenPullRequestsExpanded: true
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(.regularMaterial),
+                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded.png")
+            )
+            try render(
+                PullRequestListView(
+                    controller: controller,
+                    mode: .reviewRequests,
+                    hiddenPullRequestsExpanded: true
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(.regularMaterial),
+                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                appearance: .aqua,
+                to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded-light.png")
+            )
+            controller.hiddenPullRequestIds = []
             controller.setOwnerPreferences(
                 owner: "mergehawk-labs",
                 preferences: OwnerSourcePreferences(
