@@ -23,6 +23,8 @@ The main agent may inspect files and diffs, run read-only or verification comman
   10. stop for user review and approval
   11. `mergehawk-pr-handoff` only after user approval or an explicit PR handoff request
 
+- When resuming an active issue, check `docs/issue-plans/<ISSUE-ID>.md` before repeating completed workflow phases. If the document records user-approved decisions and the Linear/repository state has not materially changed, resume from its stated next workflow phase.
+
 - Use the shared vocabulary in `docs/glossary.md` when discussing product behavior with the user, writing docs, naming tests, or creating agent task summaries.
 
 - Treat this as a greenfield project. Prefer direct, scoped implementations and do not add speculative fallbacks, backwards-compatibility paths, broad defensive guards, migration layers, or extra configuration unless the current issue or existing behavior clearly requires them.

@@ -558,6 +558,16 @@ enum PullRequestListCopy {
     static let noFilterMatches = "No PRs match these filters."
 }
 
+enum HiddenPullRequestsDisclosurePresentation {
+    static func title(count: Int) -> String {
+        "Hidden (\(count))"
+    }
+
+    static func accessibilityLabel(count: Int, isExpanded: Bool) -> String {
+        "\(title(count: count)), \(isExpanded ? "expanded" : "collapsed")"
+    }
+}
+
 enum PullRequestRowMetadataPresentation {
     static func text(for pullRequest: PullRequest, showsAuthor: Bool) -> String {
         if showsAuthor {
@@ -580,6 +590,14 @@ enum PullRequestPinPresentation {
 
     static func label(isPinned: Bool) -> String {
         isPinned ? "Unpin PR" : "Pin PR"
+    }
+}
+
+enum PullRequestHidePresentation {
+    static let symbolName = "eye.slash"
+
+    static func label(isHidden: Bool) -> String {
+        isHidden ? "Unhide PR" : "Hide PR"
     }
 }
 
@@ -1537,7 +1555,7 @@ private extension RunLoop.Mode {
     static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
 }
 
-private struct PullRequestListView: View {
+struct PullRequestListView: View {
     enum Layout {
         static let controlsHeight: CGFloat = 40
     }
@@ -1551,15 +1569,18 @@ private struct PullRequestListView: View {
     let mode: Mode
     let dismissSignal: Int
     @State private var dropdownState = PullRequestMenuDropdownState()
+    @State private var isHiddenExpanded: Bool
 
     init(
         controller: DashboardController,
         mode: Mode,
-        dismissSignal: Int = 0
+        dismissSignal: Int = 0,
+        hiddenPullRequestsExpanded: Bool = false
     ) {
         self.controller = controller
         self.mode = mode
         self.dismissSignal = dismissSignal
+        _isHiddenExpanded = State(initialValue: hiddenPullRequestsExpanded)
     }
 
     var body: some View {
@@ -1614,29 +1635,43 @@ private struct PullRequestListView: View {
         }
     }
 
+    private var hiddenPullRequests: [PullRequest] {
+        switch mode {
+        case .authored:
+            controller.hiddenMyPullRequests
+        case .reviewRequests:
+            controller.hiddenReviewRequests
+        }
+    }
+
+    private var matchingPullRequestCount: Int {
+        visiblePullRequests.count + hiddenPullRequests.count
+    }
+
     @ViewBuilder
     private var content: some View {
         if controller.showsGitHubAppRepositoryAccessPrompt {
             GitHubAppRepositoryAccessPrompt(controller: controller)
         } else if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
-        } else if visiblePullRequests.isEmpty {
+        } else if matchingPullRequestCount == 0 {
             EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 8) {
                     ForEach(visiblePullRequests) { pr in
-                        PullRequestRow(
-                            pullRequest: pr,
-                            isAttention: controller.isUnreadPullRequest(pr),
-                            isPinned: controller.isPinned(pr),
-                            showsReviewRequestKind: mode == .reviewRequests,
-                            showsAuthor: mode == .reviewRequests,
-                            togglePin: {
-                                controller.togglePin(pr)
+                        pullRequestRow(pr)
+                            .id("visible-\(pr.id)")
+                    }
+
+                    if !hiddenPullRequests.isEmpty {
+                        hiddenDisclosure
+
+                        if isHiddenExpanded {
+                            ForEach(hiddenPullRequests) { pr in
+                                pullRequestRow(pr)
+                                    .id("hidden-\(pr.id)")
                             }
-                        ) {
-                            controller.openPullRequest(pr)
                         }
                     }
                 }
@@ -1648,6 +1683,49 @@ private struct PullRequestListView: View {
                 dismissTransientControls()
             })
         }
+    }
+
+    private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
+        PullRequestRow(
+            pullRequest: pullRequest,
+            isAttention: controller.isUnreadPullRequest(pullRequest),
+            isPinned: controller.isPinned(pullRequest),
+            isHidden: controller.isHidden(pullRequest),
+            showsReviewRequestKind: mode == .reviewRequests,
+            showsAuthor: mode == .reviewRequests,
+            toggleHide: {
+                controller.toggleHide(pullRequest)
+            },
+            togglePin: {
+                controller.togglePin(pullRequest)
+            }
+        ) {
+            controller.openPullRequest(pullRequest)
+        }
+    }
+
+    private var hiddenDisclosure: some View {
+        Button {
+            isHiddenExpanded.toggle()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: isHiddenExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(HiddenPullRequestsDisclosurePresentation.title(count: hiddenPullRequests.count))
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(HiddenPullRequestsDisclosurePresentation.title(count: hiddenPullRequests.count))
+        .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
+            count: hiddenPullRequests.count,
+            isExpanded: isHiddenExpanded
+        ))
     }
 
     private var hasSourcePullRequests: Bool {
@@ -1669,11 +1747,11 @@ private struct PullRequestListView: View {
     }
 
     private var visibleCountLabel: String {
-        CountSearchPresentation.countLabel(for: visiblePullRequests.count, singular: "PR", plural: "PRs")
+        CountSearchPresentation.countLabel(for: matchingPullRequestCount, singular: "PR", plural: "PRs")
     }
 
     private var visibleCount: some View {
-        Text("\(visiblePullRequests.count)")
+        Text("\(matchingPullRequestCount)")
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.secondary)
             .monospacedDigit()
@@ -2102,8 +2180,10 @@ private struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
     let isPinned: Bool
+    let isHidden: Bool
     var showsReviewRequestKind = false
     var showsAuthor = false
+    let toggleHide: () -> Void
     let togglePin: () -> Void
     let action: () -> Void
 
@@ -2170,7 +2250,7 @@ private struct PullRequestRow: View {
                                 AssignedPullRequestPill()
                             }
                         }
-                        Spacer(minLength: 28)
+                        Spacer(minLength: PullRequestActionButtonLayout.hitSize * 3)
                     }
                 }
                 .padding(10)
@@ -2182,6 +2262,7 @@ private struct PullRequestRow: View {
             .buttonStyle(.plain)
 
             HStack(spacing: 0) {
+                PullRequestHideButton(isHidden: isHidden, isVisible: isHidden || isHovered, action: toggleHide)
                 PullRequestPinButton(isPinned: isPinned, isVisible: isPinned || isHovered, action: togglePin)
                 PullRequestLinkCopyButton(url: pullRequest.url)
             }
@@ -2189,6 +2270,29 @@ private struct PullRequestRow: View {
                 .padding(.bottom, 5)
         }
         .onHover { isHovered = $0 }
+    }
+}
+
+private struct PullRequestHideButton: View {
+    let isHidden: Bool
+    let isVisible: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: PullRequestHidePresentation.symbolName)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
+                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .opacity(isVisible ? 1 : 0)
+        .allowsHitTesting(isVisible)
+        .help(PullRequestHidePresentation.label(isHidden: isHidden))
+        .accessibilityLabel(PullRequestHidePresentation.label(isHidden: isHidden))
+        .accessibilityHidden(!isVisible)
     }
 }
 
