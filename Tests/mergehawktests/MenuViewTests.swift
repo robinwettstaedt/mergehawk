@@ -184,6 +184,15 @@ final class MenuViewTests: XCTestCase {
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests or assigned PRs.")
     precondition(PullRequestListCopy.noFilterMatches == "No PRs match these filters.")
+    precondition(HiddenPullRequestsDisclosurePresentation.title(count: 3) == "Hidden (3)")
+    precondition(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
+        count: 3,
+        isExpanded: false
+    ) == "Hidden (3), collapsed")
+    precondition(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
+        count: 3,
+        isExpanded: true
+    ) == "Hidden (3), expanded")
     let otherCommitNotificationPullRequest = PullRequest(
         id: "other-commit",
         title: "Other commit notification",
@@ -239,6 +248,9 @@ final class MenuViewTests: XCTestCase {
     precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin PR")
     precondition(PullRequestPinPresentation.label(isPinned: true) == "Unpin PR")
     precondition(PullRequestPinPresentation.rotationDegrees == 35.0)
+    precondition(PullRequestHidePresentation.symbolName == "eye.slash")
+    precondition(PullRequestHidePresentation.label(isHidden: false) == "Hide PR")
+    precondition(PullRequestHidePresentation.label(isHidden: true) == "Unhide PR")
 
     var searchState = ExpandableSearchState()
     precondition(!searchState.isExpanded)

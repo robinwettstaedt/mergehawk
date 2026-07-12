@@ -911,6 +911,91 @@ private enum TestTimeout: Error {
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
 }()
 
+@MainActor let mergehawkHiddenPullRequestOrganizationTest: Void = {
+    let suiteName = "mergehawk-hidden-organization-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+    let controller = DashboardController(
+        tokenStore: InMemoryTokenStore(),
+        preferencesStore: PreferencesStore(defaults: defaults),
+        launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+        automaticRefreshInterval: 0
+    )
+
+    waitUntil(timeout: 1.0) {
+        controller.state.syncedAt != nil
+    }
+
+    let authored = controller.sourceFilteredMyPullRequests
+    let firstAuthored = authored[0]
+    controller.pinnedPullRequestIds = [firstAuthored.id]
+    controller.toggleHide(firstAuthored)
+    precondition(controller.isHidden(firstAuthored))
+    precondition(!controller.isPinned(firstAuthored))
+    precondition(PreferencesStore(defaults: defaults).hiddenPullRequestIds == [firstAuthored.id])
+
+    controller.togglePin(firstAuthored)
+    precondition(controller.isPinned(firstAuthored))
+    precondition(!controller.isHidden(firstAuthored))
+    precondition(PreferencesStore(defaults: defaults).pinnedPullRequestIds == [firstAuthored.id])
+    precondition(PreferencesStore(defaults: defaults).hiddenPullRequestIds.isEmpty)
+
+    controller.togglePin(firstAuthored)
+    controller.toggleHide(firstAuthored)
+    controller.toggleHide(firstAuthored)
+    precondition(!controller.isHidden(firstAuthored))
+    precondition(!controller.isPinned(firstAuthored))
+
+    controller.hiddenPullRequestIds = ["PR_1", "PR_4", "PR_6"]
+    controller.pullRequestSortOption = .createdDate
+    controller.pullRequestSortDirection = .descending
+    precondition(controller.sortedMyPullRequests.isEmpty)
+    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_6", "PR_4", "PR_1"])
+    controller.pullRequestSortDirection = .ascending
+    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6"])
+
+    controller.hiddenPullRequestIds = ["PR_4"]
+    controller.pullRequestSortDirection = .descending
+    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_1"])
+    controller.pullRequestSortDirection = .ascending
+    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_1", "PR_6"])
+
+    controller.selectedPullRequestFilters = [.draft]
+    precondition(controller.hiddenMyPullRequests.isEmpty)
+    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_1"])
+
+    controller.selectedPullRequestFilters = []
+    controller.hiddenPullRequestIds = ["PR_2", "PR_3", "PR_5", "PR_7"]
+    controller.pullRequestSortOption = .updatedDate
+    controller.pullRequestSortDirection = .descending
+    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7", "PR_3", "PR_2", "PR_5"])
+    controller.pullRequestSortDirection = .ascending
+    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_5", "PR_2", "PR_3", "PR_7"])
+
+    controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
+    controller.pullRequestSortDirection = .descending
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_3"])
+    controller.pullRequestSortDirection = .ascending
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3", "PR_7"])
+
+    controller.hiddenPullRequestIds = ["PR_7"]
+    controller.selectedReviewRequestFilters = [.assigned]
+    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7"])
+    precondition(controller.sortedReviewRequests.isEmpty)
+
+    controller.setRepositoryPreferences(
+        repo: "mergehawk-labs/review-router",
+        preferences: RepositorySourcePreferences(
+            notifications: .inherit,
+            myPullRequests: .inherit,
+            reviewRequests: .disabled
+        )
+    )
+    precondition(controller.hiddenReviewRequests.isEmpty)
+}()
+
 @MainActor let mergehawkSourcePreferencesFilterDashboardListsTest: Void = {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),

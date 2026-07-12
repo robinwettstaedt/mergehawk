@@ -175,13 +175,19 @@ struct PreferencesStore {
 
     var pinnedPullRequestIds: Set<String> {
         get {
-            Set((defaults.stringArray(forKey: "pullRequests.pinnedIds") ?? []).compactMap { rawValue in
-                let id = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                return id.isEmpty ? nil : id
-            })
+            normalizedPullRequestIds(for: "pullRequests.pinnedIds")
         }
         set {
             defaults.set(newValue.sorted(), forKey: "pullRequests.pinnedIds")
+        }
+    }
+
+    var hiddenPullRequestIds: Set<String> {
+        get {
+            normalizedPullRequestIds(for: "pullRequests.hiddenIds")
+        }
+        set {
+            defaults.set(newValue.sorted(), forKey: "pullRequests.hiddenIds")
         }
     }
 
@@ -231,6 +237,13 @@ struct PreferencesStore {
 
     private func value(for key: String, fallback: Bool) -> Bool {
         defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key)
+    }
+
+    private func normalizedPullRequestIds(for key: String) -> Set<String> {
+        Set((defaults.stringArray(forKey: key) ?? []).compactMap { rawValue in
+            let id = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            return id.isEmpty ? nil : id
+        })
     }
 
     private func decoded<Value: Decodable>(for key: String, fallback: Value) -> Value {
