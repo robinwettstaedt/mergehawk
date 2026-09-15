@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import plistlib
 import shutil
@@ -110,7 +111,9 @@ class VerificationRunTests(unittest.TestCase):
             verification_run.run_context(root, "review", str(run_dir))
         self.assertNotEqual(artifact_before, verification_run.artifact_hash(source))
 
-    def test_app_validation_rejects_nonexecutable_bundle_binary(self) -> None:
+    def test_app_validation_rejects_other_execute_without_owner_execute(self) -> None:
+        if os.geteuid() == 0:
+            self.skipTest("effective root bypasses current-user execute permission checks")
         root = self.make_repo("nonexecutable app repo")
         run_dir = verification_run.begin(root, "review")
         slot, _, resolved_run, _ = verification_run.run_context(root, "review", str(run_dir))
@@ -119,7 +122,8 @@ class VerificationRunTests(unittest.TestCase):
         executable = bundle / "Contents" / "MacOS" / app["executable_name"]
         executable.parent.mkdir(parents=True)
         executable.write_bytes(b"not executable")
-        executable.chmod(0o644)
+        executable.chmod(0o601)
+        self.assertFalse(os.access(executable, os.X_OK))
         with (bundle / "Contents" / "Info.plist").open("wb") as handle:
             plistlib.dump(
                 {

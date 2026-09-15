@@ -365,7 +365,7 @@ def validate_app_bundle(
     executable_path = path / "Contents" / "MacOS" / str(app["executable_name"])
     if not plist_path.is_file() or not executable_path.is_file():
         raise VerificationError(f"incomplete app bundle: {path}")
-    if (stat.S_IMODE(executable_path.stat().st_mode) & 0o111) == 0:
+    if not os.access(executable_path, os.X_OK):
         raise VerificationError(f"slot executable is not executable: {executable_path}")
     with plist_path.open("rb") as handle:
         plist = plistlib.load(handle)
