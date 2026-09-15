@@ -52,10 +52,8 @@ APP_NAME="$("$HELPER" --root "$ROOT_DIR" info --slot "$SLOT" --run-dir "$RUN_DIR
 BUNDLE_ID="$("$HELPER" --root "$ROOT_DIR" info --slot "$SLOT" --run-dir "$RUN_DIR" --field bundle-id)"
 EXECUTABLE_NAME="$("$HELPER" --root "$ROOT_DIR" info --slot "$SLOT" --run-dir "$RUN_DIR" --field executable-name)"
 PACKAGED_APP="$("$HELPER" --root "$ROOT_DIR" info --slot "$SLOT" --run-dir "$RUN_DIR" --field packaged-app)"
-NOTIFICATION_PATH="$("$HELPER" --root "$ROOT_DIR" info --slot "$SLOT" --run-dir "$RUN_DIR" --field notifications)"
 LOG_PATH="$RUN_DIR/logs/verify.log"
-printf -v QUOTED_NOTIFICATION_PATH '%q' "$NOTIFICATION_PATH"
-LAUNCH_ENVIRONMENT="MERGEHAWK_MOCK_MODE=1 MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS=3 MERGEHAWK_NOTIFICATION_LOG=$QUOTED_NOTIFICATION_PATH MERGEHAWK_SUPPRESS_MACOS_NOTIFICATIONS=1"
+LAUNCH_ENVIRONMENT="$("$HELPER" --root "$ROOT_DIR" launch-environment --slot "$SLOT" --run-dir "$RUN_DIR")"
 
 "$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command verify
 

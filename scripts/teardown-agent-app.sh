@@ -67,18 +67,46 @@ owned_pid() {
   [[ "$command" == "$RUNTIME_EXECUTABLE" || "$command" == "$RUNTIME_EXECUTABLE "* ]]
 }
 
+wait_for_owned_exit() {
+  local pid="$1"
+  for _ in {1..30}; do
+    if ! owned_pid "$pid"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+find_owned_pid() {
+  local line pid command
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    pid="${line%%[[:space:]]*}"
+    command="${line#"$pid"}"
+    command="${command#"${command%%[![:space:]]*}"}"
+    if [[ "$command" == "$RUNTIME_EXECUTABLE" || "$command" == "$RUNTIME_EXECUTABLE "* ]]; then
+      printf '%s\n' "$pid"
+      return 0
+    fi
+  done < <(ps -axo pid=,command=)
+  return 1
+}
+
 osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+pid=""
 if [[ -f "$PID_PATH" ]]; then
   pid="$(<"$PID_PATH")"
-  if owned_pid "$pid"; then
-    for _ in {1..30}; do
-      if ! owned_pid "$pid"; then
-        break
-      fi
-      sleep 0.1
-    done
-    if owned_pid "$pid"; then
-      kill "$pid"
+fi
+if ! owned_pid "$pid"; then
+  pid="$(find_owned_pid || true)"
+fi
+if owned_pid "$pid"; then
+  if ! wait_for_owned_exit "$pid"; then
+    kill "$pid"
+    if ! wait_for_owned_exit "$pid"; then
+      echo "Owned slot process did not exit after SIGTERM: $pid ($RUNTIME_EXECUTABLE)" >&2
+      exit 1
     fi
   fi
 fi

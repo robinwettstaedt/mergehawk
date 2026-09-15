@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shlex
 import subprocess
 import sys
 import uuid
@@ -297,7 +298,7 @@ def record_finish(root: Path, slot_name: str, run_dir: str, command: str, exit_c
 
 
 def record_app(root: Path, slot_name: str, run_dir: str, kind: str, values: dict[str, object]) -> None:
-    _, manifest, _, manifest_path = run_context(root, slot_name, run_dir)
+    _, manifest, _, manifest_path = run_context(root, slot_name, run_dir, check_source=False)
     app = manifest.setdefault("app", {})
     if not isinstance(app, dict):
         raise VerificationError("invalid app record")
@@ -351,14 +352,7 @@ def validate_app_bundle(
         raise VerificationError("app bundle identifier does not match the slot")
     if plist.get("CFBundleExecutable") != app["executable_name"]:
         raise VerificationError("app executable name does not match the slot")
-    expected_environment = {
-        "MERGEHAWK_MOCK_MODE": "1",
-        "MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS": "3",
-        "MERGEHAWK_NOTIFICATION_LOG": str(run_dir / "notifications.jsonl"),
-        "MERGEHAWK_SUPPRESS_MACOS_NOTIFICATIONS": "1",
-    }
-    if fixtures:
-        expected_environment["MERGEHAWK_NOTIFICATION_TYPE_FIXTURES"] = "1"
+    expected_environment = mock_launch_environment(run_dir, fixtures)
     if plist.get("LSEnvironment") != expected_environment:
         raise VerificationError("app LSEnvironment does not match this run's mock configuration")
     file_result = subprocess.run(
@@ -388,6 +382,49 @@ def validate_app_bundle(
             if record.get(key) != value:
                 raise VerificationError(f"recorded {kind} app does not match current {key}")
     return digest
+
+
+def mock_launch_environment(run_dir: Path, fixtures: bool) -> dict[str, str]:
+    environment = {
+        "MERGEHAWK_MOCK_MODE": "1",
+        "MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS": "3",
+        "MERGEHAWK_NOTIFICATION_LOG": str(run_dir / "notifications.jsonl"),
+        "MERGEHAWK_SUPPRESS_MACOS_NOTIFICATIONS": "1",
+    }
+    if fixtures:
+        environment["MERGEHAWK_NOTIFICATION_TYPE_FIXTURES"] = "1"
+    return environment
+
+
+def shell_launch_environment(run_dir: Path, fixtures: bool) -> str:
+    environment = mock_launch_environment(run_dir, fixtures)
+    return shlex.join(f"{key}={value}" for key, value in environment.items())
+
+
+def validate_required_commands(manifest: dict[str, object], run_dir: Path, required: list[str]) -> None:
+    commands = manifest.get("commands", {})
+    if not isinstance(commands, dict):
+        raise VerificationError("invalid commands in run manifest")
+    for command in required:
+        record = commands.get(command)
+        if not isinstance(record, dict) or record.get("status") != "success":
+            raise VerificationError(f"required command is not successful: {command}")
+        if command == "app":
+            details = record.get("details")
+            if not isinstance(details, dict) or details.get("opened") != "1":
+                raise VerificationError("required app command did not record an actual launch")
+            app = manifest.get("app")
+            if not isinstance(app, dict) or not isinstance(app.get("runtime"), dict):
+                raise VerificationError("required app command has no recorded runtime identity")
+        files = record.get("files")
+        if not isinstance(files, list):
+            raise VerificationError(f"required command has invalid evidence files: {command}")
+        for relative_value in files:
+            if not isinstance(relative_value, str):
+                raise VerificationError(f"required command has invalid evidence files: {command}")
+            path = (run_dir / relative_value).resolve()
+            if run_dir not in path.parents or not path.exists():
+                raise VerificationError(f"required command evidence is missing: {command}: {relative_value}")
 
 
 def field_value(slot: dict[str, object], run_dir: Path | None, field: str) -> str:
@@ -484,6 +521,11 @@ def make_parser() -> argparse.ArgumentParser:
     validate_app_parser.add_argument("--notification-type-fixtures", action="store_true")
     validate_app_parser.add_argument("--require-recorded", action="store_true")
 
+    environment_parser = subparsers.add_parser("launch-environment")
+    environment_parser.add_argument("--slot", required=True)
+    environment_parser.add_argument("--run-dir", required=True)
+    environment_parser.add_argument("--notification-type-fixtures", action="store_true")
+
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("--slot", required=True)
     status_parser.add_argument("--run-dir", required=True)
@@ -507,7 +549,7 @@ def main() -> int:
             slot, _ = load_slot(root, args.slot)
             resolved_run = None
             if args.run_dir:
-                slot, _, resolved_run, _ = run_context(root, args.slot, args.run_dir, check_source=not args.allow_stale)
+                slot, _, resolved_run, _ = run_context(root, args.slot, args.run_dir, check_source=False)
             print(field_value(slot, resolved_run, args.field))
         elif args.action == "identify":
             slot, _, _ = identify_run(root, args.run_dir)
@@ -530,15 +572,12 @@ def main() -> int:
                     args.require_recorded,
                 )
             )
+        elif args.action == "launch-environment":
+            _, _, resolved_run, _ = run_context(root, args.slot, args.run_dir, check_source=False)
+            print(shell_launch_environment(resolved_run, args.notification_type_fixtures))
         elif args.action == "status":
             _, manifest, resolved_run, _ = run_context(root, args.slot, args.run_dir)
-            commands = manifest.get("commands", {})
-            if not isinstance(commands, dict):
-                raise VerificationError("invalid commands in run manifest")
-            for command in args.require:
-                record = commands.get(command)
-                if not isinstance(record, dict) or record.get("status") != "success":
-                    raise VerificationError(f"required command is not successful: {command}")
+            validate_required_commands(manifest, resolved_run, args.require)
             print(f"fresh: {resolved_run}")
         elif args.action == "artifact-hash":
             print(artifact_hash(Path(args.path).expanduser()))

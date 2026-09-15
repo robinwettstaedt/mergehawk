@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -125,6 +126,69 @@ class VerificationRunTests(unittest.TestCase):
         self.assertIn("worktree with spaces", notification_path)
         self.assertIn("MergeHawk Visual-Review-", packaged_path)
 
+        expected_environment = verification_run.mock_launch_environment(resolved_run, fixtures=True)
+        emitted_environment = verification_run.shell_launch_environment(resolved_run, fixtures=True)
+        parsed_environment = dict(assignment.split("=", 1) for assignment in shlex.split(emitted_environment))
+        self.assertEqual(parsed_environment, expected_environment)
+        self.assertEqual(parsed_environment["MERGEHAWK_NOTIFICATION_LOG"], notification_path)
+
+    def test_identity_lookup_does_not_rehash_source(self) -> None:
+        root = self.make_repo("identity repo")
+        run_dir = verification_run.begin(root, "review")
+        original_source_state = verification_run.source_state
+        verification_run.source_state = lambda _: (_ for _ in ()).throw(AssertionError("source was rehashed"))
+        try:
+            slot, _, resolved_run, _ = verification_run.run_context(
+                root,
+                "review",
+                str(run_dir),
+                check_source=False,
+            )
+            self.assertEqual(verification_run.field_value(slot, resolved_run, "run-dir"), str(run_dir))
+        finally:
+            verification_run.source_state = original_source_state
+
+    def test_status_requires_actual_app_launch(self) -> None:
+        root = self.make_repo("prepare only repo")
+        run_dir = verification_run.begin(root, "review")
+        log = run_dir / "logs" / "app.log"
+        log.write_text("prepared\n", encoding="utf-8")
+        verification_run.record_start(root, "review", str(run_dir), "app", None)
+        verification_run.record_finish(
+            root,
+            "review",
+            str(run_dir),
+            "app",
+            0,
+            [str(log)],
+            ["opened=0"],
+        )
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+        with self.assertRaisesRegex(verification_run.VerificationError, "actual launch"):
+            verification_run.validate_required_commands(manifest, run_dir, ["app"])
+
+    def test_status_rejects_missing_recorded_evidence(self) -> None:
+        root = self.make_repo("missing evidence repo")
+        run_dir = verification_run.begin(root, "review")
+        log = run_dir / "logs" / "verify.log"
+        log.write_text("passed\n", encoding="utf-8")
+        verification_run.record_start(root, "review", str(run_dir), "verify", None)
+        verification_run.record_finish(
+            root,
+            "review",
+            str(run_dir),
+            "verify",
+            0,
+            [str(log)],
+            [],
+        )
+        log.unlink()
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+        with self.assertRaisesRegex(verification_run.VerificationError, "evidence is missing"):
+            verification_run.validate_required_commands(manifest, run_dir, ["verify"])
+
     def test_teardown_targets_only_exact_slot_and_preserves_runs(self) -> None:
         root = self.make_repo("teardown repo")
         scripts = root / "scripts"
@@ -147,10 +211,12 @@ class VerificationRunTests(unittest.TestCase):
 
         stubs = self.base / "command stubs"
         stubs.mkdir()
-        for command in ("osascript",):
-            stub = stubs / command
-            stub.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-            stub.chmod(0o755)
+        osascript_stub = stubs / "osascript"
+        osascript_stub.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        osascript_stub.chmod(0o755)
+        sleep_stub = stubs / "sleep"
+        sleep_stub.write_text("#!/usr/bin/env bash\n/bin/sleep 0.01\n", encoding="utf-8")
+        sleep_stub.chmod(0o755)
         environment = dict(**__import__("os").environ)
         environment["PATH"] = f"{stubs}:{environment['PATH']}"
         subprocess.run(
@@ -166,16 +232,28 @@ class VerificationRunTests(unittest.TestCase):
         self.assertTrue(alias_runtime.exists())
         self.assertTrue((run_dir / "manifest.json").exists())
 
-        runtime.mkdir()
-        (runtime / "owned-again.txt").write_text("owned", encoding="utf-8")
-        subprocess.run(
-            [str(scripts / "teardown-agent-app.sh"), "--slot", "Agent-3"],
-            cwd=root,
-            env=environment,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        slot_record = json.loads((exact_slot / "slot.json").read_text(encoding="utf-8"))
+        runtime_app = Path(slot_record["app"]["runtime_path"])
+        executable = runtime_app / "Contents" / "MacOS" / slot_record["app"]["executable_name"]
+        executable.parent.mkdir(parents=True)
+        shutil.copyfile("/bin/sleep", executable)
+        executable.chmod(0o755)
+        process = subprocess.Popen([str(executable), "60"])
+        (runtime / "pid").write_text(f"{process.pid}\n", encoding="utf-8")
+        try:
+            subprocess.run(
+                [str(scripts / "teardown-agent-app.sh"), "--slot", "Agent-3"],
+                cwd=root,
+                env=environment,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            process.wait(timeout=2)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=2)
         self.assertFalse(runtime.exists())
         self.assertTrue(alias_runtime.exists())
         self.assertTrue((run_dir / "manifest.json").exists())

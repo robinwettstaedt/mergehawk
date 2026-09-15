@@ -89,16 +89,15 @@ RUNTIME_DIR="$(dirname "$RUNTIME_APP")"
 RUNTIME_EXECUTABLE="$RUNTIME_APP/Contents/MacOS/$APP_EXECUTABLE_NAME"
 PID_PATH="$RUNTIME_DIR/pid"
 LOG_PATH="$RUN_DIR/logs/app.log"
-printf -v QUOTED_NOTIFICATION_PATH '%q' "$NOTIFICATION_PATH"
-LAUNCH_ENVIRONMENT="MERGEHAWK_MOCK_MODE=1 MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS=3 MERGEHAWK_NOTIFICATION_LOG=$QUOTED_NOTIFICATION_PATH MERGEHAWK_SUPPRESS_MACOS_NOTIFICATIONS=1"
-if [[ "$NOTIFICATION_TYPE_FIXTURES" == "1" ]]; then
-  LAUNCH_ENVIRONMENT="$LAUNCH_ENVIRONMENT MERGEHAWK_NOTIFICATION_TYPE_FIXTURES=1"
-fi
 
 FIXTURE_OPTION=""
 if [[ "$NOTIFICATION_TYPE_FIXTURES" == "1" ]]; then
   FIXTURE_OPTION="--notification-type-fixtures"
 fi
+LAUNCH_ENVIRONMENT="$("$HELPER" --root "$ROOT_DIR" launch-environment \
+  --slot "$SLOT" \
+  --run-dir "$RUN_DIR" \
+  $FIXTURE_OPTION)"
 
 owned_pid() {
   local pid="${1:-}"
@@ -110,24 +109,37 @@ owned_pid() {
   [[ "$command" == "$RUNTIME_EXECUTABLE" || "$command" == "$RUNTIME_EXECUTABLE "* ]]
 }
 
+wait_for_owned_exit() {
+  local pid="$1"
+  local attempt
+  for attempt in {1..30}; do
+    if ! owned_pid "$pid"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 stop_owned_runtime() {
+  local pid=""
   osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
   if [[ -f "$PID_PATH" ]]; then
-    local pid
     pid="$(<"$PID_PATH")"
-    if owned_pid "$pid"; then
-      local attempt
-      for attempt in {1..30}; do
-        if ! owned_pid "$pid"; then
-          break
-        fi
-        sleep 0.1
-      done
-      if owned_pid "$pid"; then
-        kill "$pid"
+  fi
+  if ! owned_pid "$pid"; then
+    pid="$(find_owned_pid || true)"
+  fi
+  if owned_pid "$pid"; then
+    if ! wait_for_owned_exit "$pid"; then
+      kill "$pid"
+      if ! wait_for_owned_exit "$pid"; then
+        echo "Owned slot process did not exit after SIGTERM: $pid ($RUNTIME_EXECUTABLE)" >&2
+        return 1
       fi
     fi
   fi
+  rm -f "$PID_PATH"
 }
 
 find_owned_pid() {
@@ -218,6 +230,11 @@ PY
       fi
       sleep 0.1
     done
+    sleep 0.5
+    if ! owned_pid "$pid"; then
+      echo "Slot process exited during post-launch health check: $pid ($RUNTIME_EXECUTABLE)" >&2
+      exit 1
+    fi
     printf '%s\n' "$pid" > "$PID_PATH"
     echo "Launched exact slot executable: $RUNTIME_EXECUTABLE (pid $pid)"
   else
@@ -254,7 +271,7 @@ if [[ -f "$NOTIFICATION_PATH" ]]; then
   finish_args+=(--file "$NOTIFICATION_PATH")
 fi
 if [[ "$exit_code" == "0" ]]; then
-  finish_args+=(--file "$RUNTIME_APP" --detail "bundle_id=$BUNDLE_ID" --detail "mock=true")
+  finish_args+=(--detail "bundle_id=$BUNDLE_ID" --detail "mock=true")
 fi
 "$HELPER" "${finish_args[@]}"
 
