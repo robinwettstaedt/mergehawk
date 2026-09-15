@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import plistlib
 import shutil
 import shlex
 import subprocess
@@ -95,6 +96,50 @@ class VerificationRunTests(unittest.TestCase):
         self.assertEqual(first_status, second_status)
         with self.assertRaisesRegex(verification_run.VerificationError, "source changed"):
             verification_run.run_context(root, "review", str(run_dir))
+
+    def test_chmod_invalidates_source_and_artifact_fingerprints(self) -> None:
+        root = self.make_repo("mode repo")
+        source = root / "source.txt"
+        source.chmod(0o644)
+        run_dir = verification_run.begin(root, "review")
+        artifact_before = verification_run.artifact_hash(source)
+
+        source.chmod(0o755)
+
+        with self.assertRaisesRegex(verification_run.VerificationError, "source changed"):
+            verification_run.run_context(root, "review", str(run_dir))
+        self.assertNotEqual(artifact_before, verification_run.artifact_hash(source))
+
+    def test_app_validation_rejects_nonexecutable_bundle_binary(self) -> None:
+        root = self.make_repo("nonexecutable app repo")
+        run_dir = verification_run.begin(root, "review")
+        slot, _, resolved_run, _ = verification_run.run_context(root, "review", str(run_dir))
+        app = slot["app"]
+        bundle = resolved_run / "app" / app["name"]
+        executable = bundle / "Contents" / "MacOS" / app["executable_name"]
+        executable.parent.mkdir(parents=True)
+        executable.write_bytes(b"not executable")
+        executable.chmod(0o644)
+        with (bundle / "Contents" / "Info.plist").open("wb") as handle:
+            plistlib.dump(
+                {
+                    "CFBundleIdentifier": app["bundle_id"],
+                    "CFBundleExecutable": app["executable_name"],
+                    "LSEnvironment": verification_run.mock_launch_environment(resolved_run, False),
+                },
+                handle,
+            )
+
+        with self.assertRaisesRegex(verification_run.VerificationError, "not executable"):
+            verification_run.validate_app_bundle(
+                root,
+                "review",
+                str(run_dir),
+                str(bundle),
+                "packaged",
+                False,
+                False,
+            )
 
     def test_failed_stage_cannot_be_reused_or_changed_to_success(self) -> None:
         root = self.make_repo("failed capture")
@@ -189,6 +234,19 @@ class VerificationRunTests(unittest.TestCase):
         with self.assertRaisesRegex(verification_run.VerificationError, "evidence is missing"):
             verification_run.validate_required_commands(manifest, run_dir, ["verify"])
 
+    def test_ui_rejects_reserved_command_stage_names(self) -> None:
+        verify_ui = HELPER_PATH.with_name("verify-ui.sh")
+        for reserved_name in ("verify", "app"):
+            result = subprocess.run(
+                [str(verify_ui), "--stage", reserved_name],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(f"Reserved UI stage name: {reserved_name}", result.stderr)
+
     def test_teardown_targets_only_exact_slot_and_preserves_runs(self) -> None:
         root = self.make_repo("teardown repo")
         scripts = root / "scripts"
@@ -238,8 +296,15 @@ class VerificationRunTests(unittest.TestCase):
         executable.parent.mkdir(parents=True)
         shutil.copyfile("/bin/sleep", executable)
         executable.chmod(0o755)
-        process = subprocess.Popen([str(executable), "60"])
-        (runtime / "pid").write_text(f"{process.pid}\n", encoding="utf-8")
+        control_executable = alias_runtime / "control-sleep"
+        shutil.copyfile("/bin/sleep", control_executable)
+        control_executable.chmod(0o755)
+        processes = [
+            subprocess.Popen([str(executable), "60"]),
+            subprocess.Popen([str(executable), "60"]),
+        ]
+        control_process = subprocess.Popen([str(control_executable), "60"])
+        (runtime / "pid").write_text(f"{processes[0].pid}\n", encoding="utf-8")
         try:
             subprocess.run(
                 [str(scripts / "teardown-agent-app.sh"), "--slot", "Agent-3"],
@@ -249,11 +314,17 @@ class VerificationRunTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            process.wait(timeout=2)
-        finally:
-            if process.poll() is None:
-                process.terminate()
+            for process in processes:
                 process.wait(timeout=2)
+            self.assertIsNone(control_process.poll())
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=2)
+            if control_process.poll() is None:
+                control_process.terminate()
+                control_process.wait(timeout=2)
         self.assertFalse(runtime.exists())
         self.assertTrue(alias_runtime.exists())
         self.assertTrue((run_dir / "manifest.json").exists())

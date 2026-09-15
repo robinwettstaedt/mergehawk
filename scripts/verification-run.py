@@ -12,6 +12,7 @@ from pathlib import Path
 import plistlib
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import uuid
@@ -97,16 +98,31 @@ def git_paths(root: Path) -> list[str]:
 def hash_file_state(root: Path, relative_path: str) -> dict[str, str]:
     path = root / relative_path
     if path.is_symlink():
-        return {"path": relative_path, "kind": "symlink", "sha256": hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()}
+        return {
+            "path": relative_path,
+            "kind": "symlink",
+            "mode": format(stat.S_IMODE(path.lstat().st_mode), "04o"),
+            "sha256": hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest(),
+        }
     if not path.exists():
-        return {"path": relative_path, "kind": "missing", "sha256": ""}
+        return {"path": relative_path, "kind": "missing", "mode": "", "sha256": ""}
     if not path.is_file():
-        return {"path": relative_path, "kind": "other", "sha256": ""}
+        return {
+            "path": relative_path,
+            "kind": "other",
+            "mode": format(stat.S_IMODE(path.stat().st_mode), "04o"),
+            "sha256": "",
+        }
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return {"path": relative_path, "kind": "file", "sha256": digest.hexdigest()}
+    return {
+        "path": relative_path,
+        "kind": "file",
+        "mode": format(stat.S_IMODE(path.stat().st_mode), "04o"),
+        "sha256": digest.hexdigest(),
+    }
 
 
 def source_state(root: Path) -> dict[str, object]:
@@ -133,6 +149,9 @@ def artifact_hash(path: Path) -> str:
         relative = item.relative_to(base).as_posix().encode()
         digest.update(len(relative).to_bytes(8, "big"))
         digest.update(relative)
+        mode = format(stat.S_IMODE(item.lstat().st_mode), "04o").encode()
+        digest.update(len(mode).to_bytes(8, "big"))
+        digest.update(mode)
         if item.is_symlink():
             content = os.fsencode(os.readlink(item))
         else:
@@ -346,6 +365,8 @@ def validate_app_bundle(
     executable_path = path / "Contents" / "MacOS" / str(app["executable_name"])
     if not plist_path.is_file() or not executable_path.is_file():
         raise VerificationError(f"incomplete app bundle: {path}")
+    if (stat.S_IMODE(executable_path.stat().st_mode) & 0o111) == 0:
+        raise VerificationError(f"slot executable is not executable: {executable_path}")
     with plist_path.open("rb") as handle:
         plist = plistlib.load(handle)
     if plist.get("CFBundleIdentifier") != app["bundle_id"]:
@@ -482,7 +503,6 @@ def make_parser() -> argparse.ArgumentParser:
     info_parser = subparsers.add_parser("info")
     info_parser.add_argument("--slot", required=True)
     info_parser.add_argument("--run-dir")
-    info_parser.add_argument("--allow-stale", action="store_true")
     info_parser.add_argument("--field", required=True)
 
     identify_parser = subparsers.add_parser("identify")

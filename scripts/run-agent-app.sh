@@ -109,11 +109,25 @@ owned_pid() {
   [[ "$command" == "$RUNTIME_EXECUTABLE" || "$command" == "$RUNTIME_EXECUTABLE "* ]]
 }
 
-wait_for_owned_exit() {
-  local pid="$1"
+find_owned_pids() {
+  local line pid command found=1
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    pid="${line%%[[:space:]]*}"
+    command="${line#"$pid"}"
+    command="${command#"${command%%[![:space:]]*}"}"
+    if [[ "$command" == "$RUNTIME_EXECUTABLE" || "$command" == "$RUNTIME_EXECUTABLE "* ]]; then
+      printf '%s\n' "$pid"
+      found=0
+    fi
+  done < <(ps -axo pid=,command=)
+  return "$found"
+}
+
+wait_for_all_owned_exit() {
   local attempt
   for attempt in {1..30}; do
-    if ! owned_pid "$pid"; then
+    if [[ -z "$(find_owned_pids || true)" ]]; then
       return 0
     fi
     sleep 0.1
@@ -122,39 +136,22 @@ wait_for_owned_exit() {
 }
 
 stop_owned_runtime() {
-  local pid=""
+  local pid pids remaining
   osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
-  if [[ -f "$PID_PATH" ]]; then
-    pid="$(<"$PID_PATH")"
+  if wait_for_all_owned_exit; then
+    rm -f "$PID_PATH"
+    return 0
   fi
-  if ! owned_pid "$pid"; then
-    pid="$(find_owned_pid || true)"
-  fi
-  if owned_pid "$pid"; then
-    if ! wait_for_owned_exit "$pid"; then
-      kill "$pid"
-      if ! wait_for_owned_exit "$pid"; then
-        echo "Owned slot process did not exit after SIGTERM: $pid ($RUNTIME_EXECUTABLE)" >&2
-        return 1
-      fi
-    fi
+  pids="$(find_owned_pids || true)"
+  for pid in $pids; do
+    kill "$pid" 2>/dev/null || true
+  done
+  if ! wait_for_all_owned_exit; then
+    remaining="$(find_owned_pids || true)"
+    echo "Owned slot processes did not exit after SIGTERM: $remaining ($RUNTIME_EXECUTABLE)" >&2
+    return 1
   fi
   rm -f "$PID_PATH"
-}
-
-find_owned_pid() {
-  local line pid command
-  while IFS= read -r line; do
-    line="${line#"${line%%[![:space:]]*}"}"
-    pid="${line%%[[:space:]]*}"
-    command="${line#"$pid"}"
-    command="${command#"${command%%[![:space:]]*}"}"
-    if [[ "$command" == "$RUNTIME_EXECUTABLE" || "$command" == "$RUNTIME_EXECUTABLE "* ]]; then
-      printf '%s\n' "$pid"
-      return 0
-    fi
-  done < <(ps -axo pid=,command=)
-  return 1
 }
 
 "$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command app
@@ -216,7 +213,8 @@ PY
 )
     pid=""
     while [[ -z "$pid" ]]; do
-      pid="$(find_owned_pid || true)"
+      pid="$(find_owned_pids || true)"
+      pid="${pid%%$'\n'*}"
       if [[ -n "$pid" ]]; then
         break
       fi
@@ -240,9 +238,13 @@ PY
   else
     echo "Prepared slot app without opening: $RUNTIME_APP"
   fi
-) > >(tee "$LOG_PATH") 2>&1
-exit_code=$?
+) 2>&1 | tee "$LOG_PATH"
+pipeline_status=("${PIPESTATUS[@]}")
 set -e
+exit_code="${pipeline_status[0]}"
+if [[ "$exit_code" == "0" && "${pipeline_status[1]}" != "0" ]]; then
+  exit_code="${pipeline_status[1]}"
+fi
 
 if [[ "$exit_code" == "0" ]]; then
   if ! "$HELPER" --root "$ROOT_DIR" record-app \

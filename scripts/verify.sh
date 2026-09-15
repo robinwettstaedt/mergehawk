@@ -61,6 +61,7 @@ set +e
 (
   set -euo pipefail
   cd "$ROOT_DIR"
+  PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest Tests/verification/test_verification_run.py
   swift test
   swift run mergehawkcoretestrunner
   APP_DIR="$PACKAGED_APP" \
@@ -74,9 +75,13 @@ set +e
     --run-dir "$RUN_DIR" \
     --kind packaged \
     --path "$PACKAGED_APP"
-) > >(tee "$LOG_PATH") 2>&1
-exit_code=$?
+) 2>&1 | tee "$LOG_PATH"
+pipeline_status=("${PIPESTATUS[@]}")
 set -e
+exit_code="${pipeline_status[0]}"
+if [[ "$exit_code" == "0" && "${pipeline_status[1]}" != "0" ]]; then
+  exit_code="${pipeline_status[1]}"
+fi
 
 finish_args=(
   --root "$ROOT_DIR" finish

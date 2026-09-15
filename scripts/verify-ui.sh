@@ -73,6 +73,10 @@ if [[ -z "$SLOT" || ! "$STAGE" =~ ^[A-Za-z0-9_-]+$ ]]; then
   echo "--slot must be nonempty and --stage may contain only letters, numbers, _ and -" >&2
   exit 2
 fi
+if [[ "$STAGE" == "verify" || "$STAGE" == "app" ]]; then
+  echo "Reserved UI stage name: $STAGE" >&2
+  exit 2
+fi
 if ! [[ "$WAIT_TIMEOUT_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   echo "--wait-timeout must be a nonnegative number" >&2
   exit 2
@@ -99,9 +103,13 @@ MERGEHAWK_UI_ARTIFACT_DIR="$OUTPUT_DIR" \
 MERGEHAWK_UI_SCENARIOS="$SCENARIO_SELECTOR" \
 MERGEHAWK_UI_SURFACES="$SURFACE_SELECTOR" \
 MERGEHAWK_UI_WAIT_TIMEOUT_SECONDS="$WAIT_TIMEOUT_SECONDS" \
-  swift test --filter VisualVerificationXCTests > >(tee "$LOG_PATH") 2>&1
-exit_code=$?
+  swift test --filter VisualVerificationXCTests 2>&1 | tee "$LOG_PATH"
+pipeline_status=("${PIPESTATUS[@]}")
 set -e
+exit_code="${pipeline_status[0]}"
+if [[ "$exit_code" == "0" && "${pipeline_status[1]}" != "0" ]]; then
+  exit_code="${pipeline_status[1]}"
+fi
 
 declare -a output_files=()
 while IFS= read -r -d '' output_file; do
