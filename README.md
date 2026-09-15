@@ -151,7 +151,7 @@ MERGEHAWK_GITHUB_APP_INSTALL_URL="https://github.com/apps/mergehawk/installation
 MERGEHAWK_GITHUB_APP_MANAGE_URL="https://github.com/settings/apps/authorizations"
 ```
 
-`.env.local` is gitignored. `scripts/update-installed-app.sh` and `scripts/run-agent-app.sh` load it automatically and embed those values into the app bundle launch environment.
+`.env.local` is gitignored. `scripts/update-installed-app.sh` loads it automatically and embeds those values into the normal app bundle launch environment. Verification slot apps are mock-only and do not embed these credentials.
 
 MergeHawk does not request broad classic OAuth scopes for GitHub App sign-in. Access is bounded by the signed-in user's GitHub permissions, the MergeHawk GitHub App permissions, and where the app is installed.
 
