@@ -2,6 +2,26 @@
 import XCTest
 
 final class LaunchConfigurationTests: XCTestCase {
+    func testVerificationUIRequiresMockModeAndRecognizesOnlySupportedSurfaces() {
+        for surface in ["settings", "menu"] {
+            XCTAssertEqual(
+                LaunchConfiguration.current(
+                    arguments: ["mergehawk", "--verification-ui", surface],
+                    environment: ["MERGEHAWK_MOCK_MODE": "1"]
+                ).verificationUI?.rawValue,
+                surface
+            )
+            XCTAssertNil(LaunchConfiguration.current(
+                arguments: ["mergehawk", "--verification-ui", surface], environment: [:]
+            ).verificationUI)
+        }
+        for arguments in [["mergehawk", "--mock"],
+                          ["mergehawk", "--mock", "--verification-ui"],
+                          ["mergehawk", "--mock", "--verification-ui", "unknown"]] {
+            XCTAssertNil(LaunchConfiguration.current(arguments: arguments, environment: [:]).verificationUI)
+        }
+    }
+
     func testMockArgumentsAndEnvironmentEnableMockModeAndSuppressNotifications() {
         XCTAssertEqual(
             LaunchConfiguration.current(

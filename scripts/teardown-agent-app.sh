@@ -81,7 +81,7 @@ wait_for_all_owned_exit() {
   return 1
 }
 
-osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+osascript -e 'with timeout of 2 seconds' -e "tell application id \"$BUNDLE_ID\" to quit" -e 'end timeout' >/dev/null 2>&1 || true
 if ! wait_for_all_owned_exit; then
   pids="$(find_owned_pids || true)"
   for pid in $pids; do

@@ -6,15 +6,17 @@ HELPER="$ROOT_DIR/scripts/verification-run.py"
 SLOT="local"
 RUN_DIR=""
 OPEN_APP=1
+UI_SURFACE="settings"
 NOTIFICATION_TYPE_FIXTURES=0
 HEALTH_TIMEOUT_SECONDS=10
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--mock] [--notification-type-fixtures] [--open|--no-open]
+Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--mock] [--notification-type-fixtures] [--open|--no-open] [--ui settings|menu]
 
 Launches a run-bound, mock-only MergeHawk app bundle without replacing the
-normal installed app. Starts a fresh verification run when --run-dir is omitted.
+normal installed app. Opens Settings by default for unattended computer use.
+Starts a fresh verification run when --run-dir is omitted.
 
 Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
@@ -34,6 +36,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --mock)
       shift
+      ;;
+    --ui)
+      UI_SURFACE="${2:-}"
+      shift 2
       ;;
     --health-timeout)
       HEALTH_TIMEOUT_SECONDS="${2:-}"
@@ -65,6 +71,10 @@ done
 
 if [[ -z "$SLOT" ]]; then
   echo "--slot must not be empty" >&2
+  exit 2
+fi
+if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
+  echo "--ui must be settings or menu" >&2
   exit 2
 fi
 
@@ -137,7 +147,7 @@ wait_for_all_owned_exit() {
 
 stop_owned_runtime() {
   local pid pids remaining
-  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+  osascript -e 'with timeout of 2 seconds' -e "tell application id \"$BUNDLE_ID\" to quit" -e 'end timeout' >/dev/null 2>&1 || true
   if wait_for_all_owned_exit; then
     rm -f "$PID_PATH"
     return 0
@@ -205,7 +215,7 @@ set +e
     $FIXTURE_OPTION
 
   if [[ "$OPEN_APP" == "1" ]]; then
-    open -n "$RUNTIME_APP"
+    open -g -n "$RUNTIME_APP" --args --verification-ui "$UI_SURFACE"
     deadline=$(/usr/bin/python3 - "$HEALTH_TIMEOUT_SECONDS" <<'PY'
 import sys, time
 print(time.monotonic() + float(sys.argv[1]))
@@ -268,6 +278,7 @@ finish_args=(
   --exit-code "$exit_code"
   --file "$LOG_PATH"
   --detail "opened=$OPEN_APP"
+  --detail "ui=$UI_SURFACE"
 )
 if [[ -f "$NOTIFICATION_PATH" ]]; then
   finish_args+=(--file "$NOTIFICATION_PATH")
