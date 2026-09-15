@@ -5,6 +5,10 @@ import mergehawkcore
 import XCTest
 
 final class VisualVerificationXCTests: XCTestCase {
+    private var captureSelection = VisualCaptureSelection.all
+    private var renderedFilenames: Set<String> = []
+    private var waitTimeout: TimeInterval = 5
+
     func testWritesMockMenuScreenshots() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let outputPath = environment["MERGEHAWK_UI_ARTIFACT_DIR"], !outputPath.isEmpty else {
@@ -13,6 +17,9 @@ final class VisualVerificationXCTests: XCTestCase {
 
         let outputURL = URL(fileURLWithPath: outputPath)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        captureSelection = try VisualCaptureSelection(environment: environment)
+        renderedFilenames = []
+        waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
             UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -27,7 +34,7 @@ final class VisualVerificationXCTests: XCTestCase {
             )
         }
 
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "initial mock synchronization") {
             await MainActor.run {
                 controller.state.syncedAt != nil
             }
@@ -36,7 +43,7 @@ final class VisualVerificationXCTests: XCTestCase {
         await MainActor.run {
             controller.refresh()
         }
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "mock refresh events") {
             await MainActor.run {
                 controller.state.events.isEmpty == false
             }
@@ -99,7 +106,7 @@ final class VisualVerificationXCTests: XCTestCase {
         Task {
             await patLoadingController.signInWithToken("github_pat_visual")
         }
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "PAT viewer request to start") {
             await MainActor.run {
                 patLoadingController.isSigningInWithToken
             } && patLoadingClient.isWaitingForViewer
@@ -119,7 +126,7 @@ final class VisualVerificationXCTests: XCTestCase {
             )
             patLoadingClient.finishViewerFetch()
         }
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "PAT sign-in to finish") {
             await MainActor.run {
                 !patLoadingController.isSigningInWithToken
             }
@@ -139,7 +146,7 @@ final class VisualVerificationXCTests: XCTestCase {
         Task {
             await pendingSignInController.signInWithGitHub()
         }
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "device-flow challenge") {
             await MainActor.run {
                 pendingSignInController.deviceFlowChallenge != nil
             }
@@ -176,7 +183,7 @@ final class VisualVerificationXCTests: XCTestCase {
         Task {
             await loadingSignInController.signInWithGitHub()
         }
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "signed-in pull request loading phase") {
             await MainActor.run {
                 loadingSignInController.deviceFlowPhase == .loadingApp
             } && loadingClient.isWaitingForPullRequests
@@ -196,7 +203,7 @@ final class VisualVerificationXCTests: XCTestCase {
             )
             loadingClient.finishPullRequestFetch()
         }
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "signed-in loading to finish") {
             await MainActor.run {
                 loadingSignInController.state.authStatus == .signedIn
             }
@@ -218,13 +225,13 @@ final class VisualVerificationXCTests: XCTestCase {
                 deviceFlowURLOpener: { _ in }
             )
         }
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "repository-access fixture synchronization") {
             await MainActor.run {
                 accessPromptController.state.syncedAt != nil
             }
         }
         await accessPromptController.signInWithGitHub()
-        await waitUntil(timeout: 1.0) {
+        try await waitUntil(context: "repository-access prompt") {
             await MainActor.run {
                 accessPromptController.showsGitHubAppRepositoryAccessPrompt
             }
@@ -447,17 +454,29 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("settings-sources-search-example.png")
             )
         }
+
+        let expectedFilenames = captureSelection.expectedFilenames
+        guard renderedFilenames == expectedFilenames else {
+            let missing = expectedFilenames.subtracting(renderedFilenames).sorted().joined(separator: ", ")
+            let unexpected = renderedFilenames.subtracting(expectedFilenames).sorted().joined(separator: ", ")
+            XCTFail("Visual capture output mismatch. Missing: [\(missing)]. Unexpected: [\(unexpected)].")
+            throw VisualCaptureError.outputMismatch
+        }
+        for filename in renderedFilenames.sorted() {
+            print("UI artifact: \(filename)")
+        }
     }
 
-    private func waitUntil(timeout: TimeInterval, condition: () async -> Bool) async {
-        let deadline = Date().addingTimeInterval(timeout)
+    private func waitUntil(context: String, condition: () async -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(waitTimeout)
         while Date() < deadline {
             if await condition() {
                 return
             }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTFail("Timed out waiting for condition")
+        XCTFail("Timed out after \(waitTimeout) seconds waiting for \(context)")
+        throw VisualCaptureError.timedOut(context: context, seconds: waitTimeout)
     }
 
     @MainActor
@@ -516,6 +535,9 @@ final class VisualVerificationXCTests: XCTestCase {
         to url: URL,
         pausesAnimations: Bool = false
     ) throws {
+        guard captureSelection.includes(filename: url.lastPathComponent) else {
+            return
+        }
         let frame = NSRect(origin: .zero, size: size)
         let hostingView = NSHostingView(rootView: view)
         hostingView.frame = frame
@@ -548,9 +570,142 @@ final class VisualVerificationXCTests: XCTestCase {
         }
         XCTAssertGreaterThan(data.count, 1_000)
         try data.write(to: url, options: .atomic)
+        renderedFilenames.insert(url.lastPathComponent)
 
         _ = window
     }
+}
+
+private enum VisualCaptureError: LocalizedError {
+    case invalidScenarios([String])
+    case invalidSurfaces([String])
+    case invalidWaitTimeout(String)
+    case noMatchingOutputs
+    case outputMismatch
+    case timedOut(context: String, seconds: TimeInterval)
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidScenarios(values):
+            "Unknown visual scenarios: \(values.joined(separator: ", "))"
+        case let .invalidSurfaces(values):
+            "Unknown visual surfaces: \(values.joined(separator: ", "))"
+        case let .invalidWaitTimeout(value):
+            "MERGEHAWK_UI_WAIT_TIMEOUT_SECONDS must be positive, got: \(value)"
+        case .noMatchingOutputs:
+            "The selected scenarios and surfaces match no visual outputs"
+        case .outputMismatch:
+            "Visual capture did not produce exactly the selected outputs"
+        case let .timedOut(context, seconds):
+            "Timed out after \(seconds) seconds waiting for \(context)"
+        }
+    }
+}
+
+private struct VisualCaptureSelection {
+    static let allScenarios: Set<String> = [
+        "menu-signed-out",
+        "settings-github-signed-out",
+        "settings-github-pat-idle",
+        "settings-github-pat-loading",
+        "menu-sign-in-pending",
+        "settings-github-sign-in-pending",
+        "menu-sign-in-loading",
+        "settings-github-sign-in-loading",
+        "menu-repository-access-notifications",
+        "menu-repository-access-authored",
+        "menu-repository-access-requested",
+        "settings-sources-repository-access",
+        "settings-general",
+        "settings-general-updates",
+        "settings-notifications",
+        "settings-about",
+        "menu-notifications",
+        "menu-notifications-other",
+        "menu-my-prs",
+        "menu-my-prs-pinned",
+        "menu-my-prs-hidden-collapsed",
+        "menu-my-prs-hidden-expanded",
+        "menu-my-prs-empty",
+        "menu-review-requests",
+        "menu-review-requests-pinned",
+        "menu-review-requests-hidden-collapsed",
+        "menu-review-requests-hidden-expanded",
+        "menu-review-requests-empty",
+        "menu-review-requests-team",
+        "menu-review-requests-all",
+        "menu-review-requests-assigned",
+        "menu-review-requests-multiple",
+        "menu-review-requests-draft",
+        "menu-review-requests-ready",
+        "menu-notifications-read",
+        "settings-sources",
+        "settings-sources-search-example",
+    ]
+
+    static let all = VisualCaptureSelection(scenarios: allScenarios)
+
+    let scenarios: Set<String>
+
+    init(scenarios: Set<String>) {
+        self.scenarios = scenarios
+    }
+
+    init(environment: [String: String]) throws {
+        let requestedScenarios = Self.values(in: environment["MERGEHAWK_UI_SCENARIOS"])
+        let invalidScenarios = requestedScenarios.subtracting(Self.allScenarios)
+        guard invalidScenarios.isEmpty else {
+            throw VisualCaptureError.invalidScenarios(invalidScenarios.sorted())
+        }
+
+        let requestedSurfaces = Self.values(in: environment["MERGEHAWK_UI_SURFACES"])
+        let validSurfaces: Set<String> = ["menu", "settings"]
+        let invalidSurfaces = requestedSurfaces.subtracting(validSurfaces)
+        guard invalidSurfaces.isEmpty else {
+            throw VisualCaptureError.invalidSurfaces(invalidSurfaces.sorted())
+        }
+
+        let scenarioCandidates = requestedScenarios.isEmpty ? Self.allScenarios : requestedScenarios
+        scenarios = Set(scenarioCandidates.filter { scenario in
+            requestedSurfaces.isEmpty || requestedSurfaces.contains(Self.surface(for: scenario))
+        })
+        guard !scenarios.isEmpty else {
+            throw VisualCaptureError.noMatchingOutputs
+        }
+    }
+
+    var expectedFilenames: Set<String> {
+        Set(scenarios.flatMap { scenario in
+            ["\(scenario).png", "\(scenario)-light.png"]
+        })
+    }
+
+    func includes(filename: String) -> Bool {
+        let stem = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
+        let scenario = stem.hasSuffix("-light") ? String(stem.dropLast("-light".count)) : stem
+        return scenarios.contains(scenario)
+    }
+
+    private static func values(in rawValue: String?) -> Set<String> {
+        Set((rawValue ?? "").split(separator: ",").compactMap { rawPart in
+            let value = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        })
+    }
+
+    private static func surface(for scenario: String) -> String {
+        scenario.hasPrefix("settings-") ? "settings" : "menu"
+    }
+}
+
+private func visualWaitTimeout(environment: [String: String]) throws -> TimeInterval {
+    guard let rawValue = environment["MERGEHAWK_UI_WAIT_TIMEOUT_SECONDS"], !rawValue.isEmpty else {
+        return 5
+    }
+    guard let value = TimeInterval(rawValue), value > 0 else {
+        throw VisualCaptureError.invalidWaitTimeout(rawValue)
+    }
+    return value
 }
 
 @MainActor
