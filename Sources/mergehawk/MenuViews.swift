@@ -2379,9 +2379,11 @@ private struct PullRequestAuthorAvatar: View {
 
     private var placeholder: some View {
         Image(systemName: "person.crop.circle.fill")
+            .renderingMode(.template)
             .resizable()
             .scaledToFit()
-            .foregroundStyle(.secondary)
+            .symbolRenderingMode(.monochrome)
+            .foregroundColor(Color.gray)
     }
 }
 
