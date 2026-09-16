@@ -2358,20 +2358,30 @@ private struct PullRequestAuthorAvatar: View {
     let url: URL?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if case let .success(image) = phase {
-                image.resizable().scaledToFill()
+        Group {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    if case let .success(image) = phase {
+                        image.resizable().scaledToFill()
+                    } else {
+                        placeholder
+                    }
+                }
             } else {
-                Image(systemName: "person.crop.circle.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(.secondary)
+                placeholder
             }
         }
         .frame(width: 26, height: 26)
         .clipShape(Circle())
         .help("Requested author: \(author)")
         .accessibilityLabel("Requested author: \(author)")
+    }
+
+    private var placeholder: some View {
+        Image(systemName: "person.crop.circle.fill")
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(.secondary)
     }
 }
 
