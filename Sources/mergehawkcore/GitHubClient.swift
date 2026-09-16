@@ -317,6 +317,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let isDraft: Bool
     public let mergeable: String?
     public let reviewDecision: String?
+    public let additions: Int?
+    public let deletions: Int?
     public let comments: CommentConnection
     public let reviews: ReviewConnection
     public let latestOpinionatedReviews: ReviewConnection
@@ -338,6 +340,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         isDraft: Bool,
         mergeable: String?,
         reviewDecision: String?,
+        additions: Int? = nil,
+        deletions: Int? = nil,
         comments: CommentConnection,
         reviews: ReviewConnection,
         latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
@@ -358,6 +362,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.isDraft = isDraft
         self.mergeable = mergeable
         self.reviewDecision = reviewDecision
+        self.additions = additions
+        self.deletions = deletions
         self.comments = comments
         self.reviews = reviews
         self.latestOpinionatedReviews = latestOpinionatedReviews
@@ -390,6 +396,8 @@ public enum GitHubPullRequestNormalizer {
                 node.reviewDecision,
                 latestOpinionatedReviews: node.latestOpinionatedReviews
             ),
+            additions: node.additions,
+            deletions: node.deletions,
             commentCount: normalizeActionableUnresolvedCommentCount(node.reviewThreads),
             commentActivityCount: normalizeCommentActivityCount(node),
             recentCommentActivities: normalizeCommentActivities(node),
@@ -814,6 +822,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             repo: pullRequest.repo,
             ciState: pullRequest.ciState,
             reviewDecision: pullRequest.reviewDecision,
+            additions: pullRequest.additions,
+            deletions: pullRequest.deletions,
             commentCount: pullRequest.commentCount,
             commentActivityCount: pullRequest.commentActivityCount,
             recentCommentActivities: pullRequest.recentCommentActivities,
@@ -864,6 +874,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             repo: current.repo,
             ciState: current.ciState,
             reviewDecision: current.reviewDecision,
+            additions: current.additions,
+            deletions: current.deletions,
             commentCount: current.commentCount,
             commentActivityCount: preserveActivityCounts ? previous.commentActivityCount : current.commentActivityCount,
             recentCommentActivities: previous.recentCommentActivities,
@@ -895,6 +907,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             repo: detailed.repo,
             ciState: detailed.ciState,
             reviewDecision: detailed.reviewDecision,
+            additions: detailed.additions,
+            deletions: detailed.deletions,
             commentCount: detailed.commentCount,
             commentActivityCount: detailed.commentActivityCount,
             recentCommentActivities: detailed.recentCommentActivities,
@@ -1038,6 +1052,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
               isDraft
               mergeable
               reviewDecision
+              additions
+              deletions
               comments(first: 1) {
                 totalCount
               }
@@ -1141,6 +1157,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             isDraft
             mergeable
             reviewDecision
+            additions
+            deletions
             comments(last: 10) {
               totalCount
               nodes {

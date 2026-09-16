@@ -18,6 +18,8 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertTrue(shallow.contains("committedDate"))
         XCTAssertTrue(shallow.contains("assignees(first: 20)"))
         XCTAssertTrue(shallow.contains("latestOpinionatedReviews(first: 20)"))
+        XCTAssertTrue(shallow.contains("additions"))
+        XCTAssertTrue(shallow.contains("deletions"))
         XCTAssertTrue(shallow.contains("reviewThreads(first: 20)"))
         XCTAssertFalse(shallow.contains("reviewThreads(first: 100)"))
         XCTAssertFalse(shallow.contains("comments(last: 100)"))
@@ -27,10 +29,87 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertTrue(detail.contains("reviews(last: 10)"))
         XCTAssertTrue(detail.contains("commits(last: 20)"))
         XCTAssertTrue(detail.contains("latestOpinionatedReviews(first: 20)"))
+        XCTAssertTrue(detail.contains("additions"))
+        XCTAssertTrue(detail.contains("deletions"))
         XCTAssertTrue(detail.contains("reviewThreads(first: 20)"))
         XCTAssertTrue(detail.contains("comments(last: 10)"))
         XCTAssertFalse(detail.contains("first: 100"))
         XCTAssertFalse(detail.contains("last: 100"))
+    }
+
+    func testChangeCountsNormalizeAndSurviveCacheRoundTrip() throws {
+        let response = Self.pullRequestJSON(commentCount: 0, reviewCount: 0, includeActivity: false)
+        let node = try JSONDecoder().decode(GitHubPullRequestNode.self, from: Data(response.utf8))
+        let request = GitHubPullRequestNormalizer.normalize(node, login: "rw")
+        XCTAssertEqual(request.additions, 0)
+        XCTAssertEqual(request.deletions, 12345)
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let encoded = try encoder.encode(request)
+        let roundTrip = try decoder.decode(PullRequest.self, from: encoded)
+        XCTAssertEqual(roundTrip.additions, 0)
+        XCTAssertEqual(roundTrip.deletions, 12345)
+
+        var oldCache = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        oldCache.removeValue(forKey: "additions")
+        oldCache.removeValue(forKey: "deletions")
+        let oldRequest = try decoder.decode(PullRequest.self, from: JSONSerialization.data(withJSONObject: oldCache))
+        XCTAssertNil(oldRequest.additions)
+        XCTAssertNil(oldRequest.deletions)
+    }
+
+    func testShallowChangeCountsSurviveUnchangedDetailReuseAndDetailFailure() async throws {
+        let session = Self.mockSession()
+        let previous = PullRequest.fixture(commentActivityCount: 0, reviewCount: 0, additions: 99, deletions: 99)
+        PullRequestFetchMockURLProtocol.handler = { request in
+            (Self.searchResponse(commentCount: 0, reviewCount: 0), Self.okResponse(for: request))
+        }
+        let client = GitHubClient(token: "token", session: session)
+        let unchanged = try await client.fetchPullRequests(login: "rw", previousPullRequests: [previous])
+        XCTAssertEqual(unchanged.pullRequests.first?.additions, 0)
+        XCTAssertEqual(unchanged.pullRequests.first?.deletions, 12345)
+
+        PullRequestFetchMockURLProtocol.handler = { request in
+            if Self.requestBody(request).contains("PullRequestDetails") {
+                return (Data(#"{"errors":[{"message":"temporary detail failure"}]}"#.utf8), Self.okResponse(for: request))
+            }
+            return (Self.searchResponse(commentCount: 1, reviewCount: 0), Self.okResponse(for: request))
+        }
+        let failed = try await client.fetchPullRequests(login: "rw", previousPullRequests: [previous])
+        XCTAssertNotNil(failed.refreshWarning)
+        XCTAssertEqual(failed.pullRequests.first?.additions, 0)
+        XCTAssertEqual(failed.pullRequests.first?.deletions, 12345)
+    }
+
+    func testDetailHydrationAndCommitReplacementPreserveChangeCounts() async throws {
+        let session = Self.mockSession()
+        PullRequestFetchMockURLProtocol.handler = { request in
+            if Self.requestBody(request).contains("PullRequestDetails") {
+                return (Self.detailResponse(), Self.okResponse(for: request))
+            }
+            return (Self.searchResponse(commentCount: 1, reviewCount: 0), Self.okResponse(for: request))
+        }
+        let client = GitHubClient(token: "token", session: session)
+        let hydrated = try await client.fetchPullRequests(
+            login: "rw",
+            previousPullRequests: [.fixture(commentActivityCount: 0, reviewCount: 0)]
+        )
+        XCTAssertEqual(hydrated.pullRequests.first?.additions, 0)
+        XCTAssertEqual(hydrated.pullRequests.first?.deletions, 12345)
+
+        PullRequestFetchMockURLProtocol.handler = { request in
+            if request.url?.path == "/repos/acme/app/pulls/12/commits" {
+                return (Self.pullRequestCommitsResponse(), Self.okResponse(for: request))
+            }
+            return (Self.searchResponseWithInaccessibleCommitMetadata(), Self.okResponse(for: request))
+        }
+        let replaced = try await client.fetchPullRequests(
+            login: "rw",
+            previousPullRequests: [.fixture(commentActivityCount: 0, reviewCount: 0)]
+        )
+        XCTAssertEqual(replaced.pullRequests.first?.additions, 0)
+        XCTAssertEqual(replaced.pullRequests.first?.deletions, 12345)
     }
 
     func testUnchangedPullRequestDoesNotFetchDetails() async throws {
@@ -363,6 +442,8 @@ final class GitHubPullRequestFetchTests: XCTestCase {
           "headRefName": "ship-dashboard",
           "isDraft": false,
           "mergeable": "MERGEABLE",
+          "additions": 0,
+          "deletions": 12345,
           "reviewDecision": "REVIEW_REQUIRED",
           "comments": { "totalCount": \(commentCount)\(commentNodes) },
           "reviews": { "totalCount": \(reviewCount), "nodes": [] },
@@ -402,6 +483,8 @@ final class GitHubPullRequestFetchTests: XCTestCase {
           "headRefName": "ship-dashboard",
           "isDraft": false,
           "mergeable": "MERGEABLE",
+          "additions": 0,
+          "deletions": 12345,
           "reviewDecision": "REVIEW_REQUIRED",
           "comments": { "totalCount": 0 },
           "reviews": { "totalCount": 0, "nodes": [] },
@@ -484,7 +567,9 @@ private extension PullRequest {
         commentCount: Int = 0,
         commentActivityCount: Int? = nil,
         recentCommentActivities: [PullRequestCommentActivity] = [],
-        reviewCount: Int = 0
+        reviewCount: Int = 0,
+        additions: Int? = nil,
+        deletions: Int? = nil
     ) -> PullRequest {
         PullRequest(
             id: "PR_1",
@@ -494,6 +579,8 @@ private extension PullRequest {
             repo: "acme/app",
             ciState: .passing,
             reviewDecision: .reviewRequired,
+            additions: additions,
+            deletions: deletions,
             commentCount: commentCount,
             commentActivityCount: commentActivityCount,
             recentCommentActivities: recentCommentActivities,

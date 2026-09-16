@@ -134,6 +134,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let repo: String
     public let ciState: CIState
     public let reviewDecision: ReviewDecision
+    public let additions: Int?
+    public let deletions: Int?
     public let commentCount: Int
     public let commentActivityCount: Int
     public let recentCommentActivities: [PullRequestCommentActivity]
@@ -159,6 +161,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         repo: String,
         ciState: CIState,
         reviewDecision: ReviewDecision,
+        additions: Int? = nil,
+        deletions: Int? = nil,
         commentCount: Int,
         commentActivityCount: Int? = nil,
         recentCommentActivities: [PullRequestCommentActivity] = [],
@@ -183,6 +187,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.repo = repo
         self.ciState = ciState
         self.reviewDecision = reviewDecision
+        self.additions = additions
+        self.deletions = deletions
         self.commentCount = commentCount
         self.commentActivityCount = commentActivityCount ?? commentCount
         self.recentCommentActivities = recentCommentActivities
@@ -209,6 +215,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case repo
         case ciState
         case reviewDecision
+        case additions
+        case deletions
         case commentCount
         case commentActivityCount
         case recentCommentActivities
@@ -236,6 +244,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.repo = try container.decode(String.self, forKey: .repo)
         self.ciState = try container.decode(CIState.self, forKey: .ciState)
         self.reviewDecision = try container.decode(ReviewDecision.self, forKey: .reviewDecision)
+        self.additions = try container.decodeIfPresent(Int.self, forKey: .additions)
+        self.deletions = try container.decodeIfPresent(Int.self, forKey: .deletions)
         self.commentCount = try container.decode(Int.self, forKey: .commentCount)
         self.commentActivityCount = try container.decode(Int.self, forKey: .commentActivityCount)
         self.recentCommentActivities = try container.decode(
