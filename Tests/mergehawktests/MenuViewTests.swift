@@ -73,6 +73,25 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestChangesPresentation.label(additions: 12_345, deletions: 6_789), "12,345 additions, 6,789 deletions")
     }
 
+    func testChangeCountRoundingPromotesAtSuffixBoundaries() {
+        XCTAssertEqual(
+            PullRequestChangesPresentation.text(additions: 999_499, deletions: 999_500),
+            "+999k −1.0m"
+        )
+        XCTAssertEqual(
+            PullRequestChangesPresentation.label(additions: 999_499, deletions: 999_500),
+            "999,499 additions, 999,500 deletions"
+        )
+        XCTAssertEqual(
+            PullRequestChangesPresentation.text(additions: 999_499_999, deletions: 999_500_000),
+            "+999m −1.0b"
+        )
+        XCTAssertEqual(
+            PullRequestChangesPresentation.label(additions: 999_499_999, deletions: 999_500_000),
+            "999,499,999 additions, 999,500,000 deletions"
+        )
+    }
+
     @MainActor
     func testNoReviewFilterKeepsSavedTagAndExcludesUnknown() {
         XCTAssertEqual(ReviewDecision.noReviewYet.rawValue, "review_required")

@@ -2681,18 +2681,20 @@ enum PullRequestChangesPresentation {
     }
 
     private static func compact(_ value: Int) -> String {
-        let magnitude = Double(value)
-        let (divisor, suffix): (Double, String) = switch magnitude {
-        case 1_000_000_000...: (1_000_000_000, "b")
-        case 1_000_000...: (1_000_000, "m")
-        case 1_000...: (1_000, "k")
-        default: (1, "")
+        let suffixes = ["", "k", "m", "b", "t", "q"]
+        var scaled = Double(value)
+        var unit = 0
+        while scaled >= 1_000 && unit < suffixes.count - 1 {
+            scaled /= 1_000
+            unit += 1
         }
-        if divisor == 1 { return String(value) }
-        let scaled = magnitude / divisor
+        if unit == 0 { return String(value) }
+        if scaled.rounded() >= 1_000 && unit < suffixes.count - 1 {
+            return "1.0\(suffixes[unit + 1])"
+        }
         return scaled < 10
-            ? String(format: "%.1f%@", scaled, suffix)
-            : String(format: "%.0f%@", scaled, suffix)
+            ? String(format: "%.1f%@", scaled, suffixes[unit])
+            : String(format: "%.0f%@", scaled, suffixes[unit])
     }
 
     private static func exact(_ value: Int) -> String {
