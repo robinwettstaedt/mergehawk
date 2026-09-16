@@ -92,7 +92,7 @@ final class AgentModeXCTests: XCTestCase {
         }
         XCTAssertEqual(
             notificationClient.records.map(\.eventType),
-            ["new_comment", "ci_failed", "other_commit_added", "relationship_added", "relationship_added"]
+            ["new_comment", "ci_failed", "other_commit_added", "relationship_added"]
         )
         await MainActor.run {
             XCTAssertGreaterThanOrEqual(controller.state.pullRequests.filter { $0.mergeable == .unknown }.count, 2)
@@ -244,24 +244,25 @@ final class AgentModeXCTests: XCTestCase {
         }
         await waitUntil(timeout: 1.0) {
             await MainActor.run {
-                controller.visiblePullRequestNotifications.count == 5
+                controller.visiblePullRequestNotifications.count == 4
             }
         }
 
         await MainActor.run {
-            XCTAssertEqual(controller.attentionCount, 5)
+            // PR_3 remains team-only across refresh, so no relationship-added row appears for it.
+            XCTAssertEqual(controller.attentionCount, 4)
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
-                URL(string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31")
+                URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/27")
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
-            XCTAssertEqual(controller.attentionCount, 4)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(controller.attentionCount, 3)
 
             controller.markAllNotificationsRead()
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
             XCTAssertEqual(controller.attentionCount, 0)
             XCTAssertFalse(controller.hasAttention)
         }
@@ -282,7 +283,7 @@ final class AgentModeXCTests: XCTestCase {
         }
 
         await MainActor.run {
-            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 5)
+            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 4)
             XCTAssertEqual(restoredController.attentionCount, 0)
         }
     }
