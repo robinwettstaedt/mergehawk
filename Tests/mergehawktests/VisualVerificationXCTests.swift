@@ -423,17 +423,35 @@ final class VisualVerificationXCTests: XCTestCase {
             )
             controller.sourcePreferences = populatedSourcePreferences
 
-            controller.selectedReviewRequestFilters = [.team]
-            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-team.png"))
-
             controller.selectedReviewRequestFilters = []
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-all.png"))
 
-            controller.selectedReviewRequestFilters = [.assigned]
-            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-assigned.png"))
+            controller.toggleRequestedSection(.direct)
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-section-collapsed.png")
+            )
+            controller.toggleRequestedSection(.direct)
 
-            controller.selectedReviewRequestFilters = [.direct, .team]
-            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-multiple.png"))
+            controller.setRepositoryPreferences(
+                repo: "billing-platform-experiments/customer-subscription-dashboard",
+                preferences: RepositorySourcePreferences(
+                    notifications: .inherit,
+                    myPullRequests: .inherit,
+                    reviewRequests: .disabled
+                )
+            )
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-section-empty.png")
+            )
+
+            controller.selectedReviewRequestFilters = [.draft]
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-filtered-empty.png")
+            )
+            controller.sourcePreferences = populatedSourcePreferences
 
             controller.selectedReviewRequestFilters = [.draft]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-draft.png"))
@@ -646,10 +664,10 @@ private struct VisualCaptureSelection {
         "menu-review-requests-hidden-collapsed",
         "menu-review-requests-hidden-expanded",
         "menu-review-requests-empty",
-        "menu-review-requests-team",
         "menu-review-requests-all",
-        "menu-review-requests-assigned",
-        "menu-review-requests-multiple",
+        "menu-review-requests-section-collapsed",
+        "menu-review-requests-section-empty",
+        "menu-review-requests-filtered-empty",
         "menu-review-requests-draft",
         "menu-review-requests-ready",
         "menu-notifications-read",

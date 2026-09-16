@@ -1584,6 +1584,7 @@ struct PullRequestListView: View {
     let dismissSignal: Int
     @State private var dropdownState = PullRequestMenuDropdownState()
     @State private var isHiddenExpanded: Bool
+    @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
 
     init(
         controller: DashboardController,
@@ -1595,6 +1596,9 @@ struct PullRequestListView: View {
         self.mode = mode
         self.dismissSignal = dismissSignal
         _isHiddenExpanded = State(initialValue: hiddenPullRequestsExpanded)
+        _expandedRequestedHiddenSections = State(
+            initialValue: hiddenPullRequestsExpanded ? Set(DashboardController.RequestedSection.allCases) : []
+        )
     }
 
     var body: some View {
@@ -1666,7 +1670,19 @@ struct PullRequestListView: View {
     private var content: some View {
         if controller.showsGitHubAppRepositoryAccessPrompt {
             GitHubAppRepositoryAccessPrompt(controller: controller)
-        } else if !hasSourcePullRequests {
+        } else {
+            switch mode {
+            case .authored:
+                authoredContent
+            case .reviewRequests:
+                requestedContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var authoredContent: some View {
+        if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
         } else if matchingPullRequestCount == 0 {
             EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
@@ -1701,13 +1717,111 @@ struct PullRequestListView: View {
         }
     }
 
+    private var requestedContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 10) {
+                ForEach(controller.requestedSections, id: \.section) { content in
+                    requestedSection(content)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 5)
+            .padding(.bottom, 12)
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            dismissTransientControls()
+        })
+    }
+
+    private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
+        VStack(spacing: 7) {
+            requestedSectionDisclosure(content)
+
+            if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
+                PullRequestColumnHeader()
+
+                ForEach(content.visible) { pr in
+                    pullRequestRow(pr)
+                        .id("visible-\(pr.id)")
+                }
+
+                if !content.hidden.isEmpty {
+                    requestedHiddenDisclosure(content)
+
+                    if expandedRequestedHiddenSections.contains(content.section) {
+                        ForEach(content.hidden) { pr in
+                            pullRequestRow(pr)
+                                .id("hidden-\(pr.id)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func requestedSectionDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
+        let isExpanded = controller.isRequestedSectionExpanded(content.section)
+        return Button {
+            controller.toggleRequestedSection(content.section)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 12)
+                Text(content.section.title)
+                    .font(.subheadline.weight(.semibold))
+                Text("\(content.count)")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(content.section.title): \(content.count) PRs")
+        .accessibilityLabel("\(content.section.title), \(content.count) PRs, \(isExpanded ? "expanded" : "collapsed")")
+    }
+
+    private func requestedHiddenDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
+        let isExpanded = expandedRequestedHiddenSections.contains(content.section)
+        return Button {
+            if isExpanded {
+                expandedRequestedHiddenSections.remove(content.section)
+            } else {
+                expandedRequestedHiddenSections.insert(content.section)
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
+        .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
+            count: content.hidden.count,
+            isExpanded: isExpanded
+        ))
+    }
+
     private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
         PullRequestRow(
             pullRequest: pullRequest,
             isAttention: controller.isUnreadPullRequest(pullRequest),
             isPinned: controller.isPinned(pullRequest),
             isHidden: controller.isHidden(pullRequest),
-            showsReviewRequestKind: mode == .reviewRequests,
             showsAuthor: mode == .reviewRequests,
             toggleHide: {
                 controller.toggleHide(pullRequest)
@@ -2249,7 +2363,6 @@ struct PullRequestRow: View {
     let isAttention: Bool
     let isPinned: Bool
     let isHidden: Bool
-    var showsReviewRequestKind = false
     var showsAuthor = false
     let toggleHide: () -> Void
     let togglePin: () -> Void
@@ -2339,16 +2452,6 @@ struct PullRequestRow: View {
             .font(.caption2.weight(.medium))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            if showsReviewRequestKind {
-                HStack(spacing: 5) {
-                    ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
-                    if pullRequest.isAssignedToViewer { AssignedPullRequestPill() }
-                }
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
     }
 }
@@ -2501,42 +2604,6 @@ private struct TransparentCardStyle: ViewModifier {
 private extension View {
     func transparentCardStyle(accentColor: Color?, isHovered: Bool) -> some View {
         modifier(TransparentCardStyle(accentColor: accentColor, isHovered: isHovered))
-    }
-}
-
-private struct ReviewRequestKindPill: View {
-    let kind: ReviewRequestKind
-
-    var body: some View {
-        ForEach(presentations, id: \.text) { presentation in
-            StatusPill(text: presentation.text, kind: .neutral)
-                .help(presentation.accessibilityLabel)
-                .accessibilityLabel(presentation.accessibilityLabel)
-        }
-    }
-
-    private var presentations: [(text: String, accessibilityLabel: String)] {
-        switch kind {
-        case .none:
-            []
-        case .direct:
-            [(text: "direct", accessibilityLabel: "Direct review request")]
-        case .team:
-            [(text: "team", accessibilityLabel: "Team review request")]
-        case .directAndTeam:
-            [
-                (text: "direct", accessibilityLabel: "Direct review request"),
-                (text: "team", accessibilityLabel: "Team review request")
-            ]
-        }
-    }
-}
-
-private struct AssignedPullRequestPill: View {
-    var body: some View {
-        StatusPill(text: "assigned", kind: .neutral)
-            .help("Assigned PR")
-            .accessibilityLabel("Assigned PR")
     }
 }
 
@@ -2868,43 +2935,6 @@ extension ReviewDecisionIndicator.Kind {
             "No review yet"
         case .unknown:
             "Review status unknown"
-        }
-    }
-}
-
-private struct StatusPill: View {
-    enum Kind {
-        case neutral
-        case attention
-        case bad
-    }
-
-    let text: String
-    let kind: Kind
-
-    var body: some View {
-        Text(text)
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(background)
-            .foregroundStyle(foreground)
-            .clipShape(Capsule())
-    }
-
-    private var background: Color {
-        switch kind {
-        case .neutral: Color(nsColor: .quaternaryLabelColor)
-        case .attention: Color.blue.opacity(0.14)
-        case .bad: Color.red.opacity(0.14)
-        }
-    }
-
-    private var foreground: Color {
-        switch kind {
-        case .neutral: .secondary
-        case .attention: .blue
-        case .bad: .red
         }
     }
 }

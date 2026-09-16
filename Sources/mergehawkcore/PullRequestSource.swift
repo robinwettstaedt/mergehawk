@@ -327,7 +327,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     deletions: 0,
                     commentCount: 1,
                     reviewCount: 0,
-                    reviewRequestKind: .directAndTeam,
+                    reviewRequestKind: .team,
                     isMine: false,
                     author: "design-systems-amy",
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",

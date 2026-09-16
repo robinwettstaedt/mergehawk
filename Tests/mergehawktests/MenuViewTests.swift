@@ -70,6 +70,10 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(CommentCountIndicator.label(for: 3), "3 unresolved comments")
     }
 
+    func testRequestedFiltersOfferOnlyStatusChoices() {
+        XCTAssertEqual(DashboardController.ReviewRequestFilterOption.allCases.map(\.label), ["All", "Draft", "Ready"])
+    }
+
     func testChangeCountPresentationKeepsExactAccessibleValues() {
         XCTAssertEqual(PullRequestChangesPresentation.additionsText(0), "+0")
         XCTAssertEqual(PullRequestChangesPresentation.deletionsText(0), "−0")
@@ -614,7 +618,7 @@ final class MenuViewTests: XCTestCase {
     let event = PullRequestEvent(type: .ciFailed, prId: "newer")
 
     precondition(DashboardController.PullRequestSortOption.allCases.map(\.label) == ["Created", "Updated"])
-    precondition(DashboardController.ReviewRequestFilterOption.allCases.map(\.label) == ["All", "Direct", "Team", "Assigned", "Draft", "Ready"])
+    precondition(DashboardController.ReviewRequestFilterOption.allCases.map(\.label) == ["All", "Draft", "Ready"])
     precondition(DashboardController.sorted([older, newer], by: .createdDate).map(\.id) == ["newer", "older"])
     precondition(DashboardController.sorted([older, newer], by: .updatedDate).map(\.id) == ["older", "newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [], events: [event]).map(\.id) == ["older", "newer", "draft"])
@@ -776,15 +780,14 @@ final class MenuViewTests: XCTestCase {
         directAssignedReview,
         selfAssignedReview
     ]
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.direct]).map(\.id) == ["direct", "direct-team", "draft-direct", "direct-assigned"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team]).map(\.id) == ["team", "direct-team"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.assigned]).map(\.id) == ["assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.RequestedSection.section(for: directAndTeamReview) == .direct)
+    precondition(DashboardController.RequestedSection.section(for: directAssignedReview) == .assigned)
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: []).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all]).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.draft]).map(\.id) == ["draft-direct", "assigned-draft"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.ready]).map(\.id) == ["direct", "team", "direct-team", "assigned", "direct-assigned"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team, .draft]).map(\.id) == ["team", "direct-team", "draft-direct", "assigned-draft"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.assigned, .draft]).map(\.id) == ["draft-direct", "assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.draft, .ready]).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all, .draft]).map(\.id) == ["draft-direct", "assigned-draft"])
 }()
 
 @MainActor

@@ -5,6 +5,80 @@ import XCTest
 
 final class DashboardControllerXCTests: XCTestCase {
     @MainActor
+    func testRequestedSectionsKeepPrioritySortPinsAndSessionCollapse() {
+        let suiteName = "requested-sections-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        XCTAssertEqual(controller.requestedSections.map(\.section), [.assigned, .direct, .team])
+        XCTAssertEqual(controller.requestedSections.map { $0.visible.map(\.id) }, [["PR_7"], ["PR_5", "PR_2"], ["PR_3"]])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 1])
+
+        controller.pinnedPullRequestIds = ["PR_2"]
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+        controller.pullRequestSortDirection = .ascending
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+
+        controller.toggleRequestedSection(.direct)
+        XCTAssertFalse(controller.isRequestedSectionExpanded(.direct))
+        XCTAssertTrue(controller.isRequestedSectionExpanded(.assigned))
+        controller.selectedTab = .myPRs
+        controller.selectedTab = .reviewRequests
+        controller.refresh()
+        waitUntil(timeout: 1.0) {
+            controller.state.pullRequests.first(where: { $0.id == "PR_2" })?.isAssignedToViewer == true
+        }
+        XCTAssertFalse(controller.isRequestedSectionExpanded(.direct))
+        XCTAssertEqual(controller.requestedSections.map { $0.visible.map(\.id) }, [["PR_2", "PR_7"], ["PR_5"], ["PR_3"]])
+        let visibleIds = controller.requestedSections.flatMap { $0.visible.map(\.id) }
+        XCTAssertEqual(visibleIds.count, Set(visibleIds).count)
+        controller.toggleRequestedSection(.direct)
+        XCTAssertTrue(controller.isRequestedSectionExpanded(.direct))
+    }
+
+    @MainActor
+    func testRequestedSectionsKeepHiddenCountsAndShowEmptyAfterFiltersAndSources() {
+        let suiteName = "requested-sections-hidden-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        controller.selectedReviewRequestFilters = [.draft]
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 1])
+        controller.hiddenPullRequestIds = ["PR_3"]
+        XCTAssertEqual(controller.requestedSections[2].visible.count, 0)
+        XCTAssertEqual(controller.requestedSections[2].hidden.map(\.id), ["PR_3"])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 1])
+
+        controller.selectedReviewRequestFilters = [.ready]
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 0])
+        controller.selectedReviewRequestFilters = [.draft]
+        controller.setRepositoryPreferences(
+            repo: "billing-platform-experiments/customer-subscription-dashboard",
+            preferences: RepositorySourcePreferences(
+                notifications: .inherit,
+                myPullRequests: .inherit,
+                reviewRequests: .disabled
+            )
+        )
+        XCTAssertEqual(controller.requestedSections.map(\.section), [.assigned, .direct, .team])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 0])
+    }
+
+    @MainActor
     func testPATSignInTracksLoadingAndPreventsConcurrentAttempts() async throws {
         let client = DelayedViewerGitHubProvider()
         let controller = DashboardController(
@@ -901,11 +975,11 @@ private enum TestTimeout: Error {
     precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_4", "PR_1"])
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
 
-    controller.selectedReviewRequestFilters = [.team]
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_3"])
+    precondition(controller.requestedSections.map(\.section) == [.assigned, .direct, .team])
+    precondition(controller.requestedSections.map { $0.visible.map(\.id) } == [["PR_7", "PR_2"], ["PR_5"], ["PR_3"]])
 
-    controller.selectedReviewRequestFilters = [.assigned]
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7"])
+    controller.selectedReviewRequestFilters = [.draft]
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3"])
 
     controller.selectedReviewRequestFilters = []
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
@@ -981,9 +1055,9 @@ private enum TestTimeout: Error {
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3", "PR_7"])
 
     controller.hiddenPullRequestIds = ["PR_7"]
-    controller.selectedReviewRequestFilters = [.assigned]
+    controller.selectedReviewRequestFilters = [.ready]
     precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7"])
-    precondition(controller.sortedReviewRequests.isEmpty)
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_2"])
 
     controller.setRepositoryPreferences(
         repo: "mergehawk-labs/review-router",

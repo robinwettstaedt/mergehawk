@@ -29,7 +29,7 @@ final class PreferencesStoreTests: XCTestCase {
     func testFilterSelectionsSerializeInStableOrderAndIgnoreUnsupportedValues() {
         withStore { store, defaults in
             store.selectedPullRequestFilters = [.ciFailing, .needsAttention]
-            store.selectedReviewRequestFilters = [.draft, .direct, .assigned]
+            store.selectedReviewRequestFilters = [.draft, .ready]
 
             XCTAssertEqual(
                 defaults.stringArray(forKey: "pullRequests.filterOptions"),
@@ -37,13 +37,20 @@ final class PreferencesStoreTests: XCTestCase {
             )
             XCTAssertEqual(
                 defaults.stringArray(forKey: "reviewRequests.filterOptions"),
-                ["direct", "assigned", "draft"]
+                ["draft", "ready"]
             )
 
             defaults.set(["unsupported", "all", "draft"], forKey: "pullRequests.filterOptions")
-            defaults.set(["unsupported", "all", "assigned", "ready"], forKey: "reviewRequests.filterOptions")
+            defaults.set(
+                ["unsupported", "all", "direct", "team", "assigned", "ready"],
+                forKey: "reviewRequests.filterOptions"
+            )
             XCTAssertEqual(store.selectedPullRequestFilters, [.draft])
-            XCTAssertEqual(store.selectedReviewRequestFilters, [.assigned, .ready])
+            XCTAssertEqual(store.selectedReviewRequestFilters, [.ready])
+
+            defaults.removeObject(forKey: "reviewRequests.filterOptions")
+            defaults.set("assigned", forKey: "reviewRequests.filterOption")
+            XCTAssertTrue(store.selectedReviewRequestFilters.isEmpty)
         }
     }
 
