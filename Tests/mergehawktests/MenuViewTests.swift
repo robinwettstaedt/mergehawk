@@ -5,6 +5,23 @@ import mergehawkcore
 import XCTest
 
 final class MenuViewTests: XCTestCase {
+    @MainActor
+    func testNoReviewFilterKeepsSavedTagAndExcludesUnknown() {
+        XCTAssertEqual(ReviewDecision.noReviewYet.rawValue, "review_required")
+        XCTAssertEqual(DashboardController.PullRequestFilterOption.noReviewYet.rawValue, "reviewRequired")
+        XCTAssertEqual(DashboardController.PullRequestFilterOption.noReviewYet.label, "No review yet")
+        let unknown = PullRequest(
+            id: "unknown", title: "Unknown feedback", number: 1,
+            url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
+            ciState: .unknown, reviewDecision: .unknown, commentCount: 0,
+            reviewCount: 0, isMine: true, author: "rw", mergeable: .unknown,
+            draft: false
+        )
+        XCTAssertTrue(DashboardController.filtered([unknown], by: [.noReviewYet], events: []).isEmpty)
+        XCTAssertTrue(DashboardController.filtered([unknown], by: [.approved], events: []).isEmpty)
+        XCTAssertEqual(DashboardController.filtered([unknown], by: [.ready], events: []).map(\.id), ["unknown"])
+    }
+
     func testPullRequestListEmptyCopy() {
         XCTAssertEqual(PullRequestListCopy.emptyReviewRequests, "No review requests or assigned PRs.")
     }
@@ -130,7 +147,7 @@ final class MenuViewTests: XCTestCase {
 
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .approved) == .approved)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .changesRequested) == .changesRequested)
-    precondition(ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired) == .reviewRequired)
+    precondition(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet) == .noReviewYet)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .unknown) == .unknown)
 
     let prURL = URL(string: "https://github.com/acme/mergehawk/pull/12")!
@@ -200,7 +217,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/13")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,
@@ -223,7 +240,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/12")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,
@@ -486,7 +503,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/3")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,
@@ -509,7 +526,7 @@ final class MenuViewTests: XCTestCase {
     precondition(DashboardController.filtered([older, newer, draft], by: [.draft], events: [event]).map(\.id) == ["draft"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ready], events: [event]).map(\.id) == ["older", "newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested], events: [event]).map(\.id) == ["newer"])
-    precondition(DashboardController.filtered([older, newer, draft], by: [.reviewRequired], events: [event]).map(\.id) == ["draft"])
+    precondition(DashboardController.filtered([older, newer, draft], by: [.noReviewYet], events: [event]).map(\.id) == ["draft"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.approved], events: [event]).map(\.id) == ["older"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ciFailing], events: [event]).map(\.id) == ["newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested, .draft], events: [event]).map(\.id) == ["newer", "draft"])
@@ -528,7 +545,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/4")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .direct,
@@ -544,7 +561,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/5")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .team,
@@ -560,7 +577,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/6")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .directAndTeam,
@@ -592,7 +609,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/8")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isAssignedToViewer: true,
@@ -608,7 +625,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/9")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isAssignedToViewer: true,
@@ -624,7 +641,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/10")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .direct,
@@ -641,7 +658,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/11")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .directAndTeam,

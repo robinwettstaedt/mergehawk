@@ -87,7 +87,7 @@ final class DashboardController: ObservableObject {
         case draft
         case ready
         case changesRequested
-        case reviewRequired
+        case noReviewYet = "reviewRequired"
         case approved
         case ciFailing
 
@@ -105,8 +105,8 @@ final class DashboardController: ObservableObject {
                 "Ready"
             case .changesRequested:
                 "Changes requested"
-            case .reviewRequired:
-                "Review required"
+            case .noReviewYet:
+                "No review yet"
             case .approved:
                 "Approved"
             case .ciFailing:
@@ -508,8 +508,8 @@ final class DashboardController: ObservableObject {
             !pr.draft
         case .changesRequested:
             pr.reviewDecision == .changesRequested
-        case .reviewRequired:
-            pr.reviewDecision == .reviewRequired
+        case .noReviewYet:
+            pr.reviewDecision == .noReviewYet
         case .approved:
             pr.reviewDecision == .approved
         case .ciFailing:

@@ -2548,7 +2548,7 @@ struct ReviewDecisionIndicator: View {
     enum Kind: Equatable {
         case approved
         case changesRequested
-        case reviewRequired
+        case noReviewYet
         case unknown
 
         init(reviewDecision: ReviewDecision) {
@@ -2557,8 +2557,8 @@ struct ReviewDecisionIndicator: View {
                 self = .approved
             case .changesRequested:
                 self = .changesRequested
-            case .reviewRequired:
-                self = .reviewRequired
+            case .noReviewYet:
+                self = .noReviewYet
             case .unknown:
                 self = .unknown
             }
@@ -2589,7 +2589,7 @@ private extension ReviewDecisionIndicator.Kind {
             "checkmark.seal.fill"
         case .changesRequested:
             "exclamationmark.triangle.fill"
-        case .reviewRequired:
+        case .noReviewYet:
             "eye.fill"
         case .unknown:
             "questionmark.diamond.fill"
@@ -2601,7 +2601,7 @@ private extension ReviewDecisionIndicator.Kind {
     // every review-decision indicator optically the same size.
     var pointSize: CGFloat {
         switch self {
-        case .reviewRequired:
+        case .noReviewYet:
             11
         case .approved, .changesRequested, .unknown:
             13
@@ -2614,7 +2614,7 @@ private extension ReviewDecisionIndicator.Kind {
             .green
         case .changesRequested:
             .red
-        case .reviewRequired:
+        case .noReviewYet:
             .secondary
         case .unknown:
             .secondary
@@ -2627,8 +2627,8 @@ private extension ReviewDecisionIndicator.Kind {
             "Review approved"
         case .changesRequested:
             "Changes requested"
-        case .reviewRequired:
-            "Review required"
+        case .noReviewYet:
+            "No review yet"
         case .unknown:
             "Review status unknown"
         }

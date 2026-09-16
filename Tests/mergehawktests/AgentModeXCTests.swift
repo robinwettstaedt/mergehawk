@@ -679,7 +679,7 @@ final class AgentModeXCTests: XCTestCase {
             url: URL(string: url)!,
             repo: "example/mergehawk",
             ciState: .failing,
-            reviewDecision: .reviewRequired,
+            reviewDecision: .noReviewYet,
             commentCount: 3,
             reviewCount: 0,
             isMine: true,

@@ -10,7 +10,7 @@ public enum CIState: String, Codable, Equatable, Sendable {
 public enum ReviewDecision: String, Codable, Equatable, Sendable {
     case approved
     case changesRequested = "changes_requested"
-    case reviewRequired = "review_required"
+    case noReviewYet = "review_required"
     case unknown
 }
 
