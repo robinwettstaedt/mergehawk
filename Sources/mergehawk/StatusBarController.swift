@@ -107,6 +107,23 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         updateStatusButton()
         menu.removeAllItems()
 
+        let item = NSMenuItem()
+        item.view = makeMenuContentView()
+        menu.addItem(item)
+        menu.addItem(makeKeyEquivalentTrapItem(
+            title: "Settings",
+            action: #selector(handleSettingsKeyEquivalent),
+            keyEquivalent: ","
+        ))
+        menu.addItem(makeKeyEquivalentTrapItem(
+            title: "Quit",
+            action: #selector(handleQuitKeyEquivalent),
+            keyEquivalent: "q"
+        ))
+    }
+
+    // Reuse the actual menu content in a persistent mock verification window.
+    func makeMenuContentView() -> NSView {
         let hostingView = MenuRootHostingView(
             controller: controller,
             footerModel: footerModel,
@@ -130,20 +147,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             }
         )
         hostingView.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
-
-        let item = NSMenuItem()
-        item.view = hostingView
-        menu.addItem(item)
-        menu.addItem(makeKeyEquivalentTrapItem(
-            title: "Settings",
-            action: #selector(handleSettingsKeyEquivalent),
-            keyEquivalent: ","
-        ))
-        menu.addItem(makeKeyEquivalentTrapItem(
-            title: "Quit",
-            action: #selector(handleQuitKeyEquivalent),
-            keyEquivalent: "q"
-        ))
+        return hostingView
     }
 
     // During NSMenu tracking, key equivalents are matched against the open menu's own native

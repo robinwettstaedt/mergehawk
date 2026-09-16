@@ -1,11 +1,17 @@
 import Foundation
 
 struct LaunchConfiguration: Equatable {
+    enum VerificationUI: String {
+        case settings
+        case menu
+    }
+
     var usesMockData: Bool
     var suppressesMacOSNotifications: Bool
     var notificationLogPath: String? = nil
     var showsNotificationTypeFixtures: Bool = false
     var mockRefreshDelaySeconds: TimeInterval = 0
+    var verificationUI: VerificationUI? = nil
 
     static func current(
         arguments: [String] = CommandLine.arguments,
@@ -28,7 +34,10 @@ struct LaunchConfiguration: Equatable {
             notificationLogPath: value(after: "--notification-log", in: arguments)
                 ?? environment["MERGEHAWK_NOTIFICATION_LOG"],
             showsNotificationTypeFixtures: showsNotificationTypeFixtures,
-            mockRefreshDelaySeconds: positiveTimeInterval(environment["MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS"]) ?? 0
+            mockRefreshDelaySeconds: positiveTimeInterval(environment["MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS"]) ?? 0,
+            verificationUI: usesMockData
+                ? value(after: "--verification-ui", in: arguments).flatMap(VerificationUI.init(rawValue:))
+                : nil
         )
     }
 

@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let softwareUpdateController = SoftwareUpdateController.disabled()
     private var statusBarController: StatusBarController?
     private var settingsWindow: NSWindow?
+    private var verificationMenuWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -42,6 +43,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.openSettingsWindow = { [weak self] selection in
             self?.showSettingsWindow(selection: selection)
         }
+        if let surface = LaunchConfiguration.current().verificationUI {
+            DispatchQueue.main.async { [weak self] in
+                switch surface {
+                case .settings:
+                    self?.showSettingsWindow()
+                case .menu:
+                    self?.showVerificationMenuWindow()
+                }
+            }
+        }
+    }
+
+    private func showVerificationMenuWindow() {
+        guard let contentView = statusBarController?.makeMenuContentView() else { return }
+        let window = NSWindow(
+            contentRect: contentView.frame,
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "MergeHawk Verification Menu"
+        window.contentView = contentView
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace]
+        window.center()
+        verificationMenuWindow = window
+        window.orderBack(nil)
+        window.makeKey()
+        window.makeFirstResponder(contentView)
     }
 
     private func showSettingsWindow(selection: SettingsTab = .general) {
@@ -75,9 +105,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         window.setContentSize(SettingsTab.defaultWindowSize)
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        window.makeMain()
+        if LaunchConfiguration.current().verificationUI != nil {
+            window.orderBack(nil)
+            window.makeKey()
+            window.makeMain()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            window.makeMain()
+        }
     }
 }
 
