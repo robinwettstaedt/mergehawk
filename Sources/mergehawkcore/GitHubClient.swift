@@ -78,8 +78,10 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
 
     public struct User: Decodable, Equatable, Sendable {
         public let login: String
-        public init(login: String) {
+        public let avatarUrl: URL?
+        public init(login: String, avatarUrl: URL? = nil) {
             self.login = login
+            self.avatarUrl = avatarUrl
         }
     }
 
@@ -449,6 +451,7 @@ public enum GitHubPullRequestNormalizer {
             isAssignedToViewer: node.assignees.nodes.contains { $0.login == login },
             isMine: node.author?.login == login,
             author: node.author?.login ?? "unknown",
+            authorAvatarURL: node.author?.avatarUrl,
             headRefName: node.headRefName,
             mergeable: normalizeMergeableState(node.mergeable),
             draft: node.isDraft,
@@ -879,6 +882,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             isAssignedToViewer: pullRequest.isAssignedToViewer,
             isMine: pullRequest.isMine,
             author: pullRequest.author,
+            authorAvatarURL: pullRequest.authorAvatarURL,
             headRefName: pullRequest.headRefName,
             mergeable: pullRequest.mergeable,
             draft: pullRequest.draft,
@@ -931,6 +935,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             isAssignedToViewer: current.isAssignedToViewer,
             isMine: current.isMine,
             author: current.author,
+            authorAvatarURL: current.authorAvatarURL,
             headRefName: current.headRefName,
             mergeable: current.mergeable,
             draft: current.draft,
@@ -964,6 +969,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             isAssignedToViewer: shallow.isAssignedToViewer,
             isMine: shallow.isMine,
             author: detailed.author,
+            authorAvatarURL: detailed.authorAvatarURL,
             headRefName: detailed.headRefName,
             mergeable: detailed.mergeable,
             draft: detailed.draft,
@@ -1182,6 +1188,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
               }
               author {
                 login
+                avatarUrl(size: 64)
               }
             }
           }
@@ -1305,6 +1312,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             }
             author {
               login
+              avatarUrl(size: 64)
             }
           }
         }

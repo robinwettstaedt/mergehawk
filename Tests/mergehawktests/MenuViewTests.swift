@@ -64,6 +64,12 @@ final class MenuViewTests: XCTestCase {
         XCTAssertTrue(clear.2.contains("No merge conflicts"))
     }
 
+    func testUnresolvedCommentCountLabelsIncludeZero() {
+        XCTAssertEqual(CommentCountIndicator.label(for: 0), "0 unresolved comments")
+        XCTAssertEqual(CommentCountIndicator.label(for: 1), "1 unresolved comment")
+        XCTAssertEqual(CommentCountIndicator.label(for: 3), "3 unresolved comments")
+    }
+
     func testChangeCountPresentationKeepsExactAccessibleValues() {
         XCTAssertEqual(PullRequestChangesPresentation.additionsText(0), "+0")
         XCTAssertEqual(PullRequestChangesPresentation.deletionsText(0), "−0")

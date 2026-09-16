@@ -147,6 +147,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String
+    public let authorAvatarURL: URL?
     public let headRefName: String
     public let mergeable: MergeableState
     public let draft: Bool
@@ -174,6 +175,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         isAssignedToViewer: Bool = false,
         isMine: Bool,
         author: String,
+        authorAvatarURL: URL? = nil,
         headRefName: String = "",
         mergeable: MergeableState,
         draft: Bool,
@@ -200,6 +202,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.isAssignedToViewer = isAssignedToViewer
         self.isMine = isMine
         self.author = author
+        self.authorAvatarURL = authorAvatarURL
         self.headRefName = headRefName
         self.mergeable = mergeable
         self.draft = draft
@@ -228,6 +231,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case isAssignedToViewer
         case isMine
         case author
+        case authorAvatarURL
         case headRefName
         case mergeable
         case draft
@@ -264,6 +268,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.isAssignedToViewer = try container.decode(Bool.self, forKey: .isAssignedToViewer)
         self.isMine = try container.decode(Bool.self, forKey: .isMine)
         self.author = try container.decode(String.self, forKey: .author)
+        self.authorAvatarURL = try container.decodeIfPresent(URL.self, forKey: .authorAvatarURL)
         self.headRefName = try container.decode(String.self, forKey: .headRefName)
         self.mergeable = try container.decode(MergeableState.self, forKey: .mergeable)
         self.draft = try container.decode(Bool.self, forKey: .draft)

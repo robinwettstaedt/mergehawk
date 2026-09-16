@@ -24,6 +24,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertTrue(shallowOpinionated.contains("login"))
         XCTAssertTrue(shallow.contains("additions"))
         XCTAssertTrue(shallow.contains("deletions"))
+        XCTAssertEqual(shallow.components(separatedBy: "avatarUrl(size: 64)").count - 1, 1)
         XCTAssertTrue(shallow.contains("reviewThreads(first: 20)"))
         XCTAssertFalse(shallow.contains("reviewThreads(first: 100)"))
         XCTAssertFalse(shallow.contains("comments(last: 100)"))
@@ -41,6 +42,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertFalse(detail.contains("reviewDecision\n"))
         XCTAssertTrue(detail.contains("additions"))
         XCTAssertTrue(detail.contains("deletions"))
+        XCTAssertEqual(detail.components(separatedBy: "avatarUrl(size: 64)").count - 1, 1)
         XCTAssertTrue(detail.contains("reviewThreads(first: 20)"))
         XCTAssertTrue(detail.contains("comments(last: 10)"))
         XCTAssertFalse(detail.contains("first: 100"))
@@ -124,6 +126,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         let request = GitHubPullRequestNormalizer.normalize(node, login: "rw")
         XCTAssertEqual(request.additions, 0)
         XCTAssertEqual(request.deletions, 12345)
+        XCTAssertEqual(request.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
 
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
@@ -131,13 +134,30 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         let roundTrip = try decoder.decode(PullRequest.self, from: encoded)
         XCTAssertEqual(roundTrip.additions, 0)
         XCTAssertEqual(roundTrip.deletions, 12345)
+        XCTAssertEqual(roundTrip.authorAvatarURL, request.authorAvatarURL)
 
         var oldCache = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         oldCache.removeValue(forKey: "additions")
         oldCache.removeValue(forKey: "deletions")
+        oldCache.removeValue(forKey: "authorAvatarURL")
         let oldRequest = try decoder.decode(PullRequest.self, from: JSONSerialization.data(withJSONObject: oldCache))
         XCTAssertNil(oldRequest.additions)
         XCTAssertNil(oldRequest.deletions)
+        XCTAssertNil(oldRequest.authorAvatarURL)
+    }
+
+    func testMissingPullRequestAuthorOrAvatarUsesNoAvatarURL() throws {
+        let data = Data(Self.pullRequestJSON(commentCount: 0, reviewCount: 0, includeActivity: false).utf8)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        json["author"] = ["login": "rw"]
+        var node = try JSONDecoder().decode(GitHubPullRequestNode.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(GitHubPullRequestNormalizer.normalize(node, login: "rw").authorAvatarURL)
+
+        json["author"] = NSNull()
+        node = try JSONDecoder().decode(GitHubPullRequestNode.self, from: JSONSerialization.data(withJSONObject: json))
+        let request = GitHubPullRequestNormalizer.normalize(node, login: "rw")
+        XCTAssertEqual(request.author, "unknown")
+        XCTAssertNil(request.authorAvatarURL)
     }
 
     func testShallowChangeCountsSurviveUnchangedDetailReuseAndDetailFailure() async throws {
@@ -150,6 +170,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         let unchanged = try await client.fetchPullRequests(login: "rw", previousPullRequests: [previous])
         XCTAssertEqual(unchanged.pullRequests.first?.additions, 0)
         XCTAssertEqual(unchanged.pullRequests.first?.deletions, 12345)
+        XCTAssertEqual(unchanged.pullRequests.first?.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
 
         PullRequestFetchMockURLProtocol.handler = { request in
             if Self.requestBody(request).contains("PullRequestDetails") {
@@ -161,6 +182,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertNotNil(failed.refreshWarning)
         XCTAssertEqual(failed.pullRequests.first?.additions, 0)
         XCTAssertEqual(failed.pullRequests.first?.deletions, 12345)
+        XCTAssertEqual(failed.pullRequests.first?.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
     }
 
     func testDetailHydrationAndCommitReplacementPreserveChangeCounts() async throws {
@@ -178,6 +200,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         )
         XCTAssertEqual(hydrated.pullRequests.first?.additions, 0)
         XCTAssertEqual(hydrated.pullRequests.first?.deletions, 12345)
+        XCTAssertEqual(hydrated.pullRequests.first?.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
 
         PullRequestFetchMockURLProtocol.handler = { request in
             if request.url?.path == "/repos/acme/app/pulls/12/commits" {
@@ -191,6 +214,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         )
         XCTAssertEqual(replaced.pullRequests.first?.additions, 0)
         XCTAssertEqual(replaced.pullRequests.first?.deletions, 12345)
+        XCTAssertEqual(replaced.pullRequests.first?.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
     }
 
     func testUnchangedPullRequestDoesNotFetchDetails() async throws {
@@ -583,7 +607,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
               }
             ]
           },
-          "author": { "login": "rw" }
+          "author": { "login": "rw", "avatarUrl": "https://avatars.githubusercontent.com/u/123?v=4" }
         }
         """
     }
@@ -610,7 +634,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
           "assignees": { "nodes": [] },
           "repository": { "nameWithOwner": "acme/app" },
           "commits": \(commits),
-          "author": { "login": "rw" }
+          "author": { "login": "rw", "avatarUrl": "https://avatars.githubusercontent.com/u/123?v=4" }
         }
         """
     }

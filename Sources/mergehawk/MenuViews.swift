@@ -2195,6 +2195,7 @@ private struct GitHubInboxNotificationRow: View {
 enum PullRequestColumnLayout {
     static let spacing: CGFloat = 6
     static let horizontalInset: CGFloat = 10
+    static let commentsWidth: CGFloat = 30
     static let statusWidth: CGFloat = 30
     static let changesWidth: CGFloat = 100
     static let ageWidth: CGFloat = 45
@@ -2207,6 +2208,11 @@ struct PullRequestColumnHeader: View {
             Text("Pull request")
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Pull request")
+            statusHeader(
+                "bubble.left",
+                label: "Unresolved comments",
+                width: PullRequestColumnLayout.commentsWidth
+            )
             statusHeader("person.crop.circle.badge.checkmark", label: "Review feedback")
             statusHeader("checkmark.circle", label: "Continuous integration")
             statusHeader("exclamationmark.triangle", label: "Merge conflicts")
@@ -2225,9 +2231,13 @@ struct PullRequestColumnHeader: View {
         .frame(height: 22)
     }
 
-    private func statusHeader(_ symbol: String, label: String) -> some View {
+    private func statusHeader(
+        _ symbol: String,
+        label: String,
+        width: CGFloat = PullRequestColumnLayout.statusWidth
+    ) -> some View {
         Image(systemName: symbol)
-            .frame(width: PullRequestColumnLayout.statusWidth, height: 22)
+            .frame(width: width, height: 22)
             .contentShape(Rectangle())
             .help(label)
             .accessibilityLabel(label)
@@ -2251,8 +2261,16 @@ struct PullRequestRow: View {
         HStack(spacing: PullRequestColumnLayout.spacing) {
             Button(action: action) {
                 HStack(spacing: PullRequestColumnLayout.spacing) {
-                    identity
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 7) {
+                        if showsAuthor {
+                            PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
+                        }
+                        identity
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    CommentCountIndicator(count: pullRequest.commentCount)
+                        .frame(width: PullRequestColumnLayout.commentsWidth)
                     ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                         .frame(width: PullRequestColumnLayout.statusWidth)
                     CIStatusIndicator(ciState: pullRequest.ciState)
@@ -2322,27 +2340,38 @@ struct PullRequestRow: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if showsAuthor || pullRequest.commentCount > 0 || showsReviewRequestKind {
+            if showsReviewRequestKind {
                 HStack(spacing: 5) {
-                    if showsAuthor {
-                        Text("@\(pullRequest.author)")
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .help("Requested author: \(pullRequest.author)")
-                    }
-                    if pullRequest.commentCount > 0 {
-                        CommentCountIndicator(count: pullRequest.commentCount)
-                    }
-                    if showsReviewRequestKind {
-                        ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
-                        if pullRequest.isAssignedToViewer { AssignedPullRequestPill() }
-                    }
+                    ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
+                    if pullRequest.isAssignedToViewer { AssignedPullRequestPill() }
                 }
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+}
+
+private struct PullRequestAuthorAvatar: View {
+    let author: String
+    let url: URL?
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            if case let .success(image) = phase {
+                image.resizable().scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 26, height: 26)
+        .clipShape(Circle())
+        .help("Requested author: \(author)")
+        .accessibilityLabel("Requested author: \(author)")
     }
 }
 
@@ -2537,15 +2566,11 @@ struct CommentCountIndicator: View {
     let count: Int
 
     var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "bubble.left")
-                .font(.system(size: 11, weight: .semibold))
-            Text("\(count)")
-                .font(.caption2.weight(.semibold))
-        }
-        .foregroundStyle(.secondary)
-        .accessibilityLabel(Self.label(for: count))
-        .help(Self.label(for: count))
+        Text("\(count)")
+            .font(.caption2.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(Self.label(for: count))
+            .help(Self.label(for: count))
     }
 
     static func label(for count: Int) -> String {
@@ -2721,12 +2746,13 @@ struct PullRequestChangesIndicator: View {
     var body: some View {
         Group {
             if let additions, let deletions {
-                VStack(spacing: 0) {
+                VStack(alignment: .trailing, spacing: 0) {
                     Text(PullRequestChangesPresentation.additionsText(additions))
                         .foregroundStyle(.green)
                     Text(PullRequestChangesPresentation.deletionsText(deletions))
                         .foregroundStyle(.red)
                 }
+                .fixedSize(horizontal: true, vertical: false)
             } else {
                 Text("—")
                     .foregroundStyle(.secondary)
