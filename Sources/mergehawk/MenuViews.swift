@@ -2299,12 +2299,18 @@ struct PullRequestRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 4) {
-                Text("\(pullRequest.repo)#\(pullRequest.number)")
+                Text(pullRequest.repo)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help("\(pullRequest.repo) #\(pullRequest.number)")
+                    .help(pullRequest.repo)
+                    .accessibilityLabel(pullRequest.repo)
+                Text("#\(pullRequest.number)")
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
+                    .help("Pull request #\(pullRequest.number)")
+                    .accessibilityLabel("Pull request number \(pullRequest.number)")
                 if !pullRequest.headRefName.isEmpty {
-                    Text("·")
+                    Text("·").fixedSize()
                     Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
                         .lineLimit(1)
                         .truncationMode(.tail)
