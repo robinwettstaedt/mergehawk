@@ -306,6 +306,11 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-my-prs-laptop.png"),
+                availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
+            )
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-pinned.png"))
             controller.pinnedPullRequestIds = []
@@ -358,6 +363,11 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-laptop.png"),
+                availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
+            )
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
             controller.pinnedPullRequestIds = []
@@ -482,11 +492,13 @@ final class VisualVerificationXCTests: XCTestCase {
     @MainActor
     private func renderMenu(
         controller: DashboardController,
-        to url: URL
+        to url: URL,
+        availableFrame: CGRect? = nil
     ) throws {
-        let view = MenuRootView(controller: controller, footerModel: MenuFooterModel())
+        let size = availableFrame.map { MenuPanelSize.resolve(availableFrame: $0) }
+            ?? CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
+        let view = MenuRootView(controller: controller, footerModel: MenuFooterModel(), resolvedSize: size)
             .background(.regularMaterial)
-        let size = CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
 
         try render(view, size: size, appearance: .darkAqua, to: url)
 
@@ -623,11 +635,13 @@ private struct VisualCaptureSelection {
         "menu-notifications",
         "menu-notifications-other",
         "menu-my-prs",
+        "menu-my-prs-laptop",
         "menu-my-prs-pinned",
         "menu-my-prs-hidden-collapsed",
         "menu-my-prs-hidden-expanded",
         "menu-my-prs-empty",
         "menu-review-requests",
+        "menu-review-requests-laptop",
         "menu-review-requests-pinned",
         "menu-review-requests-hidden-collapsed",
         "menu-review-requests-hidden-expanded",

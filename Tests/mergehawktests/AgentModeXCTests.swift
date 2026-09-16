@@ -61,6 +61,26 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertEqual(controller.state.source, .mock)
             XCTAssertEqual(controller.state.account?.login, "agent-fixture")
             XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
+            let requests = controller.state.pullRequests
+            let byId = Dictionary(uniqueKeysWithValues: requests.map { ($0.id, $0) })
+            XCTAssertEqual(Set(requests.map(\.reviewDecision)), [.noReviewYet, .approved, .changesRequested, .unknown])
+            XCTAssertEqual(Set(requests.map(\.ciState)), [.passing, .failing, .pending, .unknown])
+            XCTAssertEqual(Set(requests.map(\.mergeable)), [.mergeable, .conflicting, .unknown])
+            XCTAssertGreaterThanOrEqual(requests.filter { $0.mergeable == .unknown }.count, 2)
+            XCTAssertEqual(byId["PR_1"]?.additions, 0)
+            XCTAssertEqual(byId["PR_1"]?.deletions, 0)
+            XCTAssertEqual(byId["PR_3"]?.additions, 1_200_000)
+            XCTAssertEqual(byId["PR_3"]?.deletions, 0)
+            XCTAssertNil(byId["PR_6"]?.additions)
+            XCTAssertNil(byId["PR_7"]?.deletions)
+            XCTAssertTrue((byId["PR_4"]?.title.count ?? 0) > 100)
+            XCTAssertTrue((byId["PR_5"]?.title.count ?? 0) > 100)
+            XCTAssertTrue((byId["PR_3"]?.headRefName.count ?? 0) > 70)
+            XCTAssertEqual(byId["PR_2"]?.reviewRequestKind, .direct)
+            XCTAssertEqual(byId["PR_3"]?.reviewRequestKind, .team)
+            XCTAssertEqual(byId["PR_5"]?.reviewRequestKind, .directAndTeam)
+            XCTAssertEqual(byId["PR_7"]?.isAssignedToViewer, true)
+            XCTAssertEqual(byId["PR_1"]?.draft, true)
             XCTAssertFalse(controller.startsAtLogin)
         }
 
@@ -74,6 +94,9 @@ final class AgentModeXCTests: XCTestCase {
             notificationClient.records.map(\.eventType),
             ["new_comment", "ci_failed", "other_commit_added", "relationship_added", "relationship_added"]
         )
+        await MainActor.run {
+            XCTAssertGreaterThanOrEqual(controller.state.pullRequests.filter { $0.mergeable == .unknown }.count, 2)
+        }
     }
 
     func testMockRefreshDelayKeepsRefreshIndicatorActive() async {
