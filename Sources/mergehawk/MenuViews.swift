@@ -628,7 +628,7 @@ enum PullRequestAgePresentation {
 
 struct MenuRootView: View {
     enum Layout {
-        static let width: CGFloat = 420
+        static let width: CGFloat = 820
         static let contentHeight: CGFloat = 650
         static let footerRowCount: CGFloat = 4
         static let footerHeight: CGFloat = FooterSeparatorLayout.height + footerRowCount * FooterActionLayout.rowHeight
@@ -646,6 +646,7 @@ struct MenuRootView: View {
 
     @ObservedObject var controller: DashboardController
     @ObservedObject var footerModel: MenuFooterModel
+    let resolvedSize: CGSize
     let dismissMenu: () -> Void
     let showSettings: () -> Void
     let showAbout: () -> Void
@@ -656,6 +657,7 @@ struct MenuRootView: View {
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
+        resolvedSize: CGSize = CGSize(width: Layout.width, height: Layout.height),
         dismissMenu: @escaping () -> Void = {},
         showSettings: @escaping () -> Void = {},
         showAbout: @escaping () -> Void = {},
@@ -663,6 +665,7 @@ struct MenuRootView: View {
     ) {
         self.controller = controller
         self.footerModel = footerModel
+        self.resolvedSize = resolvedSize
         self.dismissMenu = dismissMenu
         self.showSettings = showSettings
         self.showAbout = showAbout
@@ -677,7 +680,7 @@ struct MenuRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             footer
         }
-        .frame(width: Self.Layout.width, height: Self.Layout.height)
+        .frame(width: resolvedSize.width, height: resolvedSize.height)
         .background(menuSurface)
     }
 
@@ -786,6 +789,17 @@ struct MenuRootView: View {
         dismissTransientPRControlsSignal += 1
     }
 
+}
+
+enum MenuPanelSize {
+    static let margin: CGFloat = 12
+
+    static func resolve(availableFrame: CGRect) -> CGSize {
+        CGSize(
+            width: min(MenuRootView.Layout.width, max(0, availableFrame.width - margin * 2)),
+            height: min(MenuRootView.Layout.height, max(0, availableFrame.height - margin * 2))
+        )
+    }
 }
 
 @MainActor

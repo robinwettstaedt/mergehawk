@@ -123,10 +123,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     // Reuse the actual menu content in a persistent mock verification window.
-    func makeMenuContentView() -> NSView {
+    func makeMenuContentView(availableFrame: CGRect? = nil) -> NSView {
+        let screenFrame = availableFrame
+            ?? statusItem.button?.window?.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSScreen.screens.first?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
+        let resolvedSize = MenuPanelSize.resolve(availableFrame: screenFrame)
         let hostingView = MenuRootHostingView(
             controller: controller,
             footerModel: footerModel,
+            resolvedSize: resolvedSize,
             refreshKeyHandler: { [weak self] in
                 self?.performKeyboardRefresh()
             },
@@ -146,7 +153,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 self?.quitAction()
             }
         )
-        hostingView.frame = NSRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
+        hostingView.frame = NSRect(origin: .zero, size: resolvedSize)
         return hostingView
     }
 
@@ -223,7 +230,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 }
 
-private final class MenuRootHostingView: NSHostingView<MenuRootView> {
+final class MenuRootHostingView: NSHostingView<MenuRootView> {
     private let refreshKeyHandler: () -> Void
     private let tabShortcutHandler: (DashboardController.MenuTab) -> Bool
     private let settingsKeyHandler: () -> Void
@@ -232,6 +239,7 @@ private final class MenuRootHostingView: NSHostingView<MenuRootView> {
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
+        resolvedSize: CGSize,
         refreshKeyHandler: @escaping () -> Void,
         tabShortcutHandler: @escaping (DashboardController.MenuTab) -> Bool,
         dismissMenu: @escaping () -> Void,
@@ -252,6 +260,7 @@ private final class MenuRootHostingView: NSHostingView<MenuRootView> {
         super.init(rootView: MenuRootView(
             controller: controller,
             footerModel: footerModel,
+            resolvedSize: resolvedSize,
             dismissMenu: dismissMenu,
             showSettings: showSettings,
             showAbout: showAbout,

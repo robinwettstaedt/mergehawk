@@ -5,6 +5,34 @@ import mergehawkcore
 import XCTest
 
 final class MenuViewTests: XCTestCase {
+    func testPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
+        let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000))
+        XCTAssertEqual(large.width, 820)
+        XCTAssertEqual(large.height, MenuRootView.Layout.height)
+
+        let laptopUsableFrame = CGRect(x: 0, y: 28, width: 1280, height: 740)
+        let laptop = MenuPanelSize.resolve(availableFrame: laptopUsableFrame)
+        XCTAssertEqual(laptop.width, 820)
+        XCTAssertLessThan(laptop.height, MenuRootView.Layout.height)
+        XCTAssertLessThanOrEqual(laptop.height + MenuPanelSize.margin * 2, laptopUsableFrame.height)
+        XCTAssertGreaterThan(laptop.height, MenuRootView.Layout.footerHeight + MenuRootView.Layout.topBarHeight)
+
+        let narrow = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 760, height: 600))
+        XCTAssertLessThanOrEqual(narrow.width + MenuPanelSize.margin * 2, 760)
+        XCTAssertLessThanOrEqual(narrow.height + MenuPanelSize.margin * 2, 600)
+    }
+
+    @MainActor
+    func testNativeHostAndRootUseTheSameResolvedSize() throws {
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
+        let statusBarController = StatusBarController(controller: controller)
+        let frame = CGRect(x: 0, y: 28, width: 1280, height: 740)
+        let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
+        let resolved = MenuPanelSize.resolve(availableFrame: frame)
+        XCTAssertEqual(hosted.frame.size, resolved)
+        XCTAssertEqual(hosted.rootView.resolvedSize, resolved)
+    }
+
     func testIndependentStatusDescriptionsAndMixedSignals() {
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).label, "Review approved")
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label, "No review yet")
