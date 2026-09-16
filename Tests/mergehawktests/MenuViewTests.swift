@@ -65,11 +65,15 @@ final class MenuViewTests: XCTestCase {
     }
 
     func testChangeCountPresentationKeepsExactAccessibleValues() {
+        XCTAssertEqual(PullRequestChangesPresentation.additionsText(0), "+0")
+        XCTAssertEqual(PullRequestChangesPresentation.deletionsText(0), "−0")
         XCTAssertEqual(PullRequestChangesPresentation.text(additions: 0, deletions: 0), "+0 −0")
         XCTAssertEqual(PullRequestChangesPresentation.label(additions: 0, deletions: 0), "0 additions, 0 deletions")
         XCTAssertEqual(PullRequestChangesPresentation.text(additions: nil, deletions: 0), "—")
         XCTAssertEqual(PullRequestChangesPresentation.label(additions: nil, deletions: 0), "Change counts unavailable")
         XCTAssertEqual(PullRequestChangesPresentation.text(additions: 12_345, deletions: 6_789), "+12k −6.8k")
+        XCTAssertEqual(PullRequestChangesPresentation.additionsText(12_345), "+12k")
+        XCTAssertEqual(PullRequestChangesPresentation.deletionsText(6_789), "−6.8k")
         XCTAssertEqual(PullRequestChangesPresentation.label(additions: 12_345, deletions: 6_789), "12,345 additions, 6,789 deletions")
     }
 

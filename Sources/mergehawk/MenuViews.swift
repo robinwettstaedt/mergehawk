@@ -2227,7 +2227,8 @@ struct PullRequestColumnHeader: View {
 
     private func statusHeader(_ symbol: String, label: String) -> some View {
         Image(systemName: symbol)
-            .frame(width: PullRequestColumnLayout.statusWidth)
+            .frame(width: PullRequestColumnLayout.statusWidth, height: 22)
+            .contentShape(Rectangle())
             .help(label)
             .accessibilityLabel(label)
     }
@@ -2672,7 +2673,15 @@ struct MergeConflictIndicator: View {
 enum PullRequestChangesPresentation {
     static func text(additions: Int?, deletions: Int?) -> String {
         guard let additions, let deletions else { return "—" }
-        return "+\(compact(additions)) −\(compact(deletions))"
+        return "\(additionsText(additions)) \(deletionsText(deletions))"
+    }
+
+    static func additionsText(_ additions: Int) -> String {
+        "+\(compact(additions))"
+    }
+
+    static func deletionsText(_ deletions: Int) -> String {
+        "−\(compact(deletions))"
     }
 
     static func label(additions: Int?, deletions: Int?) -> String {
@@ -2710,13 +2719,27 @@ struct PullRequestChangesIndicator: View {
     let deletions: Int?
 
     var body: some View {
-        Text(PullRequestChangesPresentation.text(additions: additions, deletions: deletions))
-            .font(.caption2.monospacedDigit().weight(.semibold))
-            .foregroundStyle(additions == nil || deletions == nil ? .secondary : .primary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
-            .accessibilityLabel(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
+        Group {
+            if let additions, let deletions {
+                VStack(spacing: 0) {
+                    Text(PullRequestChangesPresentation.additionsText(additions))
+                        .foregroundStyle(.green)
+                    Text(PullRequestChangesPresentation.deletionsText(deletions))
+                        .foregroundStyle(.red)
+                }
+            } else {
+                Text("—")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption2.monospacedDigit().weight(.semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .frame(width: PullRequestColumnLayout.changesWidth, height: 30)
+        .contentShape(Rectangle())
+        .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
     }
 }
 
