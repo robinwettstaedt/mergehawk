@@ -5,6 +5,46 @@ import mergehawkcore
 import XCTest
 
 final class MenuViewTests: XCTestCase {
+    func testIndependentStatusDescriptionsAndMixedSignals() {
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).label, "Review approved")
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label, "No review yet")
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .unknown).label, "Review status unknown")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .failing).label, "CI failing")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .pending).label, "CI pending (waiting or running)")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .passing).label, "CI successful")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .unknown).label, "CI status unknown")
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .conflicting).label, "Merge conflicts")
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .unknown).label, "Mergeability unknown")
+        XCTAssertTrue(MergeConflictIndicator.Kind(mergeable: .mergeable).label.contains("No merge conflicts"))
+        XCTAssertTrue(MergeConflictIndicator.Kind(mergeable: .mergeable).label.contains("other requirements"))
+
+        let blocked = (
+            ReviewDecisionIndicator.Kind(reviewDecision: .approved).label,
+            CIStatusIndicator.Kind(ciState: .failing).label,
+            MergeConflictIndicator.Kind(mergeable: .conflicting).label
+        )
+        XCTAssertEqual(blocked.0, "Review approved")
+        XCTAssertEqual(blocked.1, "CI failing")
+        XCTAssertEqual(blocked.2, "Merge conflicts")
+        let clear = (
+            ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label,
+            CIStatusIndicator.Kind(ciState: .passing).label,
+            MergeConflictIndicator.Kind(mergeable: .mergeable).label
+        )
+        XCTAssertEqual(clear.0, "No review yet")
+        XCTAssertEqual(clear.1, "CI successful")
+        XCTAssertTrue(clear.2.contains("No merge conflicts"))
+    }
+
+    func testChangeCountPresentationKeepsExactAccessibleValues() {
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 0, deletions: 0), "+0 −0")
+        XCTAssertEqual(PullRequestChangesPresentation.label(additions: 0, deletions: 0), "0 additions, 0 deletions")
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: nil, deletions: 0), "—")
+        XCTAssertEqual(PullRequestChangesPresentation.label(additions: nil, deletions: 0), "Change counts unavailable")
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 12_345, deletions: 6_789), "+12k −6.8k")
+        XCTAssertEqual(PullRequestChangesPresentation.label(additions: 12_345, deletions: 6_789), "12,345 additions, 6,789 deletions")
+    }
+
     @MainActor
     func testNoReviewFilterKeepsSavedTagAndExcludesUnknown() {
         XCTAssertEqual(ReviewDecision.noReviewYet.rawValue, "review_required")
@@ -142,7 +182,7 @@ final class MenuViewTests: XCTestCase {
     precondition(MenuNotificationTabPresentation.help(for: 1) == "1 new PR update")
     precondition(MenuNotificationTabPresentation.help(for: 3) == "3 new PR updates")
     precondition(CIStatusIndicator.Kind(ciState: .failing) == .failing)
-    precondition(CIStatusIndicator.Kind(ciState: .pending) == .running)
+    precondition(CIStatusIndicator.Kind(ciState: .pending) == .pending)
     precondition(CIStatusIndicator.Kind(ciState: .passing) == .successful)
 
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .approved) == .approved)

@@ -1659,6 +1659,8 @@ struct PullRequestListView: View {
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 8) {
+                    PullRequestColumnHeader()
+
                     ForEach(visiblePullRequests) { pr in
                         pullRequestRow(pr)
                             .id("visible-\(pr.id)")
@@ -2176,7 +2178,48 @@ private struct GitHubInboxNotificationRow: View {
 
 }
 
-private struct PullRequestRow: View {
+enum PullRequestColumnLayout {
+    static let spacing: CGFloat = 6
+    static let horizontalInset: CGFloat = 10
+    static let statusWidth: CGFloat = 30
+    static let changesWidth: CGFloat = 100
+    static let ageWidth: CGFloat = 45
+    static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize * 3
+}
+
+struct PullRequestColumnHeader: View {
+    var body: some View {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
+            Text("Pull request")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Pull request")
+            statusHeader("person.crop.circle.badge.checkmark", label: "Review feedback")
+            statusHeader("checkmark.circle", label: "Continuous integration")
+            statusHeader("exclamationmark.triangle", label: "Merge conflicts")
+            Text("Changes")
+                .frame(width: PullRequestColumnLayout.changesWidth, alignment: .center)
+                .accessibilityLabel("Changes")
+            Text("Updated")
+                .frame(width: PullRequestColumnLayout.ageWidth, alignment: .center)
+                .accessibilityLabel("Updated")
+            Color.clear.frame(width: PullRequestColumnLayout.actionsWidth, height: 1)
+                .accessibilityHidden(true)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+        .frame(height: 22)
+    }
+
+    private func statusHeader(_ symbol: String, label: String) -> some View {
+        Image(systemName: symbol)
+            .frame(width: PullRequestColumnLayout.statusWidth)
+            .help(label)
+            .accessibilityLabel(label)
+    }
+}
+
+struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
     let isPinned: Bool
@@ -2190,74 +2233,28 @@ private struct PullRequestRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
             Button(action: action) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
-                            if pullRequest.draft {
-                                DraftPullRequestIndicator()
-                            }
-                            Text(pullRequest.title)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(2)
-                        }
-                        Spacer(minLength: 8)
-                        ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                            .alignmentGuide(.firstTextBaseline) { $0.height - 4 }
-                    }
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text(pullRequest.repo)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Text("·")
-                            .fixedSize()
-                        Text("#\(pullRequest.number)")
-                            .fixedSize()
-                            .layoutPriority(1)
-                        Spacer(minLength: 8)
-                        Text(PullRequestAgePresentation.shortText(for: pullRequest.updatedAt))
-                            .fixedSize()
-                            .layoutPriority(1)
-                            .help(PullRequestAgePresentation.label(for: pullRequest.updatedAt))
-                    }
-                        .font(.caption.weight(.medium))
+                HStack(spacing: PullRequestColumnLayout.spacing) {
+                    identity
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    CIStatusIndicator(ciState: pullRequest.ciState)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    MergeConflictIndicator(mergeable: pullRequest.mergeable)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
+                        .frame(width: PullRequestColumnLayout.changesWidth)
+                    Text(PullRequestAgePresentation.shortText(for: pullRequest.updatedAt))
+                        .font(.caption2.monospacedDigit().weight(.medium))
                         .foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if showsAuthor {
-                            Text("·")
-                                .fixedSize()
-                            Text("@\(pullRequest.author)")
-                                .lineLimit(1)
-                                .fixedSize()
-                                .layoutPriority(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        CIStatusIndicator(ciState: pullRequest.ciState)
-                        if pullRequest.commentCount > 0 {
-                            CommentCountIndicator(count: pullRequest.commentCount)
-                        }
-                        if showsReviewRequestKind {
-                            ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
-                            if pullRequest.isAssignedToViewer {
-                                AssignedPullRequestPill()
-                            }
-                        }
-                        Spacer(minLength: PullRequestActionButtonLayout.hitSize * 3)
-                    }
+                        .lineLimit(1)
+                        .frame(width: PullRequestColumnLayout.ageWidth)
+                        .help(PullRequestAgePresentation.label(for: pullRequest.updatedAt))
+                        .accessibilityLabel(PullRequestAgePresentation.label(for: pullRequest.updatedAt))
                 }
-                .padding(10)
-                .transparentCardStyle(
-                    accentColor: isAttention ? .accentColor : nil,
-                    isHovered: isHovered
-                )
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -2266,10 +2263,65 @@ private struct PullRequestRow: View {
                 PullRequestPinButton(isPinned: isPinned, isVisible: isPinned || isHovered, action: togglePin)
                 PullRequestLinkCopyButton(url: pullRequest.url)
             }
-                .padding(.trailing, 2)
-                .padding(.bottom, 5)
+            .frame(width: PullRequestColumnLayout.actionsWidth)
         }
+        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+        .padding(.vertical, 6)
+        .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
+    }
+
+    private var identity: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                if pullRequest.draft { DraftPullRequestIndicator() }
+                Text(pullRequest.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(pullRequest.title)
+                    .accessibilityLabel(pullRequest.title)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 4) {
+                Text("\(pullRequest.repo)#\(pullRequest.number)")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help("\(pullRequest.repo) #\(pullRequest.number)")
+                if !pullRequest.headRefName.isEmpty {
+                    Text("·")
+                    Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(pullRequest.headRefName)
+                }
+            }
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if showsAuthor || pullRequest.commentCount > 0 || showsReviewRequestKind {
+                HStack(spacing: 5) {
+                    if showsAuthor {
+                        Text("@\(pullRequest.author)")
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help("Requested author: \(pullRequest.author)")
+                    }
+                    if pullRequest.commentCount > 0 {
+                        CommentCountIndicator(count: pullRequest.commentCount)
+                    }
+                    if showsReviewRequestKind {
+                        ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
+                        if pullRequest.isAssignedToViewer { AssignedPullRequestPill() }
+                    }
+                }
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 }
 
@@ -2483,7 +2535,7 @@ struct CommentCountIndicator: View {
 struct CIStatusIndicator: View {
     enum Kind: Equatable {
         case failing
-        case running
+        case pending
         case successful
         case unknown
 
@@ -2492,7 +2544,7 @@ struct CIStatusIndicator: View {
             case .failing:
                 self = .failing
             case .pending:
-                self = .running
+                self = .pending
             case .passing:
                 self = .successful
             case .unknown:
@@ -2516,12 +2568,12 @@ struct CIStatusIndicator: View {
     }
 }
 
-private extension CIStatusIndicator.Kind {
+extension CIStatusIndicator.Kind {
     var color: Color {
         switch self {
         case .failing:
             .red
-        case .running:
+        case .pending:
             .orange
         case .successful:
             .green
@@ -2534,13 +2586,115 @@ private extension CIStatusIndicator.Kind {
         switch self {
         case .failing:
             "CI failing"
-        case .running:
-            "CI running"
+        case .pending:
+            "CI pending (waiting or running)"
         case .successful:
             "CI successful"
         case .unknown:
             "CI status unknown"
         }
+    }
+}
+
+struct MergeConflictIndicator: View {
+    enum Kind: Equatable {
+        case none
+        case conflicting
+        case unknown
+
+        init(mergeable: MergeableState) {
+            switch mergeable {
+            case .mergeable: self = .none
+            case .conflicting: self = .conflicting
+            case .unknown: self = .unknown
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .none: "No merge conflicts; other requirements may still block merging"
+            case .conflicting: "Merge conflicts"
+            case .unknown: "Mergeability unknown"
+            }
+        }
+    }
+
+    let mergeable: MergeableState
+
+    var body: some View {
+        Image(systemName: symbolName)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(color)
+            .frame(width: 17, height: 17)
+            .help(kind.label)
+            .accessibilityLabel(kind.label)
+    }
+
+    private var kind: Kind { Kind(mergeable: mergeable) }
+
+    private var symbolName: String {
+        switch kind {
+        case .none: "checkmark.circle.fill"
+        case .conflicting: "exclamationmark.triangle.fill"
+        case .unknown: "questionmark.diamond.fill"
+        }
+    }
+
+    private var color: Color {
+        switch kind {
+        case .none: .green
+        case .conflicting: .red
+        case .unknown: .secondary
+        }
+    }
+}
+
+enum PullRequestChangesPresentation {
+    static func text(additions: Int?, deletions: Int?) -> String {
+        guard let additions, let deletions else { return "—" }
+        return "+\(compact(additions)) −\(compact(deletions))"
+    }
+
+    static func label(additions: Int?, deletions: Int?) -> String {
+        guard let additions, let deletions else { return "Change counts unavailable" }
+        return "\(exact(additions)) additions, \(exact(deletions)) deletions"
+    }
+
+    private static func compact(_ value: Int) -> String {
+        let magnitude = Double(value)
+        let (divisor, suffix): (Double, String) = switch magnitude {
+        case 1_000_000_000...: (1_000_000_000, "b")
+        case 1_000_000...: (1_000_000, "m")
+        case 1_000...: (1_000, "k")
+        default: (1, "")
+        }
+        if divisor == 1 { return String(value) }
+        let scaled = magnitude / divisor
+        return scaled < 10
+            ? String(format: "%.1f%@", scaled, suffix)
+            : String(format: "%.0f%@", scaled, suffix)
+    }
+
+    private static func exact(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "en_US")
+        return formatter.string(from: NSNumber(value: value)) ?? String(value)
+    }
+}
+
+struct PullRequestChangesIndicator: View {
+    let additions: Int?
+    let deletions: Int?
+
+    var body: some View {
+        Text(PullRequestChangesPresentation.text(additions: additions, deletions: deletions))
+            .font(.caption2.monospacedDigit().weight(.semibold))
+            .foregroundStyle(additions == nil || deletions == nil ? .secondary : .primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
+            .accessibilityLabel(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
     }
 }
 
@@ -2582,7 +2736,7 @@ struct ReviewDecisionIndicator: View {
     }
 }
 
-private extension ReviewDecisionIndicator.Kind {
+extension ReviewDecisionIndicator.Kind {
     var symbolName: String {
         switch self {
         case .approved:
