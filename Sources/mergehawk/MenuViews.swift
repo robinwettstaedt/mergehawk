@@ -2488,6 +2488,19 @@ struct PullRequestRow: View {
         .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
         .padding(.vertical, 8)
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
+        .contextMenu(menuItems: {
+            Button {
+                PullRequestLinkCopyButton.copyToPasteboard(pullRequest.url)
+            } label: {
+                Label("Copy URL", systemImage: "doc.on.doc")
+            }
+            Button(action: togglePin) {
+                Label(isPinned ? "Unpin" : "Pin", systemImage: "pin")
+            }
+            Button(action: toggleHide) {
+                Label(isHidden ? "Unhide" : "Hide", systemImage: "eye.slash")
+            }
+        })
         .onHover { isHovered = $0 }
     }
 
@@ -2681,7 +2694,7 @@ struct PullRequestLinkCopyButton: View {
 
     var body: some View {
         Button {
-            copyToPasteboard(url)
+            Self.copyToPasteboard(url)
         } label: {
             Image(systemName: isHovered ? "doc.on.doc.fill" : "doc.on.doc")
                 .font(.system(size: 12, weight: .semibold))
@@ -2701,7 +2714,7 @@ struct PullRequestLinkCopyButton: View {
         url.absoluteString
     }
 
-    private func copyToPasteboard(_ url: URL) {
+    static func copyToPasteboard(_ url: URL) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(Self.clipboardString(for: url), forType: .string)
