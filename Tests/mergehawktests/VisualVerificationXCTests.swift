@@ -377,11 +377,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-review-requests-laptop.png"),
                 availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
             )
-            controller.pullRequestSortOption = .changeSize
-            controller.pullRequestSortDirection = .ascending
+            controller.reviewRequestSortOption = .changeSize
+            controller.reviewRequestSortDirection = .ascending
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-change-size.png"))
-            controller.pullRequestSortOption = .createdDate
-            controller.pullRequestSortDirection = .descending
+            controller.reviewRequestSortOption = .createdDate
+            controller.reviewRequestSortDirection = .descending
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
             controller.pinnedPullRequestIds = []

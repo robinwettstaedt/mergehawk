@@ -143,6 +143,36 @@ struct PreferencesStore {
         }
     }
 
+    var reviewRequestSortOption: DashboardController.PullRequestSortOption {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "reviewRequests.sortOption"),
+                let option = DashboardController.PullRequestSortOption(rawValue: rawValue)
+            else {
+                return .createdDate
+            }
+            return option
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "reviewRequests.sortOption")
+        }
+    }
+
+    var reviewRequestSortDirection: DashboardController.PullRequestSortDirection {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "reviewRequests.sortDirection"),
+                let direction = DashboardController.PullRequestSortDirection(rawValue: rawValue)
+            else {
+                return .descending
+            }
+            return direction
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "reviewRequests.sortDirection")
+        }
+    }
+
     var selectedPullRequestFilters: Set<DashboardController.PullRequestFilterOption> {
         get {
             if defaults.object(forKey: "pullRequests.filterOptions") != nil {

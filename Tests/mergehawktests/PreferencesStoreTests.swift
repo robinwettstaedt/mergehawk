@@ -8,6 +8,8 @@ final class PreferencesStoreTests: XCTestCase {
         withStore { store, defaults in
             XCTAssertEqual(store.refreshIntervalMinutes, 2)
             XCTAssertEqual(store.pullRequestSortOption, .createdDate)
+            XCTAssertEqual(store.reviewRequestSortOption, .createdDate)
+            XCTAssertEqual(store.reviewRequestSortDirection, .descending)
             XCTAssertEqual(store.authMethod, .oauth)
 
             store.refreshIntervalMinutes = 10
@@ -30,10 +32,19 @@ final class PreferencesStoreTests: XCTestCase {
         withStore { store, defaults in
             store.pullRequestSortOption = .changeSize
             store.pullRequestSortDirection = .ascending
+            store.reviewRequestSortOption = .updatedDate
+            store.reviewRequestSortDirection = .descending
 
             let reopened = PreferencesStore(defaults: defaults)
             XCTAssertEqual(reopened.pullRequestSortOption, .changeSize)
             XCTAssertEqual(reopened.pullRequestSortDirection, .ascending)
+            XCTAssertEqual(reopened.reviewRequestSortOption, .updatedDate)
+            XCTAssertEqual(reopened.reviewRequestSortDirection, .descending)
+
+            defaults.set("unsupported", forKey: "reviewRequests.sortOption")
+            defaults.set("unsupported", forKey: "reviewRequests.sortDirection")
+            XCTAssertEqual(reopened.reviewRequestSortOption, .createdDate)
+            XCTAssertEqual(reopened.reviewRequestSortDirection, .descending)
         }
     }
 

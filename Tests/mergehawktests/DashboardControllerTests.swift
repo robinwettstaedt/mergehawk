@@ -85,10 +85,12 @@ final class DashboardControllerXCTests: XCTestCase {
         waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
 
         controller.pullRequestSortOption = .changeSize
+        controller.reviewRequestSortOption = .changeSize
         XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_4", "PR_6", "PR_1"])
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
 
         controller.pullRequestSortDirection = .ascending
+        controller.reviewRequestSortDirection = .ascending
         XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
 
@@ -97,7 +99,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
         XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_2", "PR_5"])
-        controller.pullRequestSortDirection = .descending
+        controller.reviewRequestSortDirection = .descending
         XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_5", "PR_2"])
 
         controller.hiddenPullRequestIds = []
@@ -107,8 +109,46 @@ final class DashboardControllerXCTests: XCTestCase {
             controller.state.pullRequests.first(where: { $0.id == "PR_2" })?.isAssignedToViewer == true
         }
         XCTAssertEqual(controller.requestedSections[0].visible.map(\.id), ["PR_2", "PR_7"])
-        controller.pullRequestSortDirection = .ascending
+        controller.reviewRequestSortDirection = .ascending
         XCTAssertEqual(controller.requestedSections[0].visible.map(\.id), ["PR_7", "PR_2"])
+    }
+
+    @MainActor
+    func testAuthoredAndRequestedSortSettingsStayIndependentAcrossTabsAndHiddenRows() {
+        let suiteName = "independent-pr-sorts-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        controller.pullRequestSortOption = .changeSize
+        controller.pullRequestSortDirection = .ascending
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
+
+        controller.selectedTab = .reviewRequests
+        controller.reviewRequestSortOption = .changeSize
+        controller.reviewRequestSortDirection = .ascending
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+        controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_2", "PR_5"])
+        controller.reviewRequestSortDirection = .descending
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_5", "PR_2"])
+
+        controller.selectedTab = .myPRs
+        XCTAssertEqual(controller.pullRequestSortOption, .changeSize)
+        XCTAssertEqual(controller.pullRequestSortDirection, .ascending)
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        let reopened = PreferencesStore(defaults: defaults)
+        XCTAssertEqual(reopened.pullRequestSortOption, .changeSize)
+        XCTAssertEqual(reopened.pullRequestSortDirection, .ascending)
+        XCTAssertEqual(reopened.reviewRequestSortOption, .changeSize)
+        XCTAssertEqual(reopened.reviewRequestSortDirection, .descending)
     }
 
     @MainActor
@@ -152,7 +192,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         controller.pinnedPullRequestIds = ["PR_2"]
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
-        controller.pullRequestSortDirection = .ascending
+        controller.reviewRequestSortDirection = .ascending
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
 
         controller.toggleRequestedSection(.direct)
@@ -1171,16 +1211,16 @@ private enum TestTimeout: Error {
 
     controller.selectedPullRequestFilters = []
     controller.hiddenPullRequestIds = ["PR_2", "PR_3", "PR_5", "PR_7"]
-    controller.pullRequestSortOption = .updatedDate
-    controller.pullRequestSortDirection = .descending
+    controller.reviewRequestSortOption = .updatedDate
+    controller.reviewRequestSortDirection = .descending
     precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
-    controller.pullRequestSortDirection = .ascending
+    controller.reviewRequestSortDirection = .ascending
     precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_3", "PR_5", "PR_2", "PR_7"])
 
     controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
-    controller.pullRequestSortDirection = .descending
+    controller.reviewRequestSortDirection = .descending
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_3"])
-    controller.pullRequestSortDirection = .ascending
+    controller.reviewRequestSortDirection = .ascending
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3", "PR_7"])
 
     controller.hiddenPullRequestIds = ["PR_7"]

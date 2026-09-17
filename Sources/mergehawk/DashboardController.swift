@@ -208,6 +208,16 @@ final class DashboardController: ObservableObject {
             preferencesStore.pullRequestSortDirection = pullRequestSortDirection
         }
     }
+    @Published var reviewRequestSortOption: PullRequestSortOption {
+        didSet {
+            preferencesStore.reviewRequestSortOption = reviewRequestSortOption
+        }
+    }
+    @Published var reviewRequestSortDirection: PullRequestSortDirection {
+        didSet {
+            preferencesStore.reviewRequestSortDirection = reviewRequestSortDirection
+        }
+    }
     @Published var selectedPullRequestFilters: Set<PullRequestFilterOption> {
         didSet {
             preferencesStore.selectedPullRequestFilters = selectedPullRequestFilters
@@ -346,6 +356,8 @@ final class DashboardController: ObservableObject {
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestSortDirection = preferencesStore.pullRequestSortDirection
+        self.reviewRequestSortOption = preferencesStore.reviewRequestSortOption
+        self.reviewRequestSortDirection = preferencesStore.reviewRequestSortDirection
         self.selectedPullRequestFilters = preferencesStore.selectedPullRequestFilters
         self.selectedReviewRequestFilters = preferencesStore.selectedReviewRequestFilters
         self.pinnedPullRequestIds = preferencesStore.pinnedPullRequestIds
@@ -468,16 +480,16 @@ final class DashboardController: ObservableObject {
         Self.sortedWithPins(
             filteredReviewRequests.filter { !hiddenPullRequestIds.contains($0.id) },
             pinnedIds: pinnedPullRequestIds,
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
+            by: reviewRequestSortOption,
+            direction: reviewRequestSortDirection
         )
     }
 
     var hiddenReviewRequests: [PullRequest] {
         Self.sorted(
             filteredReviewRequests.filter { hiddenPullRequestIds.contains($0.id) },
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
+            by: reviewRequestSortOption,
+            direction: reviewRequestSortDirection
         )
     }
 
