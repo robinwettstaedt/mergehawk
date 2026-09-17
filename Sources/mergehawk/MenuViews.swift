@@ -2359,8 +2359,8 @@ struct PullRequestColumnHeader: View {
 struct PullRequestColumnLegend: View {
     enum Column: CaseIterable, Identifiable {
         case comments
-        case review
         case ci
+        case review
         case conflicts
         case changes
         case time
@@ -2475,9 +2475,9 @@ struct PullRequestRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     CommentCountIndicator(count: pullRequest.commentCount)
                         .frame(width: PullRequestColumnLayout.commentsWidth)
-                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
                     CIStatusIndicator(ciState: pullRequest.ciState)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                         .frame(width: PullRequestColumnLayout.statusWidth)
                     MergeConflictIndicator(mergeable: pullRequest.mergeable)
                         .frame(width: PullRequestColumnLayout.statusWidth)
