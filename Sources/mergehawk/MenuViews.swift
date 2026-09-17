@@ -589,6 +589,18 @@ enum PullRequestHidePresentation {
 }
 
 enum PullRequestAgePresentation {
+    enum Field {
+        case opened
+        case updated
+
+        var title: String {
+            switch self {
+            case .opened: "Opened"
+            case .updated: "Updated"
+            }
+        }
+    }
+
     static func shortText(for date: Date, now: Date = Date()) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         switch seconds {
@@ -600,16 +612,18 @@ enum PullRequestAgePresentation {
             return "\(Int(seconds / 3_600))h"
         case ..<604_800:
             return "\(Int(seconds / 86_400))d"
-        case ..<31_536_000:
+        case ..<2_592_000:
             return "\(Int(seconds / 604_800))w"
+        case ..<31_536_000:
+            return "\(Int(seconds / 2_592_000))mo"
         default:
             return "\(Int(seconds / 31_536_000))y"
         }
     }
 
-    static func label(for date: Date, now: Date = Date()) -> String {
+    static func label(for date: Date, field: Field, now: Date = Date()) -> String {
         let text = shortText(for: date, now: now)
-        return text == "now" ? "Updated just now" : "Updated \(text) ago"
+        return text == "now" ? "\(field.title) just now" : "\(field.title) \(text) ago"
     }
 }
 
@@ -2283,7 +2297,7 @@ enum PullRequestColumnLayout {
     static let horizontalInset: CGFloat = 10
     static let commentsWidth: CGFloat = 30
     static let statusWidth: CGFloat = 30
-    static let changesWidth: CGFloat = 100
+    static let changesWidth: CGFloat = 49
     static let ageWidth: CGFloat = 45
     static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize * 3
 }
@@ -2292,7 +2306,7 @@ struct RequestedSectionHeading: View {
     let section: DashboardController.RequestedSection
     let count: Int
     let isExpanded: Bool
-    var previewHoveredStatus: PullRequestColumnLegend.Status? = nil
+    var previewHoveredColumn: PullRequestColumnLegend.Column? = nil
     let action: () -> Void
 
     var body: some View {
@@ -2321,7 +2335,7 @@ struct RequestedSectionHeading: View {
             .accessibilityLabel("\(section.title), \(count) PRs, \(isExpanded ? "expanded" : "collapsed")")
 
             if isExpanded {
-                PullRequestColumnLegend(previewHoveredStatus: previewHoveredStatus)
+                PullRequestColumnLegend(previewHoveredColumn: previewHoveredColumn)
             }
         }
         .padding(.trailing, PullRequestColumnLayout.horizontalInset)
@@ -2343,11 +2357,14 @@ struct PullRequestColumnHeader: View {
 }
 
 struct PullRequestColumnLegend: View {
-    enum Status: CaseIterable, Identifiable {
+    enum Column: CaseIterable, Identifiable {
         case comments
         case review
         case ci
         case conflicts
+        case changes
+        case opened
+        case updated
 
         var id: Self { self }
 
@@ -2357,6 +2374,9 @@ struct PullRequestColumnLegend: View {
             case .review: "person.crop.circle.badge.checkmark"
             case .ci: "checkmark.circle"
             case .conflicts: "exclamationmark.triangle"
+            case .changes: "plusminus"
+            case .opened: "calendar.badge.plus"
+            case .updated: "clock.arrow.circlepath"
             }
         }
 
@@ -2366,30 +2386,32 @@ struct PullRequestColumnLegend: View {
             case .review: "Review feedback"
             case .ci: "CI"
             case .conflicts: "Merge conflicts"
+            case .changes: "Changes"
+            case .opened: "Opened"
+            case .updated: "Updated"
             }
         }
 
         var width: CGFloat {
-            self == .comments ? PullRequestColumnLayout.commentsWidth : PullRequestColumnLayout.statusWidth
+            switch self {
+            case .comments: PullRequestColumnLayout.commentsWidth
+            case .review, .ci, .conflicts: PullRequestColumnLayout.statusWidth
+            case .changes: PullRequestColumnLayout.changesWidth
+            case .opened, .updated: PullRequestColumnLayout.ageWidth
+            }
         }
     }
 
-    var previewHoveredStatus: Status? = nil
-    @State private var hoveredStatus: Status?
+    var previewHoveredColumn: Column? = nil
+    @State private var hoveredColumn: Column?
 
-    private var activeStatus: Status? { previewHoveredStatus ?? hoveredStatus }
+    private var activeColumn: Column? { previewHoveredColumn ?? hoveredColumn }
 
     var body: some View {
         HStack(spacing: PullRequestColumnLayout.spacing) {
-            ForEach(Status.allCases) { status in
-                statusHeader(status)
+            ForEach(Column.allCases) { column in
+                columnHeader(column)
             }
-            Text("Changes")
-                .frame(width: PullRequestColumnLayout.changesWidth, alignment: .center)
-                .accessibilityLabel("Changes")
-            Text("Updated")
-                .frame(width: PullRequestColumnLayout.ageWidth, alignment: .center)
-                .accessibilityLabel("Updated")
             Color.clear.frame(width: PullRequestColumnLayout.actionsWidth, height: 1)
                 .accessibilityHidden(true)
         }
@@ -2398,21 +2420,21 @@ struct PullRequestColumnLegend: View {
         .frame(height: 22)
     }
 
-    private func statusHeader(_ status: Status) -> some View {
-        Image(systemName: status.symbol)
+    private func columnHeader(_ column: Column) -> some View {
+        Image(systemName: column.symbol)
             .font(.system(size: 13, weight: .semibold))
-            .frame(width: status.width, height: 22)
+            .frame(width: column.width, height: 22)
             .contentShape(Rectangle())
             .onHover { isHovered in
                 if isHovered {
-                    hoveredStatus = status
-                } else if hoveredStatus == status {
-                    hoveredStatus = nil
+                    hoveredColumn = column
+                } else if hoveredColumn == column {
+                    hoveredColumn = nil
                 }
             }
             .overlay(alignment: .top) {
-                if activeStatus == status {
-                    Text(status.label)
+                if activeColumn == column {
+                    Text(column.label)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Color(nsColor: .labelColor))
                         .fixedSize()
@@ -2429,7 +2451,7 @@ struct PullRequestColumnLegend: View {
                         .accessibilityHidden(true)
                 }
             }
-            .accessibilityLabel(status.label)
+            .accessibilityLabel(column.label)
     }
 }
 
@@ -2464,13 +2486,8 @@ struct PullRequestRow: View {
                         .frame(width: PullRequestColumnLayout.statusWidth)
                     PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
                         .frame(width: PullRequestColumnLayout.changesWidth)
-                    Text(PullRequestAgePresentation.shortText(for: pullRequest.updatedAt))
-                        .font(.caption2.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(width: PullRequestColumnLayout.ageWidth)
-                        .help(PullRequestAgePresentation.label(for: pullRequest.updatedAt))
-                        .accessibilityLabel(PullRequestAgePresentation.label(for: pullRequest.updatedAt))
+                    ageCell(pullRequest.createdAt, field: .opened)
+                    ageCell(pullRequest.updatedAt, field: .updated)
                 }
                 .contentShape(Rectangle())
             }
@@ -2487,6 +2504,16 @@ struct PullRequestRow: View {
         .padding(.vertical, 8)
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
+    }
+
+    private func ageCell(_ date: Date, field: PullRequestAgePresentation.Field) -> some View {
+        Text(PullRequestAgePresentation.shortText(for: date))
+            .font(.caption2.monospacedDigit().weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(width: PullRequestColumnLayout.ageWidth)
+            .help(PullRequestAgePresentation.label(for: date, field: field))
+            .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field))
     }
 
     private var identity: some View {

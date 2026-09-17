@@ -70,10 +70,38 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(CommentCountIndicator.label(for: 3), "3 unresolved comments")
     }
 
-    func testColumnHeadersExplainEachStatus() {
+    func testColumnHeadersExplainEachValue() {
         XCTAssertEqual(
-            PullRequestColumnLegend.Status.allCases.map(\.label),
-            ["Unresolved comments", "Review feedback", "CI", "Merge conflicts"]
+            PullRequestColumnLegend.Column.allCases.map(\.label),
+            ["Unresolved comments", "Review feedback", "CI", "Merge conflicts", "Changes", "Opened", "Updated"]
+        )
+    }
+
+    func testPullRequestAgePresentationIncludesMonthsAndFieldNames() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let cases: [(TimeInterval, String)] = [
+            (59, "now"),
+            (60, "1m"),
+            (3_599, "59m"),
+            (3_600, "1h"),
+            (86_400, "1d"),
+            (604_800, "1w"),
+            (2_591_999, "4w"),
+            (2_592_000, "1mo"),
+            (5_184_000, "2mo"),
+            (31_536_000, "1y"),
+        ]
+        for (seconds, expected) in cases {
+            XCTAssertEqual(PullRequestAgePresentation.shortText(for: now.addingTimeInterval(-seconds), now: now), expected)
+        }
+        XCTAssertEqual(PullRequestAgePresentation.label(for: now, field: .opened, now: now), "Opened just now")
+        XCTAssertEqual(
+            PullRequestAgePresentation.label(for: now.addingTimeInterval(-2_592_000), field: .opened, now: now),
+            "Opened 1mo ago"
+        )
+        XCTAssertEqual(
+            PullRequestAgePresentation.label(for: now.addingTimeInterval(-3_600), field: .updated, now: now),
+            "Updated 1h ago"
         )
     }
 
