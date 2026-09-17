@@ -5,6 +5,28 @@ import XCTest
 
 final class DashboardControllerXCTests: XCTestCase {
     @MainActor
+    func testOptionDisclosureUsesClickedSectionStateForAllSections() {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0
+        )
+
+        controller.toggleRequestedSection(.direct)
+        XCTAssertEqual(controller.collapsedRequestedSections, [.direct])
+        controller.toggleAllRequestedSections(from: .direct)
+        XCTAssertTrue(controller.collapsedRequestedSections.isEmpty)
+
+        controller.toggleRequestedSection(.assigned)
+        controller.toggleRequestedSection(.team)
+        XCTAssertEqual(controller.collapsedRequestedSections, [.assigned, .team])
+        controller.toggleAllRequestedSections(from: .direct)
+        XCTAssertEqual(controller.collapsedRequestedSections, Set(DashboardController.RequestedSection.allCases))
+
+        controller.toggleAllRequestedSections(from: .assigned)
+        XCTAssertTrue(controller.collapsedRequestedSections.isEmpty)
+    }
+
+    @MainActor
     func testRequestedSectionsKeepPrioritySortPinsAndSessionCollapse() {
         let suiteName = "requested-sections-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

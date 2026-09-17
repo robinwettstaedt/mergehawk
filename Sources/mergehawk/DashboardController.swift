@@ -493,6 +493,12 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    func toggleAllRequestedSections(from section: RequestedSection) {
+        collapsedRequestedSections = isRequestedSectionExpanded(section)
+            ? Set(RequestedSection.allCases)
+            : []
+    }
+
     private var filteredMyPullRequests: [PullRequest] {
         Self.filtered(
             sourceFilteredMyPullRequests,

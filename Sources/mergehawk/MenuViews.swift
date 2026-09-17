@@ -1749,7 +1749,11 @@ struct PullRequestListView: View {
     private func requestedSectionDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
         let isExpanded = controller.isRequestedSectionExpanded(content.section)
         return Button {
-            controller.toggleRequestedSection(content.section)
+            if NSEvent.modifierFlags.contains(.option) {
+                controller.toggleAllRequestedSections(from: content.section)
+            } else {
+                controller.toggleRequestedSection(content.section)
+            }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
