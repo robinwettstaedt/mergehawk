@@ -2453,7 +2453,7 @@ struct PullRequestRow: View {
             .frame(width: PullRequestColumnLayout.actionsWidth)
         }
         .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
     }
