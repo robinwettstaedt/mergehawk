@@ -1101,8 +1101,8 @@ private enum TestTimeout: Error {
     precondition(controller.state.source == .mock)
     precondition(controller.state.account?.login == "agent-fixture")
     precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
-    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_4", "PR_1"])
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
+    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_1", "PR_4"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
 
     precondition(controller.requestedSections.map(\.section) == [.assigned, .direct, .team])
     precondition(controller.requestedSections.map { $0.visible.map(\.id) } == [["PR_7", "PR_2"], ["PR_5"], ["PR_3"]])
@@ -1111,7 +1111,7 @@ private enum TestTimeout: Error {
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3"])
 
     controller.selectedReviewRequestFilters = []
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
 }()
 
 @MainActor let mergehawkHiddenPullRequestOrganizationTest: Void = {
@@ -1155,9 +1155,9 @@ private enum TestTimeout: Error {
     controller.pullRequestSortOption = .createdDate
     controller.pullRequestSortDirection = .descending
     precondition(controller.sortedMyPullRequests.isEmpty)
-    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_6", "PR_4", "PR_1"])
+    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_6", "PR_1", "PR_4"])
     controller.pullRequestSortDirection = .ascending
-    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6"])
+    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_4", "PR_1", "PR_6"])
 
     controller.hiddenPullRequestIds = ["PR_4"]
     controller.pullRequestSortDirection = .descending
@@ -1173,9 +1173,9 @@ private enum TestTimeout: Error {
     controller.hiddenPullRequestIds = ["PR_2", "PR_3", "PR_5", "PR_7"]
     controller.pullRequestSortOption = .updatedDate
     controller.pullRequestSortDirection = .descending
-    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7", "PR_3", "PR_2", "PR_5"])
+    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
     controller.pullRequestSortDirection = .ascending
-    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_5", "PR_2", "PR_3", "PR_7"])
+    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_3", "PR_5", "PR_2", "PR_7"])
 
     controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
     controller.pullRequestSortDirection = .descending
@@ -1186,7 +1186,7 @@ private enum TestTimeout: Error {
     controller.hiddenPullRequestIds = ["PR_7"]
     controller.selectedReviewRequestFilters = [.ready]
     precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7"])
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_2"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2", "PR_5"])
 
     controller.setRepositoryPreferences(
         repo: "mergehawk-labs/review-router",

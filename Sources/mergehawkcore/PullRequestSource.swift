@@ -50,7 +50,12 @@ public final class MockPullRequestSource: PullRequestSource {
     private let snapshots: [[PullRequest]]
     private let inboxNotifications: [GitHubInboxNotification]
 
-    public init(showsNotificationTypeFixtures: Bool = false) {
+    public init(showsNotificationTypeFixtures: Bool = false, referenceDate: Date = Date()) {
+        let minute: TimeInterval = 60
+        let hour = 60 * minute
+        let day = 24 * hour
+        func ago(_ interval: TimeInterval) -> Date { referenceDate.addingTimeInterval(-interval) }
+
         self.inboxNotifications = showsNotificationTypeFixtures
             ? Self.notificationTypeFixtureInboxNotifications
             : Self.defaultInboxNotifications
@@ -73,8 +78,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-14-oauth-device-flow",
                     mergeable: .mergeable,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_750_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_779_619_600)
+                    createdAt: ago(150 * day),
+                    updatedAt: ago(3 * hour)
                 ),
                 PullRequest(
                     id: "PR_4",
@@ -102,8 +107,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-33-review-assignment-summary",
                     mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_760_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_369_200)
+                    createdAt: ago(180 * day),
+                    updatedAt: ago(45 * day)
                 ),
                 PullRequest(
                     id: "PR_6",
@@ -120,8 +125,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-44-handle-requested-changes",
                     mergeable: .mergeable,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_765_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_426_800)
+                    createdAt: ago(45 * minute),
+                    updatedAt: ago(35 * minute)
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -141,8 +146,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-27-show-pr-author-rows",
                     mergeable: .unknown,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_770_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_780_656_400)
+                    createdAt: ago(28 * day),
+                    updatedAt: ago(8 * hour)
                 ),
                 PullRequest(
                     id: "PR_3",
@@ -164,8 +169,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
                     mergeable: .unknown,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_780_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_088_400)
+                    createdAt: ago(60 * day),
+                    updatedAt: ago(14 * day)
                 ),
                 PullRequest(
                     id: "PR_7",
@@ -183,8 +188,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-36-assigned-incoming-prs",
                     mergeable: .unknown,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_785_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_416_000)
+                    createdAt: ago(2 * hour),
+                    updatedAt: ago(12 * minute)
                 ),
                 PullRequest(
                     id: "PR_5",
@@ -204,8 +209,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-41-stale-review-alerts",
                     mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_790_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_805_200)
+                    createdAt: ago(5 * day),
+                    updatedAt: ago(2 * day)
                 )
             ],
             [
@@ -234,8 +239,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-14-oauth-device-flow",
                     mergeable: .mergeable,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_750_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_779_619_600)
+                    createdAt: ago(150 * day),
+                    updatedAt: ago(3 * hour)
                 ),
                 PullRequest(
                     id: "PR_4",
@@ -270,8 +275,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-33-review-assignment-summary",
                     mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_760_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_369_200)
+                    createdAt: ago(180 * day),
+                    updatedAt: ago(45 * day)
                 ),
                 PullRequest(
                     id: "PR_6",
@@ -288,8 +293,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-44-handle-requested-changes",
                     mergeable: .mergeable,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_765_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_426_800)
+                    createdAt: ago(45 * minute),
+                    updatedAt: ago(35 * minute)
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -310,8 +315,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-27-show-pr-author-rows",
                     mergeable: .mergeable,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_770_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_780_656_400)
+                    createdAt: ago(28 * day),
+                    updatedAt: ago(8 * hour)
                 ),
                 PullRequest(
                     id: "PR_3",
@@ -333,8 +338,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
                     mergeable: .unknown,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_780_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_088_400)
+                    createdAt: ago(60 * day),
+                    updatedAt: ago(14 * day)
                 ),
                 PullRequest(
                     id: "PR_7",
@@ -352,8 +357,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-36-assigned-incoming-prs",
                     mergeable: .unknown,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_785_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_416_000)
+                    createdAt: ago(2 * hour),
+                    updatedAt: ago(12 * minute)
                 ),
                 PullRequest(
                     id: "PR_5",
@@ -373,8 +378,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-41-stale-review-alerts",
                     mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_790_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_805_200)
+                    createdAt: ago(5 * day),
+                    updatedAt: ago(2 * day)
                 )
             ]
         ]

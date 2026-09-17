@@ -4,6 +4,41 @@ import mergehawkcore
 import XCTest
 
 final class AgentModeXCTests: XCTestCase {
+    func testMockPullRequestDatesUseOneStableReferenceAcrossRefreshes() async throws {
+        let referenceDate = Date(timeIntervalSince1970: 2_000_000_000)
+        let source = MockPullRequestSource(referenceDate: referenceDate)
+        let first = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: [])
+        let second = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: first.pullRequests)
+        let firstDates = Dictionary(uniqueKeysWithValues: first.pullRequests.map {
+            ($0.id, [$0.createdAt, $0.updatedAt])
+        })
+        let secondDates = Dictionary(uniqueKeysWithValues: second.pullRequests.map {
+            ($0.id, [$0.createdAt, $0.updatedAt])
+        })
+
+        XCTAssertEqual(firstDates.count, 7)
+        XCTAssertEqual(secondDates, firstDates)
+        for pullRequest in first.pullRequests {
+            XCTAssertLessThanOrEqual(pullRequest.createdAt, pullRequest.updatedAt)
+            XCTAssertLessThanOrEqual(pullRequest.updatedAt, referenceDate)
+        }
+
+        func ageUnits(for dates: [Date]) -> Set<String> {
+            Set(dates.map { date in
+                switch referenceDate.timeIntervalSince(date) {
+                case ..<3_600: "minutes"
+                case ..<86_400: "hours"
+                case ..<604_800: "days"
+                case ..<2_592_000: "weeks"
+                default: "months"
+                }
+            })
+        }
+        let expectedUnits: Set<String> = ["minutes", "hours", "days", "weeks", "months"]
+        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.createdAt)), expectedUnits)
+        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.updatedAt)), expectedUnits)
+    }
+
     func testLaunchConfigurationAcceptsMockFlagAndEnvironment() {
         XCTAssertEqual(
             LaunchConfiguration.current(
