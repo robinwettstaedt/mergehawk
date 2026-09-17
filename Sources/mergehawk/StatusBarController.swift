@@ -13,6 +13,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var isMenuOpen = false
     private let secondaryClickTrace = MenuSecondaryClickTrace.current()
     private var secondaryClickMonitor: Any?
+    // Keep the SwiftUI host alive until its resolved menu actions finish presenting.
+    private var pendingContextMenu: (menu: NSMenu, screenPoint: NSPoint, owner: NSView)?
+    var statusContextMenuPresenter: (NSMenu, NSPoint) -> Bool = { menu, point in
+        menu.popUp(positioning: nil, at: point, in: nil)
+    }
 
     init(controller: DashboardController) {
         self.controller = controller
@@ -59,6 +64,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             self.secondaryClickMonitor = nil
         }
         isMenuOpen = false
+        if pendingContextMenu != nil {
+            // The status menu's tracking loop must finish before another native menu can open.
+            RunLoop.main.perform(inModes: [.default]) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.presentPendingContextMenu()
+                }
+            }
+        }
     }
 
     func rebuildMenuForTesting() -> [NSMenuItem] {
@@ -168,6 +181,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             },
             secondaryClickTrace: inStatusMenu ? { [weak self] message in
                 self?.secondaryClickTrace?.record(message)
+            } : nil,
+            presentStatusContextMenu: inStatusMenu ? { [weak self] contextMenu, screenPoint, owner in
+                self?.queueStatusContextMenu(contextMenu, at: screenPoint, owner: owner)
             } : nil
         )
         hostingView.frame = NSRect(origin: .zero, size: resolvedSize)
@@ -181,6 +197,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         secondaryClickTrace?.record(
             "\(source) window=\(event.windowNumber) hostWindow=\(host?.window?.windowNumber ?? -1) insideHost=\(insideHost)"
         )
+    }
+
+    func queueStatusContextMenu(_ contextMenu: NSMenu, at screenPoint: NSPoint, owner: NSView) {
+        pendingContextMenu = (contextMenu, screenPoint, owner)
+        secondaryClickTrace?.record("queuedContextMenu at=\(screenPoint.x),\(screenPoint.y)")
+        menu.cancelTracking()
+    }
+
+    private func presentPendingContextMenu() {
+        guard let pendingContextMenu else { return }
+        self.pendingContextMenu = nil
+        secondaryClickTrace?.record("deferredContextMenu begin items=\(pendingContextMenu.menu.items.map(\.title).joined(separator: "|"))")
+        let selected = withExtendedLifetime(pendingContextMenu.owner) {
+            statusContextMenuPresenter(pendingContextMenu.menu, pendingContextMenu.screenPoint)
+        }
+        secondaryClickTrace?.record("deferredContextMenu end selected=\(selected)")
     }
 
     // During NSMenu tracking, key equivalents are matched against the open menu's own native
@@ -262,6 +294,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
     private let settingsKeyHandler: () -> Void
     private let quitKeyHandler: () -> Void
     private let secondaryClickTrace: ((String) -> Void)?
+    private let presentStatusContextMenu: ((NSMenu, NSPoint, NSView) -> Void)?
 
     init(
         controller: DashboardController,
@@ -273,7 +306,8 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         showSettings: @escaping () -> Void,
         showAbout: @escaping () -> Void,
         quit: @escaping () -> Void,
-        secondaryClickTrace: ((String) -> Void)? = nil
+        secondaryClickTrace: ((String) -> Void)? = nil,
+        presentStatusContextMenu: ((NSMenu, NSPoint, NSView) -> Void)? = nil
     ) {
         self.refreshKeyHandler = refreshKeyHandler
         self.tabShortcutHandler = tabShortcutHandler
@@ -286,6 +320,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
             quit()
         }
         self.secondaryClickTrace = secondaryClickTrace
+        self.presentStatusContextMenu = presentStatusContextMenu
         super.init(rootView: MenuRootView(
             controller: controller,
             footerModel: footerModel,
@@ -370,12 +405,15 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
 
     override func rightMouseDown(with event: NSEvent) {
         secondaryClickTrace?("host rightMouseDown begin inMenu=\(enclosingMenuItem != nil)")
-        if enclosingMenuItem != nil, let contextMenu = menu(for: event) {
+        if enclosingMenuItem != nil,
+           let window,
+           let presentStatusContextMenu,
+           let contextMenu = menu(for: event) {
             secondaryClickTrace?(
-                "host explicitContextMenu begin items=\(contextMenu.items.map(\.title).joined(separator: "|"))"
+                "host resolvedContextMenu items=\(contextMenu.items.map(\.title).joined(separator: "|"))"
             )
-            NSMenu.popUpContextMenu(contextMenu, with: event, for: self)
-            secondaryClickTrace?("host explicitContextMenu end")
+            let screenPoint = window.convertPoint(toScreen: event.locationInWindow)
+            presentStatusContextMenu(contextMenu, screenPoint, self)
             return
         }
         super.rightMouseDown(with: event)

@@ -33,6 +33,43 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(hosted.rootView.resolvedSize, resolved)
     }
 
+    @MainActor
+    func testStatusContextMenuPresentsAfterParentClosesAndRetainsHost() {
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
+        let statusBarController = StatusBarController(controller: controller)
+        let contextMenu = NSMenu(title: "PR actions")
+        let screenPoint = NSPoint(x: 120, y: 240)
+        var presentedMenu: NSMenu?
+        var presentedPoint: NSPoint?
+        var presentationCount = 0
+        var owner: NSView? = NSView()
+        weak let weakOwner = owner
+        statusBarController.statusContextMenuPresenter = { menu, point in
+            XCTAssertNotNil(weakOwner)
+            presentedMenu = menu
+            presentedPoint = point
+            presentationCount += 1
+            return false
+        }
+
+        statusBarController.queueStatusContextMenu(contextMenu, at: screenPoint, owner: owner!)
+        owner = nil
+        XCTAssertNotNil(weakOwner)
+        XCTAssertEqual(presentationCount, 0)
+
+        statusBarController.menuDidClose(NSMenu())
+        XCTAssertEqual(presentationCount, 0)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(presentedMenu === contextMenu)
+        XCTAssertEqual(presentedPoint, screenPoint)
+        XCTAssertEqual(presentationCount, 1)
+        XCTAssertNil(weakOwner)
+
+        statusBarController.menuDidClose(NSMenu())
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(presentationCount, 1)
+    }
+
     func testIndependentStatusDescriptionsAndMixedSignals() {
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).label, "Review approved")
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label, "No review yet")
