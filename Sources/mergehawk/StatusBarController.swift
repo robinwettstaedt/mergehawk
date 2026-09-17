@@ -11,6 +11,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var quitAction: () -> Void = { NSApp.terminate(nil) }
     private var cancellables: Set<AnyCancellable> = []
     private var isMenuOpen = false
+    private let secondaryClickTrace = MenuSecondaryClickTrace.current()
+    private var secondaryClickMonitor: Any?
 
     init(controller: DashboardController) {
         self.controller = controller
@@ -40,10 +42,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         isMenuOpen = true
+        secondaryClickTrace?.record("menuWillOpen")
         rebuildMenu()
+        if secondaryClickTrace != nil {
+            secondaryClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+                self?.recordSecondaryClick("localMonitor", event: event)
+                return event
+            }
+        }
     }
 
     func menuDidClose(_ menu: NSMenu) {
+        secondaryClickTrace?.record("menuDidClose")
+        if let secondaryClickMonitor {
+            NSEvent.removeMonitor(secondaryClickMonitor)
+            self.secondaryClickMonitor = nil
+        }
         isMenuOpen = false
     }
 
@@ -108,7 +122,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         let item = NSMenuItem()
-        item.view = makeMenuContentView()
+        item.view = makeMenuContentView(inStatusMenu: true)
         menu.addItem(item)
         menu.addItem(makeKeyEquivalentTrapItem(
             title: "Settings",
@@ -123,7 +137,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     // Reuse the actual menu content in a persistent mock verification window.
-    func makeMenuContentView(availableFrame: CGRect? = nil) -> NSView {
+    func makeMenuContentView(availableFrame: CGRect? = nil, inStatusMenu: Bool = false) -> NSView {
         let screenFrame = availableFrame
             ?? statusItem.button?.window?.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
@@ -151,10 +165,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             },
             quit: { [weak self] in
                 self?.quitAction()
-            }
+            },
+            secondaryClickTrace: inStatusMenu ? { [weak self] message in
+                self?.secondaryClickTrace?.record(message)
+            } : nil
         )
         hostingView.frame = NSRect(origin: .zero, size: resolvedSize)
         return hostingView
+    }
+
+    private func recordSecondaryClick(_ source: String, event: NSEvent) {
+        let host = menu.items.first?.view
+        let point = host?.convert(event.locationInWindow, from: nil)
+        let insideHost = point.map { host?.bounds.contains($0) == true } ?? false
+        secondaryClickTrace?.record(
+            "\(source) window=\(event.windowNumber) hostWindow=\(host?.window?.windowNumber ?? -1) insideHost=\(insideHost)"
+        )
     }
 
     // During NSMenu tracking, key equivalents are matched against the open menu's own native
@@ -235,6 +261,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
     private let tabShortcutHandler: (DashboardController.MenuTab) -> Bool
     private let settingsKeyHandler: () -> Void
     private let quitKeyHandler: () -> Void
+    private let secondaryClickTrace: ((String) -> Void)?
 
     init(
         controller: DashboardController,
@@ -245,7 +272,8 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         dismissMenu: @escaping () -> Void,
         showSettings: @escaping () -> Void,
         showAbout: @escaping () -> Void,
-        quit: @escaping () -> Void
+        quit: @escaping () -> Void,
+        secondaryClickTrace: ((String) -> Void)? = nil
     ) {
         self.refreshKeyHandler = refreshKeyHandler
         self.tabShortcutHandler = tabShortcutHandler
@@ -257,6 +285,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
             dismissMenu()
             quit()
         }
+        self.secondaryClickTrace = secondaryClickTrace
         super.init(rootView: MenuRootView(
             controller: controller,
             footerModel: footerModel,
@@ -284,6 +313,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        secondaryClickTrace?("host viewDidMoveToWindow attached=\(window != nil) inMenu=\(enclosingMenuItem != nil)")
         DispatchQueue.main.async { [weak self] in
             guard let self else {
                 return
@@ -328,6 +358,58 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        if NSApp.currentEvent?.type == .rightMouseDown {
+            secondaryClickTrace?("host hitTest target=\(hit.map { String(describing: type(of: $0)) } ?? "none")")
+        }
+        return hit
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        secondaryClickTrace?("host rightMouseDown begin inMenu=\(enclosingMenuItem != nil)")
+        super.rightMouseDown(with: event)
+        secondaryClickTrace?("host rightMouseDown end")
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let contextMenu = super.menu(for: event)
+        secondaryClickTrace?("host menuForEvent hasMenu=\(contextMenu != nil)")
+        return contextMenu
+    }
+}
+
+@MainActor
+private final class MenuSecondaryClickTrace {
+    private let url: URL
+
+    private init(url: URL) {
+        self.url = url
+    }
+
+    static func current() -> MenuSecondaryClickTrace? {
+        let configuration = LaunchConfiguration.current()
+        guard configuration.verificationUI == .statusMenu,
+              let notificationLogPath = configuration.notificationLogPath else {
+            return nil
+        }
+        let runDirectory = URL(fileURLWithPath: notificationLogPath).deletingLastPathComponent()
+        return MenuSecondaryClickTrace(url: runDirectory.appendingPathComponent("status-menu-mouse.log"))
+    }
+
+    func record(_ message: String) {
+        let line = "\(Date().timeIntervalSince1970) \(message)\n"
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        guard let handle = try? FileHandle(forWritingTo: url) else {
+            return
+        }
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        try? handle.close()
     }
 }
 
