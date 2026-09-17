@@ -2363,8 +2363,7 @@ struct PullRequestColumnLegend: View {
         case ci
         case conflicts
         case changes
-        case opened
-        case updated
+        case time
 
         var id: Self { self }
 
@@ -2375,8 +2374,7 @@ struct PullRequestColumnLegend: View {
             case .ci: "checkmark.circle"
             case .conflicts: "exclamationmark.triangle"
             case .changes: "plusminus"
-            case .opened: "calendar.badge.plus"
-            case .updated: "clock.arrow.circlepath"
+            case .time: "clock.arrow.circlepath"
             }
         }
 
@@ -2387,8 +2385,7 @@ struct PullRequestColumnLegend: View {
             case .ci: "CI"
             case .conflicts: "Merge conflicts"
             case .changes: "Changes"
-            case .opened: "Opened"
-            case .updated: "Updated"
+            case .time: "Updated / Opened"
             }
         }
 
@@ -2397,7 +2394,7 @@ struct PullRequestColumnLegend: View {
             case .comments: PullRequestColumnLayout.commentsWidth
             case .review, .ci, .conflicts: PullRequestColumnLayout.statusWidth
             case .changes: PullRequestColumnLayout.changesWidth
-            case .opened, .updated: PullRequestColumnLayout.ageWidth
+            case .time: PullRequestColumnLayout.ageWidth
             }
         }
     }
@@ -2486,8 +2483,12 @@ struct PullRequestRow: View {
                         .frame(width: PullRequestColumnLayout.statusWidth)
                     PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
                         .frame(width: PullRequestColumnLayout.changesWidth)
-                    ageCell(pullRequest.createdAt, field: .opened)
-                    ageCell(pullRequest.updatedAt, field: .updated)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        ageCell(pullRequest.updatedAt, field: .updated)
+                        ageCell(pullRequest.createdAt, field: .opened)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: PullRequestColumnLayout.ageWidth, height: 30)
                 }
                 .contentShape(Rectangle())
             }
@@ -2511,7 +2512,6 @@ struct PullRequestRow: View {
             .font(.caption2.monospacedDigit().weight(.medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .frame(width: PullRequestColumnLayout.ageWidth)
             .help(PullRequestAgePresentation.label(for: date, field: field))
             .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field))
     }

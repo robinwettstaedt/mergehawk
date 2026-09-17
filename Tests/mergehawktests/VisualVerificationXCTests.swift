@@ -541,7 +541,7 @@ final class VisualVerificationXCTests: XCTestCase {
 
     @MainActor
     private func renderHeaderTooltips(pullRequest: PullRequest, to url: URL) throws {
-        let size = CGSize(width: MenuRootView.Layout.width, height: 920)
+        let size = CGSize(width: MenuRootView.Layout.width, height: 800)
         let view = ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 36) {
                 ForEach(PullRequestColumnLegend.Column.allCases) { column in
