@@ -1706,7 +1706,7 @@ struct PullRequestListView: View {
 
     private var requestedContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 10) {
+            LazyVStack(spacing: 20) {
                 ForEach(controller.requestedSections, id: \.section) { content in
                     requestedSection(content)
                 }
@@ -2299,7 +2299,7 @@ struct RequestedSectionHeading: View {
                 HStack(spacing: 8) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 12)
+                        .frame(width: 12, alignment: .leading)
                     Text(section.title)
                         .font(.body.weight(.semibold))
                     Text("\(count)")
@@ -2322,7 +2322,7 @@ struct RequestedSectionHeading: View {
                 PullRequestColumnLegend(previewHoveredStatus: previewHoveredStatus)
             }
         }
-        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+        .padding(.trailing, PullRequestColumnLayout.horizontalInset)
         .frame(height: 32)
         .zIndex(1)
     }
