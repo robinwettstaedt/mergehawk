@@ -1725,8 +1725,6 @@ struct PullRequestListView: View {
             requestedSectionDisclosure(content)
 
             if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
-                PullRequestColumnHeader()
-
                 ForEach(content.visible) { pr in
                     pullRequestRow(pr)
                         .id("visible-\(pr.id)")
@@ -1747,35 +1745,17 @@ struct PullRequestListView: View {
     }
 
     private func requestedSectionDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
-        let isExpanded = controller.isRequestedSectionExpanded(content.section)
-        return Button {
+        RequestedSectionHeading(
+            section: content.section,
+            count: content.count,
+            isExpanded: controller.isRequestedSectionExpanded(content.section)
+        ) {
             if NSEvent.modifierFlags.contains(.option) {
                 controller.toggleAllRequestedSections(from: content.section)
             } else {
                 controller.toggleRequestedSection(content.section)
             }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 12)
-                Text(content.section.title)
-                    .font(.subheadline.weight(.semibold))
-                Text("\(content.count)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help("\(content.section.title): \(content.count) PRs")
-        .accessibilityLabel("\(content.section.title), \(content.count) PRs, \(isExpanded ? "expanded" : "collapsed")")
     }
 
     private func requestedHiddenDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
@@ -2307,7 +2287,61 @@ enum PullRequestColumnLayout {
     static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize * 3
 }
 
+struct RequestedSectionHeading: View {
+    let section: DashboardController.RequestedSection
+    let count: Int
+    let isExpanded: Bool
+    var previewHoveredStatus: PullRequestColumnLegend.Status? = nil
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 12)
+                    Text(section.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text("\(count)")
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
+                    Spacer(minLength: 0)
+                }
+                .frame(height: 32)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help("\(section.title): \(count) PRs")
+            .accessibilityLabel("\(section.title), \(count) PRs, \(isExpanded ? "expanded" : "collapsed")")
+
+            if isExpanded {
+                PullRequestColumnLegend(previewHoveredStatus: previewHoveredStatus)
+            }
+        }
+        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+        .frame(height: 32)
+        .zIndex(1)
+    }
+}
+
 struct PullRequestColumnHeader: View {
+    var body: some View {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
+            Color.clear.frame(maxWidth: .infinity).accessibilityHidden(true)
+            PullRequestColumnLegend()
+        }
+        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+        .frame(height: 22)
+        .zIndex(1)
+    }
+}
+
+struct PullRequestColumnLegend: View {
     enum Status: CaseIterable, Identifiable {
         case comments
         case review
@@ -2346,9 +2380,6 @@ struct PullRequestColumnHeader: View {
 
     var body: some View {
         HStack(spacing: PullRequestColumnLayout.spacing) {
-            Text("Pull request")
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Pull request")
             ForEach(Status.allCases) { status in
                 statusHeader(status)
             }
@@ -2363,9 +2394,7 @@ struct PullRequestColumnHeader: View {
         }
         .font(.caption2.weight(.semibold))
         .foregroundStyle(.secondary)
-        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
         .frame(height: 22)
-        .zIndex(activeStatus == nil ? 0 : 10)
     }
 
     private func statusHeader(_ status: Status) -> some View {

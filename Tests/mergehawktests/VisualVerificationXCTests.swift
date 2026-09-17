@@ -307,7 +307,7 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
             try renderHeaderTooltips(
-                pullRequest: XCTUnwrap(controller.sourceFilteredMyPullRequests.first),
+                pullRequest: XCTUnwrap(controller.requestedSections.first?.visible.first),
                 to: outputURL.appendingPathComponent("menu-header-tooltips.png")
             )
             try renderMenu(
@@ -534,14 +534,21 @@ final class VisualVerificationXCTests: XCTestCase {
         let size = CGSize(width: MenuRootView.Layout.width, height: 460)
         let view = ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 36) {
-                ForEach(PullRequestColumnHeader.Status.allCases) { status in
+                ForEach(PullRequestColumnLegend.Status.allCases) { status in
                     VStack(spacing: 3) {
-                        PullRequestColumnHeader(previewHoveredStatus: status)
+                        RequestedSectionHeading(
+                            section: .assigned,
+                            count: 1,
+                            isExpanded: true,
+                            previewHoveredStatus: status,
+                            action: {}
+                        )
                         PullRequestRow(
                             pullRequest: pullRequest,
                             isAttention: false,
                             isPinned: false,
                             isHidden: false,
+                            showsAuthor: true,
                             toggleHide: {},
                             togglePin: {},
                             action: {}
