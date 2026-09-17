@@ -26,6 +26,17 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testChangeSizeSortPreferenceRoundTrips() {
+        withStore { store, defaults in
+            store.pullRequestSortOption = .changeSize
+            store.pullRequestSortDirection = .ascending
+
+            let reopened = PreferencesStore(defaults: defaults)
+            XCTAssertEqual(reopened.pullRequestSortOption, .changeSize)
+            XCTAssertEqual(reopened.pullRequestSortDirection, .ascending)
+        }
+    }
+
     func testFilterSelectionsSerializeInStableOrderAndIgnoreUnsupportedValues() {
         withStore { store, defaults in
             store.selectedPullRequestFilters = [.ciFailing, .needsAttention]

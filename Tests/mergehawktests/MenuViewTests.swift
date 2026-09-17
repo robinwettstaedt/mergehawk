@@ -77,6 +77,13 @@ final class MenuViewTests: XCTestCase {
         )
     }
 
+    func testSortDirectionHelpMatchesSelectedValue() {
+        XCTAssertEqual(DashboardController.PullRequestSortOption.createdDate.directionHelp(for: .descending), "Sorted newest first")
+        XCTAssertEqual(DashboardController.PullRequestSortOption.updatedDate.directionHelp(for: .ascending), "Sorted oldest first")
+        XCTAssertEqual(DashboardController.PullRequestSortOption.changeSize.directionHelp(for: .descending), "Sorted largest first")
+        XCTAssertEqual(DashboardController.PullRequestSortOption.changeSize.directionHelp(for: .ascending), "Sorted smallest first")
+    }
+
     func testRequestedFiltersOfferOnlyStatusChoices() {
         XCTAssertEqual(DashboardController.ReviewRequestFilterOption.allCases.map(\.label), ["All", "Draft", "Ready"])
     }
@@ -597,7 +604,7 @@ final class MenuViewTests: XCTestCase {
     )
     let event = PullRequestEvent(type: .ciFailed, prId: "newer")
 
-    precondition(DashboardController.PullRequestSortOption.allCases.map(\.label) == ["Created", "Updated"])
+    precondition(DashboardController.PullRequestSortOption.allCases.map(\.label) == ["Created", "Updated", "Change size"])
     precondition(DashboardController.ReviewRequestFilterOption.allCases.map(\.label) == ["All", "Draft", "Ready"])
     precondition(DashboardController.sorted([older, newer], by: .createdDate).map(\.id) == ["newer", "older"])
     precondition(DashboardController.sorted([older, newer], by: .updatedDate).map(\.id) == ["older", "newer"])

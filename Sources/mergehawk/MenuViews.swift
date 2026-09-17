@@ -1933,7 +1933,7 @@ struct PullRequestListView: View {
             directionSymbolName: controller.pullRequestSortDirection.isAscending ? "arrow.up" : "arrow.down",
             title: controller.pullRequestSortOption.label,
             isMenuOpen: dropdownState.openMenu == .sort,
-            directionHelp: controller.pullRequestSortDirection.isAscending ? "Sorted oldest first" : "Sorted newest first",
+            directionHelp: controller.pullRequestSortOption.directionHelp(for: controller.pullRequestSortDirection),
             menuHelp: "Sort pull requests",
             toggleDirection: {
                 controller.pullRequestSortDirection = controller.pullRequestSortDirection.toggled

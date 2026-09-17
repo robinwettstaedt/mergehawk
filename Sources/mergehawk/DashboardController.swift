@@ -55,6 +55,7 @@ final class DashboardController: ObservableObject {
     enum PullRequestSortOption: String, CaseIterable, Identifiable {
         case createdDate
         case updatedDate
+        case changeSize
 
         var id: String { rawValue }
 
@@ -64,6 +65,17 @@ final class DashboardController: ObservableObject {
                 "Created"
             case .updatedDate:
                 "Updated"
+            case .changeSize:
+                "Change size"
+            }
+        }
+
+        func directionHelp(for direction: PullRequestSortDirection) -> String {
+            switch self {
+            case .createdDate, .updatedDate:
+                direction.isAscending ? "Sorted oldest first" : "Sorted newest first"
+            case .changeSize:
+                direction.isAscending ? "Sorted smallest first" : "Sorted largest first"
             }
         }
     }
@@ -619,6 +631,8 @@ final class DashboardController: ObservableObject {
                 compare(lhs, rhs, by: \.createdAt, ascending: ascending)
             case .updatedDate:
                 compare(lhs, rhs, by: \.updatedAt, ascending: ascending)
+            case .changeSize:
+                compareChangeSize(lhs, rhs, ascending: ascending)
             }
         }
     }
@@ -1471,6 +1485,35 @@ final class DashboardController: ObservableObject {
         if lhsValue != rhsValue {
             return ascending ? lhsValue < rhsValue : lhsValue > rhsValue
         }
+        return compareTieBreak(lhs, rhs)
+    }
+
+    private static func compareChangeSize(
+        _ lhs: PullRequest,
+        _ rhs: PullRequest,
+        ascending: Bool
+    ) -> Bool {
+        let lhsSize = changeSize(lhs)
+        let rhsSize = changeSize(rhs)
+        switch (lhsSize, rhsSize) {
+        case let (lhsSize?, rhsSize?) where lhsSize != rhsSize:
+            return ascending ? lhsSize < rhsSize : lhsSize > rhsSize
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return compareTieBreak(lhs, rhs)
+        }
+    }
+
+    private static func changeSize(_ pullRequest: PullRequest) -> Int? {
+        guard let additions = pullRequest.additions,
+              let deletions = pullRequest.deletions else { return nil }
+        return additions + deletions
+    }
+
+    private static func compareTieBreak(_ lhs: PullRequest, _ rhs: PullRequest) -> Bool {
         if lhs.createdAt != rhs.createdAt {
             return lhs.createdAt > rhs.createdAt
         }

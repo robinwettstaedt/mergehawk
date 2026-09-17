@@ -5,6 +5,103 @@ import XCTest
 
 final class DashboardControllerXCTests: XCTestCase {
     @MainActor
+    func testChangeSizeSortUsesTotalCountsAndKeepsUnknownLastWithinPins() {
+        func pullRequest(
+            _ id: String,
+            number: Int,
+            repo: String = "acme/app",
+            additions: Int?,
+            deletions: Int?,
+            createdAt: TimeInterval
+        ) -> PullRequest {
+            PullRequest(
+                id: id,
+                title: id,
+                number: number,
+                url: URL(string: "https://github.com/\(repo)/pull/\(number)")!,
+                repo: repo,
+                ciState: .unknown,
+                reviewDecision: .unknown,
+                additions: additions,
+                deletions: deletions,
+                commentCount: 0,
+                reviewCount: 0,
+                isMine: true,
+                author: "rw",
+                mergeable: .unknown,
+                draft: false,
+                createdAt: Date(timeIntervalSince1970: createdAt)
+            )
+        }
+
+        let balanced = pullRequest("balanced", number: 1, additions: 90, deletions: 90, createdAt: 100)
+        let highNet = pullRequest("high-net", number: 2, repo: "zeta/app", additions: 100, deletions: 0, createdAt: 200)
+        let tied = pullRequest("tied", number: 3, repo: "alpha/app", additions: 20, deletions: 80, createdAt: 200)
+        let zero = pullRequest("zero", number: 4, additions: 0, deletions: 0, createdAt: 50)
+        let missingAdditions = pullRequest("missing-additions", number: 5, additions: nil, deletions: 2, createdAt: 300)
+        let unknown = pullRequest("unknown", number: 6, additions: nil, deletions: nil, createdAt: 400)
+        let missingDeletions = pullRequest("missing-deletions", number: 7, additions: 2, deletions: nil, createdAt: 350)
+        let pullRequests = [missingAdditions, highNet, zero, balanced, unknown, tied, missingDeletions]
+
+        XCTAssertEqual(
+            DashboardController.sorted(pullRequests, by: .changeSize, direction: .descending).map(\.id),
+            ["balanced", "tied", "high-net", "zero", "unknown", "missing-deletions", "missing-additions"]
+        )
+        XCTAssertEqual(
+            DashboardController.sorted(pullRequests, by: .changeSize, direction: .ascending).map(\.id),
+            ["zero", "tied", "high-net", "balanced", "unknown", "missing-deletions", "missing-additions"]
+        )
+        XCTAssertEqual(
+            DashboardController.sortedWithPins(
+                pullRequests,
+                pinnedIds: ["zero", "unknown", "missing-deletions"],
+                by: .changeSize,
+                direction: .descending
+            ).map(\.id),
+            ["zero", "unknown", "missing-deletions", "balanced", "tied", "high-net", "missing-additions"]
+        )
+        XCTAssertEqual(
+            DashboardController.sortedWithPins(
+                pullRequests,
+                pinnedIds: ["zero", "unknown", "missing-deletions"],
+                by: .changeSize,
+                direction: .ascending
+            ).map(\.id),
+            ["zero", "unknown", "missing-deletions", "tied", "high-net", "balanced", "missing-additions"]
+        )
+    }
+
+    @MainActor
+    func testChangeSizeSortAppliesToAuthoredRequestedSectionsAndHiddenRows() {
+        let suiteName = "change-size-sort-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        controller.pullRequestSortOption = .changeSize
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_4", "PR_1", "PR_6"])
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
+
+        controller.pullRequestSortDirection = .ascending
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_1", "PR_4", "PR_6"])
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+
+        controller.pinnedPullRequestIds = ["PR_5"]
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
+
+        controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_2", "PR_5"])
+        controller.pullRequestSortDirection = .descending
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_5", "PR_2"])
+    }
+
+    @MainActor
     func testOptionDisclosureUsesClickedSectionStateForAllSections() {
         let controller = DashboardController(
             tokenStore: InMemoryTokenStore(),
