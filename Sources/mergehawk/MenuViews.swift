@@ -1675,7 +1675,7 @@ struct PullRequestListView: View {
             EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
         } else {
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: PullRequestColumnLayout.rowSpacing) {
                     PullRequestColumnHeader()
 
                     ForEach(visiblePullRequests) { pr in
@@ -1721,7 +1721,7 @@ struct PullRequestListView: View {
     }
 
     private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
-        VStack(spacing: 7) {
+        VStack(spacing: PullRequestColumnLayout.rowSpacing) {
             requestedSectionDisclosure(content)
 
             if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
@@ -2278,6 +2278,8 @@ private struct GitHubInboxNotificationRow: View {
 
 enum PullRequestColumnLayout {
     static let spacing: CGFloat = 6
+    static let rowSpacing: CGFloat = 7
+    static let headerHeight: CGFloat = 32
     static let horizontalInset: CGFloat = 10
     static let commentsWidth: CGFloat = 30
     static let statusWidth: CGFloat = 30
@@ -2310,7 +2312,7 @@ struct RequestedSectionHeading: View {
                         .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
                     Spacer(minLength: 0)
                 }
-                .frame(height: 32)
+                .frame(height: PullRequestColumnLayout.headerHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -2323,7 +2325,7 @@ struct RequestedSectionHeading: View {
             }
         }
         .padding(.trailing, PullRequestColumnLayout.horizontalInset)
-        .frame(height: 32)
+        .frame(height: PullRequestColumnLayout.headerHeight)
         .zIndex(1)
     }
 }
@@ -2335,7 +2337,7 @@ struct PullRequestColumnHeader: View {
             PullRequestColumnLegend()
         }
         .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .frame(height: 22)
+        .frame(height: PullRequestColumnLayout.headerHeight)
         .zIndex(1)
     }
 }
