@@ -10,7 +10,7 @@ public enum CIState: String, Codable, Equatable, Sendable {
 public enum ReviewDecision: String, Codable, Equatable, Sendable {
     case approved
     case changesRequested = "changes_requested"
-    case reviewRequired = "review_required"
+    case noReviewYet = "review_required"
     case unknown
 }
 
@@ -134,6 +134,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let repo: String
     public let ciState: CIState
     public let reviewDecision: ReviewDecision
+    public let additions: Int?
+    public let deletions: Int?
     public let commentCount: Int
     public let commentActivityCount: Int
     public let recentCommentActivities: [PullRequestCommentActivity]
@@ -145,6 +147,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String
+    public let authorAvatarURL: URL?
     public let headRefName: String
     public let mergeable: MergeableState
     public let draft: Bool
@@ -159,6 +162,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         repo: String,
         ciState: CIState,
         reviewDecision: ReviewDecision,
+        additions: Int? = nil,
+        deletions: Int? = nil,
         commentCount: Int,
         commentActivityCount: Int? = nil,
         recentCommentActivities: [PullRequestCommentActivity] = [],
@@ -170,6 +175,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         isAssignedToViewer: Bool = false,
         isMine: Bool,
         author: String,
+        authorAvatarURL: URL? = nil,
         headRefName: String = "",
         mergeable: MergeableState,
         draft: Bool,
@@ -183,6 +189,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.repo = repo
         self.ciState = ciState
         self.reviewDecision = reviewDecision
+        self.additions = additions
+        self.deletions = deletions
         self.commentCount = commentCount
         self.commentActivityCount = commentActivityCount ?? commentCount
         self.recentCommentActivities = recentCommentActivities
@@ -194,6 +202,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.isAssignedToViewer = isAssignedToViewer
         self.isMine = isMine
         self.author = author
+        self.authorAvatarURL = authorAvatarURL
         self.headRefName = headRefName
         self.mergeable = mergeable
         self.draft = draft
@@ -209,6 +218,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case repo
         case ciState
         case reviewDecision
+        case additions
+        case deletions
         case commentCount
         case commentActivityCount
         case recentCommentActivities
@@ -220,6 +231,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case isAssignedToViewer
         case isMine
         case author
+        case authorAvatarURL
         case headRefName
         case mergeable
         case draft
@@ -236,6 +248,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.repo = try container.decode(String.self, forKey: .repo)
         self.ciState = try container.decode(CIState.self, forKey: .ciState)
         self.reviewDecision = try container.decode(ReviewDecision.self, forKey: .reviewDecision)
+        self.additions = try container.decodeIfPresent(Int.self, forKey: .additions)
+        self.deletions = try container.decodeIfPresent(Int.self, forKey: .deletions)
         self.commentCount = try container.decode(Int.self, forKey: .commentCount)
         self.commentActivityCount = try container.decode(Int.self, forKey: .commentActivityCount)
         self.recentCommentActivities = try container.decode(
@@ -254,6 +268,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.isAssignedToViewer = try container.decode(Bool.self, forKey: .isAssignedToViewer)
         self.isMine = try container.decode(Bool.self, forKey: .isMine)
         self.author = try container.decode(String.self, forKey: .author)
+        self.authorAvatarURL = try container.decodeIfPresent(URL.self, forKey: .authorAvatarURL)
         self.headRefName = try container.decode(String.self, forKey: .headRefName)
         self.mergeable = try container.decode(MergeableState.self, forKey: .mergeable)
         self.draft = try container.decode(Bool.self, forKey: .draft)

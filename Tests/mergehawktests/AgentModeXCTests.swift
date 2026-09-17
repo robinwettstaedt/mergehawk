@@ -4,6 +4,41 @@ import mergehawkcore
 import XCTest
 
 final class AgentModeXCTests: XCTestCase {
+    func testMockPullRequestDatesUseOneStableReferenceAcrossRefreshes() async throws {
+        let referenceDate = Date(timeIntervalSince1970: 2_000_000_000)
+        let source = MockPullRequestSource(referenceDate: referenceDate)
+        let first = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: [])
+        let second = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: first.pullRequests)
+        let firstDates = Dictionary(uniqueKeysWithValues: first.pullRequests.map {
+            ($0.id, [$0.createdAt, $0.updatedAt])
+        })
+        let secondDates = Dictionary(uniqueKeysWithValues: second.pullRequests.map {
+            ($0.id, [$0.createdAt, $0.updatedAt])
+        })
+
+        XCTAssertEqual(firstDates.count, 7)
+        XCTAssertEqual(secondDates, firstDates)
+        for pullRequest in first.pullRequests {
+            XCTAssertLessThanOrEqual(pullRequest.createdAt, pullRequest.updatedAt)
+            XCTAssertLessThanOrEqual(pullRequest.updatedAt, referenceDate)
+        }
+
+        func ageUnits(for dates: [Date]) -> Set<String> {
+            Set(dates.map { date in
+                switch referenceDate.timeIntervalSince(date) {
+                case ..<3_600: "minutes"
+                case ..<86_400: "hours"
+                case ..<604_800: "days"
+                case ..<2_592_000: "weeks"
+                default: "months"
+                }
+            })
+        }
+        let expectedUnits: Set<String> = ["minutes", "hours", "days", "weeks", "months"]
+        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.createdAt)), expectedUnits)
+        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.updatedAt)), expectedUnits)
+    }
+
     func testLaunchConfigurationAcceptsMockFlagAndEnvironment() {
         XCTAssertEqual(
             LaunchConfiguration.current(
@@ -61,6 +96,26 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertEqual(controller.state.source, .mock)
             XCTAssertEqual(controller.state.account?.login, "agent-fixture")
             XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
+            let requests = controller.state.pullRequests
+            let byId = Dictionary(uniqueKeysWithValues: requests.map { ($0.id, $0) })
+            XCTAssertEqual(Set(requests.map(\.reviewDecision)), [.noReviewYet, .approved, .changesRequested, .unknown])
+            XCTAssertEqual(Set(requests.map(\.ciState)), [.passing, .failing, .pending, .unknown])
+            XCTAssertEqual(Set(requests.map(\.mergeable)), [.mergeable, .conflicting, .unknown])
+            XCTAssertGreaterThanOrEqual(requests.filter { $0.mergeable == .unknown }.count, 2)
+            XCTAssertEqual(byId["PR_1"]?.additions, 0)
+            XCTAssertEqual(byId["PR_1"]?.deletions, 0)
+            XCTAssertEqual(byId["PR_3"]?.additions, 1_200_000)
+            XCTAssertEqual(byId["PR_3"]?.deletions, 0)
+            XCTAssertNil(byId["PR_6"]?.additions)
+            XCTAssertNil(byId["PR_7"]?.deletions)
+            XCTAssertTrue((byId["PR_4"]?.title.count ?? 0) > 100)
+            XCTAssertTrue((byId["PR_5"]?.title.count ?? 0) > 100)
+            XCTAssertTrue((byId["PR_3"]?.headRefName.count ?? 0) > 70)
+            XCTAssertEqual(byId["PR_2"]?.reviewRequestKind, .direct)
+            XCTAssertEqual(byId["PR_3"]?.reviewRequestKind, .team)
+            XCTAssertEqual(byId["PR_5"]?.reviewRequestKind, .directAndTeam)
+            XCTAssertEqual(byId["PR_7"]?.isAssignedToViewer, true)
+            XCTAssertEqual(byId["PR_1"]?.draft, true)
             XCTAssertFalse(controller.startsAtLogin)
         }
 
@@ -72,8 +127,11 @@ final class AgentModeXCTests: XCTestCase {
         }
         XCTAssertEqual(
             notificationClient.records.map(\.eventType),
-            ["new_comment", "ci_failed", "other_commit_added", "relationship_added", "relationship_added"]
+            ["new_comment", "ci_failed", "other_commit_added", "relationship_added"]
         )
+        await MainActor.run {
+            XCTAssertGreaterThanOrEqual(controller.state.pullRequests.filter { $0.mergeable == .unknown }.count, 2)
+        }
     }
 
     func testMockRefreshDelayKeepsRefreshIndicatorActive() async {
@@ -221,24 +279,25 @@ final class AgentModeXCTests: XCTestCase {
         }
         await waitUntil(timeout: 1.0) {
             await MainActor.run {
-                controller.visiblePullRequestNotifications.count == 5
+                controller.visiblePullRequestNotifications.count == 4
             }
         }
 
         await MainActor.run {
-            XCTAssertEqual(controller.attentionCount, 5)
+            // PR_3 remains team-only across refresh, so no relationship-added row appears for it.
+            XCTAssertEqual(controller.attentionCount, 4)
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
-                URL(string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31")
+                URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/27")
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
-            XCTAssertEqual(controller.attentionCount, 4)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(controller.attentionCount, 3)
 
             controller.markAllNotificationsRead()
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 5)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
             XCTAssertEqual(controller.attentionCount, 0)
             XCTAssertFalse(controller.hasAttention)
         }
@@ -259,7 +318,7 @@ final class AgentModeXCTests: XCTestCase {
         }
 
         await MainActor.run {
-            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 5)
+            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 4)
             XCTAssertEqual(restoredController.attentionCount, 0)
         }
     }
@@ -679,7 +738,7 @@ final class AgentModeXCTests: XCTestCase {
             url: URL(string: url)!,
             repo: "example/mergehawk",
             ciState: .failing,
-            reviewDecision: .reviewRequired,
+            reviewDecision: .noReviewYet,
             commentCount: 3,
             reviewCount: 0,
             isMine: true,

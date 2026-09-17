@@ -62,7 +62,7 @@ struct Runner {
         let previous = PullRequest.fixture(
             id: "PR_1",
             ciState: .passing,
-            reviewDecision: .reviewRequired,
+            reviewDecision: .noReviewYet,
             commentCount: 1,
             reviewCount: 0,
             isMine: true
@@ -1057,7 +1057,6 @@ struct Runner {
             headRefName: "ship-dashboard",
             isDraft: true,
             mergeable: "MERGEABLE",
-            reviewDecision: "REVIEW_REQUIRED",
             comments: .init(totalCount: 2, nodes: [
                 .init(
                     id: "COMMENT_1",
@@ -1074,6 +1073,7 @@ struct Runner {
                     author: .init(login: "reviewer")
                 )
             ]),
+            latestOpinionatedReviews: .init(totalCount: 0, nodes: []),
             reviewThreads: .init(nodes: [
                 .fixture(idPrefix: "RESOLVED_COMMENT", isResolved: true, viewerCanResolve: true, viewerDidAuthorComments: [false]),
                 .fixture(
@@ -1095,7 +1095,7 @@ struct Runner {
             url: URL(string: "https://github.com/acme/mergehawk/pull/12")!,
             repo: "acme/mergehawk",
             ciState: .failing,
-            reviewDecision: .reviewRequired,
+            reviewDecision: .noReviewYet,
             commentCount: 1,
             commentActivityCount: 5,
             recentCommentActivities: [
@@ -1164,9 +1164,8 @@ struct Runner {
 
     private static func testNormalizesReviewOutcomeFromLatestOpinionatedReviews() throws {
         let approvedWithUnresolvedComments = GitHubPullRequestNode.fixture(
-            reviewDecision: "REVIEW_REQUIRED",
             latestOpinionatedReviews: .init(totalCount: 1, nodes: [
-                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z")
+                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z", author: .init(login: "reviewer"))
             ]),
             reviewThreads: .init(nodes: [
                 .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [false])
@@ -1174,10 +1173,9 @@ struct Runner {
         )
 
         let changesRequestedWins = GitHubPullRequestNode.fixture(
-            reviewDecision: "APPROVED",
             latestOpinionatedReviews: .init(totalCount: 2, nodes: [
-                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z"),
-                .init(id: "CHANGES", state: "CHANGES_REQUESTED", submittedAt: "2026-05-02T12:00:00Z")
+                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z", author: .init(login: "reviewer")),
+                .init(id: "CHANGES", state: "CHANGES_REQUESTED", submittedAt: "2026-05-02T12:00:00Z", author: .init(login: "other"))
             ])
         )
 
@@ -1350,10 +1348,9 @@ private struct TestFailure: Error, CustomStringConvertible {
 
 private extension GitHubPullRequestNode {
     static func fixture(
-        reviewDecision: String? = "REVIEW_REQUIRED",
         comments: CommentConnection = .init(totalCount: 0),
         reviews: ReviewConnection = .init(totalCount: 0),
-        latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
+        latestOpinionatedReviews: OpinionatedReviewConnection = .init(totalCount: 0, nodes: []),
         reviewThreads: ReviewThreadConnection = .init(nodes: []),
         assignees: AssigneeConnection = .init(nodes: []),
         commits: CommitConnection = .init(nodes: [])
@@ -1367,7 +1364,6 @@ private extension GitHubPullRequestNode {
             updatedAt: "2026-05-02T12:00:00Z",
             isDraft: false,
             mergeable: "MERGEABLE",
-            reviewDecision: reviewDecision,
             comments: comments,
             reviews: reviews,
             latestOpinionatedReviews: latestOpinionatedReviews,
@@ -1389,7 +1385,6 @@ private extension GitHubPullRequestNode {
             updatedAt: "2026-05-02T12:00:00Z",
             isDraft: false,
             mergeable: "MERGEABLE",
-            reviewDecision: "REVIEW_REQUIRED",
             comments: .init(totalCount: 0),
             reviews: .init(totalCount: 0),
             reviewThreads: .init(nodes: []),
@@ -1456,7 +1451,7 @@ private extension PullRequest {
         url: URL = URL(string: "https://github.com/acme/mergehawk/pull/1")!,
         repo: String = "acme/mergehawk",
         ciState: CIState = .passing,
-        reviewDecision: ReviewDecision = .reviewRequired,
+        reviewDecision: ReviewDecision = .noReviewYet,
         commentCount: Int = 0,
         commentActivityCount: Int? = nil,
         recentCommentActivities: [PullRequestCommentActivity] = [],

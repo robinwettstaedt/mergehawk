@@ -306,6 +306,33 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
+            try renderHeaderTooltips(
+                pullRequest: XCTUnwrap(controller.requestedSections.first?.visible.first),
+                to: outputURL.appendingPathComponent("menu-header-tooltips.png")
+            )
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-my-prs-laptop.png"),
+                availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
+            )
+            controller.selectedPullRequestFilters = [.changesRequested]
+            controller.pullRequestSortOption = .changeSize
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-my-prs-header-filter-open.png"),
+                initialDropdown: .filter
+            )
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-my-prs-header-sort-open.png"),
+                initialDropdown: .sort
+            )
+            controller.selectedPullRequestFilters = []
+            controller.pullRequestSortOption = .changeSize
+            controller.pullRequestSortDirection = .ascending
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-change-size.png"))
+            controller.pullRequestSortOption = .createdDate
+            controller.pullRequestSortDirection = .descending
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-pinned.png"))
             controller.pinnedPullRequestIds = []
@@ -358,6 +385,29 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-laptop.png"),
+                availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
+            )
+            controller.selectedReviewRequestFilters = [.ready]
+            controller.reviewRequestSortOption = .updatedDate
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-header-filter-open.png"),
+                initialDropdown: .filter
+            )
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-header-sort-open.png"),
+                initialDropdown: .sort
+            )
+            controller.selectedReviewRequestFilters = []
+            controller.reviewRequestSortOption = .changeSize
+            controller.reviewRequestSortDirection = .ascending
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-change-size.png"))
+            controller.reviewRequestSortOption = .createdDate
+            controller.reviewRequestSortDirection = .descending
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
             controller.pinnedPullRequestIds = []
@@ -413,17 +463,35 @@ final class VisualVerificationXCTests: XCTestCase {
             )
             controller.sourcePreferences = populatedSourcePreferences
 
-            controller.selectedReviewRequestFilters = [.team]
-            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-team.png"))
-
             controller.selectedReviewRequestFilters = []
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-all.png"))
 
-            controller.selectedReviewRequestFilters = [.assigned]
-            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-assigned.png"))
+            controller.toggleRequestedSection(.direct)
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-section-collapsed.png")
+            )
+            controller.toggleRequestedSection(.direct)
 
-            controller.selectedReviewRequestFilters = [.direct, .team]
-            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-multiple.png"))
+            controller.setRepositoryPreferences(
+                repo: "billing-platform-experiments/customer-subscription-dashboard",
+                preferences: RepositorySourcePreferences(
+                    notifications: .inherit,
+                    myPullRequests: .inherit,
+                    reviewRequests: .disabled
+                )
+            )
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-section-empty.png")
+            )
+
+            controller.selectedReviewRequestFilters = [.draft]
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-filtered-empty.png")
+            )
+            controller.sourcePreferences = populatedSourcePreferences
 
             controller.selectedReviewRequestFilters = [.draft]
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-draft.png"))
@@ -482,14 +550,59 @@ final class VisualVerificationXCTests: XCTestCase {
     @MainActor
     private func renderMenu(
         controller: DashboardController,
-        to url: URL
+        to url: URL,
+        availableFrame: CGRect? = nil,
+        initialDropdown: PullRequestMenuDropdown? = nil
     ) throws {
-        let view = MenuRootView(controller: controller, footerModel: MenuFooterModel())
+        let size = availableFrame.map { MenuPanelSize.resolve(availableFrame: $0) }
+            ?? CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
+        let view = MenuRootView(
+            controller: controller,
+            footerModel: MenuFooterModel(),
+            resolvedSize: size,
+            initialDropdown: initialDropdown
+        )
             .background(.regularMaterial)
-        let size = CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
 
         try render(view, size: size, appearance: .darkAqua, to: url)
 
+        let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
+        let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
+        try render(view, size: size, appearance: .aqua, to: lightURL)
+    }
+
+    @MainActor
+    private func renderHeaderTooltips(pullRequest: PullRequest, to url: URL) throws {
+        let size = CGSize(width: MenuRootView.Layout.width, height: 800)
+        let view = ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 36) {
+                ForEach(PullRequestColumnLegend.Column.allCases) { column in
+                    VStack(spacing: 3) {
+                        RequestedSectionHeading(
+                            section: .assigned,
+                            count: 1,
+                            isExpanded: true,
+                            previewHoveredColumn: column,
+                            action: {}
+                        )
+                        PullRequestRow(
+                            pullRequest: pullRequest,
+                            isAttention: false,
+                            isPinned: false,
+                            isHidden: false,
+                            toggleHide: {},
+                            togglePin: {},
+                            action: {}
+                        )
+                    }
+                }
+            }
+            .padding(.top, 12)
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
+        .background(.regularMaterial)
+
+        try render(view, size: size, appearance: .darkAqua, to: url)
         let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
         let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
         try render(view, size: size, appearance: .aqua, to: lightURL)
@@ -623,19 +736,28 @@ private struct VisualCaptureSelection {
         "menu-notifications",
         "menu-notifications-other",
         "menu-my-prs",
+        "menu-header-tooltips",
+        "menu-my-prs-laptop",
+        "menu-my-prs-header-filter-open",
+        "menu-my-prs-header-sort-open",
+        "menu-my-prs-change-size",
         "menu-my-prs-pinned",
         "menu-my-prs-hidden-collapsed",
         "menu-my-prs-hidden-expanded",
         "menu-my-prs-empty",
         "menu-review-requests",
+        "menu-review-requests-laptop",
+        "menu-review-requests-header-filter-open",
+        "menu-review-requests-header-sort-open",
+        "menu-review-requests-change-size",
         "menu-review-requests-pinned",
         "menu-review-requests-hidden-collapsed",
         "menu-review-requests-hidden-expanded",
         "menu-review-requests-empty",
-        "menu-review-requests-team",
         "menu-review-requests-all",
-        "menu-review-requests-assigned",
-        "menu-review-requests-multiple",
+        "menu-review-requests-section-collapsed",
+        "menu-review-requests-section-empty",
+        "menu-review-requests-filtered-empty",
         "menu-review-requests-draft",
         "menu-review-requests-ready",
         "menu-notifications-read",

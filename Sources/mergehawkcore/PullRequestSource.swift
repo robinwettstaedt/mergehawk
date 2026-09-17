@@ -50,7 +50,12 @@ public final class MockPullRequestSource: PullRequestSource {
     private let snapshots: [[PullRequest]]
     private let inboxNotifications: [GitHubInboxNotification]
 
-    public init(showsNotificationTypeFixtures: Bool = false) {
+    public init(showsNotificationTypeFixtures: Bool = false, referenceDate: Date = Date()) {
+        let minute: TimeInterval = 60
+        let hour = 60 * minute
+        let day = 24 * hour
+        func ago(_ interval: TimeInterval) -> Date { referenceDate.addingTimeInterval(-interval) }
+
         self.inboxNotifications = showsNotificationTypeFixtures
             ? Self.notificationTypeFixtureInboxNotifications
             : Self.defaultInboxNotifications
@@ -63,7 +68,9 @@ public final class MockPullRequestSource: PullRequestSource {
                     url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")!,
                     repo: "mergehawk-labs/mergehawk",
                     ciState: .passing,
-                    reviewDecision: .reviewRequired,
+                    reviewDecision: .noReviewYet,
+                    additions: 0,
+                    deletions: 0,
                     commentCount: 2,
                     reviewCount: 0,
                     isMine: true,
@@ -71,17 +78,19 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-14-oauth-device-flow",
                     mergeable: .mergeable,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_750_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_779_619_600)
+                    createdAt: ago(150 * day),
+                    updatedAt: ago(3 * hour)
                 ),
                 PullRequest(
                     id: "PR_4",
-                    title: "chore(MER-33): Add reviewer assignment summary",
+                    title: "chore(MER-33): Add reviewer assignment summary and synchronize long organization policy names across the desktop settings screens",
                     number: 48,
                     url: URL(string: "https://github.com/customer-success-platform/team-portal-web/pull/48")!,
                     repo: "customer-success-platform/team-portal-web",
-                    ciState: .passing,
+                    ciState: .failing,
                     reviewDecision: .approved,
+                    additions: 12_345,
+                    deletions: 6_789,
                     commentCount: 5,
                     reviewCount: 2,
                     recentCommits: [
@@ -96,10 +105,10 @@ public final class MockPullRequestSource: PullRequestSource {
                     isMine: true,
                     author: "rw",
                     headRefName: "MER-33-review-assignment-summary",
-                    mergeable: .mergeable,
+                    mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_760_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_369_200)
+                    createdAt: ago(180 * day),
+                    updatedAt: ago(45 * day)
                 ),
                 PullRequest(
                     id: "PR_6",
@@ -116,8 +125,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-44-handle-requested-changes",
                     mergeable: .mergeable,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_765_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_426_800)
+                    createdAt: ago(45 * minute),
+                    updatedAt: ago(35 * minute)
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -127,6 +136,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     repo: "mergehawk-labs/desktop-app",
                     ciState: .pending,
                     reviewDecision: .approved,
+                    additions: 650,
+                    deletions: 30,
                     commentCount: 4,
                     reviewCount: 2,
                     reviewRequestKind: .direct,
@@ -135,8 +146,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-27-show-pr-author-rows",
                     mergeable: .unknown,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_770_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_780_656_400)
+                    createdAt: ago(28 * day),
+                    updatedAt: ago(8 * hour)
                 ),
                 PullRequest(
                     id: "PR_3",
@@ -146,18 +157,20 @@ public final class MockPullRequestSource: PullRequestSource {
                         string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31"
                     )!,
                     repo: "billing-platform-experiments/customer-subscription-dashboard",
-                    ciState: .passing,
-                    reviewDecision: .reviewRequired,
+                    ciState: .unknown,
+                    reviewDecision: .noReviewYet,
+                    additions: 1_200_000,
+                    deletions: 0,
                     commentCount: 1,
                     reviewCount: 0,
                     reviewRequestKind: .team,
                     isMine: false,
                     author: "design-systems-amy",
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
-                    mergeable: .mergeable,
+                    mergeable: .unknown,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_780_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_088_400)
+                    createdAt: ago(60 * day),
+                    updatedAt: ago(14 * day)
                 ),
                 PullRequest(
                     id: "PR_7",
@@ -166,7 +179,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/61")!,
                     repo: "mergehawk-labs/review-router",
                     ciState: .pending,
-                    reviewDecision: .reviewRequired,
+                    reviewDecision: .unknown,
                     commentCount: 0,
                     reviewCount: 0,
                     isAssignedToViewer: true,
@@ -175,8 +188,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-36-assigned-incoming-prs",
                     mergeable: .unknown,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_785_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_416_000)
+                    createdAt: ago(2 * hour),
+                    updatedAt: ago(12 * minute)
                 ),
                 PullRequest(
                     id: "PR_5",
@@ -186,6 +199,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     repo: "mergehawk-labs/review-router",
                     ciState: .failing,
                     reviewDecision: .changesRequested,
+                    additions: 123_456,
+                    deletions: 987_654,
                     commentCount: 8,
                     reviewCount: 3,
                     reviewRequestKind: .directAndTeam,
@@ -194,8 +209,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-41-stale-review-alerts",
                     mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_790_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_805_200)
+                    createdAt: ago(5 * day),
+                    updatedAt: ago(2 * day)
                 )
             ],
             [
@@ -206,7 +221,9 @@ public final class MockPullRequestSource: PullRequestSource {
                     url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")!,
                     repo: "mergehawk-labs/mergehawk",
                     ciState: .failing,
-                    reviewDecision: .reviewRequired,
+                    reviewDecision: .noReviewYet,
+                    additions: 0,
+                    deletions: 0,
                     commentCount: 3,
                     recentCommentActivities: [
                         PullRequestCommentActivity(
@@ -222,17 +239,19 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-14-oauth-device-flow",
                     mergeable: .mergeable,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_750_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_779_619_600)
+                    createdAt: ago(150 * day),
+                    updatedAt: ago(3 * hour)
                 ),
                 PullRequest(
                     id: "PR_4",
-                    title: "chore(MER-33): Add reviewer assignment summary",
+                    title: "chore(MER-33): Add reviewer assignment summary and synchronize long organization policy names across the desktop settings screens",
                     number: 48,
                     url: URL(string: "https://github.com/customer-success-platform/team-portal-web/pull/48")!,
                     repo: "customer-success-platform/team-portal-web",
-                    ciState: .passing,
+                    ciState: .failing,
                     reviewDecision: .approved,
+                    additions: 12_345,
+                    deletions: 6_789,
                     commentCount: 5,
                     reviewCount: 2,
                     recentCommits: [
@@ -254,10 +273,10 @@ public final class MockPullRequestSource: PullRequestSource {
                     isMine: true,
                     author: "rw",
                     headRefName: "MER-33-review-assignment-summary",
-                    mergeable: .mergeable,
+                    mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_760_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_369_200)
+                    createdAt: ago(180 * day),
+                    updatedAt: ago(45 * day)
                 ),
                 PullRequest(
                     id: "PR_6",
@@ -274,8 +293,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-44-handle-requested-changes",
                     mergeable: .mergeable,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_765_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_426_800)
+                    createdAt: ago(45 * minute),
+                    updatedAt: ago(35 * minute)
                 ),
                 PullRequest(
                     id: "PR_2",
@@ -285,6 +304,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     repo: "mergehawk-labs/desktop-app",
                     ciState: .passing,
                     reviewDecision: .approved,
+                    additions: 650,
+                    deletions: 30,
                     commentCount: 4,
                     reviewCount: 2,
                     reviewRequestKind: .direct,
@@ -294,8 +315,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-27-show-pr-author-rows",
                     mergeable: .mergeable,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_770_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_780_656_400)
+                    createdAt: ago(28 * day),
+                    updatedAt: ago(8 * hour)
                 ),
                 PullRequest(
                     id: "PR_3",
@@ -305,18 +326,20 @@ public final class MockPullRequestSource: PullRequestSource {
                         string: "https://github.com/billing-platform-experiments/customer-subscription-dashboard/pull/31"
                     )!,
                     repo: "billing-platform-experiments/customer-subscription-dashboard",
-                    ciState: .passing,
-                    reviewDecision: .reviewRequired,
+                    ciState: .unknown,
+                    reviewDecision: .noReviewYet,
+                    additions: 1_200_000,
+                    deletions: 0,
                     commentCount: 1,
                     reviewCount: 0,
-                    reviewRequestKind: .directAndTeam,
+                    reviewRequestKind: .team,
                     isMine: false,
                     author: "design-systems-amy",
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
-                    mergeable: .mergeable,
+                    mergeable: .unknown,
                     draft: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_780_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_088_400)
+                    createdAt: ago(60 * day),
+                    updatedAt: ago(14 * day)
                 ),
                 PullRequest(
                     id: "PR_7",
@@ -325,7 +348,7 @@ public final class MockPullRequestSource: PullRequestSource {
                     url: URL(string: "https://github.com/mergehawk-labs/review-router/pull/61")!,
                     repo: "mergehawk-labs/review-router",
                     ciState: .pending,
-                    reviewDecision: .reviewRequired,
+                    reviewDecision: .unknown,
                     commentCount: 0,
                     reviewCount: 0,
                     isAssignedToViewer: true,
@@ -334,8 +357,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-36-assigned-incoming-prs",
                     mergeable: .unknown,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_785_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_781_416_000)
+                    createdAt: ago(2 * hour),
+                    updatedAt: ago(12 * minute)
                 ),
                 PullRequest(
                     id: "PR_5",
@@ -345,6 +368,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     repo: "mergehawk-labs/review-router",
                     ciState: .failing,
                     reviewDecision: .changesRequested,
+                    additions: 123_456,
+                    deletions: 987_654,
                     commentCount: 8,
                     reviewCount: 3,
                     reviewRequestKind: .directAndTeam,
@@ -353,8 +378,8 @@ public final class MockPullRequestSource: PullRequestSource {
                     headRefName: "MER-41-stale-review-alerts",
                     mergeable: .conflicting,
                     draft: false,
-                    createdAt: Date(timeIntervalSince1970: 1_777_790_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_777_805_200)
+                    createdAt: ago(5 * day),
+                    updatedAt: ago(2 * day)
                 )
             ]
         ]
@@ -458,7 +483,7 @@ public final class MockPullRequestSource: PullRequestSource {
         url: URL(string: "https://github.com/example/review-router/pull/40")!,
         repo: "example/review-router",
         ciState: .pending,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .direct,
@@ -478,7 +503,7 @@ public final class MockPullRequestSource: PullRequestSource {
         url: URL(string: "https://github.com/example/review-router/pull/39")!,
         repo: "example/review-router",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isAssignedToViewer: true,
@@ -497,7 +522,7 @@ public final class MockPullRequestSource: PullRequestSource {
         url: URL(string: "https://github.com/example/mergehawk/pull/41")!,
         repo: "example/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 1,
         reviewCount: 0,
         isMine: true,
@@ -533,7 +558,7 @@ public final class MockPullRequestSource: PullRequestSource {
         url: URL(string: "https://github.com/example/docs/pull/43")!,
         repo: "example/docs",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 1,
         reviewCount: 1,
         isMine: true,
@@ -551,7 +576,7 @@ public final class MockPullRequestSource: PullRequestSource {
         url: URL(string: "https://github.com/example/mobile/pull/45")!,
         repo: "example/mobile",
         ciState: .failing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,
@@ -569,7 +594,7 @@ public final class MockPullRequestSource: PullRequestSource {
         url: URL(string: "https://github.com/example/desktop/pull/46")!,
         repo: "example/desktop",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,

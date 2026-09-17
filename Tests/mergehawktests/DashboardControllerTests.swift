@@ -5,6 +5,249 @@ import XCTest
 
 final class DashboardControllerXCTests: XCTestCase {
     @MainActor
+    func testChangeSizeSortUsesTotalCountsAndTreatsUnknownAsZeroWithinPins() {
+        func pullRequest(
+            _ id: String,
+            number: Int,
+            repo: String = "acme/app",
+            additions: Int?,
+            deletions: Int?,
+            createdAt: TimeInterval
+        ) -> PullRequest {
+            PullRequest(
+                id: id,
+                title: id,
+                number: number,
+                url: URL(string: "https://github.com/\(repo)/pull/\(number)")!,
+                repo: repo,
+                ciState: .unknown,
+                reviewDecision: .unknown,
+                additions: additions,
+                deletions: deletions,
+                commentCount: 0,
+                reviewCount: 0,
+                isMine: true,
+                author: "rw",
+                mergeable: .unknown,
+                draft: false,
+                createdAt: Date(timeIntervalSince1970: createdAt)
+            )
+        }
+
+        let balanced = pullRequest("balanced", number: 1, additions: 90, deletions: 90, createdAt: 100)
+        let highNet = pullRequest("high-net", number: 2, repo: "zeta/app", additions: 100, deletions: 0, createdAt: 200)
+        let tied = pullRequest("tied", number: 3, repo: "alpha/app", additions: 20, deletions: 80, createdAt: 200)
+        let zero = pullRequest("zero", number: 4, additions: 0, deletions: 0, createdAt: 50)
+        let missingAdditions = pullRequest("missing-additions", number: 5, additions: nil, deletions: 2, createdAt: 300)
+        let unknown = pullRequest("unknown", number: 6, additions: nil, deletions: nil, createdAt: 400)
+        let missingDeletions = pullRequest("missing-deletions", number: 7, additions: 2, deletions: nil, createdAt: 350)
+        let pullRequests = [missingAdditions, highNet, zero, balanced, unknown, tied, missingDeletions]
+
+        XCTAssertEqual(
+            DashboardController.sorted(pullRequests, by: .changeSize, direction: .descending).map(\.id),
+            ["balanced", "tied", "high-net", "unknown", "missing-deletions", "missing-additions", "zero"]
+        )
+        XCTAssertEqual(
+            DashboardController.sorted(pullRequests, by: .changeSize, direction: .ascending).map(\.id),
+            ["unknown", "missing-deletions", "missing-additions", "zero", "tied", "high-net", "balanced"]
+        )
+        XCTAssertEqual(
+            DashboardController.sortedWithPins(
+                pullRequests,
+                pinnedIds: ["zero", "unknown", "missing-deletions"],
+                by: .changeSize,
+                direction: .descending
+            ).map(\.id),
+            ["unknown", "missing-deletions", "zero", "balanced", "tied", "high-net", "missing-additions"]
+        )
+        XCTAssertEqual(
+            DashboardController.sortedWithPins(
+                pullRequests,
+                pinnedIds: ["zero", "unknown", "missing-deletions"],
+                by: .changeSize,
+                direction: .ascending
+            ).map(\.id),
+            ["unknown", "missing-deletions", "zero", "missing-additions", "tied", "high-net", "balanced"]
+        )
+    }
+
+    @MainActor
+    func testChangeSizeSortAppliesToAuthoredRequestedSectionsAndHiddenRows() {
+        let suiteName = "change-size-sort-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        controller.pullRequestSortOption = .changeSize
+        controller.reviewRequestSortOption = .changeSize
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_4", "PR_6", "PR_1"])
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
+
+        controller.pullRequestSortDirection = .ascending
+        controller.reviewRequestSortDirection = .ascending
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+
+        controller.pinnedPullRequestIds = ["PR_5"]
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
+
+        controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_2", "PR_5"])
+        controller.reviewRequestSortDirection = .descending
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_5", "PR_2"])
+
+        controller.hiddenPullRequestIds = []
+        controller.pinnedPullRequestIds = []
+        controller.refresh()
+        waitUntil(timeout: 1.0) {
+            controller.state.pullRequests.first(where: { $0.id == "PR_2" })?.isAssignedToViewer == true
+        }
+        XCTAssertEqual(controller.requestedSections[0].visible.map(\.id), ["PR_2", "PR_7"])
+        controller.reviewRequestSortDirection = .ascending
+        XCTAssertEqual(controller.requestedSections[0].visible.map(\.id), ["PR_7", "PR_2"])
+    }
+
+    @MainActor
+    func testAuthoredAndRequestedSortSettingsStayIndependentAcrossTabsAndHiddenRows() {
+        let suiteName = "independent-pr-sorts-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        controller.pullRequestSortOption = .changeSize
+        controller.pullRequestSortDirection = .ascending
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
+
+        controller.selectedTab = .reviewRequests
+        controller.reviewRequestSortOption = .changeSize
+        controller.reviewRequestSortDirection = .ascending
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+        controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_2", "PR_5"])
+        controller.reviewRequestSortDirection = .descending
+        XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_5", "PR_2"])
+
+        controller.selectedTab = .myPRs
+        XCTAssertEqual(controller.pullRequestSortOption, .changeSize)
+        XCTAssertEqual(controller.pullRequestSortDirection, .ascending)
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        let reopened = PreferencesStore(defaults: defaults)
+        XCTAssertEqual(reopened.pullRequestSortOption, .changeSize)
+        XCTAssertEqual(reopened.pullRequestSortDirection, .ascending)
+        XCTAssertEqual(reopened.reviewRequestSortOption, .changeSize)
+        XCTAssertEqual(reopened.reviewRequestSortDirection, .descending)
+    }
+
+    @MainActor
+    func testOptionDisclosureUsesClickedSectionStateForAllSections() {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            automaticRefreshInterval: 0
+        )
+
+        controller.toggleRequestedSection(.direct)
+        XCTAssertEqual(controller.collapsedRequestedSections, [.direct])
+        controller.toggleAllRequestedSections(from: .direct)
+        XCTAssertTrue(controller.collapsedRequestedSections.isEmpty)
+
+        controller.toggleRequestedSection(.assigned)
+        controller.toggleRequestedSection(.team)
+        XCTAssertEqual(controller.collapsedRequestedSections, [.assigned, .team])
+        controller.toggleAllRequestedSections(from: .direct)
+        XCTAssertEqual(controller.collapsedRequestedSections, Set(DashboardController.RequestedSection.allCases))
+
+        controller.toggleAllRequestedSections(from: .assigned)
+        XCTAssertTrue(controller.collapsedRequestedSections.isEmpty)
+    }
+
+    @MainActor
+    func testRequestedSectionsKeepPrioritySortPinsAndSessionCollapse() {
+        let suiteName = "requested-sections-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        XCTAssertEqual(controller.requestedSections.map(\.section), [.assigned, .direct, .team])
+        XCTAssertEqual(controller.requestedSections.map { $0.visible.map(\.id) }, [["PR_7"], ["PR_5", "PR_2"], ["PR_3"]])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 1])
+
+        controller.pinnedPullRequestIds = ["PR_2"]
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+        controller.reviewRequestSortDirection = .ascending
+        XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
+
+        controller.toggleRequestedSection(.direct)
+        XCTAssertFalse(controller.isRequestedSectionExpanded(.direct))
+        XCTAssertTrue(controller.isRequestedSectionExpanded(.assigned))
+        controller.selectedTab = .myPRs
+        controller.selectedTab = .reviewRequests
+        controller.refresh()
+        waitUntil(timeout: 1.0) {
+            controller.state.pullRequests.first(where: { $0.id == "PR_2" })?.isAssignedToViewer == true
+        }
+        XCTAssertFalse(controller.isRequestedSectionExpanded(.direct))
+        XCTAssertEqual(controller.requestedSections.map { $0.visible.map(\.id) }, [["PR_2", "PR_7"], ["PR_5"], ["PR_3"]])
+        let visibleIds = controller.requestedSections.flatMap { $0.visible.map(\.id) }
+        XCTAssertEqual(visibleIds.count, Set(visibleIds).count)
+        controller.toggleRequestedSection(.direct)
+        XCTAssertTrue(controller.isRequestedSectionExpanded(.direct))
+    }
+
+    @MainActor
+    func testRequestedSectionsKeepHiddenCountsAndShowEmptyAfterFiltersAndSources() {
+        let suiteName = "requested-sections-hidden-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
+
+        controller.selectedReviewRequestFilters = [.draft]
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 1])
+        controller.hiddenPullRequestIds = ["PR_3"]
+        XCTAssertEqual(controller.requestedSections[2].visible.count, 0)
+        XCTAssertEqual(controller.requestedSections[2].hidden.map(\.id), ["PR_3"])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 1])
+
+        controller.selectedReviewRequestFilters = [.ready]
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 0])
+        controller.selectedReviewRequestFilters = [.draft]
+        controller.setRepositoryPreferences(
+            repo: "billing-platform-experiments/customer-subscription-dashboard",
+            preferences: RepositorySourcePreferences(
+                notifications: .inherit,
+                myPullRequests: .inherit,
+                reviewRequests: .disabled
+            )
+        )
+        XCTAssertEqual(controller.requestedSections.map(\.section), [.assigned, .direct, .team])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 0])
+    }
+
+    @MainActor
     func testPATSignInTracksLoadingAndPreventsConcurrentAttempts() async throws {
         let client = DelayedViewerGitHubProvider()
         let controller = DashboardController(
@@ -336,7 +579,7 @@ private enum TestTimeout: Error {
                 url: URL(string: "https://github.com/rw/public-repo/pull/7")!,
                 repo: "rw/public-repo",
                 ciState: .passing,
-                reviewDecision: .reviewRequired,
+                reviewDecision: .noReviewYet,
                 commentCount: 0,
                 reviewCount: 0,
                 isMine: true,
@@ -621,7 +864,7 @@ private enum TestTimeout: Error {
                 url: URL(string: "https://github.com/rw/story-tales/pull/7")!,
                 repo: "rw/story-tales",
                 ciState: .passing,
-                reviewDecision: .reviewRequired,
+                reviewDecision: .noReviewYet,
                 commentCount: 0,
                 reviewCount: 0,
                 isMine: true,
@@ -898,17 +1141,17 @@ private enum TestTimeout: Error {
     precondition(controller.state.source == .mock)
     precondition(controller.state.account?.login == "agent-fixture")
     precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
-    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_4", "PR_1"])
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
+    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_1", "PR_4"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
 
-    controller.selectedReviewRequestFilters = [.team]
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_3"])
+    precondition(controller.requestedSections.map(\.section) == [.assigned, .direct, .team])
+    precondition(controller.requestedSections.map { $0.visible.map(\.id) } == [["PR_7", "PR_2"], ["PR_5"], ["PR_3"]])
 
-    controller.selectedReviewRequestFilters = [.assigned]
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7"])
+    controller.selectedReviewRequestFilters = [.draft]
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3"])
 
     controller.selectedReviewRequestFilters = []
-    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
 }()
 
 @MainActor let mergehawkHiddenPullRequestOrganizationTest: Void = {
@@ -952,9 +1195,9 @@ private enum TestTimeout: Error {
     controller.pullRequestSortOption = .createdDate
     controller.pullRequestSortDirection = .descending
     precondition(controller.sortedMyPullRequests.isEmpty)
-    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_6", "PR_4", "PR_1"])
+    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_6", "PR_1", "PR_4"])
     controller.pullRequestSortDirection = .ascending
-    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6"])
+    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_4", "PR_1", "PR_6"])
 
     controller.hiddenPullRequestIds = ["PR_4"]
     controller.pullRequestSortDirection = .descending
@@ -968,22 +1211,22 @@ private enum TestTimeout: Error {
 
     controller.selectedPullRequestFilters = []
     controller.hiddenPullRequestIds = ["PR_2", "PR_3", "PR_5", "PR_7"]
-    controller.pullRequestSortOption = .updatedDate
-    controller.pullRequestSortDirection = .descending
-    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7", "PR_3", "PR_2", "PR_5"])
-    controller.pullRequestSortDirection = .ascending
-    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_5", "PR_2", "PR_3", "PR_7"])
+    controller.reviewRequestSortOption = .updatedDate
+    controller.reviewRequestSortDirection = .descending
+    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
+    controller.reviewRequestSortDirection = .ascending
+    precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_3", "PR_5", "PR_2", "PR_7"])
 
     controller.hiddenPullRequestIds = ["PR_2", "PR_5"]
-    controller.pullRequestSortDirection = .descending
+    controller.reviewRequestSortDirection = .descending
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_3"])
-    controller.pullRequestSortDirection = .ascending
+    controller.reviewRequestSortDirection = .ascending
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_3", "PR_7"])
 
     controller.hiddenPullRequestIds = ["PR_7"]
-    controller.selectedReviewRequestFilters = [.assigned]
+    controller.selectedReviewRequestFilters = [.ready]
     precondition(controller.hiddenReviewRequests.map(\.id) == ["PR_7"])
-    precondition(controller.sortedReviewRequests.isEmpty)
+    precondition(controller.sortedReviewRequests.map(\.id) == ["PR_2", "PR_5"])
 
     controller.setRepositoryPreferences(
         repo: "mergehawk-labs/review-router",
@@ -1355,7 +1598,7 @@ private func signedInSnapshotCache() -> PullRequestSnapshotCache {
                 url: URL(string: "https://github.com/example/mergehawk/pull/12")!,
                 repo: "example/mergehawk",
                 ciState: .passing,
-                reviewDecision: .reviewRequired,
+                reviewDecision: .noReviewYet,
                 commentCount: 0,
                 reviewCount: 0,
                 isMine: true,

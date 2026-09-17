@@ -8,6 +8,8 @@ final class PreferencesStoreTests: XCTestCase {
         withStore { store, defaults in
             XCTAssertEqual(store.refreshIntervalMinutes, 2)
             XCTAssertEqual(store.pullRequestSortOption, .createdDate)
+            XCTAssertEqual(store.reviewRequestSortOption, .createdDate)
+            XCTAssertEqual(store.reviewRequestSortDirection, .descending)
             XCTAssertEqual(store.authMethod, .oauth)
 
             store.refreshIntervalMinutes = 10
@@ -26,10 +28,30 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testChangeSizeSortPreferenceRoundTrips() {
+        withStore { store, defaults in
+            store.pullRequestSortOption = .changeSize
+            store.pullRequestSortDirection = .ascending
+            store.reviewRequestSortOption = .updatedDate
+            store.reviewRequestSortDirection = .descending
+
+            let reopened = PreferencesStore(defaults: defaults)
+            XCTAssertEqual(reopened.pullRequestSortOption, .changeSize)
+            XCTAssertEqual(reopened.pullRequestSortDirection, .ascending)
+            XCTAssertEqual(reopened.reviewRequestSortOption, .updatedDate)
+            XCTAssertEqual(reopened.reviewRequestSortDirection, .descending)
+
+            defaults.set("unsupported", forKey: "reviewRequests.sortOption")
+            defaults.set("unsupported", forKey: "reviewRequests.sortDirection")
+            XCTAssertEqual(reopened.reviewRequestSortOption, .createdDate)
+            XCTAssertEqual(reopened.reviewRequestSortDirection, .descending)
+        }
+    }
+
     func testFilterSelectionsSerializeInStableOrderAndIgnoreUnsupportedValues() {
         withStore { store, defaults in
             store.selectedPullRequestFilters = [.ciFailing, .needsAttention]
-            store.selectedReviewRequestFilters = [.draft, .direct, .assigned]
+            store.selectedReviewRequestFilters = [.draft, .ready]
 
             XCTAssertEqual(
                 defaults.stringArray(forKey: "pullRequests.filterOptions"),
@@ -37,13 +59,20 @@ final class PreferencesStoreTests: XCTestCase {
             )
             XCTAssertEqual(
                 defaults.stringArray(forKey: "reviewRequests.filterOptions"),
-                ["direct", "assigned", "draft"]
+                ["draft", "ready"]
             )
 
             defaults.set(["unsupported", "all", "draft"], forKey: "pullRequests.filterOptions")
-            defaults.set(["unsupported", "all", "assigned", "ready"], forKey: "reviewRequests.filterOptions")
+            defaults.set(
+                ["unsupported", "all", "direct", "team", "assigned", "ready"],
+                forKey: "reviewRequests.filterOptions"
+            )
             XCTAssertEqual(store.selectedPullRequestFilters, [.draft])
-            XCTAssertEqual(store.selectedReviewRequestFilters, [.assigned, .ready])
+            XCTAssertEqual(store.selectedReviewRequestFilters, [.ready])
+
+            defaults.removeObject(forKey: "reviewRequests.filterOptions")
+            defaults.set("assigned", forKey: "reviewRequests.filterOption")
+            XCTAssertTrue(store.selectedReviewRequestFilters.isEmpty)
         }
     }
 

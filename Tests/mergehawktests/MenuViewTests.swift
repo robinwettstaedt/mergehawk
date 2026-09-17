@@ -5,6 +5,173 @@ import mergehawkcore
 import XCTest
 
 final class MenuViewTests: XCTestCase {
+    func testPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
+        let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000))
+        XCTAssertEqual(large.width, 820)
+        XCTAssertEqual(large.height, MenuRootView.Layout.height)
+
+        let laptopUsableFrame = CGRect(x: 0, y: 28, width: 1280, height: 740)
+        let laptop = MenuPanelSize.resolve(availableFrame: laptopUsableFrame)
+        XCTAssertEqual(laptop.width, 820)
+        XCTAssertLessThan(laptop.height, MenuRootView.Layout.height)
+        XCTAssertLessThanOrEqual(laptop.height + MenuPanelSize.margin * 2, laptopUsableFrame.height)
+        XCTAssertGreaterThan(laptop.height, MenuRootView.Layout.footerHeight + MenuRootView.Layout.topBarHeight)
+
+        let narrow = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 760, height: 600))
+        XCTAssertLessThanOrEqual(narrow.width + MenuPanelSize.margin * 2, 760)
+        XCTAssertLessThanOrEqual(narrow.height + MenuPanelSize.margin * 2, 600)
+    }
+
+    @MainActor
+    func testNativeHostAndRootUseTheSameResolvedSize() throws {
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
+        let statusBarController = StatusBarController(controller: controller)
+        let frame = CGRect(x: 0, y: 28, width: 1280, height: 740)
+        let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
+        let resolved = MenuPanelSize.resolve(availableFrame: frame)
+        XCTAssertEqual(hosted.frame.size, resolved)
+        XCTAssertEqual(hosted.rootView.resolvedSize, resolved)
+    }
+
+    func testIndependentStatusDescriptionsAndMixedSignals() {
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).label, "Review approved")
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label, "No review yet")
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .unknown).label, "Review status unknown")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .failing).label, "CI failing")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .pending).label, "CI pending (waiting or running)")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .passing).label, "CI successful")
+        XCTAssertEqual(CIStatusIndicator.Kind(ciState: .unknown).label, "CI status unknown")
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .conflicting).label, "Merge conflicts")
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .unknown).label, "Mergeability unknown")
+        XCTAssertTrue(MergeConflictIndicator.Kind(mergeable: .mergeable).label.contains("No merge conflicts"))
+        XCTAssertTrue(MergeConflictIndicator.Kind(mergeable: .mergeable).label.contains("other requirements"))
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).signal, .positive)
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .changesRequested).signal, .negative)
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).signal, .unavailable)
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .unknown).signal, .unavailable)
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .mergeable).signal, .positive)
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .conflicting).signal, .negative)
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .unknown).signal, .unavailable)
+
+        let blocked = (
+            ReviewDecisionIndicator.Kind(reviewDecision: .approved).label,
+            CIStatusIndicator.Kind(ciState: .failing).label,
+            MergeConflictIndicator.Kind(mergeable: .conflicting).label
+        )
+        XCTAssertEqual(blocked.0, "Review approved")
+        XCTAssertEqual(blocked.1, "CI failing")
+        XCTAssertEqual(blocked.2, "Merge conflicts")
+        let clear = (
+            ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label,
+            CIStatusIndicator.Kind(ciState: .passing).label,
+            MergeConflictIndicator.Kind(mergeable: .mergeable).label
+        )
+        XCTAssertEqual(clear.0, "No review yet")
+        XCTAssertEqual(clear.1, "CI successful")
+        XCTAssertTrue(clear.2.contains("No merge conflicts"))
+    }
+
+    func testUnresolvedCommentCountLabelsIncludeZero() {
+        XCTAssertEqual(CommentCountIndicator.label(for: 0), "0 unresolved comments")
+        XCTAssertEqual(CommentCountIndicator.label(for: 1), "1 unresolved comment")
+        XCTAssertEqual(CommentCountIndicator.label(for: 3), "3 unresolved comments")
+    }
+
+    func testColumnHeadersExplainEachValue() {
+        XCTAssertEqual(
+            PullRequestColumnLegend.Column.allCases.map(\.label),
+            ["Unresolved comments", "CI", "Review feedback", "Merge conflicts", "Changes", "Updated / Opened"]
+        )
+    }
+
+    func testPullRequestAgePresentationIncludesMonthsAndFieldNames() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let cases: [(TimeInterval, String)] = [
+            (59, "now"),
+            (60, "1m"),
+            (3_599, "59m"),
+            (3_600, "1h"),
+            (86_400, "1d"),
+            (604_800, "1w"),
+            (2_591_999, "4w"),
+            (2_592_000, "1mo"),
+            (5_184_000, "2mo"),
+            (31_536_000, "1y"),
+        ]
+        for (seconds, expected) in cases {
+            XCTAssertEqual(PullRequestAgePresentation.shortText(for: now.addingTimeInterval(-seconds), now: now), expected)
+        }
+        XCTAssertEqual(PullRequestAgePresentation.label(for: now, field: .opened, now: now), "Opened just now")
+        XCTAssertEqual(
+            PullRequestAgePresentation.label(for: now.addingTimeInterval(-2_592_000), field: .opened, now: now),
+            "Opened 1mo ago"
+        )
+        XCTAssertEqual(
+            PullRequestAgePresentation.label(for: now.addingTimeInterval(-3_600), field: .updated, now: now),
+            "Updated 1h ago"
+        )
+    }
+
+    func testSortDirectionHelpMatchesSelectedValue() {
+        XCTAssertEqual(DashboardController.PullRequestSortOption.createdDate.directionHelp(for: .descending), "Sorted newest first")
+        XCTAssertEqual(DashboardController.PullRequestSortOption.updatedDate.directionHelp(for: .ascending), "Sorted oldest first")
+        XCTAssertEqual(DashboardController.PullRequestSortOption.changeSize.directionHelp(for: .descending), "Sorted largest first")
+        XCTAssertEqual(DashboardController.PullRequestSortOption.changeSize.directionHelp(for: .ascending), "Sorted smallest first")
+    }
+
+    func testRequestedFiltersOfferOnlyStatusChoices() {
+        XCTAssertEqual(DashboardController.ReviewRequestFilterOption.allCases.map(\.label), ["All", "Draft", "Ready"])
+    }
+
+    func testChangeCountPresentationKeepsExactAccessibleValues() {
+        XCTAssertEqual(PullRequestChangesPresentation.additionsText(0), "+0")
+        XCTAssertEqual(PullRequestChangesPresentation.deletionsText(0), "−0")
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 0, deletions: 0), "+0 −0")
+        XCTAssertEqual(PullRequestChangesPresentation.label(additions: 0, deletions: 0), "0 additions, 0 deletions")
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: nil, deletions: 0), "—")
+        XCTAssertEqual(PullRequestChangesPresentation.label(additions: nil, deletions: 0), "Change counts unavailable")
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 12_345, deletions: 6_789), "+12k −6.8k")
+        XCTAssertEqual(PullRequestChangesPresentation.additionsText(12_345), "+12k")
+        XCTAssertEqual(PullRequestChangesPresentation.deletionsText(6_789), "−6.8k")
+        XCTAssertEqual(PullRequestChangesPresentation.label(additions: 12_345, deletions: 6_789), "12,345 additions, 6,789 deletions")
+    }
+
+    func testChangeCountRoundingPromotesAtSuffixBoundaries() {
+        XCTAssertEqual(
+            PullRequestChangesPresentation.text(additions: 999_499, deletions: 999_500),
+            "+999k −1.0m"
+        )
+        XCTAssertEqual(
+            PullRequestChangesPresentation.label(additions: 999_499, deletions: 999_500),
+            "999,499 additions, 999,500 deletions"
+        )
+        XCTAssertEqual(
+            PullRequestChangesPresentation.text(additions: 999_499_999, deletions: 999_500_000),
+            "+999m −1.0b"
+        )
+        XCTAssertEqual(
+            PullRequestChangesPresentation.label(additions: 999_499_999, deletions: 999_500_000),
+            "999,499,999 additions, 999,500,000 deletions"
+        )
+    }
+
+    @MainActor
+    func testNoReviewFilterKeepsSavedTagAndExcludesUnknown() {
+        XCTAssertEqual(ReviewDecision.noReviewYet.rawValue, "review_required")
+        XCTAssertEqual(DashboardController.PullRequestFilterOption.noReviewYet.rawValue, "reviewRequired")
+        XCTAssertEqual(DashboardController.PullRequestFilterOption.noReviewYet.label, "No review yet")
+        let unknown = PullRequest(
+            id: "unknown", title: "Unknown feedback", number: 1,
+            url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
+            ciState: .unknown, reviewDecision: .unknown, commentCount: 0,
+            reviewCount: 0, isMine: true, author: "rw", mergeable: .unknown,
+            draft: false
+        )
+        XCTAssertTrue(DashboardController.filtered([unknown], by: [.noReviewYet], events: []).isEmpty)
+        XCTAssertTrue(DashboardController.filtered([unknown], by: [.approved], events: []).isEmpty)
+        XCTAssertEqual(DashboardController.filtered([unknown], by: [.ready], events: []).map(\.id), ["unknown"])
+    }
+
     func testPullRequestListEmptyCopy() {
         XCTAssertEqual(PullRequestListCopy.emptyReviewRequests, "No review requests or assigned PRs.")
     }
@@ -125,12 +292,12 @@ final class MenuViewTests: XCTestCase {
     precondition(MenuNotificationTabPresentation.help(for: 1) == "1 new PR update")
     precondition(MenuNotificationTabPresentation.help(for: 3) == "3 new PR updates")
     precondition(CIStatusIndicator.Kind(ciState: .failing) == .failing)
-    precondition(CIStatusIndicator.Kind(ciState: .pending) == .running)
+    precondition(CIStatusIndicator.Kind(ciState: .pending) == .pending)
     precondition(CIStatusIndicator.Kind(ciState: .passing) == .successful)
 
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .approved) == .approved)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .changesRequested) == .changesRequested)
-    precondition(ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired) == .reviewRequired)
+    precondition(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet) == .noReviewYet)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .unknown) == .unknown)
 
     let prURL = URL(string: "https://github.com/acme/mergehawk/pull/12")!
@@ -200,7 +367,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/13")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,
@@ -216,33 +383,6 @@ final class MenuViewTests: XCTestCase {
         event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 2),
         pullRequest: otherCommitNotificationPullRequest
     )) == "2 commits by others")
-    let metadataPullRequest = PullRequest(
-        id: "metadata",
-        title: "Metadata presentation",
-        number: 12,
-        url: URL(string: "https://github.com/acme/mergehawk/pull/12")!,
-        repo: "acme/mergehawk",
-        ciState: .passing,
-        reviewDecision: .reviewRequired,
-        commentCount: 0,
-        reviewCount: 0,
-        isMine: true,
-        author: "rw",
-        headRefName: "feature/metadata",
-        mergeable: .mergeable,
-        draft: false
-    )
-    precondition(PullRequestRowMetadataPresentation.text(
-        for: metadataPullRequest,
-        showsAuthor: false
-    ) == "acme/mergehawk")
-    precondition(PullRequestRowMetadataPresentation.text(
-        for: metadataPullRequest,
-        showsAuthor: true
-    ) == "acme/mergehawk · @rw")
-    precondition(PullRequestRowMetadataPresentation.branchText(
-        for: metadataPullRequest
-    ) == "feature/metadata")
     precondition(PullRequestPinPresentation.symbolName(isPinned: false) == "pin")
     precondition(PullRequestPinPresentation.symbolName(isPinned: true) == "pin.fill")
     precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin PR")
@@ -486,7 +626,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/3")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,
@@ -499,8 +639,8 @@ final class MenuViewTests: XCTestCase {
     )
     let event = PullRequestEvent(type: .ciFailed, prId: "newer")
 
-    precondition(DashboardController.PullRequestSortOption.allCases.map(\.label) == ["Created", "Updated"])
-    precondition(DashboardController.ReviewRequestFilterOption.allCases.map(\.label) == ["All", "Direct", "Team", "Assigned", "Draft", "Ready"])
+    precondition(DashboardController.PullRequestSortOption.allCases.map(\.label) == ["Created", "Updated", "Change size"])
+    precondition(DashboardController.ReviewRequestFilterOption.allCases.map(\.label) == ["All", "Draft", "Ready"])
     precondition(DashboardController.sorted([older, newer], by: .createdDate).map(\.id) == ["newer", "older"])
     precondition(DashboardController.sorted([older, newer], by: .updatedDate).map(\.id) == ["older", "newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [], events: [event]).map(\.id) == ["older", "newer", "draft"])
@@ -509,7 +649,7 @@ final class MenuViewTests: XCTestCase {
     precondition(DashboardController.filtered([older, newer, draft], by: [.draft], events: [event]).map(\.id) == ["draft"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ready], events: [event]).map(\.id) == ["older", "newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested], events: [event]).map(\.id) == ["newer"])
-    precondition(DashboardController.filtered([older, newer, draft], by: [.reviewRequired], events: [event]).map(\.id) == ["draft"])
+    precondition(DashboardController.filtered([older, newer, draft], by: [.noReviewYet], events: [event]).map(\.id) == ["draft"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.approved], events: [event]).map(\.id) == ["older"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ciFailing], events: [event]).map(\.id) == ["newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested, .draft], events: [event]).map(\.id) == ["newer", "draft"])
@@ -528,7 +668,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/4")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .direct,
@@ -544,7 +684,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/5")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .team,
@@ -560,7 +700,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/6")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .directAndTeam,
@@ -592,7 +732,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/8")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isAssignedToViewer: true,
@@ -608,7 +748,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/9")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         isAssignedToViewer: true,
@@ -624,7 +764,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/10")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .direct,
@@ -641,7 +781,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/11")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .reviewRequired,
+        reviewDecision: .noReviewYet,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .directAndTeam,
@@ -662,15 +802,14 @@ final class MenuViewTests: XCTestCase {
         directAssignedReview,
         selfAssignedReview
     ]
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.direct]).map(\.id) == ["direct", "direct-team", "draft-direct", "direct-assigned"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team]).map(\.id) == ["team", "direct-team"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.assigned]).map(\.id) == ["assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.RequestedSection.section(for: directAndTeamReview) == .direct)
+    precondition(DashboardController.RequestedSection.section(for: directAssignedReview) == .assigned)
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: []).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all]).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.draft]).map(\.id) == ["draft-direct", "assigned-draft"])
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.ready]).map(\.id) == ["direct", "team", "direct-team", "assigned", "direct-assigned"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.team, .draft]).map(\.id) == ["team", "direct-team", "draft-direct", "assigned-draft"])
-    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.assigned, .draft]).map(\.id) == ["draft-direct", "assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.draft, .ready]).map(\.id) == ["direct", "team", "direct-team", "draft-direct", "assigned", "assigned-draft", "direct-assigned"])
+    precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all, .draft]).map(\.id) == ["draft-direct", "assigned-draft"])
 }()
 
 @MainActor

@@ -55,6 +55,7 @@ final class DashboardController: ObservableObject {
     enum PullRequestSortOption: String, CaseIterable, Identifiable {
         case createdDate
         case updatedDate
+        case changeSize
 
         var id: String { rawValue }
 
@@ -64,6 +65,17 @@ final class DashboardController: ObservableObject {
                 "Created"
             case .updatedDate:
                 "Updated"
+            case .changeSize:
+                "Change size"
+            }
+        }
+
+        func directionHelp(for direction: PullRequestSortDirection) -> String {
+            switch self {
+            case .createdDate, .updatedDate:
+                direction.isAscending ? "Sorted oldest first" : "Sorted newest first"
+            case .changeSize:
+                direction.isAscending ? "Sorted smallest first" : "Sorted largest first"
             }
         }
     }
@@ -87,7 +99,7 @@ final class DashboardController: ObservableObject {
         case draft
         case ready
         case changesRequested
-        case reviewRequired
+        case noReviewYet = "reviewRequired"
         case approved
         case ciFailing
 
@@ -105,8 +117,8 @@ final class DashboardController: ObservableObject {
                 "Ready"
             case .changesRequested:
                 "Changes requested"
-            case .reviewRequired:
-                "Review required"
+            case .noReviewYet:
+                "No review yet"
             case .approved:
                 "Approved"
             case .ciFailing:
@@ -117,9 +129,6 @@ final class DashboardController: ObservableObject {
 
     enum ReviewRequestFilterOption: String, CaseIterable, Identifiable {
         case all
-        case direct
-        case team
-        case assigned
         case draft
         case ready
 
@@ -129,18 +138,44 @@ final class DashboardController: ObservableObject {
             switch self {
             case .all:
                 "All"
-            case .direct:
-                "Direct"
-            case .team:
-                "Team"
-            case .assigned:
-                "Assigned"
             case .draft:
                 "Draft"
             case .ready:
                 "Ready"
             }
         }
+    }
+
+    enum RequestedSection: String, CaseIterable, Identifiable {
+        case assigned
+        case direct
+        case team
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .assigned: "Assigned"
+            case .direct: "Direct"
+            case .team: "Team"
+            }
+        }
+
+        static func section(for pullRequest: PullRequest) -> Self? {
+            guard !pullRequest.isMine else { return nil }
+            if pullRequest.isAssignedToViewer { return .assigned }
+            if pullRequest.reviewRequestKind.includesDirect { return .direct }
+            if pullRequest.reviewRequestKind.includesTeam { return .team }
+            return nil
+        }
+    }
+
+    struct RequestedSectionContent {
+        let section: RequestedSection
+        let visible: [PullRequest]
+        let hidden: [PullRequest]
+
+        var count: Int { visible.count + hidden.count }
     }
 
     @Published private(set) var state: DashboardState = .empty
@@ -173,6 +208,16 @@ final class DashboardController: ObservableObject {
             preferencesStore.pullRequestSortDirection = pullRequestSortDirection
         }
     }
+    @Published var reviewRequestSortOption: PullRequestSortOption {
+        didSet {
+            preferencesStore.reviewRequestSortOption = reviewRequestSortOption
+        }
+    }
+    @Published var reviewRequestSortDirection: PullRequestSortDirection {
+        didSet {
+            preferencesStore.reviewRequestSortDirection = reviewRequestSortDirection
+        }
+    }
     @Published var selectedPullRequestFilters: Set<PullRequestFilterOption> {
         didSet {
             preferencesStore.selectedPullRequestFilters = selectedPullRequestFilters
@@ -183,6 +228,7 @@ final class DashboardController: ObservableObject {
             preferencesStore.selectedReviewRequestFilters = selectedReviewRequestFilters
         }
     }
+    @Published private(set) var collapsedRequestedSections: Set<RequestedSection> = []
     @Published var pinnedPullRequestIds: Set<String> {
         didSet {
             preferencesStore.pinnedPullRequestIds = pinnedPullRequestIds
@@ -310,6 +356,8 @@ final class DashboardController: ObservableObject {
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestSortDirection = preferencesStore.pullRequestSortDirection
+        self.reviewRequestSortOption = preferencesStore.reviewRequestSortOption
+        self.reviewRequestSortDirection = preferencesStore.reviewRequestSortDirection
         self.selectedPullRequestFilters = preferencesStore.selectedPullRequestFilters
         self.selectedReviewRequestFilters = preferencesStore.selectedReviewRequestFilters
         self.pinnedPullRequestIds = preferencesStore.pinnedPullRequestIds
@@ -432,17 +480,47 @@ final class DashboardController: ObservableObject {
         Self.sortedWithPins(
             filteredReviewRequests.filter { !hiddenPullRequestIds.contains($0.id) },
             pinnedIds: pinnedPullRequestIds,
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
+            by: reviewRequestSortOption,
+            direction: reviewRequestSortDirection
         )
     }
 
     var hiddenReviewRequests: [PullRequest] {
         Self.sorted(
             filteredReviewRequests.filter { hiddenPullRequestIds.contains($0.id) },
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
+            by: reviewRequestSortOption,
+            direction: reviewRequestSortDirection
         )
+    }
+
+    var requestedSections: [RequestedSectionContent] {
+        let visible = sortedReviewRequests
+        let hidden = hiddenReviewRequests
+        return RequestedSection.allCases.map { section in
+            RequestedSectionContent(
+                section: section,
+                visible: visible.filter { RequestedSection.section(for: $0) == section },
+                hidden: hidden.filter { RequestedSection.section(for: $0) == section }
+            )
+        }
+    }
+
+    func isRequestedSectionExpanded(_ section: RequestedSection) -> Bool {
+        !collapsedRequestedSections.contains(section)
+    }
+
+    func toggleRequestedSection(_ section: RequestedSection) {
+        if collapsedRequestedSections.contains(section) {
+            collapsedRequestedSections.remove(section)
+        } else {
+            collapsedRequestedSections.insert(section)
+        }
+    }
+
+    func toggleAllRequestedSections(from section: RequestedSection) {
+        collapsedRequestedSections = isRequestedSectionExpanded(section)
+            ? Set(RequestedSection.allCases)
+            : []
     }
 
     private var filteredMyPullRequests: [PullRequest] {
@@ -508,8 +586,8 @@ final class DashboardController: ObservableObject {
             !pr.draft
         case .changesRequested:
             pr.reviewDecision == .changesRequested
-        case .reviewRequired:
-            pr.reviewDecision == .reviewRequired
+        case .noReviewYet:
+            pr.reviewDecision == .noReviewYet
         case .approved:
             pr.reviewDecision == .approved
         case .ciFailing:
@@ -536,7 +614,7 @@ final class DashboardController: ObservableObject {
     }
 
     static func isRequestedPullRequest(_ pr: PullRequest) -> Bool {
-        !pr.isMine && (pr.reviewRequestKind != .none || pr.isAssignedToViewer)
+        RequestedSection.section(for: pr) != nil
     }
 
     private static func matchesReviewRequest(
@@ -544,12 +622,6 @@ final class DashboardController: ObservableObject {
         option: ReviewRequestFilterOption
     ) -> Bool {
         switch option {
-        case .direct:
-            pr.reviewRequestKind.includesDirect
-        case .team:
-            pr.reviewRequestKind.includesTeam
-        case .assigned:
-            pr.isAssignedToViewer
         case .all:
             true
         case .draft:
@@ -571,6 +643,8 @@ final class DashboardController: ObservableObject {
                 compare(lhs, rhs, by: \.createdAt, ascending: ascending)
             case .updatedDate:
                 compare(lhs, rhs, by: \.updatedAt, ascending: ascending)
+            case .changeSize:
+                compare(lhs, rhs, by: changeSize, ascending: ascending)
             }
         }
     }
@@ -1423,6 +1497,17 @@ final class DashboardController: ObservableObject {
         if lhsValue != rhsValue {
             return ascending ? lhsValue < rhsValue : lhsValue > rhsValue
         }
+        return compareTieBreak(lhs, rhs)
+    }
+
+    private static func changeSize(_ pullRequest: PullRequest) -> Int {
+        // The sort value treats unavailable counts like zero; the row still displays them as unavailable.
+        guard let additions = pullRequest.additions,
+              let deletions = pullRequest.deletions else { return 0 }
+        return additions + deletions
+    }
+
+    private static func compareTieBreak(_ lhs: PullRequest, _ rhs: PullRequest) -> Bool {
         if lhs.createdAt != rhs.createdAt {
             return lhs.createdAt > rhs.createdAt
         }

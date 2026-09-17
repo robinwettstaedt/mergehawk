@@ -568,19 +568,6 @@ enum HiddenPullRequestsDisclosurePresentation {
     }
 }
 
-enum PullRequestRowMetadataPresentation {
-    static func text(for pullRequest: PullRequest, showsAuthor: Bool) -> String {
-        if showsAuthor {
-            return "\(pullRequest.repo) · @\(pullRequest.author)"
-        }
-        return pullRequest.repo
-    }
-
-    static func branchText(for pullRequest: PullRequest) -> String {
-        pullRequest.headRefName
-    }
-}
-
 enum PullRequestPinPresentation {
     static let rotationDegrees = 35.0
 
@@ -602,6 +589,18 @@ enum PullRequestHidePresentation {
 }
 
 enum PullRequestAgePresentation {
+    enum Field {
+        case opened
+        case updated
+
+        var title: String {
+            switch self {
+            case .opened: "Opened"
+            case .updated: "Updated"
+            }
+        }
+    }
+
     static func shortText(for date: Date, now: Date = Date()) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         switch seconds {
@@ -613,22 +612,24 @@ enum PullRequestAgePresentation {
             return "\(Int(seconds / 3_600))h"
         case ..<604_800:
             return "\(Int(seconds / 86_400))d"
-        case ..<31_536_000:
+        case ..<2_592_000:
             return "\(Int(seconds / 604_800))w"
+        case ..<31_536_000:
+            return "\(Int(seconds / 2_592_000))mo"
         default:
             return "\(Int(seconds / 31_536_000))y"
         }
     }
 
-    static func label(for date: Date, now: Date = Date()) -> String {
+    static func label(for date: Date, field: Field, now: Date = Date()) -> String {
         let text = shortText(for: date, now: now)
-        return text == "now" ? "Updated just now" : "Updated \(text) ago"
+        return text == "now" ? "\(field.title) just now" : "\(field.title) \(text) ago"
     }
 }
 
 struct MenuRootView: View {
     enum Layout {
-        static let width: CGFloat = 420
+        static let width: CGFloat = 820
         static let contentHeight: CGFloat = 650
         static let footerRowCount: CGFloat = 4
         static let footerHeight: CGFloat = FooterSeparatorLayout.height + footerRowCount * FooterActionLayout.rowHeight
@@ -646,16 +647,19 @@ struct MenuRootView: View {
 
     @ObservedObject var controller: DashboardController
     @ObservedObject var footerModel: MenuFooterModel
+    let resolvedSize: CGSize
     let dismissMenu: () -> Void
     let showSettings: () -> Void
     let showAbout: () -> Void
     let quit: () -> Void
     @Environment(\.colorScheme) private var colorScheme
-    @State private var dismissTransientPRControlsSignal = 0
+    @State private var dropdownState: PullRequestMenuDropdownState
 
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
+        resolvedSize: CGSize = CGSize(width: Layout.width, height: Layout.height),
+        initialDropdown: PullRequestMenuDropdown? = nil,
         dismissMenu: @escaping () -> Void = {},
         showSettings: @escaping () -> Void = {},
         showAbout: @escaping () -> Void = {},
@@ -663,22 +667,35 @@ struct MenuRootView: View {
     ) {
         self.controller = controller
         self.footerModel = footerModel
+        self.resolvedSize = resolvedSize
         self.dismissMenu = dismissMenu
         self.showSettings = showSettings
         self.showAbout = showAbout
         self.quit = quit
+        _dropdownState = State(initialValue: PullRequestMenuDropdownState(openMenu: initialDropdown))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
+                .zIndex(2)
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay {
+                    if dropdownState.openMenu != nil {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { dropdownState.dismiss() }
+                    }
+                }
             footer
         }
-        .frame(width: Self.Layout.width, height: Self.Layout.height)
+        .frame(width: resolvedSize.width, height: resolvedSize.height)
         .background(menuSurface)
+        .onChange(of: controller.selectedTab) { _, _ in
+            dropdownState.dismiss()
+        }
     }
 
     private var footer: some View {
@@ -689,6 +706,7 @@ struct MenuRootView: View {
                 shortcutKey: "R",
                 isFlashed: footerModel.isFlashing,
                 action: {
+                    dropdownState.dismiss()
                     controller.refresh()
                 }
             )
@@ -726,11 +744,20 @@ struct MenuRootView: View {
                     .font(.headline)
             }
             Spacer(minLength: 0)
+                .contentShape(Rectangle())
+                .onTapGesture { dropdownState.dismiss() }
+            if let mode = activePullRequestMode, controller.state.authStatus == .signedIn {
+                PullRequestHeaderControls(controller: controller, mode: mode, dropdownState: $dropdownState)
+                    .padding(.trailing, 8)
+            }
             RefreshStatusControl(
                 indicatorColor: controller.hasAttention ? .red : .green,
                 isRefreshing: controller.isRefreshing,
                 updatedAt: controller.state.syncedAt,
-                action: controller.refresh,
+                action: {
+                    dropdownState.dismiss()
+                    controller.refresh()
+                },
                 isRefreshEnabled: controller.state.authStatus == .signedIn,
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
@@ -743,10 +770,14 @@ struct MenuRootView: View {
         .padding(.leading, 8)
         .padding(.trailing, Self.Layout.topBarTrailingInset)
         .frame(height: Self.Layout.topBarHeight)
-        .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded {
-            dismissTransientPRControls()
-        })
+    }
+
+    private var activePullRequestMode: PullRequestListView.Mode? {
+        switch controller.selectedTab {
+        case .notifications: nil
+        case .myPRs: .authored
+        case .reviewRequests: .reviewRequests
+        }
     }
 
     private var tabSwitcher: some View {
@@ -767,25 +798,23 @@ struct MenuRootView: View {
             case .notifications:
                 NotificationListView(controller: controller)
             case .myPRs:
-                PullRequestListView(
-                    controller: controller,
-                    mode: .authored,
-                    dismissSignal: dismissTransientPRControlsSignal
-                )
+                PullRequestListView(controller: controller, mode: .authored)
             case .reviewRequests:
-                PullRequestListView(
-                    controller: controller,
-                    mode: .reviewRequests,
-                    dismissSignal: dismissTransientPRControlsSignal
-                )
+                PullRequestListView(controller: controller, mode: .reviewRequests)
             }
         }
     }
+}
 
-    private func dismissTransientPRControls() {
-        dismissTransientPRControlsSignal += 1
+enum MenuPanelSize {
+    static let margin: CGFloat = 12
+
+    static func resolve(availableFrame: CGRect) -> CGSize {
+        CGSize(
+            width: min(MenuRootView.Layout.width, max(0, availableFrame.width - margin * 2)),
+            height: min(MenuRootView.Layout.height, max(0, availableFrame.height - margin * 2))
+        )
     }
-
 }
 
 @MainActor
@@ -1556,10 +1585,6 @@ private extension RunLoop.Mode {
 }
 
 struct PullRequestListView: View {
-    enum Layout {
-        static let controlsHeight: CGFloat = 40
-    }
-
     enum Mode {
         case authored
         case reviewRequests
@@ -1567,63 +1592,24 @@ struct PullRequestListView: View {
 
     @ObservedObject var controller: DashboardController
     let mode: Mode
-    let dismissSignal: Int
-    @State private var dropdownState = PullRequestMenuDropdownState()
     @State private var isHiddenExpanded: Bool
+    @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
 
     init(
         controller: DashboardController,
         mode: Mode,
-        dismissSignal: Int = 0,
         hiddenPullRequestsExpanded: Bool = false
     ) {
         self.controller = controller
         self.mode = mode
-        self.dismissSignal = dismissSignal
         _isHiddenExpanded = State(initialValue: hiddenPullRequestsExpanded)
+        _expandedRequestedHiddenSections = State(
+            initialValue: hiddenPullRequestsExpanded ? Set(DashboardController.RequestedSection.allCases) : []
+        )
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(spacing: 0) {
-                toolbarControls
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 6)
-                    .background {
-                        if dropdownState.openMenu != nil {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    dropdownState.dismiss()
-                                }
-                        }
-                    }
-
-                content
-            }
-
-            if dropdownState.openMenu != nil {
-                outsideDropdownDismissArea
-            }
-
-            if dropdownState.openMenu == .filter {
-                filterMenu
-                    .padding(.top, 40)
-                    .padding(.trailing, 110)
-                    .zIndex(3)
-            }
-
-            if dropdownState.openMenu == .sort {
-                sortMenu
-                    .padding(.top, 40)
-                    .padding(.trailing, 12)
-                    .zIndex(3)
-            }
-        }
-        .onChange(of: dismissSignal) { _, _ in
-            dismissTransientControls()
-        }
+        content
     }
 
     private var visiblePullRequests: [PullRequest] {
@@ -1652,13 +1638,27 @@ struct PullRequestListView: View {
     private var content: some View {
         if controller.showsGitHubAppRepositoryAccessPrompt {
             GitHubAppRepositoryAccessPrompt(controller: controller)
-        } else if !hasSourcePullRequests {
+        } else {
+            switch mode {
+            case .authored:
+                authoredContent
+            case .reviewRequests:
+                requestedContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var authoredContent: some View {
+        if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
         } else if matchingPullRequestCount == 0 {
             EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
         } else {
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: PullRequestColumnLayout.rowSpacing) {
+                    PullRequestColumnHeader()
+
                     ForEach(visiblePullRequests) { pr in
                         pullRequestRow(pr)
                             .id("visible-\(pr.id)")
@@ -1679,10 +1679,87 @@ struct PullRequestListView: View {
                 .padding(.top, 5)
                 .padding(.bottom, 12)
             }
-            .simultaneousGesture(TapGesture().onEnded {
-                dismissTransientControls()
-            })
         }
+    }
+
+    private var requestedContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 20) {
+                ForEach(controller.requestedSections, id: \.section) { content in
+                    requestedSection(content)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 5)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
+        VStack(spacing: PullRequestColumnLayout.rowSpacing) {
+            requestedSectionDisclosure(content)
+
+            if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
+                ForEach(content.visible) { pr in
+                    pullRequestRow(pr)
+                        .id("visible-\(pr.id)")
+                }
+
+                if !content.hidden.isEmpty {
+                    requestedHiddenDisclosure(content)
+
+                    if expandedRequestedHiddenSections.contains(content.section) {
+                        ForEach(content.hidden) { pr in
+                            pullRequestRow(pr)
+                                .id("hidden-\(pr.id)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func requestedSectionDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
+        RequestedSectionHeading(
+            section: content.section,
+            count: content.count,
+            isExpanded: controller.isRequestedSectionExpanded(content.section)
+        ) {
+            if NSEvent.modifierFlags.contains(.option) {
+                controller.toggleAllRequestedSections(from: content.section)
+            } else {
+                controller.toggleRequestedSection(content.section)
+            }
+        }
+    }
+
+    private func requestedHiddenDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
+        let isExpanded = expandedRequestedHiddenSections.contains(content.section)
+        return Button {
+            if isExpanded {
+                expandedRequestedHiddenSections.remove(content.section)
+            } else {
+                expandedRequestedHiddenSections.insert(content.section)
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
+        .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
+            count: content.hidden.count,
+            isExpanded: isExpanded
+        ))
     }
 
     private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
@@ -1691,8 +1768,6 @@ struct PullRequestListView: View {
             isAttention: controller.isUnreadPullRequest(pullRequest),
             isPinned: controller.isPinned(pullRequest),
             isHidden: controller.isHidden(pullRequest),
-            showsReviewRequestKind: mode == .reviewRequests,
-            showsAuthor: mode == .reviewRequests,
             toggleHide: {
                 controller.toggleHide(pullRequest)
             },
@@ -1745,55 +1820,68 @@ struct PullRequestListView: View {
             PullRequestListCopy.emptyReviewRequests
         }
     }
+}
 
-    private var visibleCountLabel: String {
-        CountSearchPresentation.countLabel(for: matchingPullRequestCount, singular: "PR", plural: "PRs")
-    }
+struct PullRequestHeaderControls: View {
+    @ObservedObject var controller: DashboardController
+    let mode: PullRequestListView.Mode
+    @Binding var dropdownState: PullRequestMenuDropdownState
 
-    private var visibleCount: some View {
-        Text("\(matchingPullRequestCount)")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-            .accessibilityLabel(visibleCountLabel)
-    }
-
-    @ViewBuilder
-    private var toolbarControls: some View {
+    var body: some View {
         HStack(spacing: 8) {
-            visibleCount
-            Spacer(minLength: 0)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    dismissTransientControls()
-                }
             filterButton
+                .overlay(alignment: .topTrailing) {
+                    if dropdownState.openMenu == .filter {
+                        filterMenu.offset(y: 34)
+                    }
+                }
+                .zIndex(dropdownState.openMenu == .filter ? 1 : 0)
             sortButton
+                .overlay(alignment: .topTrailing) {
+                    if dropdownState.openMenu == .sort {
+                        sortMenu.offset(y: 34)
+                    }
+                }
+                .zIndex(dropdownState.openMenu == .sort ? 1 : 0)
         }
     }
 
-    private var outsideDropdownDismissArea: some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(height: Layout.controlsHeight)
-                .allowsHitTesting(false)
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    dropdownState.dismiss()
-                }
+    private var sortOption: DashboardController.PullRequestSortOption {
+        switch mode {
+        case .authored: controller.pullRequestSortOption
+        case .reviewRequests: controller.reviewRequestSortOption
+        }
+    }
+
+    private var sortDirection: DashboardController.PullRequestSortDirection {
+        switch mode {
+        case .authored: controller.pullRequestSortDirection
+        case .reviewRequests: controller.reviewRequestSortDirection
+        }
+    }
+
+    private func setSortOption(_ option: DashboardController.PullRequestSortOption) {
+        switch mode {
+        case .authored: controller.pullRequestSortOption = option
+        case .reviewRequests: controller.reviewRequestSortOption = option
+        }
+    }
+
+    private func toggleSortDirection() {
+        switch mode {
+        case .authored: controller.pullRequestSortDirection = controller.pullRequestSortDirection.toggled
+        case .reviewRequests: controller.reviewRequestSortDirection = controller.reviewRequestSortDirection.toggled
         }
     }
 
     private var filterButton: some View {
-        optionButton(
+        MenuControlButton(
             symbolName: "line.3.horizontal.decrease",
             title: filterButtonTitle,
             isOpen: dropdownState.openMenu == .filter,
-            help: "Filter pull requests"
-        ) {
-            dropdownState.toggle(.filter)
-        }
+            help: "Filter pull requests",
+            action: { dropdownState.toggle(.filter) }
+        )
     }
 
     private var filterButtonTitle: String {
@@ -1829,37 +1917,17 @@ struct PullRequestListView: View {
 
     private var sortButton: some View {
         SortControlButton(
-            directionSymbolName: controller.pullRequestSortDirection.isAscending ? "arrow.up" : "arrow.down",
-            title: controller.pullRequestSortOption.label,
+            directionSymbolName: sortDirection.isAscending ? "arrow.up" : "arrow.down",
+            title: sortOption.label,
             isMenuOpen: dropdownState.openMenu == .sort,
-            directionHelp: controller.pullRequestSortDirection.isAscending ? "Sorted oldest first" : "Sorted newest first",
+            directionHelp: sortOption.directionHelp(for: sortDirection),
             menuHelp: "Sort pull requests",
             toggleDirection: {
-                controller.pullRequestSortDirection = controller.pullRequestSortDirection.toggled
+                toggleSortDirection()
             },
             openMenu: {
                 dropdownState.toggle(.sort)
             }
-        )
-    }
-
-    private func dismissTransientControls() {
-        dropdownState.dismiss()
-    }
-
-    private func optionButton(
-        symbolName: String,
-        title: String,
-        isOpen: Bool,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        MenuControlButton(
-            symbolName: symbolName,
-            title: title,
-            isOpen: isOpen,
-            help: help,
-            action: action
         )
     }
 
@@ -1936,10 +2004,10 @@ struct PullRequestListView: View {
             ForEach(DashboardController.PullRequestSortOption.allCases) { option in
                 optionMenuButton(
                     title: option.label,
-                    isSelected: controller.pullRequestSortOption == option,
+                    isSelected: sortOption == option,
                     width: 132
                 ) {
-                    controller.pullRequestSortOption = option
+                    setSortOption(option)
                     dropdownState.dismiss()
                 }
             }
@@ -2176,13 +2244,173 @@ private struct GitHubInboxNotificationRow: View {
 
 }
 
-private struct PullRequestRow: View {
+enum PullRequestColumnLayout {
+    static let spacing: CGFloat = 6
+    static let rowSpacing: CGFloat = 7
+    static let headerHeight: CGFloat = 32
+    static let horizontalInset: CGFloat = 10
+    static let commentsWidth: CGFloat = 30
+    static let statusWidth: CGFloat = 30
+    static let changesWidth: CGFloat = 49
+    static let ageWidth: CGFloat = 45
+    static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize * 3
+}
+
+struct RequestedSectionHeading: View {
+    let section: DashboardController.RequestedSection
+    let count: Int
+    let isExpanded: Bool
+    var previewHoveredColumn: PullRequestColumnLegend.Column? = nil
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 12, alignment: .leading)
+                    Text(section.title)
+                        .font(.body.weight(.semibold))
+                    Text("\(count)")
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
+                    Spacer(minLength: 0)
+                }
+                .frame(height: PullRequestColumnLayout.headerHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help("\(section.title): \(count) PRs")
+            .accessibilityLabel("\(section.title), \(count) PRs, \(isExpanded ? "expanded" : "collapsed")")
+
+            if isExpanded {
+                PullRequestColumnLegend(previewHoveredColumn: previewHoveredColumn)
+            }
+        }
+        .padding(.trailing, PullRequestColumnLayout.horizontalInset)
+        .frame(height: PullRequestColumnLayout.headerHeight)
+        .zIndex(1)
+    }
+}
+
+struct PullRequestColumnHeader: View {
+    var body: some View {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
+            Color.clear.frame(maxWidth: .infinity).accessibilityHidden(true)
+            PullRequestColumnLegend()
+        }
+        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+        .frame(height: PullRequestColumnLayout.headerHeight)
+        .zIndex(1)
+    }
+}
+
+struct PullRequestColumnLegend: View {
+    enum Column: CaseIterable, Identifiable {
+        case comments
+        case ci
+        case review
+        case conflicts
+        case changes
+        case time
+
+        var id: Self { self }
+
+        var symbol: String {
+            switch self {
+            case .comments: "bubble.left"
+            case .review: "person.crop.circle.badge.checkmark"
+            case .ci: "checkmark.circle"
+            case .conflicts: "exclamationmark.triangle"
+            case .changes: "plusminus"
+            case .time: "clock.arrow.circlepath"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .comments: "Unresolved comments"
+            case .review: "Review feedback"
+            case .ci: "CI"
+            case .conflicts: "Merge conflicts"
+            case .changes: "Changes"
+            case .time: "Updated / Opened"
+            }
+        }
+
+        var width: CGFloat {
+            switch self {
+            case .comments: PullRequestColumnLayout.commentsWidth
+            case .review, .ci, .conflicts: PullRequestColumnLayout.statusWidth
+            case .changes: PullRequestColumnLayout.changesWidth
+            case .time: PullRequestColumnLayout.ageWidth
+            }
+        }
+    }
+
+    var previewHoveredColumn: Column? = nil
+    @State private var hoveredColumn: Column?
+
+    private var activeColumn: Column? { previewHoveredColumn ?? hoveredColumn }
+
+    var body: some View {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
+            ForEach(Column.allCases) { column in
+                columnHeader(column)
+            }
+            Color.clear.frame(width: PullRequestColumnLayout.actionsWidth, height: 1)
+                .accessibilityHidden(true)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .frame(height: 22)
+    }
+
+    private func columnHeader(_ column: Column) -> some View {
+        Image(systemName: column.symbol)
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: column.width, height: 22)
+            .contentShape(Rectangle())
+            .onHover { isHovered in
+                if isHovered {
+                    hoveredColumn = column
+                } else if hoveredColumn == column {
+                    hoveredColumn = nil
+                }
+            }
+            .overlay(alignment: .top) {
+                if activeColumn == column {
+                    Text(column.label)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(nsColor: .labelColor))
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        }
+                        .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
+                        .offset(y: 26)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityLabel(column.label)
+    }
+}
+
+struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
     let isPinned: Bool
     let isHidden: Bool
-    var showsReviewRequestKind = false
-    var showsAuthor = false
     let toggleHide: () -> Void
     let togglePin: () -> Void
     let action: () -> Void
@@ -2190,74 +2418,33 @@ private struct PullRequestRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        HStack(spacing: PullRequestColumnLayout.spacing) {
             Button(action: action) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
-                            if pullRequest.draft {
-                                DraftPullRequestIndicator()
-                            }
-                            Text(pullRequest.title)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(2)
-                        }
-                        Spacer(minLength: 8)
-                        ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                            .alignmentGuide(.firstTextBaseline) { $0.height - 4 }
+                HStack(spacing: PullRequestColumnLayout.spacing) {
+                    HStack(spacing: 7) {
+                        PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
+                        identity
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text(pullRequest.repo)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Text("·")
-                            .fixedSize()
-                        Text("#\(pullRequest.number)")
-                            .fixedSize()
-                            .layoutPriority(1)
-                        Spacer(minLength: 8)
-                        Text(PullRequestAgePresentation.shortText(for: pullRequest.updatedAt))
-                            .fixedSize()
-                            .layoutPriority(1)
-                            .help(PullRequestAgePresentation.label(for: pullRequest.updatedAt))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    CommentCountIndicator(count: pullRequest.commentCount)
+                        .frame(width: PullRequestColumnLayout.commentsWidth)
+                    CIStatusIndicator(ciState: pullRequest.ciState)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    MergeConflictIndicator(mergeable: pullRequest.mergeable)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
+                        .frame(width: PullRequestColumnLayout.changesWidth)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        ageCell(pullRequest.updatedAt, field: .updated)
+                        ageCell(pullRequest.createdAt, field: .opened)
                     }
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if showsAuthor {
-                            Text("·")
-                                .fixedSize()
-                            Text("@\(pullRequest.author)")
-                                .lineLimit(1)
-                                .fixedSize()
-                                .layoutPriority(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        CIStatusIndicator(ciState: pullRequest.ciState)
-                        if pullRequest.commentCount > 0 {
-                            CommentCountIndicator(count: pullRequest.commentCount)
-                        }
-                        if showsReviewRequestKind {
-                            ReviewRequestKindPill(kind: pullRequest.reviewRequestKind)
-                            if pullRequest.isAssignedToViewer {
-                                AssignedPullRequestPill()
-                            }
-                        }
-                        Spacer(minLength: PullRequestActionButtonLayout.hitSize * 3)
-                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: PullRequestColumnLayout.ageWidth, height: 30)
                 }
-                .padding(10)
-                .transparentCardStyle(
-                    accentColor: isAttention ? .accentColor : nil,
-                    isHovered: isHovered
-                )
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -2266,10 +2453,86 @@ private struct PullRequestRow: View {
                 PullRequestPinButton(isPinned: isPinned, isVisible: isPinned || isHovered, action: togglePin)
                 PullRequestLinkCopyButton(url: pullRequest.url)
             }
-                .padding(.trailing, 2)
-                .padding(.bottom, 5)
+            .frame(width: PullRequestColumnLayout.actionsWidth)
         }
+        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+        .padding(.vertical, 8)
+        .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
+    }
+
+    private func ageCell(_ date: Date, field: PullRequestAgePresentation.Field) -> some View {
+        Text(PullRequestAgePresentation.shortText(for: date))
+            .font(.caption2.monospacedDigit().weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .help(PullRequestAgePresentation.label(for: date, field: field))
+            .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field))
+    }
+
+    private var identity: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                if pullRequest.draft { DraftPullRequestIndicator() }
+                Text(pullRequest.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(pullRequest.title)
+                    .accessibilityLabel(pullRequest.title)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 4) {
+                Text(pullRequest.repo)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(pullRequest.repo)
+                    .accessibilityLabel(pullRequest.repo)
+                Text("#\(pullRequest.number)")
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
+                    .help("Pull request #\(pullRequest.number)")
+                    .accessibilityLabel("Pull request number \(pullRequest.number)")
+            }
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct PullRequestAuthorAvatar: View {
+    let author: String
+    let url: URL?
+
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    if case let .success(image) = phase {
+                        image.resizable().scaledToFill()
+                    } else {
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: 22, height: 22)
+        .clipShape(Circle())
+        .help("Author: \(author)")
+        .accessibilityLabel("Author: \(author)")
+    }
+
+    private var placeholder: some View {
+        Image(systemName: "person.crop.circle.fill")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .symbolRenderingMode(.monochrome)
+            .foregroundColor(Color.gray)
     }
 }
 
@@ -2390,42 +2653,6 @@ private extension View {
     }
 }
 
-private struct ReviewRequestKindPill: View {
-    let kind: ReviewRequestKind
-
-    var body: some View {
-        ForEach(presentations, id: \.text) { presentation in
-            StatusPill(text: presentation.text, kind: .neutral)
-                .help(presentation.accessibilityLabel)
-                .accessibilityLabel(presentation.accessibilityLabel)
-        }
-    }
-
-    private var presentations: [(text: String, accessibilityLabel: String)] {
-        switch kind {
-        case .none:
-            []
-        case .direct:
-            [(text: "direct", accessibilityLabel: "Direct review request")]
-        case .team:
-            [(text: "team", accessibilityLabel: "Team review request")]
-        case .directAndTeam:
-            [
-                (text: "direct", accessibilityLabel: "Direct review request"),
-                (text: "team", accessibilityLabel: "Team review request")
-            ]
-        }
-    }
-}
-
-private struct AssignedPullRequestPill: View {
-    var body: some View {
-        StatusPill(text: "assigned", kind: .neutral)
-            .help("Assigned PR")
-            .accessibilityLabel("Assigned PR")
-    }
-}
-
 struct PullRequestLinkCopyButton: View {
     let url: URL
 
@@ -2464,15 +2691,11 @@ struct CommentCountIndicator: View {
     let count: Int
 
     var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "bubble.left")
-                .font(.system(size: 11, weight: .semibold))
-            Text("\(count)")
-                .font(.caption2.weight(.semibold))
-        }
-        .foregroundStyle(.secondary)
-        .accessibilityLabel(Self.label(for: count))
-        .help(Self.label(for: count))
+        Text("\(count)")
+            .font(.caption2.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(Self.label(for: count))
+            .help(Self.label(for: count))
     }
 
     static func label(for count: Int) -> String {
@@ -2483,7 +2706,7 @@ struct CommentCountIndicator: View {
 struct CIStatusIndicator: View {
     enum Kind: Equatable {
         case failing
-        case running
+        case pending
         case successful
         case unknown
 
@@ -2492,7 +2715,7 @@ struct CIStatusIndicator: View {
             case .failing:
                 self = .failing
             case .pending:
-                self = .running
+                self = .pending
             case .passing:
                 self = .successful
             case .unknown:
@@ -2516,12 +2739,12 @@ struct CIStatusIndicator: View {
     }
 }
 
-private extension CIStatusIndicator.Kind {
+extension CIStatusIndicator.Kind {
     var color: Color {
         switch self {
         case .failing:
             .red
-        case .running:
+        case .pending:
             .orange
         case .successful:
             .green
@@ -2534,8 +2757,8 @@ private extension CIStatusIndicator.Kind {
         switch self {
         case .failing:
             "CI failing"
-        case .running:
-            "CI running"
+        case .pending:
+            "CI pending (waiting or running)"
         case .successful:
             "CI successful"
         case .unknown:
@@ -2544,11 +2767,158 @@ private extension CIStatusIndicator.Kind {
     }
 }
 
+struct PullRequestSignalIndicator: View {
+    enum Kind: Equatable {
+        case positive
+        case negative
+        case unavailable
+    }
+
+    let kind: Kind
+    let label: String
+
+    var body: some View {
+        Group {
+            switch kind {
+            case .positive:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.green)
+            case .negative:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.red)
+            case .unavailable:
+                Text("—")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 17, height: 17)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+struct MergeConflictIndicator: View {
+    enum Kind: Equatable {
+        case none
+        case conflicting
+        case unknown
+
+        init(mergeable: MergeableState) {
+            switch mergeable {
+            case .mergeable: self = .none
+            case .conflicting: self = .conflicting
+            case .unknown: self = .unknown
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .none: "No merge conflicts; other requirements may still block merging"
+            case .conflicting: "Merge conflicts"
+            case .unknown: "Mergeability unknown"
+            }
+        }
+
+        var signal: PullRequestSignalIndicator.Kind {
+            switch self {
+            case .none: .positive
+            case .conflicting: .negative
+            case .unknown: .unavailable
+            }
+        }
+    }
+
+    let mergeable: MergeableState
+
+    var body: some View {
+        PullRequestSignalIndicator(kind: kind.signal, label: kind.label)
+    }
+
+    private var kind: Kind { Kind(mergeable: mergeable) }
+}
+
+enum PullRequestChangesPresentation {
+    static func text(additions: Int?, deletions: Int?) -> String {
+        guard let additions, let deletions else { return "—" }
+        return "\(additionsText(additions)) \(deletionsText(deletions))"
+    }
+
+    static func additionsText(_ additions: Int) -> String {
+        "+\(compact(additions))"
+    }
+
+    static func deletionsText(_ deletions: Int) -> String {
+        "−\(compact(deletions))"
+    }
+
+    static func label(additions: Int?, deletions: Int?) -> String {
+        guard let additions, let deletions else { return "Change counts unavailable" }
+        return "\(exact(additions)) additions, \(exact(deletions)) deletions"
+    }
+
+    private static func compact(_ value: Int) -> String {
+        let suffixes = ["", "k", "m", "b", "t", "q"]
+        var scaled = Double(value)
+        var unit = 0
+        while scaled >= 1_000 && unit < suffixes.count - 1 {
+            scaled /= 1_000
+            unit += 1
+        }
+        if unit == 0 { return String(value) }
+        if scaled.rounded() >= 1_000 && unit < suffixes.count - 1 {
+            return "1.0\(suffixes[unit + 1])"
+        }
+        return scaled < 10
+            ? String(format: "%.1f%@", scaled, suffixes[unit])
+            : String(format: "%.0f%@", scaled, suffixes[unit])
+    }
+
+    private static func exact(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "en_US")
+        return formatter.string(from: NSNumber(value: value)) ?? String(value)
+    }
+}
+
+struct PullRequestChangesIndicator: View {
+    let additions: Int?
+    let deletions: Int?
+
+    var body: some View {
+        Group {
+            if let additions, let deletions {
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(PullRequestChangesPresentation.additionsText(additions))
+                        .foregroundStyle(.green)
+                    Text(PullRequestChangesPresentation.deletionsText(deletions))
+                        .foregroundStyle(.red)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            } else {
+                Text("—")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption2.monospacedDigit().weight(.semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .frame(width: PullRequestColumnLayout.changesWidth, height: 30)
+        .contentShape(Rectangle())
+        .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
+    }
+}
+
 struct ReviewDecisionIndicator: View {
     enum Kind: Equatable {
         case approved
         case changesRequested
-        case reviewRequired
+        case noReviewYet
         case unknown
 
         init(reviewDecision: ReviewDecision) {
@@ -2557,8 +2927,8 @@ struct ReviewDecisionIndicator: View {
                 self = .approved
             case .changesRequested:
                 self = .changesRequested
-            case .reviewRequired:
-                self = .reviewRequired
+            case .noReviewYet:
+                self = .noReviewYet
             case .unknown:
                 self = .unknown
             }
@@ -2568,13 +2938,7 @@ struct ReviewDecisionIndicator: View {
     let reviewDecision: ReviewDecision
 
     var body: some View {
-        Image(systemName: kind.symbolName)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(kind.color)
-            .font(.system(size: kind.pointSize, weight: .semibold))
-            .frame(width: 17, height: 17)
-            .accessibilityLabel(kind.label)
-            .help(kind.label)
+        PullRequestSignalIndicator(kind: kind.signal, label: kind.label)
     }
 
     private var kind: Kind {
@@ -2582,42 +2946,12 @@ struct ReviewDecisionIndicator: View {
     }
 }
 
-private extension ReviewDecisionIndicator.Kind {
-    var symbolName: String {
+extension ReviewDecisionIndicator.Kind {
+    var signal: PullRequestSignalIndicator.Kind {
         switch self {
-        case .approved:
-            "checkmark.seal.fill"
-        case .changesRequested:
-            "exclamationmark.triangle.fill"
-        case .reviewRequired:
-            "eye.fill"
-        case .unknown:
-            "questionmark.diamond.fill"
-        }
-    }
-
-    // eye.fill is a wide standalone symbol that reads larger than the enclosed
-    // seal/triangle/diamond glyphs at the same size, so nudge it down to keep
-    // every review-decision indicator optically the same size.
-    var pointSize: CGFloat {
-        switch self {
-        case .reviewRequired:
-            11
-        case .approved, .changesRequested, .unknown:
-            13
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .approved:
-            .green
-        case .changesRequested:
-            .red
-        case .reviewRequired:
-            .secondary
-        case .unknown:
-            .secondary
+        case .approved: .positive
+        case .changesRequested: .negative
+        case .noReviewYet, .unknown: .unavailable
         }
     }
 
@@ -2627,47 +2961,10 @@ private extension ReviewDecisionIndicator.Kind {
             "Review approved"
         case .changesRequested:
             "Changes requested"
-        case .reviewRequired:
-            "Review required"
+        case .noReviewYet:
+            "No review yet"
         case .unknown:
             "Review status unknown"
-        }
-    }
-}
-
-private struct StatusPill: View {
-    enum Kind {
-        case neutral
-        case attention
-        case bad
-    }
-
-    let text: String
-    let kind: Kind
-
-    var body: some View {
-        Text(text)
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(background)
-            .foregroundStyle(foreground)
-            .clipShape(Capsule())
-    }
-
-    private var background: Color {
-        switch kind {
-        case .neutral: Color(nsColor: .quaternaryLabelColor)
-        case .attention: Color.blue.opacity(0.14)
-        case .bad: Color.red.opacity(0.14)
-        }
-    }
-
-    private var foreground: Color {
-        switch kind {
-        case .neutral: .secondary
-        case .attention: .blue
-        case .bad: .red
         }
     }
 }

@@ -78,8 +78,10 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
 
     public struct User: Decodable, Equatable, Sendable {
         public let login: String
-        public init(login: String) {
+        public let avatarUrl: URL?
+        public init(login: String, avatarUrl: URL? = nil) {
             self.login = login
+            self.avatarUrl = avatarUrl
         }
     }
 
@@ -279,6 +281,45 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
     }
 
+    public struct OpinionatedReviewConnection: Decodable, Equatable, Sendable {
+        public struct Node: Decodable, Equatable, Sendable {
+            public let id: String?
+            public let state: String?
+            public let submittedAt: String?
+            public let author: User?
+
+            public init(id: String? = nil, state: String? = nil, submittedAt: String? = nil, author: User? = nil) {
+                self.id = id
+                self.state = state
+                self.submittedAt = submittedAt
+                self.author = author
+            }
+        }
+
+        public let totalCount: Int?
+        public let nodes: [Node]?
+        public let hasMissingNodes: Bool
+
+        public init(totalCount: Int, nodes: [Node]? = nil) {
+            self.totalCount = totalCount
+            self.nodes = nodes
+            self.hasMissingNodes = false
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case totalCount
+            case nodes
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.totalCount = try container.decodeIfPresent(Int.self, forKey: .totalCount)
+            let decodedNodes = try container.decodeIfPresent([Node?].self, forKey: .nodes)
+            self.nodes = decodedNodes?.compactMap { $0 }
+            self.hasMissingNodes = decodedNodes?.contains { $0 == nil } ?? false
+        }
+    }
+
     public struct RequestedReviewer: Decodable, Equatable, Sendable {
         public struct Organization: Decodable, Equatable, Sendable {
             public let login: String
@@ -316,10 +357,11 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let headRefName: String
     public let isDraft: Bool
     public let mergeable: String?
-    public let reviewDecision: String?
+    public let additions: Int?
+    public let deletions: Int?
     public let comments: CommentConnection
     public let reviews: ReviewConnection
-    public let latestOpinionatedReviews: ReviewConnection
+    public let latestOpinionatedReviews: OpinionatedReviewConnection?
     public let reviewThreads: ReviewThreadConnection
     public let reviewRequests: ReviewRequestConnection
     public let assignees: AssigneeConnection
@@ -337,10 +379,11 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         headRefName: String = "",
         isDraft: Bool,
         mergeable: String?,
-        reviewDecision: String?,
+        additions: Int? = nil,
+        deletions: Int? = nil,
         comments: CommentConnection,
         reviews: ReviewConnection,
-        latestOpinionatedReviews: ReviewConnection = .init(totalCount: 0),
+        latestOpinionatedReviews: OpinionatedReviewConnection? = nil,
         reviewThreads: ReviewThreadConnection,
         reviewRequests: ReviewRequestConnection = .init(nodes: []),
         assignees: AssigneeConnection = .init(nodes: []),
@@ -357,7 +400,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.headRefName = headRefName
         self.isDraft = isDraft
         self.mergeable = mergeable
-        self.reviewDecision = reviewDecision
+        self.additions = additions
+        self.deletions = deletions
         self.comments = comments
         self.reviews = reviews
         self.latestOpinionatedReviews = latestOpinionatedReviews
@@ -387,9 +431,11 @@ public enum GitHubPullRequestNormalizer {
             repo: node.repository.nameWithOwner,
             ciState: normalizeCIState(rollupState),
             reviewDecision: normalizeReviewDecision(
-                node.reviewDecision,
-                latestOpinionatedReviews: node.latestOpinionatedReviews
+                node.latestOpinionatedReviews,
+                pullRequestAuthor: node.author?.login
             ),
+            additions: node.additions,
+            deletions: node.deletions,
             commentCount: normalizeActionableUnresolvedCommentCount(node.reviewThreads),
             commentActivityCount: normalizeCommentActivityCount(node),
             recentCommentActivities: normalizeCommentActivities(node),
@@ -405,6 +451,7 @@ public enum GitHubPullRequestNormalizer {
             isAssignedToViewer: node.assignees.nodes.contains { $0.login == login },
             isMine: node.author?.login == login,
             author: node.author?.login ?? "unknown",
+            authorAvatarURL: node.author?.avatarUrl,
             headRefName: node.headRefName,
             mergeable: normalizeMergeableState(node.mergeable),
             draft: node.isDraft,
@@ -426,31 +473,39 @@ public enum GitHubPullRequestNormalizer {
         }
     }
 
-    public static func normalizeReviewDecision(_ decision: String?) -> ReviewDecision {
-        switch decision {
-        case "APPROVED":
-            .approved
-        case "CHANGES_REQUESTED":
-            .changesRequested
-        case "REVIEW_REQUIRED", nil:
-            .reviewRequired
-        default:
-            .unknown
-        }
-    }
-
     private static func normalizeReviewDecision(
-        _ decision: String?,
-        latestOpinionatedReviews: GitHubPullRequestNode.ReviewConnection
+        _ connection: GitHubPullRequestNode.OpinionatedReviewConnection?,
+        pullRequestAuthor: String?
     ) -> ReviewDecision {
-        let reviewStates = latestOpinionatedReviews.nodes.compactMap { normalizeReviewState($0.state) }
-        if reviewStates.contains(.changesRequested) {
-            return .changesRequested
+        guard let connection, let nodes = connection.nodes else { return .unknown }
+        var hasApproval = false
+        var hasUncertainty = connection.hasMissingNodes || (connection.totalCount.map { $0 > nodes.count } ?? true)
+
+        for review in nodes {
+            let state = review.state?.uppercased()
+            switch state {
+            case "COMMENTED", "PENDING", "DISMISSED":
+                continue
+            case "APPROVED", "CHANGES_REQUESTED":
+                guard
+                    let reviewer = review.author?.login,
+                    let pullRequestAuthor
+                else {
+                    hasUncertainty = true
+                    continue
+                }
+                if reviewer.caseInsensitiveCompare(pullRequestAuthor) == .orderedSame {
+                    continue
+                }
+                if state == "CHANGES_REQUESTED" { return .changesRequested }
+                hasApproval = true
+            default:
+                hasUncertainty = true
+            }
         }
-        if reviewStates.contains(.approved) {
-            return .approved
-        }
-        return normalizeReviewDecision(decision)
+
+        if hasUncertainty { return .unknown }
+        return hasApproval ? .approved : .noReviewYet
     }
 
     private static func normalizeActionableUnresolvedCommentCount(
@@ -814,6 +869,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             repo: pullRequest.repo,
             ciState: pullRequest.ciState,
             reviewDecision: pullRequest.reviewDecision,
+            additions: pullRequest.additions,
+            deletions: pullRequest.deletions,
             commentCount: pullRequest.commentCount,
             commentActivityCount: pullRequest.commentActivityCount,
             recentCommentActivities: pullRequest.recentCommentActivities,
@@ -825,6 +882,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             isAssignedToViewer: pullRequest.isAssignedToViewer,
             isMine: pullRequest.isMine,
             author: pullRequest.author,
+            authorAvatarURL: pullRequest.authorAvatarURL,
             headRefName: pullRequest.headRefName,
             mergeable: pullRequest.mergeable,
             draft: pullRequest.draft,
@@ -864,6 +922,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             repo: current.repo,
             ciState: current.ciState,
             reviewDecision: current.reviewDecision,
+            additions: current.additions,
+            deletions: current.deletions,
             commentCount: current.commentCount,
             commentActivityCount: preserveActivityCounts ? previous.commentActivityCount : current.commentActivityCount,
             recentCommentActivities: previous.recentCommentActivities,
@@ -875,6 +935,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             isAssignedToViewer: current.isAssignedToViewer,
             isMine: current.isMine,
             author: current.author,
+            authorAvatarURL: current.authorAvatarURL,
             headRefName: current.headRefName,
             mergeable: current.mergeable,
             draft: current.draft,
@@ -895,6 +956,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             repo: detailed.repo,
             ciState: detailed.ciState,
             reviewDecision: detailed.reviewDecision,
+            additions: detailed.additions,
+            deletions: detailed.deletions,
             commentCount: detailed.commentCount,
             commentActivityCount: detailed.commentActivityCount,
             recentCommentActivities: detailed.recentCommentActivities,
@@ -906,6 +969,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             isAssignedToViewer: shallow.isAssignedToViewer,
             isMine: shallow.isMine,
             author: detailed.author,
+            authorAvatarURL: detailed.authorAvatarURL,
             headRefName: detailed.headRefName,
             mergeable: detailed.mergeable,
             draft: detailed.draft,
@@ -1037,7 +1101,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
               headRefName
               isDraft
               mergeable
-              reviewDecision
+              additions
+              deletions
               comments(first: 1) {
                 totalCount
               }
@@ -1050,6 +1115,9 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
                   id
                   state
                   submittedAt
+                  author {
+                    login
+                  }
                 }
               }
               reviewThreads(first: 20) {
@@ -1120,6 +1188,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
               }
               author {
                 login
+                avatarUrl(size: 64)
               }
             }
           }
@@ -1140,7 +1209,8 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             headRefName
             isDraft
             mergeable
-            reviewDecision
+            additions
+            deletions
             comments(last: 10) {
               totalCount
               nodes {
@@ -1169,6 +1239,9 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
                 id
                 state
                 submittedAt
+                author {
+                  login
+                }
               }
             }
             reviewThreads(first: 20) {
@@ -1239,6 +1312,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             }
             author {
               login
+              avatarUrl(size: 64)
             }
           }
         }
