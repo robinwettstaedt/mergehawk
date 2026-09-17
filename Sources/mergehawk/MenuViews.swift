@@ -653,12 +653,13 @@ struct MenuRootView: View {
     let showAbout: () -> Void
     let quit: () -> Void
     @Environment(\.colorScheme) private var colorScheme
-    @State private var dismissTransientPRControlsSignal = 0
+    @State private var dropdownState: PullRequestMenuDropdownState
 
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
         resolvedSize: CGSize = CGSize(width: Layout.width, height: Layout.height),
+        initialDropdown: PullRequestMenuDropdown? = nil,
         dismissMenu: @escaping () -> Void = {},
         showSettings: @escaping () -> Void = {},
         showAbout: @escaping () -> Void = {},
@@ -671,18 +672,30 @@ struct MenuRootView: View {
         self.showSettings = showSettings
         self.showAbout = showAbout
         self.quit = quit
+        _dropdownState = State(initialValue: PullRequestMenuDropdownState(openMenu: initialDropdown))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
+                .zIndex(2)
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay {
+                    if dropdownState.openMenu != nil {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { dropdownState.dismiss() }
+                    }
+                }
             footer
         }
         .frame(width: resolvedSize.width, height: resolvedSize.height)
         .background(menuSurface)
+        .onChange(of: controller.selectedTab) { _, _ in
+            dropdownState.dismiss()
+        }
     }
 
     private var footer: some View {
@@ -693,6 +706,7 @@ struct MenuRootView: View {
                 shortcutKey: "R",
                 isFlashed: footerModel.isFlashing,
                 action: {
+                    dropdownState.dismiss()
                     controller.refresh()
                 }
             )
@@ -730,11 +744,20 @@ struct MenuRootView: View {
                     .font(.headline)
             }
             Spacer(minLength: 0)
+                .contentShape(Rectangle())
+                .onTapGesture { dropdownState.dismiss() }
+            if let mode = activePullRequestMode, controller.state.authStatus == .signedIn {
+                PullRequestHeaderControls(controller: controller, mode: mode, dropdownState: $dropdownState)
+                    .padding(.trailing, 8)
+            }
             RefreshStatusControl(
                 indicatorColor: controller.hasAttention ? .red : .green,
                 isRefreshing: controller.isRefreshing,
                 updatedAt: controller.state.syncedAt,
-                action: controller.refresh,
+                action: {
+                    dropdownState.dismiss()
+                    controller.refresh()
+                },
                 isRefreshEnabled: controller.state.authStatus == .signedIn,
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
@@ -747,10 +770,14 @@ struct MenuRootView: View {
         .padding(.leading, 8)
         .padding(.trailing, Self.Layout.topBarTrailingInset)
         .frame(height: Self.Layout.topBarHeight)
-        .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded {
-            dismissTransientPRControls()
-        })
+    }
+
+    private var activePullRequestMode: PullRequestListView.Mode? {
+        switch controller.selectedTab {
+        case .notifications: nil
+        case .myPRs: .authored
+        case .reviewRequests: .reviewRequests
+        }
     }
 
     private var tabSwitcher: some View {
@@ -771,25 +798,12 @@ struct MenuRootView: View {
             case .notifications:
                 NotificationListView(controller: controller)
             case .myPRs:
-                PullRequestListView(
-                    controller: controller,
-                    mode: .authored,
-                    dismissSignal: dismissTransientPRControlsSignal
-                )
+                PullRequestListView(controller: controller, mode: .authored)
             case .reviewRequests:
-                PullRequestListView(
-                    controller: controller,
-                    mode: .reviewRequests,
-                    dismissSignal: dismissTransientPRControlsSignal
-                )
+                PullRequestListView(controller: controller, mode: .reviewRequests)
             }
         }
     }
-
-    private func dismissTransientPRControls() {
-        dismissTransientPRControlsSignal += 1
-    }
-
 }
 
 enum MenuPanelSize {
@@ -1571,10 +1585,6 @@ private extension RunLoop.Mode {
 }
 
 struct PullRequestListView: View {
-    enum Layout {
-        static let controlsHeight: CGFloat = 40
-    }
-
     enum Mode {
         case authored
         case reviewRequests
@@ -1582,20 +1592,16 @@ struct PullRequestListView: View {
 
     @ObservedObject var controller: DashboardController
     let mode: Mode
-    let dismissSignal: Int
-    @State private var dropdownState = PullRequestMenuDropdownState()
     @State private var isHiddenExpanded: Bool
     @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
 
     init(
         controller: DashboardController,
         mode: Mode,
-        dismissSignal: Int = 0,
         hiddenPullRequestsExpanded: Bool = false
     ) {
         self.controller = controller
         self.mode = mode
-        self.dismissSignal = dismissSignal
         _isHiddenExpanded = State(initialValue: hiddenPullRequestsExpanded)
         _expandedRequestedHiddenSections = State(
             initialValue: hiddenPullRequestsExpanded ? Set(DashboardController.RequestedSection.allCases) : []
@@ -1603,46 +1609,7 @@ struct PullRequestListView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(spacing: 0) {
-                toolbarControls
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 6)
-                    .background {
-                        if dropdownState.openMenu != nil {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    dropdownState.dismiss()
-                                }
-                        }
-                    }
-
-                content
-            }
-
-            if dropdownState.openMenu != nil {
-                outsideDropdownDismissArea
-            }
-
-            if dropdownState.openMenu == .filter {
-                filterMenu
-                    .padding(.top, 40)
-                    .padding(.trailing, 110)
-                    .zIndex(3)
-            }
-
-            if dropdownState.openMenu == .sort {
-                sortMenu
-                    .padding(.top, 40)
-                    .padding(.trailing, 12)
-                    .zIndex(3)
-            }
-        }
-        .onChange(of: dismissSignal) { _, _ in
-            dismissTransientControls()
-        }
+        content
     }
 
     private var visiblePullRequests: [PullRequest] {
@@ -1712,9 +1679,6 @@ struct PullRequestListView: View {
                 .padding(.top, 5)
                 .padding(.bottom, 12)
             }
-            .simultaneousGesture(TapGesture().onEnded {
-                dismissTransientControls()
-            })
         }
     }
 
@@ -1729,9 +1693,6 @@ struct PullRequestListView: View {
             .padding(.top, 5)
             .padding(.bottom, 12)
         }
-        .simultaneousGesture(TapGesture().onEnded {
-            dismissTransientControls()
-        })
     }
 
     private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
@@ -1859,55 +1820,68 @@ struct PullRequestListView: View {
             PullRequestListCopy.emptyReviewRequests
         }
     }
+}
 
-    private var visibleCountLabel: String {
-        CountSearchPresentation.countLabel(for: matchingPullRequestCount, singular: "PR", plural: "PRs")
-    }
+struct PullRequestHeaderControls: View {
+    @ObservedObject var controller: DashboardController
+    let mode: PullRequestListView.Mode
+    @Binding var dropdownState: PullRequestMenuDropdownState
 
-    private var visibleCount: some View {
-        Text("\(matchingPullRequestCount)")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-            .accessibilityLabel(visibleCountLabel)
-    }
-
-    @ViewBuilder
-    private var toolbarControls: some View {
+    var body: some View {
         HStack(spacing: 8) {
-            visibleCount
-            Spacer(minLength: 0)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    dismissTransientControls()
-                }
             filterButton
+                .overlay(alignment: .topTrailing) {
+                    if dropdownState.openMenu == .filter {
+                        filterMenu.offset(y: 34)
+                    }
+                }
+                .zIndex(dropdownState.openMenu == .filter ? 1 : 0)
             sortButton
+                .overlay(alignment: .topTrailing) {
+                    if dropdownState.openMenu == .sort {
+                        sortMenu.offset(y: 34)
+                    }
+                }
+                .zIndex(dropdownState.openMenu == .sort ? 1 : 0)
         }
     }
 
-    private var outsideDropdownDismissArea: some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(height: Layout.controlsHeight)
-                .allowsHitTesting(false)
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    dropdownState.dismiss()
-                }
+    private var sortOption: DashboardController.PullRequestSortOption {
+        switch mode {
+        case .authored: controller.pullRequestSortOption
+        case .reviewRequests: controller.reviewRequestSortOption
+        }
+    }
+
+    private var sortDirection: DashboardController.PullRequestSortDirection {
+        switch mode {
+        case .authored: controller.pullRequestSortDirection
+        case .reviewRequests: controller.reviewRequestSortDirection
+        }
+    }
+
+    private func setSortOption(_ option: DashboardController.PullRequestSortOption) {
+        switch mode {
+        case .authored: controller.pullRequestSortOption = option
+        case .reviewRequests: controller.reviewRequestSortOption = option
+        }
+    }
+
+    private func toggleSortDirection() {
+        switch mode {
+        case .authored: controller.pullRequestSortDirection = controller.pullRequestSortDirection.toggled
+        case .reviewRequests: controller.reviewRequestSortDirection = controller.reviewRequestSortDirection.toggled
         }
     }
 
     private var filterButton: some View {
-        optionButton(
+        MenuControlButton(
             symbolName: "line.3.horizontal.decrease",
             title: filterButtonTitle,
             isOpen: dropdownState.openMenu == .filter,
-            help: "Filter pull requests"
-        ) {
-            dropdownState.toggle(.filter)
-        }
+            help: "Filter pull requests",
+            action: { dropdownState.toggle(.filter) }
+        )
     }
 
     private var filterButtonTitle: String {
@@ -1943,37 +1917,17 @@ struct PullRequestListView: View {
 
     private var sortButton: some View {
         SortControlButton(
-            directionSymbolName: controller.pullRequestSortDirection.isAscending ? "arrow.up" : "arrow.down",
-            title: controller.pullRequestSortOption.label,
+            directionSymbolName: sortDirection.isAscending ? "arrow.up" : "arrow.down",
+            title: sortOption.label,
             isMenuOpen: dropdownState.openMenu == .sort,
-            directionHelp: controller.pullRequestSortOption.directionHelp(for: controller.pullRequestSortDirection),
+            directionHelp: sortOption.directionHelp(for: sortDirection),
             menuHelp: "Sort pull requests",
             toggleDirection: {
-                controller.pullRequestSortDirection = controller.pullRequestSortDirection.toggled
+                toggleSortDirection()
             },
             openMenu: {
                 dropdownState.toggle(.sort)
             }
-        )
-    }
-
-    private func dismissTransientControls() {
-        dropdownState.dismiss()
-    }
-
-    private func optionButton(
-        symbolName: String,
-        title: String,
-        isOpen: Bool,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        MenuControlButton(
-            symbolName: symbolName,
-            title: title,
-            isOpen: isOpen,
-            help: help,
-            action: action
         )
     }
 
@@ -2050,10 +2004,10 @@ struct PullRequestListView: View {
             ForEach(DashboardController.PullRequestSortOption.allCases) { option in
                 optionMenuButton(
                     title: option.label,
-                    isSelected: controller.pullRequestSortOption == option,
+                    isSelected: sortOption == option,
                     width: 132
                 ) {
-                    controller.pullRequestSortOption = option
+                    setSortOption(option)
                     dropdownState.dismiss()
                 }
             }

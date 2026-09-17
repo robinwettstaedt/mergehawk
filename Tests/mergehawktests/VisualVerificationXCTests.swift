@@ -315,6 +315,19 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-my-prs-laptop.png"),
                 availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
             )
+            controller.selectedPullRequestFilters = [.changesRequested]
+            controller.pullRequestSortOption = .changeSize
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-my-prs-header-filter-open.png"),
+                initialDropdown: .filter
+            )
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-my-prs-header-sort-open.png"),
+                initialDropdown: .sort
+            )
+            controller.selectedPullRequestFilters = []
             controller.pullRequestSortOption = .changeSize
             controller.pullRequestSortDirection = .ascending
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-change-size.png"))
@@ -377,6 +390,19 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-review-requests-laptop.png"),
                 availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
             )
+            controller.selectedReviewRequestFilters = [.ready]
+            controller.reviewRequestSortOption = .updatedDate
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-header-filter-open.png"),
+                initialDropdown: .filter
+            )
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-review-requests-header-sort-open.png"),
+                initialDropdown: .sort
+            )
+            controller.selectedReviewRequestFilters = []
             controller.reviewRequestSortOption = .changeSize
             controller.reviewRequestSortDirection = .ascending
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-change-size.png"))
@@ -525,11 +551,17 @@ final class VisualVerificationXCTests: XCTestCase {
     private func renderMenu(
         controller: DashboardController,
         to url: URL,
-        availableFrame: CGRect? = nil
+        availableFrame: CGRect? = nil,
+        initialDropdown: PullRequestMenuDropdown? = nil
     ) throws {
         let size = availableFrame.map { MenuPanelSize.resolve(availableFrame: $0) }
             ?? CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
-        let view = MenuRootView(controller: controller, footerModel: MenuFooterModel(), resolvedSize: size)
+        let view = MenuRootView(
+            controller: controller,
+            footerModel: MenuFooterModel(),
+            resolvedSize: size,
+            initialDropdown: initialDropdown
+        )
             .background(.regularMaterial)
 
         try render(view, size: size, appearance: .darkAqua, to: url)
@@ -706,6 +738,8 @@ private struct VisualCaptureSelection {
         "menu-my-prs",
         "menu-header-tooltips",
         "menu-my-prs-laptop",
+        "menu-my-prs-header-filter-open",
+        "menu-my-prs-header-sort-open",
         "menu-my-prs-change-size",
         "menu-my-prs-pinned",
         "menu-my-prs-hidden-collapsed",
@@ -713,6 +747,8 @@ private struct VisualCaptureSelection {
         "menu-my-prs-empty",
         "menu-review-requests",
         "menu-review-requests-laptop",
+        "menu-review-requests-header-filter-open",
+        "menu-review-requests-header-sort-open",
         "menu-review-requests-change-size",
         "menu-review-requests-pinned",
         "menu-review-requests-hidden-collapsed",
