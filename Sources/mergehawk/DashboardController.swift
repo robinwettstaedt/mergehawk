@@ -632,7 +632,7 @@ final class DashboardController: ObservableObject {
             case .updatedDate:
                 compare(lhs, rhs, by: \.updatedAt, ascending: ascending)
             case .changeSize:
-                compareChangeSize(lhs, rhs, ascending: ascending)
+                compare(lhs, rhs, by: changeSize, ascending: ascending)
             }
         }
     }
@@ -1488,28 +1488,10 @@ final class DashboardController: ObservableObject {
         return compareTieBreak(lhs, rhs)
     }
 
-    private static func compareChangeSize(
-        _ lhs: PullRequest,
-        _ rhs: PullRequest,
-        ascending: Bool
-    ) -> Bool {
-        let lhsSize = changeSize(lhs)
-        let rhsSize = changeSize(rhs)
-        switch (lhsSize, rhsSize) {
-        case let (lhsSize?, rhsSize?) where lhsSize != rhsSize:
-            return ascending ? lhsSize < rhsSize : lhsSize > rhsSize
-        case (_?, nil):
-            return true
-        case (nil, _?):
-            return false
-        default:
-            return compareTieBreak(lhs, rhs)
-        }
-    }
-
-    private static func changeSize(_ pullRequest: PullRequest) -> Int? {
+    private static func changeSize(_ pullRequest: PullRequest) -> Int {
+        // The sort value treats unavailable counts like zero; the row still displays them as unavailable.
         guard let additions = pullRequest.additions,
-              let deletions = pullRequest.deletions else { return nil }
+              let deletions = pullRequest.deletions else { return 0 }
         return additions + deletions
     }
 

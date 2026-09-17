@@ -5,7 +5,7 @@ import XCTest
 
 final class DashboardControllerXCTests: XCTestCase {
     @MainActor
-    func testChangeSizeSortUsesTotalCountsAndKeepsUnknownLastWithinPins() {
+    func testChangeSizeSortUsesTotalCountsAndTreatsUnknownAsZeroWithinPins() {
         func pullRequest(
             _ id: String,
             number: Int,
@@ -45,11 +45,11 @@ final class DashboardControllerXCTests: XCTestCase {
 
         XCTAssertEqual(
             DashboardController.sorted(pullRequests, by: .changeSize, direction: .descending).map(\.id),
-            ["balanced", "tied", "high-net", "zero", "unknown", "missing-deletions", "missing-additions"]
+            ["balanced", "tied", "high-net", "unknown", "missing-deletions", "missing-additions", "zero"]
         )
         XCTAssertEqual(
             DashboardController.sorted(pullRequests, by: .changeSize, direction: .ascending).map(\.id),
-            ["zero", "tied", "high-net", "balanced", "unknown", "missing-deletions", "missing-additions"]
+            ["unknown", "missing-deletions", "missing-additions", "zero", "tied", "high-net", "balanced"]
         )
         XCTAssertEqual(
             DashboardController.sortedWithPins(
@@ -58,7 +58,7 @@ final class DashboardControllerXCTests: XCTestCase {
                 by: .changeSize,
                 direction: .descending
             ).map(\.id),
-            ["zero", "unknown", "missing-deletions", "balanced", "tied", "high-net", "missing-additions"]
+            ["unknown", "missing-deletions", "zero", "balanced", "tied", "high-net", "missing-additions"]
         )
         XCTAssertEqual(
             DashboardController.sortedWithPins(
@@ -67,7 +67,7 @@ final class DashboardControllerXCTests: XCTestCase {
                 by: .changeSize,
                 direction: .ascending
             ).map(\.id),
-            ["zero", "unknown", "missing-deletions", "tied", "high-net", "balanced", "missing-additions"]
+            ["unknown", "missing-deletions", "zero", "missing-additions", "tied", "high-net", "balanced"]
         )
     }
 
@@ -85,11 +85,11 @@ final class DashboardControllerXCTests: XCTestCase {
         waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
 
         controller.pullRequestSortOption = .changeSize
-        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_4", "PR_1", "PR_6"])
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_4", "PR_6", "PR_1"])
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
 
         controller.pullRequestSortDirection = .ascending
-        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_1", "PR_4", "PR_6"])
+        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
 
         controller.pinnedPullRequestIds = ["PR_5"]
@@ -99,6 +99,16 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_2", "PR_5"])
         controller.pullRequestSortDirection = .descending
         XCTAssertEqual(controller.requestedSections[1].hidden.map(\.id), ["PR_5", "PR_2"])
+
+        controller.hiddenPullRequestIds = []
+        controller.pinnedPullRequestIds = []
+        controller.refresh()
+        waitUntil(timeout: 1.0) {
+            controller.state.pullRequests.first(where: { $0.id == "PR_2" })?.isAssignedToViewer == true
+        }
+        XCTAssertEqual(controller.requestedSections[0].visible.map(\.id), ["PR_2", "PR_7"])
+        controller.pullRequestSortDirection = .ascending
+        XCTAssertEqual(controller.requestedSections[0].visible.map(\.id), ["PR_7", "PR_2"])
     }
 
     @MainActor
