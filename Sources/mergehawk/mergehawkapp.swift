@@ -50,11 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.showSettingsWindow()
                 case .menu:
                     self?.showVerificationMenuWindow()
-                case .statusMenu:
-                    self?.showVerificationMenuWindow()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                        self?.statusBarController?.showMenu()
-                    }
                 }
             }
         }

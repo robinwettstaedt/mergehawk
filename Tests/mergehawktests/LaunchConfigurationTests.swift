@@ -3,7 +3,7 @@ import XCTest
 
 final class LaunchConfigurationTests: XCTestCase {
     func testVerificationUIRequiresMockModeAndRecognizesOnlySupportedSurfaces() {
-        for surface in ["settings", "menu", "status-menu"] {
+        for surface in ["settings", "menu"] {
             XCTAssertEqual(
                 LaunchConfiguration.current(
                     arguments: ["mergehawk", "--verification-ui", surface],
