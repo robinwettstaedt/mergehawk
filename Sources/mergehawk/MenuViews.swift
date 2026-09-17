@@ -2298,10 +2298,10 @@ struct RequestedSectionHeading: View {
             Button(action: action) {
                 HStack(spacing: 8) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .frame(width: 12)
                     Text(section.title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.body.weight(.semibold))
                     Text("\(count)")
                         .font(.caption2.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.secondary)
