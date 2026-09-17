@@ -558,7 +558,6 @@ final class VisualVerificationXCTests: XCTestCase {
                             isAttention: false,
                             isPinned: false,
                             isHidden: false,
-                            showsAuthor: true,
                             toggleHide: {},
                             togglePin: {},
                             action: {}

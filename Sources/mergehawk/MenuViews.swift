@@ -1793,7 +1793,6 @@ struct PullRequestListView: View {
             isAttention: controller.isUnreadPullRequest(pullRequest),
             isPinned: controller.isPinned(pullRequest),
             isHidden: controller.isHidden(pullRequest),
-            showsAuthor: mode == .reviewRequests,
             toggleHide: {
                 controller.toggleHide(pullRequest)
             },
@@ -2437,7 +2436,6 @@ struct PullRequestRow: View {
     let isAttention: Bool
     let isPinned: Bool
     let isHidden: Bool
-    var showsAuthor = false
     let toggleHide: () -> Void
     let togglePin: () -> Void
     let action: () -> Void
@@ -2449,9 +2447,7 @@ struct PullRequestRow: View {
             Button(action: action) {
                 HStack(spacing: PullRequestColumnLayout.spacing) {
                     HStack(spacing: 7) {
-                        if showsAuthor {
-                            PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
-                        }
+                        PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
                         identity
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -2556,8 +2552,8 @@ private struct PullRequestAuthorAvatar: View {
         }
         .frame(width: 22, height: 22)
         .clipShape(Circle())
-        .help("Requested author: \(author)")
-        .accessibilityLabel("Requested author: \(author)")
+        .help("Author: \(author)")
+        .accessibilityLabel("Author: \(author)")
     }
 
     private var placeholder: some View {
