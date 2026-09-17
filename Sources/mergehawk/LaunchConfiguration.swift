@@ -4,6 +4,7 @@ struct LaunchConfiguration: Equatable {
     enum VerificationUI: String {
         case settings
         case menu
+        case statusMenu = "status-menu"
     }
 
     var usesMockData: Bool

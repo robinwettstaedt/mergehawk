@@ -50,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.showSettingsWindow()
                 case .menu:
                     self?.showVerificationMenuWindow()
+                case .statusMenu:
+                    self?.statusBarController?.showMenu()
                 }
             }
         }

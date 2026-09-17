@@ -12,7 +12,7 @@ HEALTH_TIMEOUT_SECONDS=10
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--mock] [--notification-type-fixtures] [--open|--no-open] [--ui settings|menu]
+Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--mock] [--notification-type-fixtures] [--open|--no-open] [--ui settings|menu|status-menu]
 
 Launches a run-bound, mock-only MergeHawk app bundle without replacing the
 normal installed app. Opens Settings by default for unattended computer use.
@@ -73,8 +73,8 @@ if [[ -z "$SLOT" ]]; then
   echo "--slot must not be empty" >&2
   exit 2
 fi
-if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
-  echo "--ui must be settings or menu" >&2
+if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" && "$UI_SURFACE" != "status-menu" ]]; then
+  echo "--ui must be settings, menu, or status-menu" >&2
   exit 2
 fi
 
