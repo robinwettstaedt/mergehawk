@@ -370,6 +370,14 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
 
     override func rightMouseDown(with event: NSEvent) {
         secondaryClickTrace?("host rightMouseDown begin inMenu=\(enclosingMenuItem != nil)")
+        if enclosingMenuItem != nil, let contextMenu = menu(for: event) {
+            secondaryClickTrace?(
+                "host explicitContextMenu begin items=\(contextMenu.items.map(\.title).joined(separator: "|"))"
+            )
+            NSMenu.popUpContextMenu(contextMenu, with: event, for: self)
+            secondaryClickTrace?("host explicitContextMenu end")
+            return
+        }
         super.rightMouseDown(with: event)
         secondaryClickTrace?("host rightMouseDown end")
     }
