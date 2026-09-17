@@ -45,6 +45,13 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .unknown).label, "Mergeability unknown")
         XCTAssertTrue(MergeConflictIndicator.Kind(mergeable: .mergeable).label.contains("No merge conflicts"))
         XCTAssertTrue(MergeConflictIndicator.Kind(mergeable: .mergeable).label.contains("other requirements"))
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).signal, .positive)
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .changesRequested).signal, .negative)
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).signal, .unavailable)
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .unknown).signal, .unavailable)
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .mergeable).signal, .positive)
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .conflicting).signal, .negative)
+        XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .unknown).signal, .unavailable)
 
         let blocked = (
             ReviewDecisionIndicator.Kind(reviewDecision: .approved).label,

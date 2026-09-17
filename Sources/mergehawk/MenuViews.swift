@@ -2813,6 +2813,39 @@ extension CIStatusIndicator.Kind {
     }
 }
 
+struct PullRequestSignalIndicator: View {
+    enum Kind: Equatable {
+        case positive
+        case negative
+        case unavailable
+    }
+
+    let kind: Kind
+    let label: String
+
+    var body: some View {
+        Group {
+            switch kind {
+            case .positive:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.green)
+            case .negative:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.red)
+            case .unavailable:
+                Text("—")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 17, height: 17)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
 struct MergeConflictIndicator: View {
     enum Kind: Equatable {
         case none
@@ -2834,36 +2867,23 @@ struct MergeConflictIndicator: View {
             case .unknown: "Mergeability unknown"
             }
         }
+
+        var signal: PullRequestSignalIndicator.Kind {
+            switch self {
+            case .none: .positive
+            case .conflicting: .negative
+            case .unknown: .unavailable
+            }
+        }
     }
 
     let mergeable: MergeableState
 
     var body: some View {
-        Image(systemName: symbolName)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(color)
-            .frame(width: 17, height: 17)
-            .help(kind.label)
-            .accessibilityLabel(kind.label)
+        PullRequestSignalIndicator(kind: kind.signal, label: kind.label)
     }
 
     private var kind: Kind { Kind(mergeable: mergeable) }
-
-    private var symbolName: String {
-        switch kind {
-        case .none: "checkmark.circle.fill"
-        case .conflicting: "exclamationmark.triangle.fill"
-        case .unknown: "questionmark.diamond.fill"
-        }
-    }
-
-    private var color: Color {
-        switch kind {
-        case .none: .green
-        case .conflicting: .red
-        case .unknown: .secondary
-        }
-    }
 }
 
 enum PullRequestChangesPresentation {
@@ -2964,13 +2984,7 @@ struct ReviewDecisionIndicator: View {
     let reviewDecision: ReviewDecision
 
     var body: some View {
-        Image(systemName: kind.symbolName)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(kind.color)
-            .font(.system(size: kind.pointSize, weight: .semibold))
-            .frame(width: 17, height: 17)
-            .accessibilityLabel(kind.label)
-            .help(kind.label)
+        PullRequestSignalIndicator(kind: kind.signal, label: kind.label)
     }
 
     private var kind: Kind {
@@ -2979,41 +2993,11 @@ struct ReviewDecisionIndicator: View {
 }
 
 extension ReviewDecisionIndicator.Kind {
-    var symbolName: String {
+    var signal: PullRequestSignalIndicator.Kind {
         switch self {
-        case .approved:
-            "checkmark.seal.fill"
-        case .changesRequested:
-            "exclamationmark.triangle.fill"
-        case .noReviewYet:
-            "eye.fill"
-        case .unknown:
-            "questionmark.diamond.fill"
-        }
-    }
-
-    // eye.fill is a wide standalone symbol that reads larger than the enclosed
-    // seal/triangle/diamond glyphs at the same size, so nudge it down to keep
-    // every review-decision indicator optically the same size.
-    var pointSize: CGFloat {
-        switch self {
-        case .noReviewYet:
-            11
-        case .approved, .changesRequested, .unknown:
-            13
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .approved:
-            .green
-        case .changesRequested:
-            .red
-        case .noReviewYet:
-            .secondary
-        case .unknown:
-            .secondary
+        case .approved: .positive
+        case .changesRequested: .negative
+        case .noReviewYet, .unknown: .unavailable
         }
     }
 
