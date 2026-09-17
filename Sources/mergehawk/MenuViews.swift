@@ -568,19 +568,6 @@ enum HiddenPullRequestsDisclosurePresentation {
     }
 }
 
-enum PullRequestRowMetadataPresentation {
-    static func text(for pullRequest: PullRequest, showsAuthor: Bool) -> String {
-        if showsAuthor {
-            return "\(pullRequest.repo) · @\(pullRequest.author)"
-        }
-        return pullRequest.repo
-    }
-
-    static func branchText(for pullRequest: PullRequest) -> String {
-        pullRequest.headRefName
-    }
-}
-
 enum PullRequestPinPresentation {
     static let rotationDegrees = 35.0
 
@@ -2317,19 +2304,50 @@ enum PullRequestColumnLayout {
 }
 
 struct PullRequestColumnHeader: View {
+    enum Status: CaseIterable, Identifiable {
+        case comments
+        case review
+        case ci
+        case conflicts
+
+        var id: Self { self }
+
+        var symbol: String {
+            switch self {
+            case .comments: "bubble.left"
+            case .review: "person.crop.circle.badge.checkmark"
+            case .ci: "checkmark.circle"
+            case .conflicts: "exclamationmark.triangle"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .comments: "Unresolved comments"
+            case .review: "Review feedback"
+            case .ci: "Continuous integration"
+            case .conflicts: "Merge conflicts"
+            }
+        }
+
+        var width: CGFloat {
+            self == .comments ? PullRequestColumnLayout.commentsWidth : PullRequestColumnLayout.statusWidth
+        }
+    }
+
+    var previewHoveredStatus: Status? = nil
+    @State private var hoveredStatus: Status?
+
+    private var activeStatus: Status? { previewHoveredStatus ?? hoveredStatus }
+
     var body: some View {
         HStack(spacing: PullRequestColumnLayout.spacing) {
             Text("Pull request")
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Pull request")
-            statusHeader(
-                "bubble.left",
-                label: "Unresolved comments",
-                width: PullRequestColumnLayout.commentsWidth
-            )
-            statusHeader("person.crop.circle.badge.checkmark", label: "Review feedback")
-            statusHeader("checkmark.circle", label: "Continuous integration")
-            statusHeader("exclamationmark.triangle", label: "Merge conflicts")
+            ForEach(Status.allCases) { status in
+                statusHeader(status)
+            }
             Text("Changes")
                 .frame(width: PullRequestColumnLayout.changesWidth, alignment: .center)
                 .accessibilityLabel("Changes")
@@ -2343,18 +2361,41 @@ struct PullRequestColumnHeader: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
         .frame(height: 22)
+        .zIndex(activeStatus == nil ? 0 : 10)
     }
 
-    private func statusHeader(
-        _ symbol: String,
-        label: String,
-        width: CGFloat = PullRequestColumnLayout.statusWidth
-    ) -> some View {
-        Image(systemName: symbol)
-            .frame(width: width, height: 22)
+    private func statusHeader(_ status: Status) -> some View {
+        Image(systemName: status.symbol)
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: status.width, height: 22)
             .contentShape(Rectangle())
-            .help(label)
-            .accessibilityLabel(label)
+            .onHover { isHovered in
+                if isHovered {
+                    hoveredStatus = status
+                } else if hoveredStatus == status {
+                    hoveredStatus = nil
+                }
+            }
+            .overlay(alignment: .top) {
+                if activeStatus == status {
+                    Text(status.label)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(nsColor: .labelColor))
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        }
+                        .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
+                        .offset(y: 26)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityLabel(status.label)
     }
 }
 
@@ -2418,7 +2459,7 @@ struct PullRequestRow: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 if pullRequest.draft { DraftPullRequestIndicator() }
                 Text(pullRequest.title)
@@ -2441,13 +2482,6 @@ struct PullRequestRow: View {
                     .layoutPriority(1)
                     .help("Pull request #\(pullRequest.number)")
                     .accessibilityLabel("Pull request number \(pullRequest.number)")
-                if !pullRequest.headRefName.isEmpty {
-                    Text("·").fixedSize()
-                    Text(PullRequestRowMetadataPresentation.branchText(for: pullRequest))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(pullRequest.headRefName)
-                }
             }
             .font(.caption2.weight(.medium))
             .foregroundStyle(.secondary)
@@ -2474,7 +2508,7 @@ private struct PullRequestAuthorAvatar: View {
                 placeholder
             }
         }
-        .frame(width: 26, height: 26)
+        .frame(width: 22, height: 22)
         .clipShape(Circle())
         .help("Requested author: \(author)")
         .accessibilityLabel("Requested author: \(author)")

@@ -306,6 +306,10 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
+            try renderHeaderTooltips(
+                pullRequest: XCTUnwrap(controller.sourceFilteredMyPullRequests.first),
+                to: outputURL.appendingPathComponent("menu-header-tooltips.png")
+            )
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-laptop.png"),
@@ -526,6 +530,37 @@ final class VisualVerificationXCTests: XCTestCase {
     }
 
     @MainActor
+    private func renderHeaderTooltips(pullRequest: PullRequest, to url: URL) throws {
+        let size = CGSize(width: MenuRootView.Layout.width, height: 460)
+        let view = ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 36) {
+                ForEach(PullRequestColumnHeader.Status.allCases) { status in
+                    VStack(spacing: 3) {
+                        PullRequestColumnHeader(previewHoveredStatus: status)
+                        PullRequestRow(
+                            pullRequest: pullRequest,
+                            isAttention: false,
+                            isPinned: false,
+                            isHidden: false,
+                            toggleHide: {},
+                            togglePin: {},
+                            action: {}
+                        )
+                    }
+                }
+            }
+            .padding(.top, 12)
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
+        .background(.regularMaterial)
+
+        try render(view, size: size, appearance: .darkAqua, to: url)
+        let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
+        let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
+        try render(view, size: size, appearance: .aqua, to: lightURL)
+    }
+
+    @MainActor
     private func renderSettings<Content: View>(
         _ makeView: @autoclosure () -> Content,
         to url: URL,
@@ -653,6 +688,7 @@ private struct VisualCaptureSelection {
         "menu-notifications",
         "menu-notifications-other",
         "menu-my-prs",
+        "menu-header-tooltips",
         "menu-my-prs-laptop",
         "menu-my-prs-pinned",
         "menu-my-prs-hidden-collapsed",

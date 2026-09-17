@@ -70,6 +70,13 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(CommentCountIndicator.label(for: 3), "3 unresolved comments")
     }
 
+    func testColumnHeadersExplainEachStatus() {
+        XCTAssertEqual(
+            PullRequestColumnHeader.Status.allCases.map(\.label),
+            ["Unresolved comments", "Review feedback", "Continuous integration", "Merge conflicts"]
+        )
+    }
+
     func testRequestedFiltersOfferOnlyStatusChoices() {
         XCTAssertEqual(DashboardController.ReviewRequestFilterOption.allCases.map(\.label), ["All", "Draft", "Ready"])
     }
@@ -334,33 +341,6 @@ final class MenuViewTests: XCTestCase {
         event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 2),
         pullRequest: otherCommitNotificationPullRequest
     )) == "2 commits by others")
-    let metadataPullRequest = PullRequest(
-        id: "metadata",
-        title: "Metadata presentation",
-        number: 12,
-        url: URL(string: "https://github.com/acme/mergehawk/pull/12")!,
-        repo: "acme/mergehawk",
-        ciState: .passing,
-        reviewDecision: .noReviewYet,
-        commentCount: 0,
-        reviewCount: 0,
-        isMine: true,
-        author: "rw",
-        headRefName: "feature/metadata",
-        mergeable: .mergeable,
-        draft: false
-    )
-    precondition(PullRequestRowMetadataPresentation.text(
-        for: metadataPullRequest,
-        showsAuthor: false
-    ) == "acme/mergehawk")
-    precondition(PullRequestRowMetadataPresentation.text(
-        for: metadataPullRequest,
-        showsAuthor: true
-    ) == "acme/mergehawk · @rw")
-    precondition(PullRequestRowMetadataPresentation.branchText(
-        for: metadataPullRequest
-    ) == "feature/metadata")
     precondition(PullRequestPinPresentation.symbolName(isPinned: false) == "pin")
     precondition(PullRequestPinPresentation.symbolName(isPinned: true) == "pin.fill")
     precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin PR")
