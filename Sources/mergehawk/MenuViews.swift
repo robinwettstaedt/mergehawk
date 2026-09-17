@@ -2364,7 +2364,7 @@ struct PullRequestColumnLegend: View {
             switch self {
             case .comments: "Unresolved comments"
             case .review: "Review feedback"
-            case .ci: "Continuous integration"
+            case .ci: "CI"
             case .conflicts: "Merge conflicts"
             }
         }
