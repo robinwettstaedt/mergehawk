@@ -55,8 +55,8 @@ APP_PATH="/path/to/MergeHawk.app" scripts/update-installed-app.sh
 ## Private installers
 
 The **CI** workflow runs on every pull request targeting `main`. Its
-**Build and test** check runs the release Swift tests, core test runner, and app
-bundle build without distribution credentials. Branch protection requires this
+**Tests** check runs the Swift tests and core test runner. App bundles and
+installers are built separately after merge. Branch protection requires this
 check to pass with the branch up to date before merging, including for admins.
 
 The **Private Installer** GitHub Actions workflow builds a signed, notarized
