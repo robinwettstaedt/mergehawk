@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   installer:
-    name: Test, sign, and notarize private installer
+    name: Sign and notarize private installer
     if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     timeout-minutes: 45
@@ -34,11 +34,6 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-
-      - name: Test release build
-        run: |
-          swift test --configuration release
-          swift run --configuration release mergehawkcoretestrunner
 
       - name: Validate signing configuration
         shell: bash

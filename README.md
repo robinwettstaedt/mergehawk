@@ -54,10 +54,15 @@ APP_PATH="/path/to/MergeHawk.app" scripts/update-installed-app.sh
 
 ## Private installers
 
+The **CI** workflow runs on every pull request targeting `main`. Its
+**Build and test** check runs the release Swift tests, core test runner, and app
+bundle build without distribution credentials. Branch protection requires this
+check to pass with the branch up to date before merging, including for admins.
+
 The **Private Installer** GitHub Actions workflow builds a signed, notarized
 Apple Silicon DMG after every push to protected `main`, including PR merges.
-It can also be started manually from `main`. Each run tests the triggering commit,
-builds the app with automatic updates disabled, notarizes the DMG, staples Apple's
+It can also be started manually from `main`. Each run builds the triggering commit
+with automatic updates disabled, notarizes the DMG, staples Apple's
 ticket, and verifies it with Gatekeeper before uploading it.
 
 Download the installer from the workflow run's summary or **Artifacts** section.

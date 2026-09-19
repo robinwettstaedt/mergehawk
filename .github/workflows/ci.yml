@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out the proposed merge
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run release tests
+        run: swift test --configuration release
+
+      - name: Run core tests
+        run: swift run --configuration release mergehawkcoretestrunner
+
+      - name: Build app bundle without distribution credentials
+        env:
+          CONFIGURATION: release
+          CODE_SIGN_IDENTITY: '-'
+          DISTRIBUTION_CHANNEL: development
+        run: scripts/build-app-bundle.sh
