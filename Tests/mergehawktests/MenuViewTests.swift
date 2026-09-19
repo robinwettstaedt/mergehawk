@@ -5,6 +5,15 @@ import mergehawkcore
 import XCTest
 
 final class MenuViewTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        await MainActor.run {
+            // SwiftPM tests do not run NSApplicationMain. Initialize AppKit before
+            // creating native menu hosts or keyboard events on a fresh CI runner.
+            _ = NSApplication.shared
+        }
+    }
+
     func testPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
         let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000))
         XCTAssertEqual(large.width, 820)
