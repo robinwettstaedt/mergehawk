@@ -52,7 +52,52 @@ By default this updates `/Applications/MergeHawk.app` if present, then
 APP_PATH="/path/to/MergeHawk.app" scripts/update-installed-app.sh
 ```
 
-## GitHub Release Distribution
+## Private installers
+
+The **Private Installer** GitHub Actions workflow builds a signed, notarized
+Apple Silicon DMG after every push to protected `main`, including PR merges.
+It can also be started manually from `main`. Each run tests the triggering commit,
+builds the app with automatic updates disabled, notarizes the DMG, staples Apple's
+ticket, and verifies it with Gatekeeper before uploading it.
+
+Download the installer from the workflow run's summary or **Artifacts** section.
+The artifact is accessible to signed-in users with repository read access and is
+retained for 90 days. The repository can remain private. This workflow creates
+neither Git tags nor GitHub Releases and does not use Sparkle signing secrets.
+
+The workflow uses the existing `release` environment, the repository variable
+`DEVELOPER_ID_APPLICATION`, and these repository or environment secrets:
+
+- `DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64` (certificate and private key)
+- `DEVELOPER_ID_CERTIFICATE_PASSWORD`
+- `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`
+
+Signing credentials are imported into a temporary Keychain and removed after
+the run. Keep `main` protected; only trusted `main` code should receive these
+credentials. GitHub-hosted macOS runner usage counts against the repository
+owner's Actions allowance.
+
+The same packaging command can run locally on an Apple Silicon Mac with Xcode,
+a Developer ID signing identity, and a saved notarization credential profile:
+
+```sh
+DEVELOPER_ID_APPLICATION="Developer ID Application: Example (TEAMID)" \
+NOTARYTOOL_PROFILE="mergehawk-notary" \
+scripts/build-private-installer.sh
+```
+
+Output is written to `dist/private-installers/<version>-<build>/`, including the
+DMG, checksum, source commit, and notarization result. The version defaults to
+`0.1.0`; the build number defaults to the current UTC timestamp. Override
+`MARKETING_VERSION` and `BUILD_NUMBER` when needed. Update `MARKETING_VERSION`
+in the workflow when releasing a new marketing version.
+
+To install, open the DMG and drag MergeHawk to Applications. To update, quit
+MergeHawk and replace the existing app; uninstalling first is unnecessary.
+These builds require Apple Silicon and macOS 14 or later. Sparkle remains a
+bundled dependency, but its updater and update controls are disabled.
+
+## GitHub Release Distribution (Sparkle channel)
 
 MergeHawk's direct-download distribution path uses GitHub Releases and Sparkle.
 The committed release defaults live in `scripts/release-github.env`. That file
