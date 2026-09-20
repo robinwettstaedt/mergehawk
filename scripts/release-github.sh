@@ -224,13 +224,13 @@ done <<< "$PUBLISHED_TAGS"
 
 # GitHub creates the tag on the downloads repository's own default branch.
 # Never push this private checkout or its commit SHA to the public repository.
-gh release create "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" \
+RELEASE_URL="$(gh release create "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" \
   "$DMG_PATH" "$APPCAST_PATH" --draft --latest=false \
   --title "MergeHawk $MARKETING_VERSION ($BUILD_NUMBER)" \
-  --notes "MergeHawk $MARKETING_VERSION ($BUILD_NUMBER). Apple Silicon; macOS 14 or later. Signed and notarized. Includes in-app software updates."
+  --notes "MergeHawk $MARKETING_VERSION ($BUILD_NUMBER). Apple Silicon; macOS 14 or later. Signed and notarized. Includes in-app software updates.")"
 if [[ "$DRAFT" == 0 ]]; then
   gh release edit "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --draft=false --latest
   echo "Published: https://github.com/$RELEASE_REPOSITORY/releases/tag/$RELEASE_TAG"
 else
-  echo "Created draft: https://github.com/$RELEASE_REPOSITORY/releases/tag/$RELEASE_TAG"
+  echo "Created draft: $RELEASE_URL"
 fi

@@ -154,7 +154,8 @@ jobs:
           source scripts/lib/release-env.sh
           load_release_env_file scripts/release-github.env RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY
           {
-            echo "[MergeHawk release](https://github.com/$RELEASE_REPOSITORY/releases/tag/v$MARKETING_VERSION-$BUILD_NUMBER)"
+            echo "[MergeHawk releases](https://github.com/$RELEASE_REPOSITORY/releases)"
+            echo "Build: $MARKETING_VERSION ($BUILD_NUMBER)."
             echo
             echo "Apple Silicon, macOS 14+. Signed, notarized, and configured for Sparkle software updates."
             echo "Draft requested: ${DRAFT:-false}. Replace your old private installer manually once to enable updates."

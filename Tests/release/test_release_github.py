@@ -58,8 +58,10 @@ if args[:1] == ['api']:
     if os.environ.get('FAIL_API'):
         sys.exit(1)
     print(os.environ.get('PUBLISHED_TAGS', ''))
-elif args[:2] == ['release', 'create'] and os.environ.get('FAIL_CREATE'):
-    sys.exit(1)
+elif args[:2] == ['release', 'create']:
+    if os.environ.get('FAIL_CREATE'):
+        sys.exit(1)
+    print('https://github.com/example/downloads/releases/tag/untagged-test-draft')
 ''')
         self.env = os.environ.copy()
         self.env.update(PATH=str(self.bin) + os.pathsep + self.env['PATH'],
@@ -108,7 +110,9 @@ elif args[:2] == ['release', 'create'] and os.environ.get('FAIL_CREATE'):
         self.assertEqual([c for c in self.calls() if c[0] == 'git'], [['git', 'status', '--porcelain']])
 
     def test_requested_draft_never_publishes(self):
-        self.assertEqual(self.run_release('--draft').returncode, 0)
+        result = self.run_release('--draft')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Created draft: https://github.com/example/downloads/releases/tag/untagged-test-draft', result.stdout)
         self.assertFalse(any(c[1:3] == ['release', 'edit'] for c in self.calls()))
 
     def test_failed_upload_does_not_publish(self):
