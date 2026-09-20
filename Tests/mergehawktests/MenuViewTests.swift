@@ -130,7 +130,7 @@ final class MenuViewTests: XCTestCase {
     func testColumnHeadersExplainEachValue() {
         XCTAssertEqual(
             PullRequestColumnLegend.Column.allCases.map(\.label),
-            ["Unresolved comments", "CI", "Review feedback", "Merge conflicts", "Changes", "Updated / Opened"]
+            ["Changes", "Unresolved comments", "CI", "Review feedback", "Merge status", "Updated / Opened"]
         )
     }
 

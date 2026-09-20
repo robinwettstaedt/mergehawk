@@ -2346,23 +2346,27 @@ struct PullRequestColumnHeader: View {
 
 struct PullRequestColumnLegend: View {
     enum Column: CaseIterable, Identifiable {
+        case changes
         case comments
         case ci
         case review
-        case conflicts
-        case changes
+        case mergeStatus
         case time
 
         var id: Self { self }
 
-        var symbol: String {
+        @ViewBuilder
+        var icon: some View {
             switch self {
-            case .comments: "bubble.left"
-            case .review: "person.crop.circle.badge.checkmark"
-            case .ci: "checkmark.circle"
-            case .conflicts: "exclamationmark.triangle"
-            case .changes: "plusminus"
-            case .time: "clock.arrow.circlepath"
+            case .comments: Image(systemName: "bubble.left")
+            case .review: Image(systemName: "person.crop.circle.badge.checkmark")
+            case .ci: Image(systemName: "checkmark.circle")
+            case .mergeStatus:
+                MergeStatusSymbol()
+                    .stroke(style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+                    .frame(width: 14, height: 14)
+            case .changes: Image(systemName: "plusminus")
+            case .time: Image(systemName: "clock.arrow.circlepath")
             }
         }
 
@@ -2371,7 +2375,7 @@ struct PullRequestColumnLegend: View {
             case .comments: "Unresolved comments"
             case .review: "Review feedback"
             case .ci: "CI"
-            case .conflicts: "Merge conflicts"
+            case .mergeStatus: "Merge status"
             case .changes: "Changes"
             case .time: "Updated / Opened"
             }
@@ -2380,7 +2384,7 @@ struct PullRequestColumnLegend: View {
         var width: CGFloat {
             switch self {
             case .comments: PullRequestColumnLayout.commentsWidth
-            case .review, .ci, .conflicts: PullRequestColumnLayout.statusWidth
+            case .review, .ci, .mergeStatus: PullRequestColumnLayout.statusWidth
             case .changes: PullRequestColumnLayout.changesWidth
             case .time: PullRequestColumnLayout.ageWidth
             }
@@ -2406,7 +2410,7 @@ struct PullRequestColumnLegend: View {
     }
 
     private func columnHeader(_ column: Column) -> some View {
-        Image(systemName: column.symbol)
+        column.icon
             .font(.system(size: 13, weight: .semibold))
             .frame(width: column.width, height: 22)
             .contentShape(Rectangle())
@@ -2463,6 +2467,8 @@ struct PullRequestRow: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
+                        .frame(width: PullRequestColumnLayout.changesWidth)
                     CommentCountIndicator(count: pullRequest.commentCount)
                         .frame(width: PullRequestColumnLayout.commentsWidth)
                     CIStatusIndicator(ciState: pullRequest.ciState)
@@ -2471,8 +2477,6 @@ struct PullRequestRow: View {
                         .frame(width: PullRequestColumnLayout.statusWidth)
                     MergeConflictIndicator(mergeable: pullRequest.mergeable)
                         .frame(width: PullRequestColumnLayout.statusWidth)
-                    PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
-                        .frame(width: PullRequestColumnLayout.changesWidth)
                     VStack(alignment: .trailing, spacing: 0) {
                         ageCell(pullRequest.updatedAt, field: .updated)
                         ageCell(pullRequest.createdAt, field: .opened)
@@ -2594,9 +2598,14 @@ private enum PullRequestActionButtonLayout {
 
 private struct DraftPullRequestIndicator: View {
     var body: some View {
-        Image(systemName: "pencil")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
+        Text("Draft")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.2), in: Capsule())
             .help("Draft PR")
             .accessibilityLabel("Draft PR")
     }
@@ -3016,6 +3025,49 @@ struct PullRequestChangesIndicator: View {
     }
 }
 
+private struct MergeStatusSymbol: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addEllipse(in: CGRect(x: 1, y: 1, width: 4, height: 4))
+        path.addEllipse(in: CGRect(x: 1, y: 11, width: 4, height: 4))
+        path.addEllipse(in: CGRect(x: 11, y: 11, width: 4, height: 4))
+        path.move(to: CGPoint(x: 3, y: 5))
+        path.addLine(to: CGPoint(x: 3, y: 11))
+        path.move(to: CGPoint(x: 13, y: 11))
+        path.addLine(to: CGPoint(x: 13, y: 7))
+        path.addQuadCurve(to: CGPoint(x: 9, y: 3), control: CGPoint(x: 13, y: 3))
+        path.addLine(to: CGPoint(x: 7, y: 3))
+        path.move(to: CGPoint(x: 9, y: 1))
+        path.addLine(to: CGPoint(x: 7, y: 3))
+        path.addLine(to: CGPoint(x: 9, y: 5))
+        return path.applying(CGAffineTransform(scaleX: rect.width / 16, y: rect.height / 16))
+    }
+}
+
+private struct ChangesRequestedSymbol: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        // Folded document outline.
+        path.move(to: CGPoint(x: 2, y: 1))
+        path.addLine(to: CGPoint(x: 10, y: 1))
+        path.addLine(to: CGPoint(x: 14, y: 5))
+        path.addLine(to: CGPoint(x: 14, y: 15))
+        path.addLine(to: CGPoint(x: 2, y: 15))
+        path.closeSubpath()
+        path.move(to: CGPoint(x: 10, y: 1))
+        path.addLine(to: CGPoint(x: 10, y: 5))
+        path.addLine(to: CGPoint(x: 14, y: 5))
+        // Added and removed lines, matching the review-feedback meaning.
+        path.move(to: CGPoint(x: 5, y: 8))
+        path.addLine(to: CGPoint(x: 11, y: 8))
+        path.move(to: CGPoint(x: 8, y: 5.5))
+        path.addLine(to: CGPoint(x: 8, y: 10.5))
+        path.move(to: CGPoint(x: 5, y: 12))
+        path.addLine(to: CGPoint(x: 11, y: 12))
+        return path.applying(CGAffineTransform(scaleX: rect.width / 16, y: rect.height / 16))
+    }
+}
+
 struct ReviewDecisionIndicator: View {
     enum Kind: Equatable {
         case approved
@@ -3040,7 +3092,16 @@ struct ReviewDecisionIndicator: View {
     let reviewDecision: ReviewDecision
 
     var body: some View {
-        PullRequestSignalIndicator(kind: kind.signal, label: kind.label)
+        if kind == .changesRequested {
+            ChangesRequestedSymbol()
+                .stroke(.red, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+                .frame(width: 13, height: 15)
+                .frame(width: 17, height: 17)
+                .help(kind.label)
+                .accessibilityLabel(kind.label)
+        } else {
+            PullRequestSignalIndicator(kind: kind.signal, label: kind.label)
+        }
     }
 
     private var kind: Kind {
