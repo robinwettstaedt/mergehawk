@@ -2349,8 +2349,8 @@ struct PullRequestColumnLegend: View {
         case changes
         case comments
         case ci
-        case review
         case mergeStatus
+        case review
         case time
 
         var id: Self { self }
@@ -2473,9 +2473,9 @@ struct PullRequestRow: View {
                         .frame(width: PullRequestColumnLayout.commentsWidth)
                     CIStatusIndicator(ciState: pullRequest.ciState)
                         .frame(width: PullRequestColumnLayout.statusWidth)
-                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
                     MergeConflictIndicator(mergeable: pullRequest.mergeable)
+                        .frame(width: PullRequestColumnLayout.statusWidth)
+                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
                         .frame(width: PullRequestColumnLayout.statusWidth)
                     VStack(alignment: .trailing, spacing: 0) {
                         ageCell(pullRequest.updatedAt, field: .updated)
