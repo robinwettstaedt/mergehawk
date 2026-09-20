@@ -80,24 +80,6 @@ struct PreferencesStore {
         }
     }
 
-    var gitHubInboxNotifications: [GitHubInboxNotification] {
-        get {
-            decoded(for: "notifications.githubInbox", fallback: [])
-        }
-        set {
-            encode(newValue, for: "notifications.githubInbox")
-        }
-    }
-
-    var gitHubInboxSyncMetadata: GitHubInboxSyncMetadata {
-        get {
-            decoded(for: "notifications.githubInboxMetadata", fallback: .empty)
-        }
-        set {
-            encode(newValue, for: "notifications.githubInboxMetadata")
-        }
-    }
-
     var refreshIntervalMinutes: Int {
         get {
             let stored = defaults.integer(forKey: "refresh.intervalMinutes")

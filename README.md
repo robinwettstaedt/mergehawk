@@ -200,11 +200,9 @@ MergeHawk does not request broad classic OAuth scopes for GitHub App sign-in. Ac
 
 After signing in, install or manage repository access from the Sources settings pane. GitHub lets the user choose a personal account or organization, then choose all repositories or selected repositories. Private organization repositories require an organization owner, or an eligible repository admin when the organization allows it, to install or approve the MergeHawk GitHub App for that organization or repository. If MergeHawk is signed in but the app is not installed anywhere, the menu and Sources settings show repository access guidance instead of a normal empty PR state.
 
-GitHub Inbox notifications shown in `Notifications > Other` require the classic personal access token fallback because GitHub App user tokens and fine-grained personal access tokens do not provide the same user notifications API access.
-
 ## Advanced Personal Access Token Fallback
 
-1. Create a GitHub fine-grained personal access token for PR data, or a classic personal access token if you need `Notifications > Other`.
+1. Create a GitHub fine-grained or classic personal access token for PR data.
 2. Grant repository access for the repositories MergeHawk should monitor.
 3. Include read permissions for metadata, pull requests, issues, and actions where applicable.
 4. Launch the app with `swift run mergehawk`.

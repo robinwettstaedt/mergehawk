@@ -239,7 +239,6 @@ final class VisualVerificationXCTests: XCTestCase {
 
         try await MainActor.run {
             accessPromptController.selectedTab = .notifications
-            accessPromptController.selectedNotificationSubtab = .pullRequests
             try renderMenu(
                 controller: accessPromptController,
                 to: outputURL.appendingPathComponent("menu-repository-access-notifications.png")
@@ -298,11 +297,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("settings-about.png")
             )
             controller.selectedTab = .notifications
-            controller.selectedNotificationSubtab = .pullRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications.png"))
-
-            controller.selectedNotificationSubtab = .other
-            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-other.png"))
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
@@ -500,7 +495,6 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-ready.png"))
 
             controller.selectedTab = .notifications
-            controller.selectedNotificationSubtab = .pullRequests
             controller.markAllNotificationsRead()
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications-read.png"))
 
@@ -734,7 +728,6 @@ private struct VisualCaptureSelection {
         "settings-notifications",
         "settings-about",
         "menu-notifications",
-        "menu-notifications-other",
         "menu-my-prs",
         "menu-header-tooltips",
         "menu-my-prs-laptop",
@@ -900,11 +893,6 @@ private final class VisualLoadingGitHubProvider: GitHubProviding {
         GitHubAppInstallations(installations: [])
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 private final class VisualPATLoadingGitHubProvider: GitHubProviding {
@@ -938,11 +926,6 @@ private final class VisualPATLoadingGitHubProvider: GitHubProviding {
         GitHubAppInstallations(installations: [])
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 private final class VisualGitHubProvider: GitHubProviding {
@@ -974,9 +957,4 @@ private final class VisualGitHubProvider: GitHubProviding {
         installations
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }

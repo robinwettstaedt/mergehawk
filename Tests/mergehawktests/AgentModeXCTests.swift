@@ -368,40 +368,6 @@ final class AgentModeXCTests: XCTestCase {
         }
     }
 
-    func testOtherNotificationsDoNotDriveGlobalAttention() async {
-        let suiteName = "mergehawk-other-notifications-test-\(UUID().uuidString)"
-        defer {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-
-        let controller = await MainActor.run {
-            DashboardController(
-                tokenStore: InMemoryTokenStore(),
-                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
-                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-                automaticRefreshInterval: 0
-            )
-        }
-
-        await waitUntil(timeout: 1.0) {
-            await MainActor.run {
-                controller.state.syncedAt != nil && controller.visibleGitHubInboxNotifications.count == 2
-            }
-        }
-
-        await MainActor.run {
-            XCTAssertEqual(controller.visibleGitHubInboxNotifications.filter(\.unread).count, 1)
-            XCTAssertFalse(controller.hasAttention)
-            XCTAssertEqual(controller.attentionCount, 0)
-
-            controller.selectedNotificationSubtab = .other
-            controller.markAllNotificationsRead()
-
-            XCTAssertEqual(controller.visibleGitHubInboxNotifications.filter(\.unread).count, 0)
-            XCTAssertFalse(controller.hasAttention)
-        }
-    }
-
     func testNotificationTypeFixtureModeSeedsAllMockNotificationKinds() async {
         let suiteName = "mergehawk-notification-type-fixtures-test-\(UUID().uuidString)"
         defer {
@@ -461,11 +427,6 @@ final class AgentModeXCTests: XCTestCase {
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
                     .contains("New commit by @platform-nora")
             )
-            XCTAssertEqual(
-                Set(controller.visibleGitHubInboxNotifications.map(\.subjectType)),
-                ["Issue", "Discussion", "Release", "Commit", "CheckSuite", "RepositoryVulnerabilityAlert"]
-            )
-            XCTAssertEqual(controller.visibleGitHubInboxNotifications.count, 6)
         }
     }
 
@@ -528,7 +489,6 @@ final class AgentModeXCTests: XCTestCase {
         await MainActor.run {
             XCTAssertTrue(controller.state.events.isEmpty)
             XCTAssertTrue(controller.visiblePullRequestNotifications.isEmpty)
-            XCTAssertTrue(controller.visibleGitHubInboxNotifications.isEmpty)
         }
         XCTAssertTrue(notificationClient.records.isEmpty)
     }

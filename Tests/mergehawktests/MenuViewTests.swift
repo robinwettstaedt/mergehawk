@@ -354,7 +354,6 @@ final class MenuViewTests: XCTestCase {
 
 @MainActor let mergehawkMenuViewTest: Void = {
     precondition(DashboardController.MenuTab.allCases.map(\.rawValue) == ["Notifications", "Authored", "Requested"])
-    precondition(DashboardController.NotificationSubtab.allCases.map(\.rawValue) == ["PRs", "Other"])
     precondition(MenuTabShortcutHint.title(for: .notifications) == "⌘1")
     precondition(MenuTabShortcutHint.title(for: .myPRs) == "⌘2")
     precondition(MenuTabShortcutHint.title(for: .reviewRequests) == "⌘3")
@@ -387,8 +386,6 @@ final class MenuViewTests: XCTestCase {
     precondition(GitHubSignInView.Copy.loadingTitle == "Authorized")
     precondition(GitHubSignInView.Copy.loadingDetail == "Loading MergeHawk...")
     precondition(GitHubSignInView.Copy.patButtonTitle == "Open Settings")
-    precondition(GitHubInboxUnavailableCopy.title == "GitHub Inbox unavailable")
-    precondition(GitHubInboxUnavailableCopy.message.contains("classic personal access token"))
     precondition(GitHubAppRepositoryAccessCopy.buttonTitle == "Install or Manage Repository Access")
     precondition(GitHubAppRepositoryAccessCopy.title(for: .noInstallations) == "Repository access not configured")
     precondition(GitHubAppRepositoryAccessCopy.message(for: .noVisibleRepositories).contains("no accessible repositories"))
@@ -420,7 +417,6 @@ final class MenuViewTests: XCTestCase {
     precondition(NotificationReadPresentation.markAllHelp == "Mark all notifications as read")
     precondition(NotificationReadPresentation.markOneHelp == "Mark as read")
     precondition(NotificationReadPresentation.markPRAccessibilityLabel == "Mark PR notification as read")
-    precondition(NotificationReadPresentation.markOtherAccessibilityLabel == "Mark other notification as read")
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests or assigned PRs.")
     precondition(PullRequestListCopy.noFilterMatches == "No PRs match these filters.")
@@ -646,14 +642,6 @@ final class MenuViewTests: XCTestCase {
         sourceFilteredController.attentionCount == 0
             && !sourceFilteredStatusBarController.statusButtonHasAttentionForTesting()
     }
-
-    let inboxOnlyController = signedInMockController()
-    waitUntil(timeout: 1.0) {
-        inboxOnlyController.visibleGitHubInboxNotifications.filter(\.unread).count == 1
-    }
-    let inboxOnlyStatusBarController = StatusBarController(controller: inboxOnlyController)
-    precondition(inboxOnlyController.attentionCount == 0)
-    precondition(!inboxOnlyStatusBarController.statusButtonHasAttentionForTesting())
 
     let older = PullRequest(
         id: "older",
@@ -980,9 +968,4 @@ private final class MenuFakeGitHubProvider: GitHubProviding {
         return try installationsResult.get()
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }

@@ -16,12 +16,6 @@ enum GitHubAuthMethod: String {
     }
 }
 
-enum GitHubTokenCapabilities {
-    static func supportsGitHubInboxNotifications(token: String) -> Bool {
-        token.hasPrefix("ghp_")
-    }
-}
-
 enum MergeHawkAuthDefaults {
     private static let productionAppID = "3854497"
     private static let productionClientID = "Iv23li2wX6d8bxiM2goo"

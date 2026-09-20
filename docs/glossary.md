@@ -9,8 +9,7 @@ issues, prompts, tests, UI copy, and implementation notes.
 | Term | Meaning |
 | --- | --- |
 | In-app notification | A MergeHawk UI item shown in the app, currently in the `Notifications` tab. |
-| PR notification history | MergeHawk-owned PR-related in-app notification rows shown in `Notifications > PRs`. |
-| GitHub Inbox notification | Provider-owned non-PR GitHub notification thread shown in `Notifications > Other`. |
+| PR notification history | MergeHawk-owned PR-related in-app notification rows shown in `Notifications`. |
 | macOS local notification | A system notification delivered through macOS Notification Center. |
 | Notification payload | The title/body/update metadata MergeHawk would send to macOS Notification Center. |
 | PR / pull request | The app-level umbrella term for a provider-hosted code review/change request, including equivalent concepts from future version control platform integrations. |
@@ -28,7 +27,7 @@ An app-owned notification item shown inside MergeHawk, currently in the
 `Notifications` tab.
 
 In-app notifications are derived from provider activity such as new comments,
-new reviews, failed CI, requested changes, or non-PR GitHub Inbox threads. They
+new reviews, failed CI, or requested changes. They
 are part of the app state and can be rendered, filtered, marked read, and tested
 without using macOS Notification Center.
 
@@ -36,7 +35,6 @@ Use this term when referring to:
 
 - rows in the `Notifications` tab
 - provider updates such as new comments or failed CI
-- non-PR GitHub Inbox rows shown in `Notifications > Other`
 - mock GitHub activity shown in the app UI
 - notification preferences that affect which activity appears in the app
 
@@ -44,23 +42,12 @@ Avoid using plain "notification" when the distinction matters.
 
 ### PR Notification History
 
-MergeHawk-owned PR-related in-app notification rows shown in
-`Notifications > PRs`.
+MergeHawk-owned PR-related in-app notification rows shown in `Notifications`.
 
 PR notification history is derived from updates detected by MergeHawk, such as
 new comments, new reviews, failed CI, or requested changes. Rows are retained
 locally, can be marked read, and should still open the original PR even if that
 PR is no longer in the active dashboard list.
-
-### GitHub Inbox Notification
-
-A provider-owned non-PR GitHub notification thread shown in
-`Notifications > Other`.
-
-GitHub Inbox notifications come from GitHub's notifications API. Use this term
-for issues, discussions, releases, or other non-PR GitHub notification threads
-that MergeHawk shows inside the app. PR notification threads from GitHub's inbox
-are excluded from `Other` so they do not duplicate PR notification history.
 
 ### macOS Local Notification
 

@@ -24,12 +24,6 @@ public typealias GitHubProviding = PullRequestSource
     & SourceCatalogProviding
     & GitHubAppInstallationProviding
     & GitHubViewerProviding
-    & GitHubInboxProviding
-
-public protocol GitHubInboxProviding: AnyObject {
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult
-    func markInboxThreadRead(threadId: String) async throws
-}
 
 public final class EmptyPullRequestSource: PullRequestSource {
     public let sourceKind: DashboardSource = .none
@@ -48,7 +42,6 @@ public final class MockPullRequestSource: PullRequestSource {
     public let sourceKind: DashboardSource = .mock
     private var index = 0
     private let snapshots: [[PullRequest]]
-    private let inboxNotifications: [GitHubInboxNotification]
 
     public init(showsNotificationTypeFixtures: Bool = false, referenceDate: Date = Date()) {
         let minute: TimeInterval = 60
@@ -56,9 +49,6 @@ public final class MockPullRequestSource: PullRequestSource {
         let day = 24 * hour
         func ago(_ interval: TimeInterval) -> Date { referenceDate.addingTimeInterval(-interval) }
 
-        self.inboxNotifications = showsNotificationTypeFixtures
-            ? Self.notificationTypeFixtureInboxNotifications
-            : Self.defaultInboxNotifications
         self.snapshots = [
             [
                 PullRequest(
@@ -642,113 +632,4 @@ extension MockPullRequestSource: SourceCatalogProviding {
             accountLogin: accountLogin
         )
     }
-}
-
-extension MockPullRequestSource: GitHubInboxProviding {
-    public func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(
-            notifications: inboxNotifications,
-            metadata: GitHubInboxSyncMetadata(
-                eTag: metadata.eTag,
-                lastFetchedAt: Date(),
-                pollIntervalSeconds: 60
-            )
-        )
-    }
-
-    public func markInboxThreadRead(threadId: String) async throws {}
-
-    private static let defaultInboxNotifications = [
-        GitHubInboxNotification(
-            threadId: "mock-issue-1",
-            repo: "example/app",
-            subjectTitle: "Crash when saving source preferences",
-            subjectType: "Issue",
-            reason: "mention",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_809_600),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-issue-1")!,
-            webURL: URL(string: "https://github.com/example/app/issues/42")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-discussion-1",
-            repo: "example/web",
-            subjectTitle: "Ideas for review request grouping",
-            subjectType: "Discussion",
-            reason: "subscribed",
-            unread: false,
-            updatedAt: Date(timeIntervalSince1970: 1_777_723_200),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-discussion-1")!,
-            webURL: URL(string: "https://github.com/example/web/discussions/8")!
-        )
-    ]
-
-    public static let notificationTypeFixtureInboxNotifications = [
-        GitHubInboxNotification(
-            threadId: "mock-fixture-issue",
-            repo: "example/app",
-            subjectTitle: "Crash when saving source preferences",
-            subjectType: "Issue",
-            reason: "mention",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_809_600),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-issue")!,
-            webURL: URL(string: "https://github.com/example/app/issues/42")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-discussion",
-            repo: "example/web",
-            subjectTitle: "Ideas for review request grouping",
-            subjectType: "Discussion",
-            reason: "subscribed",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_806_000),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-discussion")!,
-            webURL: URL(string: "https://github.com/example/web/discussions/8")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-release",
-            repo: "example/desktop",
-            subjectTitle: "MergeHawk 0.2.0",
-            subjectType: "Release",
-            reason: "subscribed",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_802_400),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-release")!,
-            webURL: URL(string: "https://github.com/example/desktop/releases/tag/v0.2.0")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-commit",
-            repo: "example/mergehawk",
-            subjectTitle: "Improve menu snapshot coverage",
-            subjectType: "Commit",
-            reason: "author",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_798_800),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-commit")!,
-            webURL: URL(string: "https://github.com/example/mergehawk/commit/mock-fixture")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-check-suite",
-            repo: "example/app",
-            subjectTitle: "CI workflow requires attention",
-            subjectType: "CheckSuite",
-            reason: "ci_activity",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_795_200),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-check-suite")!,
-            webURL: URL(string: "https://github.com/example/app/actions/runs/123456")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-vulnerability-alert",
-            repo: "example/security",
-            subjectTitle: "Dependency alert for swift-argument-parser",
-            subjectType: "RepositoryVulnerabilityAlert",
-            reason: "security_alert",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_791_600),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-vulnerability-alert")!,
-            webURL: URL(string: "https://github.com/example/security/security/dependabot")!
-        )
-    ]
 }

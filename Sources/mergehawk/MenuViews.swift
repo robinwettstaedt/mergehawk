@@ -42,12 +42,6 @@ struct NotificationReadPresentation {
     static let markAllHelp = "Mark all notifications as read"
     static let markOneHelp = "Mark as read"
     static let markPRAccessibilityLabel = "Mark PR notification as read"
-    static let markOtherAccessibilityLabel = "Mark other notification as read"
-}
-
-enum GitHubInboxUnavailableCopy {
-    static let title = "GitHub Inbox unavailable"
-    static let message = "Other GitHub notifications require signing in with a classic personal access token."
 }
 
 enum GitHubAppRepositoryAccessCopy {
@@ -1278,12 +1272,9 @@ private struct NotificationListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                NotificationSubtabSegmentedControl(selection: $controller.selectedNotificationSubtab)
-                    .frame(width: 104, height: MenuControlButton.Layout.height)
-
                 Spacer()
 
-                if hasNotifications {
+                if !controller.visiblePullRequestNotifications.isEmpty {
                     MenuControlButton(
                         symbolName: NotificationReadPresentation.symbolName,
                         title: NotificationReadPresentation.markAllTitle,
@@ -1298,27 +1289,10 @@ private struct NotificationListView: View {
             .padding(.top, 10)
             .padding(.bottom, 6)
 
-            notificationContent
-        }
-    }
-
-    private var hasNotifications: Bool {
-        switch controller.selectedNotificationSubtab {
-        case .pullRequests:
-            !controller.visiblePullRequestNotifications.isEmpty
-        case .other:
-            !controller.visibleGitHubInboxNotifications.isEmpty
-        }
-    }
-
-    @ViewBuilder
-    private var notificationContent: some View {
-        switch controller.selectedNotificationSubtab {
-        case .pullRequests:
             if controller.showsGitHubAppRepositoryAccessPrompt {
                 GitHubAppRepositoryAccessPrompt(controller: controller)
             } else if controller.visiblePullRequestNotifications.isEmpty {
-                    EmptyMenuState(text: "No PR notifications.")
+                EmptyMenuState(text: "No PR notifications.")
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 8) {
@@ -1335,46 +1309,7 @@ private struct NotificationListView: View {
                     .padding(.bottom, 12)
                 }
             }
-        case .other:
-            if controller.visibleGitHubInboxNotifications.isEmpty {
-                if controller.showsGitHubInboxUnavailableHint {
-                    GitHubInboxUnavailableState()
-                } else {
-                    EmptyMenuState(text: "No other GitHub notifications.")
-                }
-            } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 8) {
-                        ForEach(controller.visibleGitHubInboxNotifications) { notification in
-                            GitHubInboxNotificationRow(notification: notification) {
-                                controller.openGitHubInboxNotification(notification)
-                            } onMarkRead: {
-                                controller.markGitHubInboxNotificationRead(notification)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 5)
-                    .padding(.bottom, 12)
-                }
-            }
         }
-    }
-}
-
-private struct NotificationSubtabSegmentedControl: View {
-    @Binding var selection: DashboardController.NotificationSubtab
-
-    var body: some View {
-        MenuSegmentedControl(
-            selection: $selection,
-            segments: DashboardController.NotificationSubtab.allCases.map { subtab in
-                MenuSegmentedControl.Segment(value: subtab, title: subtab.rawValue, width: 52)
-            },
-            height: MenuControlButton.Layout.height,
-            font: .system(size: 11, weight: .medium),
-            iconPointSize: 10
-        )
     }
 }
 
@@ -2181,98 +2116,6 @@ private struct PullRequestNotificationRow: View {
             "person.badge.plus"
         case .otherCommitAdded:
             "arrow.trianglehead.branch"
-        }
-    }
-
-}
-
-private struct GitHubInboxNotificationRow: View {
-    let notification: GitHubInboxNotification
-    let action: () -> Void
-    let onMarkRead: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            Button(action: action) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .center, spacing: 6) {
-                            Image(systemName: iconName)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 15)
-                            Text(notification.subjectTitle)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(notification.repo)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Text("\(notification.subjectType) · \(notification.reason)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    Spacer(minLength: 8)
-                    Text(NotificationTimestampPresentation.label(for: notification.updatedAt))
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .padding(10)
-                .transparentCardStyle(
-                    accentColor: notification.unread ? .accentColor : nil,
-                    isHovered: isHovered
-                )
-            }
-            .buttonStyle(.plain)
-
-            if isHovered && notification.unread {
-                Button(action: onMarkRead) {
-                    Image(systemName: NotificationReadPresentation.symbolName)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22)
-                        .background(.regularMaterial, in: Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
-                        )
-                        .shadow(color: .black.opacity(0.16), radius: 4, y: 1)
-                }
-                .buttonStyle(.plain)
-                .offset(x: -6, y: -6)
-                .help(NotificationReadPresentation.markOneHelp)
-                .accessibilityLabel(NotificationReadPresentation.markOtherAccessibilityLabel)
-            }
-        }
-        .onHover { isHovered = $0 }
-    }
-
-    private var iconName: String {
-        switch notification.subjectType {
-        case "Issue":
-            "record.circle"
-        case "Discussion":
-            "bubble.left.and.bubble.right"
-        case "Release":
-            "tag"
-        case "Commit":
-            "arrow.triangle.branch"
-        case "CheckSuite":
-            "checkmark.circle"
-        case "RepositoryVulnerabilityAlert":
-            "exclamationmark.shield"
-        default:
-            "tray"
         }
     }
 
@@ -3277,26 +3120,5 @@ struct GitHubAppRepositoryAccessPrompt: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-    }
-}
-
-private struct GitHubInboxUnavailableState: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "tray")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-            Text(GitHubInboxUnavailableCopy.title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text(GitHubInboxUnavailableCopy.message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 300)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 24)
     }
 }
