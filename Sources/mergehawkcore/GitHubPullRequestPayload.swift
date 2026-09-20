@@ -141,6 +141,40 @@ enum GitHubReadError: Error, Equatable, Sendable {
     case incompleteCoverage(String)
 }
 
+enum GitHubQueryValue: Encodable, Equatable, Sendable {
+    case string(String)
+    case strings([String])
+    case integer(Int)
+    case null
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .strings(let value): try container.encode(value)
+        case .integer(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+}
+
+struct GitHubDiscoveryNode: Decodable, Equatable, Sendable {
+    let id: String
+    let number: Int
+    let createdAt: String
+    let repository: Repository
+
+    struct Repository: Decodable, Equatable, Sendable {
+        let nameWithOwner: String
+    }
+}
+
+struct GitHubDiscoverySearchPayload: Decodable, Equatable, Sendable {
+    let issueCount: Int
+    let nodes: [GitHubDiscoveryNode?]
+    let pageInfo: GitHubPageInfo
+}
+
 struct GitHubReadRetryPolicy: Sendable {
     typealias Sleep = @Sendable (TimeInterval) async throws -> Void
     typealias Now = @Sendable () -> Date

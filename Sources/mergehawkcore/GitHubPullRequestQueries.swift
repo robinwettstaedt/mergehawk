@@ -85,4 +85,54 @@ enum GitHubPullRequestQueries {
         }
       }
     """
+
+    static let discoveryBounds = """
+      query DiscoveryBounds(
+        $authoredOldest: String!, $authoredNewest: String!,
+        $assignedOldest: String!, $assignedNewest: String!,
+        $directOldest: String!, $directNewest: String!,
+        $teamOldest: String!, $teamNewest: String!
+      ) {
+        authoredOldest: search(query: $authoredOldest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+        authoredNewest: search(query: $authoredNewest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+        assignedOldest: search(query: $assignedOldest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+        assignedNewest: search(query: $assignedNewest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+        directOldest: search(query: $directOldest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+        directNewest: search(query: $directNewest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+        teamOldest: search(query: $teamOldest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+        teamNewest: search(query: $teamNewest, type: ISSUE, first: 1) { nodes { ...DiscoveryIdentity } }
+      }
+      fragment DiscoveryIdentity on PullRequest {
+        id number createdAt repository { nameWithOwner }
+      }
+    """
+
+    static let discoveryPage = """
+      query DiscoverPullRequests(
+        $authoredQuery: String!, $authoredCursor: String,
+        $assignedQuery: String!, $assignedCursor: String,
+        $directQuery: String!, $directCursor: String,
+        $teamQuery: String!, $teamCursor: String
+      ) {
+        authored: search(query: $authoredQuery, type: ISSUE, first: 100, after: $authoredCursor) {
+          issueCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
+          nodes { ...DiscoveryIdentity }
+        }
+        assigned: search(query: $assignedQuery, type: ISSUE, first: 100, after: $assignedCursor) {
+          issueCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
+          nodes { ...DiscoveryIdentity }
+        }
+        direct: search(query: $directQuery, type: ISSUE, first: 100, after: $directCursor) {
+          issueCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
+          nodes { ...DiscoveryIdentity }
+        }
+        team: search(query: $teamQuery, type: ISSUE, first: 100, after: $teamCursor) {
+          issueCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
+          nodes { ...DiscoveryIdentity }
+        }
+      }
+      fragment DiscoveryIdentity on PullRequest {
+        id number createdAt repository { nameWithOwner }
+      }
+    """
 }

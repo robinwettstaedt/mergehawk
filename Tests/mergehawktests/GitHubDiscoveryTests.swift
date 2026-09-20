@@ -1,0 +1,224 @@
+@testable import mergehawkcore
+import Foundation
+import XCTest
+
+final class GitHubDiscoveryTests: XCTestCase {
+    func testDeduplicatesAcrossRelationshipLanesAndUnionsFlags() async throws {
+        let transport = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: Set(GitHubDiscoveryLane.allCases))
+            }
+            let node = Self.node(id: "PR_SHARED", number: 7)
+            return Self.pageResponse(activeLanes: Set(GitHubDiscoveryLane.allCases), count: 1, nodes: [node])
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertEqual(result.pullRequests.count, 1)
+        XCTAssertEqual(result.pullRequests[0].repository, "acme/app")
+        XCTAssertTrue(result.pullRequests[0].isAuthored)
+        XCTAssertTrue(result.pullRequests[0].isAssigned)
+        XCTAssertTrue(result.pullRequests[0].isDirectlyRequested)
+        XCTAssertTrue(result.pullRequests[0].isTeamRequested)
+    }
+
+    func testPaginatesBeyondFirstHundredWithAdvancingCursor() async throws {
+        let transport = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [.authored])
+            }
+            let cursor = Self.cursor(for: .authored, variables: variables)
+            let nodes: [[String: Any]]
+            let hasNext: Bool
+            if cursor == nil {
+                nodes = (0..<100).map { Self.node(id: "PR_\($0)", number: $0) }
+                hasNext = true
+            } else {
+                nodes = (100..<125).map { Self.node(id: "PR_\($0)", number: $0) }
+                hasNext = false
+            }
+            return Self.pageResponse(active: .authored, count: 125, nodes: nodes, hasNext: hasNext)
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertEqual(result.pullRequests.count, 125)
+        XCTAssertEqual(transport.readCount, 3)
+    }
+
+    func testOverCapRangeSplitsIntoDisjointWholeSecondLeaves() async throws {
+        let transport = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 3)
+            }
+            let queryValue = Self.query(for: .authored, variables: variables)
+            if queryValue.contains("00:00:00Z..1970-01-01T00:00:03Z") {
+                return Self.pageResponse(active: .authored, count: 1_001, nodes: [], hasNext: false)
+            }
+            if queryValue.contains("00:00:00Z..1970-01-01T00:00:01Z") {
+                return Self.pageResponse(active: .authored, count: 1, nodes: [Self.node(id: "LOW", number: 1)], hasNext: false)
+            }
+            return Self.pageResponse(active: .authored, count: 1, nodes: [Self.node(id: "HIGH", number: 2, second: 3)], hasNext: false)
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertEqual(Set(result.pullRequests.map(\.id)), ["LOW", "HIGH"])
+        XCTAssertEqual(result.coveredIntervals[.authored], [0...1, 2...3])
+    }
+
+    func testSingleSecondOverCapAndNonAdvancingCursorFailExplicitly() async throws {
+        let capped = DiscoveryTransport { query, _ in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 0)
+            }
+            return Self.pageResponse(active: .authored, count: 1_001, nodes: [], hasNext: false)
+        }
+        await XCTAssertThrowsErrorAsync {
+            _ = try await Self.fetcher(capped).discover(login: "rw")
+        }
+
+        let stuck = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [.authored])
+            }
+            _ = variables
+            return Self.pageResponse(
+                active: .authored,
+                count: 101,
+                nodes: [Self.node(id: UUID().uuidString, number: 1)],
+                hasNext: true,
+                cursor: "same"
+            )
+        }
+        await XCTAssertThrowsErrorAsync {
+            _ = try await Self.fetcher(stuck).discover(login: "rw")
+        }
+    }
+
+    private static func boundsResponse(
+        nonEmptyLanes: Set<GitHubDiscoveryLane>,
+        oldest: Int = 0,
+        newest: Int = 10
+    ) -> Data {
+        var data: [String: Any] = [:]
+        for lane in GitHubDiscoveryLane.allCases {
+            let nodes = nonEmptyLanes.contains(lane) ? [node(id: "BOUND", number: 1, second: oldest)] : []
+            let newestNodes = nonEmptyLanes.contains(lane) ? [node(id: "BOUND", number: 1, second: newest)] : []
+            data["\(lane.rawValue)Oldest"] = ["nodes": nodes]
+            data["\(lane.rawValue)Newest"] = ["nodes": newestNodes]
+        }
+        return json(["data": data])
+    }
+
+    private static func pageResponse(
+        active: GitHubDiscoveryLane,
+        count: Int,
+        nodes: [[String: Any]],
+        hasNext: Bool,
+        cursor: String = "next"
+    ) -> Data {
+        var data: [String: Any] = [:]
+        for lane in GitHubDiscoveryLane.allCases {
+            let isActive = lane == active
+            data[lane.rawValue] = [
+                "issueCount": isActive ? count : 0,
+                "nodes": isActive ? nodes : [],
+                "pageInfo": [
+                    "startCursor": isActive ? "start" : NSNull() as Any,
+                    "endCursor": isActive ? cursor : NSNull() as Any,
+                    "hasPreviousPage": false,
+                    "hasNextPage": isActive ? hasNext : false
+                ]
+            ]
+        }
+        return json(["data": data])
+    }
+
+    private static func pageResponse(
+        activeLanes: Set<GitHubDiscoveryLane>,
+        count: Int,
+        nodes: [[String: Any]]
+    ) -> Data {
+        var data: [String: Any] = [:]
+        for lane in GitHubDiscoveryLane.allCases {
+            let isActive = activeLanes.contains(lane)
+            data[lane.rawValue] = [
+                "issueCount": isActive ? count : 0,
+                "nodes": isActive ? nodes : [],
+                "pageInfo": [
+                    "startCursor": NSNull(), "endCursor": NSNull(),
+                    "hasPreviousPage": false, "hasNextPage": false
+                ]
+            ]
+        }
+        return json(["data": data])
+    }
+
+    private static func node(id: String, number: Int, second: Int = 0) -> [String: Any] {
+        [
+            "id": id,
+            "number": number,
+            "createdAt": isoSecond(second),
+            "repository": ["nameWithOwner": "acme/app"]
+        ]
+    }
+
+    private static func activeLane(_ variables: [String: GitHubQueryValue]) -> GitHubDiscoveryLane {
+        GitHubDiscoveryLane.allCases.first { !query(for: $0, variables: variables).contains("__empty__") }!
+    }
+
+    private static func query(for lane: GitHubDiscoveryLane, variables: [String: GitHubQueryValue]) -> String {
+        guard case .string(let value) = variables["\(lane.rawValue)Query"] else { return "" }
+        return value
+    }
+
+    private static func cursor(for lane: GitHubDiscoveryLane, variables: [String: GitHubQueryValue]) -> String? {
+        guard case .string(let value) = variables["\(lane.rawValue)Cursor"] else { return nil }
+        return value
+    }
+
+    private static func isoSecond(_ second: Int) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(second)))
+    }
+
+    private static func json(_ object: Any) -> Data {
+        try! JSONSerialization.data(withJSONObject: object)
+    }
+
+    private static func fetcher(_ transport: DiscoveryTransport) -> GitHubPullRequestFetcher {
+        GitHubPullRequestFetcher { query, variables in
+            try await transport.read(query: query, variables: variables)
+        }
+    }
+}
+
+private final class DiscoveryTransport: @unchecked Sendable {
+    typealias Handler = (String, [String: GitHubQueryValue]) throws -> Data
+    private let handler: Handler
+    private let lock = NSLock()
+    private var storedReadCount = 0
+    var readCount: Int { lock.withLock { storedReadCount } }
+
+    init(_ handler: @escaping Handler) { self.handler = handler }
+
+    func read(query: String, variables: [String: GitHubQueryValue]) async throws -> Data {
+        lock.withLock { storedReadCount += 1 }
+        return try handler(query, variables)
+    }
+}
+
+private func XCTAssertThrowsErrorAsync(
+    _ expression: () async throws -> Void,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        try await expression()
+        XCTFail("Expected error", file: file, line: line)
+    } catch {
+        XCTAssertTrue(error is GitHubReadError, file: file, line: line)
+    }
+}
