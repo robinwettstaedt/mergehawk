@@ -1213,11 +1213,7 @@ final class DashboardController: ObservableObject {
                 installations: installations,
                 sourceCatalog: nil
             )
-            if isAuthenticationFailure(error) {
-                handleAuthenticationFailure(error)
-            } else {
-                sourceErrorMessage = error.localizedDescription
-            }
+            sourceErrorMessage = error.localizedDescription
         }
     }
 
@@ -1255,11 +1251,8 @@ final class DashboardController: ObservableObject {
             return isCurrentProvider(generation, login: expectedLogin) ? installations : nil
         } catch {
             guard isCurrentProvider(generation, login: expectedLogin) else { return nil }
-            if isAuthenticationFailure(error) {
-                handleAuthenticationFailure(error)
-            } else {
-                gitHubAppRepositoryAccessStatus = .unknown
-            }
+            gitHubAppRepositoryAccessStatus = .unknown
+            sourceErrorMessage = error.localizedDescription
             gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
             return nil
         }

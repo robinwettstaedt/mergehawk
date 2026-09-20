@@ -73,6 +73,37 @@ final class SourceRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testCatalogAuthenticationFailureRetainsCommittedDashboardAndHistory() async throws {
+        let fixture = try await makeOAuthFixture(
+            catalogError: GitHubClientError.httpFailure(endpoint: "repositories", status: 401)
+        )
+        defer { fixture.cleanup() }
+
+        try await waitUntil {
+            await MainActor.run { fixture.controller.sourceErrorMessage != nil }
+        }
+
+        assertCommittedPresentationIsRetained(fixture)
+    }
+
+    @MainActor
+    func testInstallationAuthenticationFailureRetainsCommittedDashboardAndHistory() async throws {
+        let fixture = try await makeOAuthFixture(
+            installationError: GitHubClientError.httpFailure(endpoint: "installations", status: 401)
+        )
+        defer { fixture.cleanup() }
+
+        try await waitUntil {
+            await MainActor.run {
+                fixture.controller.sourceErrorMessage != nil
+                    && fixture.controller.gitHubAppRepositoryAccessStatus == .unknown
+            }
+        }
+
+        assertCommittedPresentationIsRetained(fixture)
+    }
+
+    @MainActor
     func testOAuthAccessTokenCacheCoalescesRefreshAndClearRejectsLateResult() async throws {
         let tokenStore = InMemoryTokenStore()
         let expired = OAuthTokens(
@@ -120,6 +151,77 @@ final class SourceRefreshTests: XCTestCase {
         }
         XCTFail("Timed out waiting for condition")
     }
+
+    @MainActor
+    private func makeOAuthFixture(
+        catalogError: Error? = nil,
+        installationError: Error? = nil
+    ) throws -> SourceRefreshFixture {
+        let suiteName = "source-refresh-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .oauth
+        let notification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: CatalogTestProvider.pullRequest.id),
+            pullRequest: CatalogTestProvider.pullRequest,
+            createdAt: Date(timeIntervalSince1970: 10)
+        )
+        let priorState = PullRequestSyncState(
+            account: GitHubAccount(login: "rw"),
+            dashboard: DashboardState(
+                pullRequests: [CatalogTestProvider.pullRequest],
+                events: [],
+                syncedAt: Date(timeIntervalSince1970: 10),
+                source: .github,
+                account: GitHubAccount(login: "rw"),
+                authStatus: .signedIn
+            ),
+            notificationHistory: [notification]
+        )
+        try preferences.storePullRequestSyncState(priorState)
+        let tokenStore = InMemoryTokenStore()
+        try tokenStore.storeOAuthTokens(
+            OAuthTokens(accessToken: "access", refreshToken: "refresh", expiresAt: .distantFuture)
+        )
+        let provider = CatalogTestProvider(
+            catalogError: catalogError,
+            installationError: installationError
+        )
+        let controller = DashboardController(
+            tokenStore: tokenStore,
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0,
+            oauthGitHubClientFactory: { _ in provider }
+        )
+        return SourceRefreshFixture(
+            suiteName: suiteName,
+            controller: controller,
+            preferences: preferences,
+            notification: notification
+        )
+    }
+
+    @MainActor
+    private func assertCommittedPresentationIsRetained(
+        _ fixture: SourceRefreshFixture,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(fixture.controller.state.pullRequests.map(\.id), [CatalogTestProvider.pullRequest.id], file: file, line: line)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, [fixture.notification], file: file, line: line)
+        XCTAssertEqual(
+            fixture.preferences.pullRequestSyncState?.dashboard.pullRequests.map(\.id),
+            [CatalogTestProvider.pullRequest.id],
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState?.notificationHistory, [fixture.notification], file: file, line: line)
+        XCTAssertEqual(fixture.controller.state.authStatus, .signedIn, file: file, line: line)
+    }
 }
 
 private final class CatalogTestProvider: GitHubProviding {
@@ -131,13 +233,19 @@ private final class CatalogTestProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     private let suspendsCatalog: Bool
     private let catalogError: Error?
+    private let installationError: Error?
     private var catalogContinuation: CheckedContinuation<Void, Never>?
     private(set) var fetchPullRequestsCount = 0
     private(set) var fetchSourceCatalogCount = 0
 
-    init(suspendsCatalog: Bool = false, catalogError: Error? = nil) {
+    init(
+        suspendsCatalog: Bool = false,
+        catalogError: Error? = nil,
+        installationError: Error? = nil
+    ) {
         self.suspendsCatalog = suspendsCatalog
         self.catalogError = catalogError
+        self.installationError = installationError
     }
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
@@ -168,10 +276,11 @@ private final class CatalogTestProvider: GitHubProviding {
     }
 
     func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
-        GitHubAppInstallations(installations: [])
+        if let installationError { throw installationError }
+        return GitHubAppInstallations(installations: [])
     }
 
-    private static let pullRequest = PullRequest(
+    static let pullRequest = PullRequest(
         id: "PR_SOURCE_TEST",
         title: "Publish PRs first",
         number: 1,
@@ -186,6 +295,18 @@ private final class CatalogTestProvider: GitHubProviding {
         mergeable: .mergeable,
         draft: false
     )
+}
+
+@MainActor
+private struct SourceRefreshFixture {
+    let suiteName: String
+    let controller: DashboardController
+    let preferences: PreferencesStore
+    let notification: PullRequestNotification
+
+    func cleanup() {
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+    }
 }
 
 private final class SuspendedRefreshLoader: @unchecked Sendable {
