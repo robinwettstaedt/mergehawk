@@ -135,4 +135,14 @@ enum GitHubPullRequestQueries {
         id number createdAt repository { nameWithOwner }
       }
     """
+
+    static let repositoryTeamMembership = """
+      query RepositoryTeamMembership($query: String!, $cursor: String) {
+        search(query: $query, type: ISSUE, first: 100, after: $cursor) {
+          issueCount
+          pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
+          nodes { ... on PullRequest { id number createdAt repository { nameWithOwner } } }
+        }
+      }
+    """
 }

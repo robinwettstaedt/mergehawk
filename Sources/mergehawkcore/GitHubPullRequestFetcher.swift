@@ -22,6 +22,11 @@ struct GitHubHydratedPullRequest: Equatable, Sendable {
     let discovery: DiscoveredPullRequest
 }
 
+struct GitHubHydrationResult: Equatable, Sendable {
+    let pullRequests: [GitHubHydratedPullRequest]
+    let missingPullRequestIDs: Set<String>
+}
+
 enum GitHubDiscoveryLane: String, CaseIterable, Codable, Hashable, Sendable {
     case authored
     case assigned
@@ -62,6 +67,10 @@ struct GitHubPullRequestFetcher: Sendable {
 
     private struct HydrationData: Decodable {
         let nodes: [GitHubCompletePullRequestPayload?]
+    }
+
+    private struct RepositoryTeamData: Decodable {
+        let search: GitHubDiscoverySearchPayload
     }
 
     private enum ConnectionKind: Hashable, Sendable {
@@ -231,8 +240,18 @@ struct GitHubPullRequestFetcher: Sendable {
         _ discovered: [DiscoveredPullRequest],
         login: String
     ) async throws -> [GitHubHydratedPullRequest] {
+        let result = try await hydrateForReconciliation(discovered, login: login)
+        guard result.missingPullRequestIDs.isEmpty else { throw GitHubReadError.invalidPayload }
+        return result.pullRequests
+    }
+
+    func hydrateForReconciliation(
+        _ discovered: [DiscoveredPullRequest],
+        login: String
+    ) async throws -> GitHubHydrationResult {
         var accumulators: [String: HydrationAccumulator] = [:]
         var continuations: [Continuation] = []
+        var missingIDs = Set<String>()
         let discoveredByID = Dictionary(uniqueKeysWithValues: discovered.map { ($0.id, $0) })
 
         for start in stride(from: 0, to: discovered.count, by: GitHubPullRequestQueries.hydrationBatchSize) {
@@ -242,14 +261,23 @@ struct GitHubPullRequestFetcher: Sendable {
                 ["ids": .strings(chunk.map { $0.id })]
             )
             let envelope = try decoder.decode(GitHubGraphQLPayload<HydrationData>.self, from: data)
-            try validate(errors: envelope.errors)
+            if let errors = envelope.errors, !errors.isEmpty {
+                let onlyScopedNodeErrors = errors.allSatisfy { error in
+                    guard let path = error.path, path.count >= 2 else { return false }
+                    return path[0] == .field("nodes")
+                }
+                if !onlyScopedNodeErrors { try validate(errors: errors) }
+            }
             guard let nodes = envelope.data?.nodes, nodes.count == chunk.count else {
                 throw GitHubReadError.invalidPayload
             }
-            for node in nodes {
-                guard let node, let discovery = discoveredByID[node.id] else {
-                    throw GitHubReadError.invalidPayload
+            for (index, node) in nodes.enumerated() {
+                let expected = chunk[index]
+                guard let node else {
+                    missingIDs.insert(expected.id)
+                    continue
                 }
+                guard node.id == expected.id, let discovery = discoveredByID[node.id] else { throw GitHubReadError.invalidPayload }
                 guard accumulators[node.id] == nil else {
                     throw GitHubReadError.incompleteCoverage("Duplicate hydration node \(node.id)")
                 }
@@ -276,14 +304,56 @@ struct GitHubPullRequestFetcher: Sendable {
             }
         }
 
-        return try discovered.map { discovery in
-            guard let accumulator = accumulators[discovery.id] else { throw GitHubReadError.invalidPayload }
+        let pullRequests = try discovered.compactMap { discovery -> GitHubHydratedPullRequest? in
+            guard let accumulator = accumulators[discovery.id] else {
+                guard missingIDs.contains(discovery.id) else { throw GitHubReadError.invalidPayload }
+                return nil
+            }
             return GitHubHydratedPullRequest(
                 pullRequest: try normalize(accumulator, login: login),
                 providerState: accumulator.payload.state,
                 discovery: discovery
             )
         }
+        return GitHubHydrationResult(pullRequests: pullRequests, missingPullRequestIDs: missingIDs)
+    }
+
+    func repositoryTeamRequestedPullRequestIDs(
+        repository: String,
+        login: String
+    ) async throws -> Set<String> {
+        let queryValue = "is:open is:pr repo:\(repository) team-review-requested-user:\(login)"
+        var cursor: String?
+        var ids = Set<String>()
+        repeat {
+            let data = try await read(
+                GitHubPullRequestQueries.repositoryTeamMembership,
+                [
+                    "query": .string(queryValue),
+                    "cursor": cursor.map(GitHubQueryValue.string) ?? .null
+                ]
+            )
+            let envelope = try decoder.decode(GitHubGraphQLPayload<RepositoryTeamData>.self, from: data)
+            try validate(errors: envelope.errors)
+            guard let page = envelope.data?.search else { throw GitHubReadError.invalidPayload }
+            guard page.issueCount <= 1_000 else {
+                throw GitHubReadError.incompleteCoverage("Repository team search exceeded 1,000 PRs")
+            }
+            try requiredNodes(page.nodes).forEach { ids.insert($0.id) }
+            if page.pageInfo.hasNextPage {
+                guard let next = page.pageInfo.endCursor, next != cursor else {
+                    throw GitHubReadError.incompleteCoverage("Non-advancing repository team cursor")
+                }
+                cursor = next
+            } else {
+                cursor = nil
+                guard ids.count >= page.issueCount else {
+                    throw GitHubReadError.incompleteCoverage("Incomplete repository team search")
+                }
+                return ids
+            }
+        } while cursor != nil
+        return ids
     }
 
     private func fetchBounds(login: String) async throws -> [GitHubDiscoveryLane: Bounds] {
@@ -608,7 +678,7 @@ struct GitHubPullRequestFetcher: Sendable {
             reviewCount: value.reviews.count,
             recentReviews: reviews,
             headRefOid: payload.headRefOid,
-            reviewRequestKind: reviewRequestKind(for: value.discovery),
+            reviewRequestKind: reviewRequestKind(for: value, login: login),
             isAssignedToViewer: value.assignees.values.contains { $0.login.caseInsensitiveCompare(login) == .orderedSame },
             isMine: value.discovery.isAuthored || payload.author?.login.caseInsensitiveCompare(login) == .orderedSame,
             author: payload.author?.login ?? "unknown",
@@ -643,8 +713,15 @@ struct GitHubPullRequestFetcher: Sendable {
         return approved ? .approved : .noReviewYet
     }
 
-    private func reviewRequestKind(for value: DiscoveredPullRequest) -> ReviewRequestKind {
-        switch (value.isDirectlyRequested, value.isTeamRequested) {
+    private func reviewRequestKind(for value: HydrationAccumulator, login: String) -> ReviewRequestKind {
+        let direct = value.reviewRequests.values.contains { request in
+            request.requestedReviewer?.typename == "User"
+                && request.requestedReviewer?.login?.caseInsensitiveCompare(login) == .orderedSame
+        }
+        let team = value.discovery.isTeamRequested && value.reviewRequests.values.contains {
+            $0.requestedReviewer?.typename == "Team"
+        }
+        return switch (direct, team) {
         case (true, true): .directAndTeam
         case (true, false): .direct
         case (false, true): .team

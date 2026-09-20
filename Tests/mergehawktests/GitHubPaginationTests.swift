@@ -207,7 +207,7 @@ final class GitHubPaginationTests: XCTestCase {
     }
 
     private static func request(_ id: String) -> [String: Any] {
-        ["id": id, "requestedReviewer": ["__typename": "User", "id": "USER_\(id)", "login": "someone"]]
+        ["id": id, "requestedReviewer": ["__typename": "User", "id": "USER_\(id)", "login": "rw"]]
     }
 
     private static func string(_ value: GitHubQueryValue?) -> String? {

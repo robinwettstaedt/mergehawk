@@ -568,7 +568,7 @@ public enum GitHubPullRequestNormalizer {
     }
 }
 
-public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitHubAppInstallationProviding, GitHubViewerProviding {
+public final class GitHubClient: PullRequestSource, CompletePullRequestFetching, SourceCatalogProviding, GitHubAppInstallationProviding, GitHubViewerProviding, @unchecked Sendable {
     public let sourceKind: DashboardSource = .github
 
     private struct PullRequestSearch {
@@ -579,6 +579,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
     private let tokenProvider: @Sendable () async throws -> String
     private let session: URLSession
     private let decoder = JSONDecoder()
+    private let readRetryPolicy = GitHubReadRetryPolicy()
 
     public init(token: String, session: URLSession = .shared) {
         self.tokenProvider = { token }
@@ -679,6 +680,91 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
                 refreshWarning: "Pull request activity details could not refresh. Showing last-known notification activity."
             )
         }
+    }
+
+    public func fetchCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        let fetcher = GitHubPullRequestFetcher { [weak self] query, variables in
+            guard let self else { throw CancellationError() }
+            return try await self.completeGraphQL(query: query, variables: variables)
+        }
+        let discovery = try await fetcher.discover(login: login)
+        let discoveredIDs = Set(discovery.pullRequests.map(\.id))
+        let previousPullRequests = previousState?.account.login == login
+            ? previousState?.dashboard.pullRequests ?? []
+            : []
+        let previousByID = Dictionary(uniqueKeysWithValues: previousPullRequests.map { ($0.id, $0) })
+
+        let discoveredHydration = try await fetcher.hydrateForReconciliation(
+            discovery.pullRequests,
+            login: login
+        )
+        let absentIdentities = previousPullRequests
+            .filter { !discoveredIDs.contains($0.id) }
+            .map(Self.discoveryIdentity(from:))
+        let absentHydration = try await fetcher.hydrateForReconciliation(absentIdentities, login: login)
+
+        var missingIDs = discoveredHydration.missingPullRequestIDs
+            .union(absentHydration.missingPullRequestIDs)
+        var quietlyRetiredIDs = Set<String>()
+        var verifiedViewer = false
+        let allIdentities = Dictionary(
+            uniqueKeysWithValues: (discovery.pullRequests + absentIdentities).map { ($0.id, $0) }
+        )
+        for id in missingIDs.sorted() {
+            guard let identity = allIdentities[id] else { throw GitHubReadError.invalidPayload }
+            if try await missingResourceIsTerminal(
+                repository: identity.repository,
+                number: identity.number,
+                expectedLogin: login,
+                verifiedViewer: &verifiedViewer
+            ) {
+                quietlyRetiredIDs.insert(id)
+                missingIDs.remove(id)
+            }
+        }
+        guard missingIDs.isEmpty else { throw GitHubReadError.invalidPayload }
+
+        let hydrated = discoveredHydration.pullRequests + absentHydration.pullRequests
+        var teamMembershipByRepository: [String: Set<String>] = [:]
+        var active: [PullRequest] = []
+        var retiring: [PullRequest] = []
+        for value in hydrated {
+            let pr = value.pullRequest
+            let wasDiscovered = discoveredIDs.contains(pr.id)
+            let baseRelevant = pr.isMine || pr.isAssignedToViewer || pr.reviewRequestKind.includesDirect
+            var teamRelevant = false
+            if pr.reviewRequestKind.includesTeam {
+                if wasDiscovered && value.discovery.isTeamRequested {
+                    teamRelevant = true
+                } else {
+                    let ids: Set<String>
+                    if let cached = teamMembershipByRepository[pr.repo] {
+                        ids = cached
+                    } else {
+                        ids = try await fetcher.repositoryTeamRequestedPullRequestIDs(
+                            repository: pr.repo,
+                            login: login
+                        )
+                        teamMembershipByRepository[pr.repo] = ids
+                    }
+                    teamRelevant = ids.contains(pr.id)
+                }
+            }
+            if value.providerState == "OPEN", baseRelevant || teamRelevant {
+                active.append(pr)
+            } else if previousByID[pr.id] != nil {
+                retiring.append(pr)
+            }
+        }
+
+        return CompletePullRequestFetchResult(
+            activePullRequests: active.sorted { $0.id < $1.id },
+            retiringPullRequests: retiring.sorted { $0.id < $1.id },
+            quietlyRetiredPullRequestIDs: quietlyRetiredIDs
+        )
     }
 
     private func fetchShallowPullRequests(login: String) async throws -> [PullRequest] {
@@ -812,6 +898,129 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             return true
         }
         return false
+    }
+
+    private func completeGraphQL(
+        query: String,
+        variables: [String: GitHubQueryValue]
+    ) async throws -> Data {
+        try await readRetryPolicy.run { [self] in
+            var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+            request.httpMethod = "POST"
+            request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
+            request.addValue("application/json", forHTTPHeaderField: "content-type")
+            request.httpBody = try JSONEncoder().encode(
+                CompleteGraphQLRequest(query: query, variables: variables)
+            )
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw GitHubReadError.http(status: -1)
+            }
+            try classifyReadResponse(http, data: data)
+            return data
+        }
+    }
+
+    private static func discoveryIdentity(from pullRequest: PullRequest) -> DiscoveredPullRequest {
+        DiscoveredPullRequest(
+            id: pullRequest.id,
+            repository: pullRequest.repo,
+            number: pullRequest.number,
+            createdAt: pullRequest.createdAt,
+            isAuthored: pullRequest.isMine,
+            isAssigned: pullRequest.isAssignedToViewer,
+            isDirectlyRequested: pullRequest.reviewRequestKind.includesDirect,
+            isTeamRequested: pullRequest.reviewRequestKind.includesTeam
+        )
+    }
+
+    private func missingResourceIsTerminal(
+        repository: String,
+        number: Int,
+        expectedLogin: String,
+        verifiedViewer: inout Bool
+    ) async throws -> Bool {
+        var request = URLRequest(
+            url: URL(string: "https://api.github.com/repos/\(repository)/pulls/\(number)")!
+        )
+        request.httpMethod = "GET"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
+        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
+        let (data, http) = try await completeREST(request, allowedStatuses: [403, 404])
+        switch http.statusCode {
+        case 404:
+            if !verifiedViewer {
+                try await verifyViewerIdentity(expectedLogin)
+                verifiedViewer = true
+            }
+            return true
+        case 403:
+            let message = (try? JSONDecoder().decode(RESTMessage.self, from: data).message) ?? ""
+            guard message.localizedCaseInsensitiveContains("resource not accessible")
+                    || message.localizedCaseInsensitiveContains("access denied") else {
+                throw GitHubReadError.http(status: 403)
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func verifyViewerIdentity(_ expectedLogin: String) async throws {
+        var request = URLRequest(url: URL(string: "https://api.github.com/user")!)
+        request.httpMethod = "GET"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
+        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
+        let (data, _) = try await completeREST(request)
+        let viewer = try decoder.decode(ViewerResponse.self, from: data)
+        guard viewer.login.caseInsensitiveCompare(expectedLogin) == .orderedSame else {
+            throw GitHubReadError.authentication
+        }
+    }
+
+    private func completeREST(
+        _ request: URLRequest,
+        allowedStatuses: Set<Int> = []
+    ) async throws -> (Data, HTTPURLResponse) {
+        try await readRetryPolicy.run { [self] in
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw GitHubReadError.http(status: -1)
+            }
+            if http.statusCode == 403,
+               http.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0" {
+                try classifyReadResponse(http, data: data)
+            } else if !allowedStatuses.contains(http.statusCode) {
+                try classifyReadResponse(http, data: data)
+            }
+            return (data, http)
+        }
+    }
+
+    private func classifyReadResponse(_ response: HTTPURLResponse, data: Data) throws {
+        guard !(200..<300).contains(response.statusCode) else { return }
+        if response.statusCode == 401 { throw GitHubReadError.authentication }
+        if response.statusCode == 429
+            || (response.statusCode == 403 && response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0") {
+            let retryAt: Date?
+            if let retry = response.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init) {
+                retryAt = Date().addingTimeInterval(retry)
+            } else if let reset = response.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap(TimeInterval.init) {
+                retryAt = Date(timeIntervalSince1970: reset)
+            } else {
+                retryAt = nil
+            }
+            throw GitHubReadError.rateLimited(retryAt: retryAt)
+        }
+        if response.statusCode == 403 {
+            let message = (try? JSONDecoder().decode(RESTMessage.self, from: data).message) ?? ""
+            if message.localizedCaseInsensitiveContains("resource not accessible") {
+                throw GitHubReadError.accessDenied
+            }
+        }
+        throw GitHubReadError.http(status: response.statusCode)
     }
 
     public func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -1148,6 +1357,15 @@ public enum GitHubClientError: Error, LocalizedError {
 private struct GraphQLRequest: Encodable {
     let query: String
     let variables: [String: GraphQLVariable]
+}
+
+private struct CompleteGraphQLRequest: Encodable {
+    let query: String
+    let variables: [String: GitHubQueryValue]
+}
+
+private struct RESTMessage: Decodable {
+    let message: String
 }
 
 private struct GitHubAppInstallationsResponse: Decodable {
