@@ -76,14 +76,19 @@ final class OAuthAccessTokenCache {
     private let host: URL
     private var cachedTokens: OAuthTokens?
     private var loadedStoredTokens = false
+    private var refreshTask: Task<OAuthTokens, Error>?
+    private var refreshTaskID: Int?
+    private var nextRefreshTaskID = 0
+    private var generation = 0
 
     init(
         tokenStore: TokenStore,
         credentials: OAuthClientCredentials = MergeHawkAuthDefaults.clientCredentials,
-        host: URL = MergeHawkAuthDefaults.githubHost
+        host: URL = MergeHawkAuthDefaults.githubHost,
+        refresher: OAuthTokenRefresher? = nil
     ) {
         self.tokenStore = tokenStore
-        self.refresher = OAuthTokenRefresher(
+        self.refresher = refresher ?? OAuthTokenRefresher(
             tokenStore: tokenStore,
             defaultCredentials: credentials
         )
@@ -91,18 +96,52 @@ final class OAuthAccessTokenCache {
     }
 
     func store(_ tokens: OAuthTokens) {
+        generation += 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshTaskID = nil
         cachedTokens = tokens
         loadedStoredTokens = true
     }
 
     func clear() {
+        generation += 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshTaskID = nil
         cachedTokens = nil
         loadedStoredTokens = false
     }
 
     func accessToken() async throws -> String {
         let tokens = try loadTokensIfNeeded()
-        let refreshedTokens = try await refresher.refreshIfNeeded(tokens: tokens, host: host)
+        if let refreshTask {
+            return try await refreshTask.value.accessToken
+        }
+        guard tokens.refreshToken.isEmpty || tokens.expiresAt.map({ $0 <= Date().addingTimeInterval(60) }) == true else {
+            return tokens.accessToken
+        }
+        let expectedGeneration = generation
+        let refresher = refresher
+        let host = host
+        let task = Task {
+            try await refresher.refreshIfNeeded(tokens: tokens, host: host, persist: false)
+        }
+        nextRefreshTaskID += 1
+        let taskID = nextRefreshTaskID
+        refreshTask = task
+        refreshTaskID = taskID
+        defer {
+            if refreshTaskID == taskID {
+                refreshTask = nil
+                refreshTaskID = nil
+            }
+        }
+        let refreshedTokens = try await task.value
+        guard generation == expectedGeneration, cachedTokens == tokens else {
+            throw CancellationError()
+        }
+        try tokenStore.storeOAuthTokens(refreshedTokens)
         cachedTokens = refreshedTokens
         loadedStoredTokens = true
         return refreshedTokens.accessToken

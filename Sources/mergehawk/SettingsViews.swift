@@ -896,7 +896,7 @@ private struct SourcesSettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            controller.refreshSources()
+            controller.refreshSourcesIfNeeded()
         }
     }
 

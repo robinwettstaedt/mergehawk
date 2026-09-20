@@ -831,16 +831,30 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
     }
 
     public func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
-        var request = URLRequest(url: URL(string: "https://api.github.com/user/installations")!)
-        request.httpMethod = "GET"
-        request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
-        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
-        request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
+        var page = 1
+        var responses: [GitHubAppInstallationResponse] = []
+        while true {
+            var components = URLComponents(string: "https://api.github.com/user/installations")!
+            components.queryItems = [
+                URLQueryItem(name: "per_page", value: "100"),
+                URLQueryItem(name: "page", value: "\(page)")
+            ]
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "GET"
+            request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
+            request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
+            request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
 
-        let (data, response) = try await session.data(for: request)
-        try validate(response, endpoint: "GitHub App installations")
-        let payload = try decoder.decode(GitHubAppInstallationsResponse.self, from: data)
-        return GitHubAppInstallations(installations: payload.installations.map { installation in
+            let (data, response) = try await session.data(for: request)
+            try validate(response, endpoint: "GitHub App installations")
+            let payload = try decoder.decode(GitHubAppInstallationsResponse.self, from: data)
+            responses.append(contentsOf: payload.installations)
+            guard !payload.installations.isEmpty, responses.count < payload.totalCount else {
+                break
+            }
+            page += 1
+        }
+        return GitHubAppInstallations(installations: responses.map { installation in
             GitHubAppInstallation(
                 id: installation.id,
                 accountLogin: installation.account.login,
@@ -1137,7 +1151,13 @@ private struct GraphQLRequest: Encodable {
 }
 
 private struct GitHubAppInstallationsResponse: Decodable {
+    let totalCount: Int
     let installations: [GitHubAppInstallationResponse]
+
+    private enum CodingKeys: String, CodingKey {
+        case totalCount = "total_count"
+        case installations
+    }
 }
 
 private struct GitHubAppInstallationResponse: Decodable {

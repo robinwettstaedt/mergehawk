@@ -24,7 +24,12 @@ public struct OAuthTokenRefresher {
         return try await refreshIfNeeded(tokens: tokens, host: host, force: force)
     }
 
-    public func refreshIfNeeded(tokens storedTokens: OAuthTokens, host: URL, force: Bool = false) async throws -> OAuthTokens {
+    public func refreshIfNeeded(
+        tokens storedTokens: OAuthTokens,
+        host: URL,
+        force: Bool = false,
+        persist: Bool = true
+    ) async throws -> OAuthTokens {
         var tokens = storedTokens
         if tokens.refreshToken.isEmpty {
             return tokens
@@ -64,7 +69,9 @@ public struct OAuthTokenRefresher {
                 refreshToken: decoded.refreshToken ?? tokens.refreshToken,
                 expiresAt: decoded.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
             )
-            try tokenStore.storeOAuthTokens(tokens)
+            if persist {
+                try tokenStore.storeOAuthTokens(tokens)
+            }
             return tokens
         } catch {
             throw GitHubClientError.authRefreshFailed(status: response.statusCode, detail: Self.refreshErrorDetail(from: data))

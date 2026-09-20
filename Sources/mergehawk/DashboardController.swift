@@ -248,6 +248,7 @@ final class DashboardController: ObservableObject {
     }
     @Published private(set) var isRefreshingSources = false
     @Published private(set) var sourceCatalogSyncedAt: Date?
+    private var sourceCatalogAccountLogin: String?
     @Published private(set) var sourceErrorMessage: String?
     @Published private(set) var gitHubAppRepositoryAccessStatus: GitHubAppRepositoryAccessStatus = .notApplicable
     private var gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
@@ -286,6 +287,10 @@ final class DashboardController: ObservableObject {
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
+    private var catalogTask: Task<Void, Never>?
+    private var providerGeneration = 0
+    private var refreshingGeneration: Int?
+    private static let sourceCatalogFreshnessInterval: TimeInterval = 60 * 60
     @Published private(set) var pullRequestNotificationHistory: [PullRequestNotification] {
         didSet {
             preferencesStore.pullRequestNotificationHistory = pullRequestNotificationHistory
@@ -344,6 +349,8 @@ final class DashboardController: ObservableObject {
         self.hiddenPullRequestIds = preferencesStore.hiddenPullRequestIds
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.sourceCatalog = preferencesStore.sourceCatalog
+        self.sourceCatalogSyncedAt = preferencesStore.sourceCatalogSyncedAt
+        self.sourceCatalogAccountLogin = preferencesStore.sourceCatalogAccountLogin
         self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
         self.startsAtLogin = self.launchAtLoginService.isEnabled
         self.authMethod = preferencesStore.authMethod
@@ -355,6 +362,7 @@ final class DashboardController: ObservableObject {
 
     deinit {
         automaticRefreshTask?.cancel()
+        catalogTask?.cancel()
     }
 
     var hasAttention: Bool {
@@ -658,8 +666,8 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await fetchSourceCatalog()
             await sync()
+            startCatalogRefreshIfNeeded(force: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -739,10 +747,9 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await fetchSourceCatalog()
-            guard shouldContinueSignIn(attemptID) else { return }
             await sync()
             guard shouldContinueSignIn(attemptID) else { return }
+            startCatalogRefreshIfNeeded(force: true)
             try tokenStore.storeOAuthTokens(tokens)
             try tokenStore.clearPAT()
             deviceFlowChallenge = nil
@@ -776,6 +783,7 @@ final class DashboardController: ObservableObject {
 
     func signOut() {
         cancelDeviceFlowSignIn()
+        beginProviderGeneration()
         do {
             oauthAccessTokenCache.clear()
             try tokenStore.clear()
@@ -791,6 +799,10 @@ final class DashboardController: ObservableObject {
         gitHubAppRepositoryAccessStatus = .notApplicable
         gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         sourceCatalog = .empty
+        sourceCatalogSyncedAt = nil
+        sourceCatalogAccountLogin = nil
+        preferencesStore.sourceCatalogSyncedAt = nil
+        preferencesStore.sourceCatalogAccountLogin = nil
         sourceErrorMessage = nil
         configureSignedOutSource()
         refresh()
@@ -835,9 +847,11 @@ final class DashboardController: ObservableObject {
     }
 
     func refreshSources() {
-        Task {
-            await fetchSourceCatalog(appliesMockRefreshDelay: true)
-        }
+        startCatalogRefreshIfNeeded(force: true, appliesMockRefreshDelay: true)
+    }
+
+    func refreshSourcesIfNeeded() {
+        startCatalogRefreshIfNeeded()
     }
 
     func open(_ url: URL) {
@@ -997,6 +1011,7 @@ final class DashboardController: ObservableObject {
         loginProvider: @escaping () async throws -> String,
         accountProvider: @escaping () async throws -> GitHubAccount?
     ) {
+        beginProviderGeneration()
         sourceCatalogProvider = client
         if authMethod == .oauth {
             gitHubAppInstallationProvider = client
@@ -1025,6 +1040,7 @@ final class DashboardController: ObservableObject {
     }
 
     private func configureSignedOutSource() {
+        beginProviderGeneration()
         setAuthMethod(.oauth)
         sourceCatalog = .empty
         sourceCatalogProvider = nil
@@ -1043,6 +1059,7 @@ final class DashboardController: ObservableObject {
     }
 
     private func configureMockSource() {
+        beginProviderGeneration()
         let account = GitHubAccount(login: "agent-fixture")
         self.account = account
         setAuthMethod(.oauth)
@@ -1055,6 +1072,7 @@ final class DashboardController: ObservableObject {
         gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
         sourceCatalogSyncedAt = Date()
+        sourceCatalogAccountLogin = account.login
         if launchConfiguration.showsNotificationTypeFixtures {
             pullRequestNotificationHistory = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
         }
@@ -1070,6 +1088,15 @@ final class DashboardController: ObservableObject {
 
     private func makeOAuthGitHubClient() -> any GitHubProviding {
         oauthGitHubClientFactory(makeOAuthAccessTokenProvider())
+    }
+
+    private func beginProviderGeneration() {
+        providerGeneration += 1
+        catalogTask?.cancel()
+        catalogTask = nil
+        isRefreshingSources = false
+        refreshingGeneration = nil
+        isRefreshing = false
     }
 
     private func makeOAuthAccessTokenProvider() -> @Sendable () async throws -> String {
@@ -1114,33 +1141,72 @@ final class DashboardController: ObservableObject {
         preferencesStore.pullRequestSnapshotCache = cache
     }
 
-    private func fetchSourceCatalog(appliesMockRefreshDelay: Bool = false) async {
-        guard let sourceCatalogProvider else {
+    private func startCatalogRefreshIfNeeded(
+        force: Bool = false,
+        appliesMockRefreshDelay: Bool = false
+    ) {
+        guard catalogTask == nil, sourceCatalogProvider != nil else {
             return
         }
-        guard !isRefreshingSources else {
+        let expectedLogin = account?.login ?? state.account?.login
+        guard let expectedLogin else {
             return
         }
+        if sourceCatalogAccountLogin != expectedLogin {
+            sourceCatalog = .empty
+            sourceCatalogSyncedAt = nil
+            sourceCatalogAccountLogin = nil
+            preferencesStore.sourceCatalogSyncedAt = nil
+            preferencesStore.sourceCatalogAccountLogin = nil
+        }
+        if !force,
+           let sourceCatalogSyncedAt,
+           now() < sourceCatalogSyncedAt.addingTimeInterval(Self.sourceCatalogFreshnessInterval) {
+            return
+        }
+
+        let generation = providerGeneration
         isRefreshingSources = true
-        defer { isRefreshingSources = false }
         sourceErrorMessage = nil
-        let installations = await fetchGitHubAppInstallationsForAccessStatus()
-        guard !Task.isCancelled else { return }
-        await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
-        guard !Task.isCancelled else { return }
-        do {
-            let fetchedCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
-                accountLogin: account?.login ?? state.account?.login
+        catalogTask = Task { [weak self] in
+            await self?.performCatalogRefresh(
+                expectedLogin: expectedLogin,
+                generation: generation,
+                appliesMockRefreshDelay: appliesMockRefreshDelay
             )
-            guard !Task.isCancelled else { return }
+            guard let self, self.providerGeneration == generation else { return }
+            self.isRefreshingSources = false
+            self.catalogTask = nil
+        }
+    }
+
+    private func performCatalogRefresh(
+        expectedLogin: String,
+        generation: Int,
+        appliesMockRefreshDelay: Bool
+    ) async {
+        guard let sourceCatalogProvider else { return }
+        let installations = await fetchGitHubAppInstallationsForAccessStatus(
+            generation: generation,
+            expectedLogin: expectedLogin
+        )
+        guard isCurrentProvider(generation, login: expectedLogin) else { return }
+        await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
+        guard isCurrentProvider(generation, login: expectedLogin) else { return }
+        do {
+            let fetchedCatalog = try await sourceCatalogProvider.fetchSourceCatalog(accountLogin: expectedLogin)
+            guard isCurrentProvider(generation, login: expectedLogin) else { return }
             sourceCatalog = fetchedCatalog
-            sourceCatalogSyncedAt = Date()
+            sourceCatalogSyncedAt = now()
+            sourceCatalogAccountLogin = expectedLogin
+            preferencesStore.sourceCatalogSyncedAt = sourceCatalogSyncedAt
+            preferencesStore.sourceCatalogAccountLogin = expectedLogin
             updateGitHubAppRepositoryAccessStatus(
                 installations: installations,
                 sourceCatalog: fetchedCatalog
             )
         } catch {
-            guard !Task.isCancelled, !(error is CancellationError) else { return }
+            guard isCurrentProvider(generation, login: expectedLogin), !(error is CancellationError) else { return }
             updateGitHubAppRepositoryAccessStatus(
                 installations: installations,
                 sourceCatalog: nil
@@ -1153,13 +1219,23 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    private func isCurrentProvider(_ generation: Int, login: String) -> Bool {
+        providerGeneration == generation
+            && !Task.isCancelled
+            && (account?.login ?? state.account?.login) == login
+    }
+
     private var canCheckGitHubAppRepositoryAccess: Bool {
         (state.authStatus == .signedIn || account != nil)
             && authMethod == .oauth
             && !launchConfiguration.usesMockData
     }
 
-    private func fetchGitHubAppInstallationsForAccessStatus() async -> GitHubAppInstallations? {
+    private func fetchGitHubAppInstallationsForAccessStatus(
+        generation: Int,
+        expectedLogin: String
+    ) async -> GitHubAppInstallations? {
+        guard isCurrentProvider(generation, login: expectedLogin) else { return nil }
         guard canCheckGitHubAppRepositoryAccess else {
             gitHubAppRepositoryAccessStatus = .notApplicable
             gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
@@ -1173,8 +1249,10 @@ final class DashboardController: ObservableObject {
 
         gitHubAppRepositoryAccessStatus = .checking
         do {
-            return try await gitHubAppInstallationProvider.fetchGitHubAppInstallations()
+            let installations = try await gitHubAppInstallationProvider.fetchGitHubAppInstallations()
+            return isCurrentProvider(generation, login: expectedLogin) ? installations : nil
         } catch {
+            guard isCurrentProvider(generation, login: expectedLogin) else { return nil }
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
@@ -1242,17 +1320,24 @@ final class DashboardController: ObservableObject {
         guard let syncEngine else {
             return
         }
-        guard !isRefreshing else {
+        let generation = providerGeneration
+        guard refreshingGeneration != generation else {
             return
         }
+        refreshingGeneration = generation
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            if refreshingGeneration == generation {
+                refreshingGeneration = nil
+                isRefreshing = false
+            }
+        }
         errorMessage = nil
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
             let nextState = try await syncEngine.sync()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, providerGeneration == generation else { return }
             recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
             state = nextState
             if authMethod == .oauth,
@@ -1267,7 +1352,7 @@ final class DashboardController: ObservableObject {
                 notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
             }
         } catch {
-            guard !Task.isCancelled, !(error is CancellationError) else { return }
+            guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else { return }
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
@@ -1277,15 +1362,8 @@ final class DashboardController: ObservableObject {
     }
 
     private func refreshDashboard(appliesMockRefreshDelay: Bool = false) async {
-        if canCheckGitHubAppRepositoryAccess {
-            await fetchSourceCatalog(appliesMockRefreshDelay: appliesMockRefreshDelay)
-        }
         await sync(appliesMockRefreshDelay: appliesMockRefreshDelay)
-        // sync() establishes authStatus — if the catalog check was skipped earlier
-        // because auth wasn't ready yet, run it now that we know we're signed in.
-        if canCheckGitHubAppRepositoryAccess && gitHubAppRepositoryAccessStatus == .unknown {
-            await fetchSourceCatalog()
-        }
+        startCatalogRefreshIfNeeded()
     }
 
     private func delayMockRefreshIfNeeded(applies: Bool) async {

@@ -62,6 +62,16 @@ struct PreferencesStore {
         }
     }
 
+    var sourceCatalogSyncedAt: Date? {
+        get { defaults.object(forKey: "sources.catalogSyncedAt") as? Date }
+        set { defaults.set(newValue, forKey: "sources.catalogSyncedAt") }
+    }
+
+    var sourceCatalogAccountLogin: String? {
+        get { defaults.string(forKey: "sources.catalogAccountLogin") }
+        set { defaults.set(newValue, forKey: "sources.catalogAccountLogin") }
+    }
+
     var pullRequestSnapshotCache: PullRequestSnapshotCache {
         get {
             decoded(for: "pullRequests.snapshotCache", fallback: .empty)
