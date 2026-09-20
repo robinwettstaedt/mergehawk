@@ -290,6 +290,90 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testNewAccountCompletionDoesNotPersistPriorAccountHistory() async throws {
+        let newPR = makePullRequest(id: "PR_BOB", title: "Bob's PR")
+        let provider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [newPR])),
+            login: "bob"
+        )
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+
+        await waitUntil { provider.fetchCount == 1 && !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.state.account?.login, "bob")
+        XCTAssertEqual(fixture.controller.state.pullRequests.map(\.id), [newPR.id])
+        XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState?.account.login, "bob")
+        XCTAssertTrue(fixture.preferences.pullRequestSyncState?.notificationHistory.isEmpty == true)
+    }
+
+    @MainActor
+    func testSameAccountReauthenticationRetainsHistoryReadFlags() async throws {
+        let provider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [
+                makePullRequest(id: "PR_BASELINE", title: "Baseline")
+            ]))
+        )
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 && !fixture.controller.isRefreshing }
+        fixture.controller.markPullRequestNotificationRead(
+            fixture.controller.pullRequestNotificationHistory[0]
+        )
+
+        await fixture.controller.signInWithToken("replacement-pat")
+
+        XCTAssertEqual(provider.fetchCount, 2)
+        XCTAssertEqual(fixture.controller.state.account?.login, "rw")
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 1)
+        XCTAssertTrue(fixture.controller.pullRequestNotificationHistory[0].read)
+        XCTAssertTrue(fixture.preferences.pullRequestSyncState?.notificationHistory[0].read == true)
+    }
+
+    @MainActor
+    func testSameAccountLegacyImportRetainsHistoryOnFirstCompleteRefresh() async throws {
+        let suiteName = "atomic-legacy-history-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        let pullRequest = makePullRequest(id: "PR_LEGACY", title: "Legacy history")
+        var notification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: pullRequest.id, activityId: "LEGACY_COMMENT"),
+            pullRequest: pullRequest,
+            createdAt: Date(timeIntervalSince1970: 10)
+        )
+        notification.read = true
+        preferences.pullRequestSnapshotCache = PullRequestSnapshotCache(
+            pullRequests: [pullRequest],
+            account: GitHubAccount(login: "rw"),
+            fetchedAt: Date(timeIntervalSince1970: 10),
+            source: .github
+        )
+        preferences.pullRequestNotificationHistory = [notification]
+        let provider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [pullRequest]))
+        )
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider }
+        )
+
+        await waitUntil { provider.fetchCount == 1 && !controller.isRefreshing }
+
+        XCTAssertEqual(controller.pullRequestNotificationHistory, [notification])
+        XCTAssertEqual(preferences.pullRequestSyncState?.notificationHistory, [notification])
+        XCTAssertTrue(preferences.pullRequestSyncState?.notificationHistory[0].read == true)
+    }
+
+    @MainActor
     func testLateOldProviderCompletionCannotOverwriteReplacementCredentials() async throws {
         let suiteName = "atomic-late-provider-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -440,15 +524,17 @@ private final class AtomicGitHubProvider: GitHubProviding {
 
     let sourceKind: DashboardSource = .github
     private var result: ResultMode
+    private let login: String
     private var continuation: CheckedContinuation<CompletePullRequestFetchResult, Error>?
     private(set) var fetchCount = 0
 
-    init(result: ResultMode) {
+    init(result: ResultMode, login: String = "rw") {
         self.result = result
+        self.login = login
     }
 
     func fetchViewer() async throws -> GitHubAccount {
-        GitHubAccount(login: "rw")
+        GitHubAccount(login: login)
     }
 
     func fetchCompletePullRequests(

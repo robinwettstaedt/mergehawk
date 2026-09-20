@@ -1315,9 +1315,10 @@ final class DashboardController: ObservableObject {
                     createdAt: prepared.syncedAt
                 )
             }
-            let history = Self.trimPullRequestNotifications(
-                notifications + presentation.notificationHistory
-            )
+            let retainedHistory = committedSyncState?.account.login == prepared.account.login
+                ? presentation.notificationHistory
+                : []
+            let history = Self.trimPullRequestNotifications(notifications + retainedHistory)
             let dashboard = DashboardState(
                 pullRequests: prepared.activePullRequests,
                 events: allowed.map(\.event),
