@@ -580,3 +580,25 @@ extension MockPullRequestSource: SourceCatalogProviding {
         )
     }
 }
+
+extension EmptyPullRequestSource: CompletePullRequestFetching {
+    public func fetchCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
+    }
+}
+
+extension MockPullRequestSource: CompletePullRequestFetching {
+    public func fetchCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        let result = try await fetchPullRequests(
+            login: login,
+            previousPullRequests: previousState?.dashboard.pullRequests ?? []
+        )
+        return CompletePullRequestFetchResult(activePullRequests: result.pullRequests)
+    }
+}

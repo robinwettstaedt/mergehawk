@@ -29,6 +29,7 @@ struct Runner {
         try await testSyncSeedsPreviousSnapshotsAndUpdatesSnapshotCache()
         try await testSyncSurfacesSourceRefreshWarning()
         try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
+        try await testPreparedRefreshUsesDurableProcessedActivity()
         try testNormalizesPullRequestSearchNodes()
         try testNormalizesActionableUnresolvedComments()
         try testNormalizesReviewOutcomeFromLatestOpinionatedReviews()
@@ -826,6 +827,62 @@ struct Runner {
         try expect(result.account?.login == "rw")
         try expect(result.pullRequests.isEmpty)
         try expect(result.events.isEmpty)
+    }
+
+    private static func testPreparedRefreshUsesDurableProcessedActivity() async throws {
+        let source = EmptyPullRequestSource()
+        let engine = SyncEngine(
+            source: source,
+            loginProvider: { "rw" },
+            accountProvider: { GitHubAccount(login: "rw") },
+            now: { Date(timeIntervalSince1970: 10) }
+        )
+        let baselinePR = PullRequest.fixture(
+            recentCommentActivities: [
+                PullRequestCommentActivity(
+                    id: "BASELINE",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    source: .pullRequest
+                )
+            ],
+            isMine: true
+        )
+        let baseline = try await engine.prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [baselinePR])
+        )
+        try expect(baseline.events.isEmpty)
+
+        let previous = PullRequestSyncState(
+            account: baseline.account,
+            dashboard: DashboardState(
+                pullRequests: baseline.activePullRequests,
+                events: [],
+                syncedAt: baseline.syncedAt,
+                source: baseline.source,
+                account: baseline.account,
+                authStatus: .signedIn
+            ),
+            processedActivityByPullRequestID: baseline.processedActivityByPullRequestID
+        )
+        let nextPR = PullRequest.fixture(
+            recentCommentActivities: baselinePR.recentCommentActivities + [
+                PullRequestCommentActivity(
+                    id: "NEW",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 2),
+                    source: .pullRequest
+                )
+            ],
+            isMine: true
+        )
+        let prepared = try await engine.prepare(
+            previousState: previous,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [nextPR])
+        )
+        try expect(prepared.events.map(\.event.activityId) == ["NEW"])
+        try expect(prepared.syncedAt == Date(timeIntervalSince1970: 10))
     }
 
     private static func testNormalizesPullRequestSearchNodes() throws {

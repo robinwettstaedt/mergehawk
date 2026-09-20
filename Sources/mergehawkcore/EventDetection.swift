@@ -1,6 +1,66 @@
 import Foundation
 
 public enum PRActivityDetector {
+    public static func detectTransitions(previous: PullRequest?, current: PullRequest) -> [PullRequestEvent] {
+        guard let previous else { return [] }
+        var events = relationshipAddedEvents(previous: previous, current: current)
+        if previous.ciState != .failing, current.ciState == .failing {
+            events.append(PullRequestEvent(type: .ciFailed, prId: current.id))
+        }
+        return events
+    }
+
+    public static func detectProcessedPeopleActivity(
+        previous: ProcessedPullRequestActivity?,
+        current: PullRequest
+    ) -> [PullRequestEvent] {
+        guard let previous else { return [] }
+        let newReviews = current.recentReviews
+            .filter { !previous.submittedReviewIDs.contains($0.id) }
+            .filter { !$0.viewerDidAuthor }
+            .sorted { $0.submittedAt < $1.submittedAt }
+        let reviewEvents = newReviews.map { review in
+            PullRequestEvent(
+                type: reviewEventType(for: review.state),
+                prId: current.id,
+                count: 1,
+                actorLogin: review.author,
+                activityId: review.id,
+                happenedAt: review.submittedAt
+            )
+        }
+        let representedReviewIDs = Set(newReviews.map(\.id))
+        let commentEvents = current.recentCommentActivities
+            .filter { !previous.commentIDs.contains($0.id) }
+            .filter { !$0.viewerDidAuthor }
+            .filter { comment in
+                comment.reviewId.map { !representedReviewIDs.contains($0) } ?? true
+            }
+            .sorted { $0.createdAt < $1.createdAt }
+            .map { comment in
+                PullRequestEvent(
+                    type: commentEventType(for: comment.source),
+                    prId: current.id,
+                    count: 1,
+                    actorLogin: comment.author,
+                    activityId: comment.id,
+                    happenedAt: comment.createdAt
+                )
+            }
+        return reviewEvents + commentEvents
+    }
+
+    public static func updatedProcessedActivity(
+        previous: ProcessedPullRequestActivity?,
+        current: PullRequest
+    ) -> ProcessedPullRequestActivity {
+        ProcessedPullRequestActivity(
+            pullRequestID: current.id,
+            commentIDs: (previous?.commentIDs ?? []).union(current.recentCommentActivities.map(\.id)),
+            submittedReviewIDs: (previous?.submittedReviewIDs ?? []).union(current.recentReviews.map(\.id))
+        )
+    }
+
     public static func detect(previous: PullRequest?, current: PullRequest) -> [PullRequestEvent] {
         guard let previous else {
             return []
