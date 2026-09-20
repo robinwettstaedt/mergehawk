@@ -322,38 +322,82 @@ struct GitHubPullRequestFetcher: Sendable {
         repository: String,
         login: String
     ) async throws -> Set<String> {
-        let queryValue = "is:open is:pr repo:\(repository) team-review-requested-user:\(login)"
-        var cursor: String?
+        let base = "is:open is:pr repo:\(repository) team-review-requested-user:\(login)"
+        let oldestPage = try await fetchRepositoryTeamPage(query: "\(base) sort:created-asc", cursor: nil)
+        let newestPage = try await fetchRepositoryTeamPage(query: "\(base) sort:created-desc", cursor: nil)
+        guard let oldest = try requiredNodes(oldestPage.nodes).first,
+              let newest = try requiredNodes(newestPage.nodes).first else {
+            return []
+        }
+        let lower = Int(try parseDate(oldest.createdAt).timeIntervalSince1970)
+        let upper = Int(try parseDate(newest.createdAt).timeIntervalSince1970)
+        guard lower <= upper else { throw GitHubReadError.incompleteCoverage("Invalid repository team bounds") }
+
+        var queue = [lower...upper]
         var ids = Set<String>()
-        repeat {
-            let data = try await read(
-                GitHubPullRequestQueries.repositoryTeamMembership,
-                [
-                    "query": .string(queryValue),
-                    "cursor": cursor.map(GitHubQueryValue.string) ?? .null
-                ]
-            )
-            let envelope = try decoder.decode(GitHubGraphQLPayload<RepositoryTeamData>.self, from: data)
-            try validate(errors: envelope.errors)
-            guard let page = envelope.data?.search else { throw GitHubReadError.invalidPayload }
-            guard page.issueCount <= 1_000 else {
-                throw GitHubReadError.incompleteCoverage("Repository team search exceeded 1,000 PRs")
-            }
-            try requiredNodes(page.nodes).forEach { ids.insert($0.id) }
-            if page.pageInfo.hasNextPage {
-                guard let next = page.pageInfo.endCursor, next != cursor else {
-                    throw GitHubReadError.incompleteCoverage("Non-advancing repository team cursor")
+        while let interval = queue.popLast() {
+            let result = try await fetchRepositoryTeamLeaf(base: base, interval: interval)
+            if result.exceededCap {
+                guard interval.lowerBound < interval.upperBound else {
+                    throw GitHubReadError.incompleteCoverage(
+                        "More than 1,000 repository team PRs share one creation second"
+                    )
                 }
-                cursor = next
-            } else {
-                cursor = nil
-                guard ids.count >= page.issueCount else {
+                let midpoint = interval.lowerBound + (interval.upperBound - interval.lowerBound) / 2
+                queue.append((midpoint + 1)...interval.upperBound)
+                queue.append(interval.lowerBound...midpoint)
+                continue
+            }
+            if result.nodes.count < result.finalCount {
+                let retry = try await fetchRepositoryTeamLeaf(base: base, interval: interval)
+                guard !retry.exceededCap, retry.nodes.count >= retry.finalCount else {
                     throw GitHubReadError.incompleteCoverage("Incomplete repository team search")
                 }
-                return ids
+                retry.nodes.forEach { ids.insert($0.id) }
+            } else {
+                result.nodes.forEach { ids.insert($0.id) }
             }
-        } while cursor != nil
+        }
         return ids
+    }
+
+    private func fetchRepositoryTeamLeaf(
+        base: String,
+        interval: ClosedRange<Int>
+    ) async throws -> (nodes: [GitHubDiscoveryNode], finalCount: Int, exceededCap: Bool) {
+        let bounded = "\(base) created:\(formatSecond(interval.lowerBound))..\(formatSecond(interval.upperBound))"
+        var accumulator = LaneAccumulator()
+        repeat {
+            let page = try await fetchRepositoryTeamPage(query: bounded, cursor: accumulator.cursor)
+            if page.issueCount > 1_000 { return ([], page.issueCount, true) }
+            try requiredNodes(page.nodes).forEach { accumulator.nodesByID[$0.id] = $0 }
+            accumulator.finalCount = page.issueCount
+            if page.pageInfo.hasNextPage {
+                guard let next = page.pageInfo.endCursor, next != accumulator.cursor else {
+                    throw GitHubReadError.incompleteCoverage("Non-advancing repository team cursor")
+                }
+                accumulator.cursor = next
+            }
+            accumulator.hasNext = page.pageInfo.hasNextPage
+        } while accumulator.hasNext
+        return (Array(accumulator.nodesByID.values), accumulator.finalCount, false)
+    }
+
+    private func fetchRepositoryTeamPage(
+        query: String,
+        cursor: String?
+    ) async throws -> GitHubDiscoverySearchPayload {
+        let data = try await read(
+            GitHubPullRequestQueries.repositoryTeamMembership,
+            [
+                "query": .string(query),
+                "cursor": cursor.map(GitHubQueryValue.string) ?? .null
+            ]
+        )
+        let envelope = try decoder.decode(GitHubGraphQLPayload<RepositoryTeamData>.self, from: data)
+        try validate(errors: envelope.errors)
+        guard let page = envelope.data?.search else { throw GitHubReadError.invalidPayload }
+        return page
     }
 
     private func fetchBounds(login: String) async throws -> [GitHubDiscoveryLane: Bounds] {

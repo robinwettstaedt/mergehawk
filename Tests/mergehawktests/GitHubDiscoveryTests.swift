@@ -96,6 +96,86 @@ final class GitHubDiscoveryTests: XCTestCase {
         }
     }
 
+    func testRepositoryTeamConfirmationPartitionsOverCapWithFixedBounds() async throws {
+        let transport = DiscoveryTransport { _, variables in
+            guard case .string(let query) = variables["query"] else {
+                throw GitHubReadError.invalidPayload
+            }
+            if query.contains("sort:created-asc") {
+                return Self.repositoryPage(count: 1_001, nodes: [Self.node(id: "OLD", number: 1, second: 0)])
+            }
+            if query.contains("sort:created-desc") {
+                return Self.repositoryPage(count: 1_001, nodes: [Self.node(id: "NEW", number: 2, second: 3)])
+            }
+            if query.contains("00:00:00Z..1970-01-01T00:00:03Z") {
+                return Self.repositoryPage(count: 1_001, nodes: [])
+            }
+            if query.contains("00:00:00Z..1970-01-01T00:00:01Z") {
+                return Self.repositoryPage(count: 1, nodes: [Self.node(id: "LOW", number: 3)])
+            }
+            return Self.repositoryPage(count: 1, nodes: [Self.node(id: "HIGH", number: 4, second: 3)])
+        }
+
+        let ids = try await Self.fetcher(transport).repositoryTeamRequestedPullRequestIDs(
+            repository: "acme/app",
+            login: "rw"
+        )
+
+        XCTAssertEqual(ids, ["LOW", "HIGH"])
+    }
+
+    func testDiscoveryKeepsStartBoundsAndAcceptsClosingResultsAboveFinalCount() async throws {
+        let transport = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 10)
+            }
+            let bounded = Self.query(for: .authored, variables: variables)
+            XCTAssertTrue(bounded.contains("00:00:00Z..1970-01-01T00:00:10Z"))
+            let cursor = Self.cursor(for: .authored, variables: variables)
+            if cursor == nil {
+                return Self.pageResponse(
+                    active: .authored,
+                    count: 2,
+                    nodes: [Self.node(id: "CLOSED_DURING_READ", number: 1)],
+                    hasNext: true
+                )
+            }
+            return Self.pageResponse(
+                active: .authored,
+                count: 1,
+                nodes: [Self.node(id: "STILL_OPEN", number: 2, second: 10)],
+                hasNext: false
+            )
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertEqual(Set(result.pullRequests.map(\.id)), ["CLOSED_DURING_READ", "STILL_OPEN"])
+    }
+
+    func testDiscoveryRetriesAnUndercountLeafOnce() async throws {
+        let attempts = LockedInt()
+        let transport = DiscoveryTransport { query, _ in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [.authored])
+            }
+            let attempt = attempts.increment()
+            return Self.pageResponse(
+                active: .authored,
+                count: 2,
+                nodes: attempt == 1
+                    ? [Self.node(id: "ONE", number: 1)]
+                    : [Self.node(id: "ONE", number: 1), Self.node(id: "TWO", number: 2)],
+                hasNext: false
+            )
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertEqual(Set(result.pullRequests.map(\.id)), ["ONE", "TWO"])
+        XCTAssertEqual(attempts.value, 2)
+    }
+
     private static func boundsResponse(
         nonEmptyLanes: Set<GitHubDiscoveryLane>,
         oldest: Int = 0,
@@ -133,6 +213,24 @@ final class GitHubDiscoveryTests: XCTestCase {
             ]
         }
         return json(["data": data])
+    }
+
+    private static func repositoryPage(
+        count: Int,
+        nodes: [[String: Any]],
+        hasNext: Bool = false,
+        cursor: String = "next"
+    ) -> Data {
+        json(["data": ["search": [
+            "issueCount": count,
+            "nodes": nodes,
+            "pageInfo": [
+                "startCursor": NSNull(),
+                "endCursor": hasNext ? cursor as Any : NSNull(),
+                "hasPreviousPage": false,
+                "hasNextPage": hasNext
+            ]
+        ]]])
     }
 
     private static func pageResponse(
@@ -193,6 +291,13 @@ final class GitHubDiscoveryTests: XCTestCase {
             try await transport.read(query: query, variables: variables)
         }
     }
+}
+
+private final class LockedInt: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = 0
+    var value: Int { lock.withLock { stored } }
+    func increment() -> Int { lock.withLock { stored += 1; return stored } }
 }
 
 private final class DiscoveryTransport: @unchecked Sendable {
