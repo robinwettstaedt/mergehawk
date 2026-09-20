@@ -27,3 +27,6 @@ jobs:
 
       - name: Run core tests
         run: swift run --configuration release mergehawkcoretestrunner
+
+      - name: Test release publication
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Tests/release -v

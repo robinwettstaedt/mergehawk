@@ -2,326 +2,267 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RELEASE_ENV_FILE="${RELEASE_ENV_FILE:-$ROOT_DIR/scripts/release-github.env}"
-RELEASE_LOCAL_ENV_FILE="${RELEASE_LOCAL_ENV_FILE:-$ROOT_DIR/scripts/release-github.local.env}"
+# shellcheck source=scripts/lib/release-env.sh
+source "$ROOT_DIR/scripts/lib/release-env.sh"
+RELEASE_ENV_KEYS=(
+  RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY DEVELOPER_ID_APPLICATION
+  NOTARYTOOL_PROFILE NOTARYTOOL_KEYCHAIN SPARKLE_GENERATE_APPCAST SPARKLE_PRIVATE_KEY SPARKLE_KEY_ACCOUNT
+  DOWNLOADS_TOKEN DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 DEVELOPER_ID_CERTIFICATE_PASSWORD
+  APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD
+)
+load_release_env_file "${RELEASE_ENV_FILE:-$ROOT_DIR/scripts/release-github.env}" "${RELEASE_ENV_KEYS[@]}"
+load_release_env_file "${RELEASE_LOCAL_ENV_FILE:-$ROOT_DIR/scripts/release-github.local.env}" "${RELEASE_ENV_KEYS[@]}"
+# The setup helper shares this file, but these bootstrap credentials are not
+# needed by local releases, which use imported identities, a saved notary
+# profile, and gh authentication. Do not pass them to build/publish subprocesses.
+unset DOWNLOADS_TOKEN DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 DEVELOPER_ID_CERTIFICATE_PASSWORD
+unset APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD
 VERSION_TAG=""
 BUILD_NUMBER=""
 DRAFT=0
 DRY_RUN=0
 ALLOW_DIRTY=0
-SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-}"
-SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY:-}"
-DEVELOPER_ID_APPLICATION="${DEVELOPER_ID_APPLICATION:-}"
-NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-}"
-DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-}"
-SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
-SPARKLE_PRIVATE_KEY="${SPARKLE_PRIVATE_KEY:-}"
-SPARKLE_KEY_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-ed25519}"
-
-# shellcheck source=scripts/lib/release-env.sh
-source "$ROOT_DIR/scripts/lib/release-env.sh"
-
-RELEASE_ENV_KEYS=(
-  SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY DEVELOPER_ID_APPLICATION NOTARYTOOL_PROFILE
-  DOWNLOAD_URL_PREFIX SPARKLE_GENERATE_APPCAST SPARKLE_PRIVATE_KEY SPARKLE_KEY_ACCOUNT
-)
-load_release_env_file "$RELEASE_ENV_FILE" "${RELEASE_ENV_KEYS[@]}"
-load_release_env_file "$RELEASE_LOCAL_ENV_FILE" "${RELEASE_ENV_KEYS[@]}"
+PHASE=all
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/release-github.sh --version v0.1.0 --build 1 [options]
+Usage: scripts/release-github.sh --version v0.1.0 --build YYYYMMDDHHMMSS [options]
 
-Builds a Developer ID signed GitHub-distributed MergeHawk app, packages it,
-notarizes it, generates a Sparkle appcast, and publishes a GitHub Release.
-
-Required:
-  --version TAG              Release tag, for example v0.1.0
-  --build NUMBER             CFBundleVersion build number
-
-Sparkle config:
-  --feed-url URL             Override the public Sparkle appcast URL embedded in the app
-  --sparkle-public-key KEY   Override the Sparkle EdDSA public key embedded in the app
-
-Required for publishing:
-  DEVELOPER_ID_APPLICATION   Developer ID Application signing identity
-  NOTARYTOOL_PROFILE         xcrun notarytool keychain profile
+Build, sign, notarize, and publish a Sparkle-enabled installer to the public
+RELEASE_REPOSITORY. Tags are VERSION-BUILD; no source commits or tags are pushed.
 
 Options:
-  --draft                    Create a draft GitHub Release
-  --download-url-prefix URL  Prefix used in generated appcast item enclosures
-  --generate-appcast PATH    Path to Sparkle's generate_appcast tool
-  RELEASE_ENV_FILE           Env file for repo-safe defaults (default scripts/release-github.env)
-  RELEASE_LOCAL_ENV_FILE     Env file for local overrides (default scripts/release-github.local.env)
-  SPARKLE_PRIVATE_KEY        Optional private EdDSA key, used by CI via stdin
-  SPARKLE_KEY_ACCOUNT        Keychain account for local signing (default ed25519)
-  --dry-run                  Print and validate the workflow without side effects
-  --allow-dirty              Permit a dirty working tree during dry-run
+  --prepare-only             Build local release assets without GitHub credentials
+  --publish-only             Publish previously prepared assets without rebuilding
+  --draft                    Leave the release as a draft, outside the update feed
+  --generate-appcast PATH     Override Sparkle's generate_appcast executable
+  --dry-run                  Print the release plan without side effects
+  --allow-dirty              Allow a dirty worktree only for --dry-run
   -h, --help                 Show this help
 
-Example:
-  DEVELOPER_ID_APPLICATION="Developer ID Application: Example (TEAMID)" \
-  NOTARYTOOL_PROFILE="mergehawk-notary" \
-  scripts/release-github.sh \
-    --version v0.1.0 \
-    --build 1 \
-    --draft
+Defaults: scripts/release-github.env; local overrides: scripts/release-github.local.env.
+Override file locations with RELEASE_ENV_FILE and RELEASE_LOCAL_ENV_FILE.
+Preparation requires DEVELOPER_ID_APPLICATION, NOTARYTOOL_PROFILE, and a Sparkle
+signing key in Keychain (SPARKLE_KEY_ACCOUNT, default ed25519) or SPARKLE_PRIVATE_KEY.
+NOTARYTOOL_KEYCHAIN optionally selects a custom Keychain. Publishing requires gh
+authentication with Contents:write permission for the downloads repository.
 USAGE
 }
 
-log_run() {
-  printf '+'
-  printf ' %q' "$@"
-  printf '\n'
-  if [[ "$DRY_RUN" == "0" ]]; then
-    "$@"
-  fi
-}
-
 require_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Required command not found: $1" >&2
+  command -v "$1" >/dev/null 2>&1 || { echo "Required command not found: $1" >&2; exit 2; }
+}
+
+check_github_authentication() {
+  require_command gh
+  if ! env -u SPARKLE_PRIVATE_KEY gh auth status --active --hostname github.com >/dev/null 2>&1; then
+    echo "GitHub authentication is unavailable. Run gh auth login or provide GH_TOKEN for $RELEASE_REPOSITORY." >&2
     exit 2
-  fi
-}
-
-require_clean_worktree() {
-  if [[ "$ALLOW_DIRTY" == "1" ]]; then
-    return
-  fi
-  if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$(git status --porcelain)" ]]; then
-    echo "Working tree must be clean before publishing a release." >&2
-    echo "Use --allow-dirty only with --dry-run." >&2
-    exit 2
-  fi
-}
-
-find_generate_appcast() {
-  if [[ -n "$SPARKLE_GENERATE_APPCAST" ]]; then
-    printf '%s\n' "$SPARKLE_GENERATE_APPCAST"
-    return
-  fi
-  find "$ROOT_DIR/.build/artifacts" -path "*/Sparkle/bin/generate_appcast" -type f -print -quit 2>/dev/null || true
-}
-
-run_generate_appcast() {
-  if [[ -n "$SPARKLE_PRIVATE_KEY" ]]; then
-    echo "+ generate_appcast --ed-key-file - --download-url-prefix $DOWNLOAD_URL_PREFIX $APPCAST_INPUT_DIR"
-    if [[ "$DRY_RUN" == "1" ]]; then
-      return
-    fi
-    printf '%s' "$SPARKLE_PRIVATE_KEY" | "$GENERATE_APPCAST" --ed-key-file - --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$APPCAST_INPUT_DIR"
-  else
-    log_run "$GENERATE_APPCAST" --account "$SPARKLE_KEY_ACCOUNT" --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$APPCAST_INPUT_DIR"
-  fi
-}
-
-resolve_commit() {
-  git rev-parse --verify -q "$1^{commit}" 2>/dev/null || true
-}
-
-resolve_remote_tag_commit() {
-  local output
-  local direct_commit
-  local peeled_commit
-
-  output="$(git ls-remote --tags origin "refs/tags/$VERSION_TAG" "refs/tags/$VERSION_TAG^{}")"
-  peeled_commit="$(printf '%s\n' "$output" | awk '$2 ~ /\^\{\}$/ { print $1; exit }')"
-  direct_commit="$(printf '%s\n' "$output" | awk '$2 !~ /\^\{\}$/ { print $1; exit }')"
-
-  if [[ -n "$peeled_commit" ]]; then
-    printf '%s\n' "$peeled_commit"
-  else
-    printf '%s\n' "$direct_commit"
-  fi
-}
-
-ensure_tag_points_at_head_or_is_absent() {
-  local head_commit
-  local local_tag_commit
-  local remote_tag_commit
-  head_commit="$(git rev-parse HEAD)"
-  local_tag_commit="$(resolve_commit "$VERSION_TAG")"
-
-  if [[ -n "$local_tag_commit" && "$local_tag_commit" != "$head_commit" ]]; then
-    echo "Local tag $VERSION_TAG points at $local_tag_commit, not HEAD $head_commit." >&2
-    exit 2
-  fi
-
-  if [[ "$DRY_RUN" == "0" ]]; then
-    remote_tag_commit="$(resolve_remote_tag_commit)"
-    if [[ -n "$remote_tag_commit" && "$remote_tag_commit" != "$head_commit" ]]; then
-      echo "Remote tag $VERSION_TAG points at $remote_tag_commit, not HEAD $head_commit." >&2
-      exit 2
-    fi
   fi
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --version)
-      VERSION_TAG="${2:-}"
-      shift 2
-      ;;
-    --build)
-      BUILD_NUMBER="${2:-}"
-      shift 2
-      ;;
-    --feed-url)
-      SPARKLE_FEED_URL="${2:-}"
-      shift 2
-      ;;
-    --sparkle-public-key)
-      SPARKLE_PUBLIC_KEY="${2:-}"
-      shift 2
-      ;;
-    --download-url-prefix)
-      DOWNLOAD_URL_PREFIX="${2:-}"
-      shift 2
-      ;;
-    --generate-appcast)
-      SPARKLE_GENERATE_APPCAST="${2:-}"
-      shift 2
-      ;;
-    --draft)
-      DRAFT=1
-      shift
-      ;;
-    --dry-run)
-      DRY_RUN=1
-      shift
-      ;;
-    --allow-dirty)
-      ALLOW_DIRTY=1
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage >&2
-      exit 2
-      ;;
+    --version|--build|--generate-appcast)
+      [[ $# -ge 2 && -n "$2" ]] || { echo "Missing value for $1" >&2; exit 2; }
+      case "$1" in
+        --version) VERSION_TAG="$2" ;;
+        --build) BUILD_NUMBER="$2" ;;
+        --generate-appcast) SPARKLE_GENERATE_APPCAST="$2" ;;
+      esac
+      shift 2 ;;
+    --prepare-only|--publish-only)
+      [[ "$PHASE" == all ]] || { echo 'Choose only one release phase.' >&2; exit 2; }
+      PHASE="${1#--}"; shift ;;
+    --draft) DRAFT=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --allow-dirty) ALLOW_DIRTY=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [[ "$ALLOW_DIRTY" == "1" && "$DRY_RUN" == "0" ]]; then
-  echo "--allow-dirty is only supported with --dry-run" >&2
+if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || ! "$BUILD_NUMBER" =~ ^[0-9]{14}$ ]]; then
+  echo 'Use --version vX.Y.Z and --build UTC YYYYMMDDHHMMSS.' >&2
   exit 2
 fi
-
-if [[ -z "$VERSION_TAG" || -z "$BUILD_NUMBER" || -z "$SPARKLE_FEED_URL" || -z "$SPARKLE_PUBLIC_KEY" ]]; then
-  usage >&2
+require_command python3
+python3 - "$BUILD_NUMBER" <<'PY'
+import datetime, sys
+try:
+    datetime.datetime.strptime(sys.argv[1], '%Y%m%d%H%M%S')
+except ValueError:
+    sys.exit('Build number must be a valid UTC YYYYMMDDHHMMSS timestamp.')
+PY
+if [[ ! "${RELEASE_REPOSITORY:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo 'RELEASE_REPOSITORY must explicitly identify owner/downloads-repository.' >&2
   exit 2
 fi
-
-if [[ ! "$VERSION_TAG" =~ ^v[0-9]+(\.[0-9]+){1,2}(-[A-Za-z0-9.-]+)?$ ]]; then
-  echo "--version must look like v0.1.0" >&2
+# Keep the embedded feed, published asset name, and enclosure destination together.
+EXPECTED_FEED="https://github.com/$RELEASE_REPOSITORY/releases/latest/download/appcast.xml"
+if [[ "${SPARKLE_FEED_URL:-}" != "$EXPECTED_FEED" || -z "${SPARKLE_PUBLIC_KEY:-}" ]]; then
+  echo 'Configure the public Sparkle key and the destination repository latest/download/appcast.xml feed.' >&2
   exit 2
 fi
-
-if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "--build must be an integer CFBundleVersion" >&2
+if [[ "$ALLOW_DIRTY" == 1 && "$DRY_RUN" != 1 ]]; then
+  echo '--allow-dirty is only supported with --dry-run.' >&2
   exit 2
 fi
-
 cd "$ROOT_DIR"
 require_command git
-require_command gh
-require_command swift
-require_clean_worktree
-ensure_tag_points_at_head_or_is_absent
-
-if [[ "$DRY_RUN" == "0" ]]; then
-  require_command hdiutil
-  require_command xcrun
-  require_command codesign
-  if [[ -z "$DEVELOPER_ID_APPLICATION" || -z "$NOTARYTOOL_PROFILE" ]]; then
-    echo "DEVELOPER_ID_APPLICATION and NOTARYTOOL_PROFILE are required for publishing." >&2
-    exit 2
-  fi
-  log_run gh auth status
-else
-  echo "Dry run: skipping gh auth, signing, packaging, notarization, appcast generation, and publishing side effects."
+if [[ "$ALLOW_DIRTY" != 1 ]] && [[ -n "$(git status --porcelain)" ]]; then
+  echo 'Working tree must be clean before preparing or publishing a release.' >&2
+  exit 2
 fi
 
 MARKETING_VERSION="${VERSION_TAG#v}"
-RELEASE_ROOT="$ROOT_DIR/.build/releases/$VERSION_TAG"
-APP_DIR="$RELEASE_ROOT/MergeHawk.app"
-DMG_ROOT="$RELEASE_ROOT/dmg-root"
-APPCAST_INPUT_DIR="$RELEASE_ROOT/appcast-input"
-DMG_PATH="$APPCAST_INPUT_DIR/MergeHawk-$MARKETING_VERSION.dmg"
-APPCAST_NAME="$(basename "${SPARKLE_FEED_URL%%\?*}")"
-if [[ "$APPCAST_NAME" != *.xml ]]; then
-  APPCAST_NAME="appcast.xml"
-fi
-APPCAST_PATH="$APPCAST_INPUT_DIR/$APPCAST_NAME"
+RELEASE_TAG="$VERSION_TAG-$BUILD_NUMBER"
+RELEASE_ROOT="$ROOT_DIR/.build/releases/$RELEASE_TAG"
+ASSET_DIR="$RELEASE_ROOT/assets"
+DMG_NAME="MergeHawk-$MARKETING_VERSION-$BUILD_NUMBER-apple-silicon.dmg"
+DMG_PATH="$ASSET_DIR/$DMG_NAME"
+APPCAST_PATH="$ASSET_DIR/appcast.xml"
+DOWNLOAD_URL_PREFIX="https://github.com/$RELEASE_REPOSITORY/releases/download/$RELEASE_TAG/"
 
-if [[ -z "$DOWNLOAD_URL_PREFIX" && "$DRY_RUN" == "0" ]]; then
-  REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-  DOWNLOAD_URL_PREFIX="https://github.com/$REPO/releases/download/$VERSION_TAG"
-elif [[ -z "$DOWNLOAD_URL_PREFIX" ]]; then
-  DOWNLOAD_URL_PREFIX="https://github.com/OWNER/REPO/releases/download/$VERSION_TAG"
-fi
-
-if [[ "$DRY_RUN" == "1" ]]; then
-  echo "Dry run: printing the release command plan for MergeHawk $MARKETING_VERSION ($BUILD_NUMBER); no commands run."
+if [[ "$DRY_RUN" == 1 ]]; then
+  echo "Release plan: $MARKETING_VERSION ($BUILD_NUMBER), phase=$PHASE"
+  echo "Destination: $RELEASE_REPOSITORY; tag: $RELEASE_TAG"
   echo "Sparkle feed: $SPARKLE_FEED_URL"
-  echo "Appcast download prefix: $DOWNLOAD_URL_PREFIX"
+  echo "Installer: $DOWNLOAD_URL_PREFIX$DMG_NAME"
+  echo "Build channel=github; sign, notarize, staple, verify, sign appcast."
+  echo "Create draft with only DMG and appcast.xml; publish latest unless --draft ($DRAFT)."
+  exit 0
 fi
 
-log_run rm -rf "$RELEASE_ROOT"
-log_run mkdir -p "$DMG_ROOT" "$APPCAST_INPUT_DIR"
-
-echo "+ scripts/build-app-bundle.sh (release, channel=github, $MARKETING_VERSION/$BUILD_NUMBER)"
-if [[ "$DRY_RUN" == "0" ]]; then
-  env \
-    CONFIGURATION=release \
-    APP_DIR="$APP_DIR" \
-    CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
-    CODE_SIGN_OPTIONS=runtime \
-    MARKETING_VERSION="$MARKETING_VERSION" \
-    BUILD_NUMBER="$BUILD_NUMBER" \
-    DISTRIBUTION_CHANNEL=github \
-    SPARKLE_FEED_URL="$SPARKLE_FEED_URL" \
-    SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
-    "$ROOT_DIR/scripts/build-app-bundle.sh" >/dev/null
+if [[ "$PHASE" == all ]]; then
+  check_github_authentication
 fi
 
-GENERATE_APPCAST="$(find_generate_appcast)"
-if [[ -z "$GENERATE_APPCAST" && "$DRY_RUN" == "0" ]]; then
-  echo "Could not find Sparkle generate_appcast. Build once or pass --generate-appcast PATH." >&2
-  exit 2
+if [[ "$PHASE" != publish-only ]]; then
+  for tool in swift codesign hdiutil xcrun spctl ditto sips iconutil; do
+    require_command "$tool"
+  done
+  : "${DEVELOPER_ID_APPLICATION:?Set the Developer ID Application signing identity}"
+  : "${NOTARYTOOL_PROFILE:?Set the notarytool Keychain profile}"
+  [[ "$(uname -m)" == arm64 ]] || { echo 'Build on an Apple Silicon Mac.' >&2; exit 2; }
+  mkdir -p "$(dirname "$RELEASE_ROOT")"
+  # Refuse to mix assets from separate attempts; use a fresh build timestamp to retry.
+  mkdir "$RELEASE_ROOT"
+  mkdir "$ASSET_DIR"
+  WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mergehawk-release.XXXXXX")"
+  trap 'rm -rf "$WORK_DIR"' EXIT
+  APP_DIR="$WORK_DIR/MergeHawk.app"
+  env CONFIGURATION=release APP_DIR="$APP_DIR" APP_NAME=MergeHawk.app \
+    APP_EXECUTABLE_NAME=mergehawk BUNDLE_ID=com.mergehawk.app \
+    LAUNCH_ARGUMENTS= LAUNCH_ENVIRONMENT= CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
+    CODE_SIGN_OPTIONS=runtime MARKETING_VERSION="$MARKETING_VERSION" BUILD_NUMBER="$BUILD_NUMBER" \
+    DISTRIBUTION_CHANNEL=github SPARKLE_FEED_URL="$SPARKLE_FEED_URL" SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
+    "$ROOT_DIR/scripts/build-app-bundle.sh"
+  GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
+  if [[ -z "$GENERATE_APPCAST" ]]; then
+    if [[ ! -d "$ROOT_DIR/.build/artifacts" ]]; then
+      echo 'Could not find Sparkle generate_appcast: .build/artifacts is missing after the app build.' >&2
+      exit 2
+    fi
+    GENERATE_APPCAST="$(find "$ROOT_DIR/.build/artifacts" -path '*/Sparkle/bin/generate_appcast' -type f -print -quit)"
+  fi
+  [[ -x "$GENERATE_APPCAST" ]] || { echo 'Could not find Sparkle generate_appcast.' >&2; exit 2; }
+  codesign --verify --deep --strict "$APP_DIR"
+  python3 - "$APP_DIR/Contents/Info.plist" "$SPARKLE_FEED_URL" "$SPARKLE_PUBLIC_KEY" "$BUILD_NUMBER" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as handle:
+    info = plistlib.load(handle)
+assert info['MergeHawkDistributionChannel'] == 'github'
+assert info['SUFeedURL'] == sys.argv[2] and info['SUPublicEDKey'] == sys.argv[3]
+assert info['CFBundleVersion'] == sys.argv[4]
+assert info['CFBundleIdentifier'] == 'com.mergehawk.app'
+assert 'LSEnvironment' not in info
+PY
+  mkdir "$WORK_DIR/dmg-root"
+  ditto "$APP_DIR" "$WORK_DIR/dmg-root/MergeHawk.app"
+  ln -s /Applications "$WORK_DIR/dmg-root/Applications"
+  hdiutil create -volname MergeHawk -srcfolder "$WORK_DIR/dmg-root" -format UDZO "$DMG_PATH"
+  codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$DMG_PATH"
+  notary_args=(--keychain-profile "$NOTARYTOOL_PROFILE")
+  if [[ -n "${NOTARYTOOL_KEYCHAIN:-}" ]]; then
+    notary_args+=(--keychain "$NOTARYTOOL_KEYCHAIN")
+  fi
+  xcrun notarytool submit "$DMG_PATH" "${notary_args[@]}" \
+    --wait --timeout 20m --output-format json > "$RELEASE_ROOT/notarization.json"
+  python3 - "$RELEASE_ROOT/notarization.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as handle:
+    status = json.load(handle).get('status')
+if status != 'Accepted':
+    sys.exit('Notarization was not accepted: ' + str(status))
+PY
+  xcrun stapler staple "$DMG_PATH"
+  xcrun stapler validate "$DMG_PATH"
+  codesign --verify --verbose=2 "$DMG_PATH"
+  hdiutil verify "$DMG_PATH"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
+  spctl --assess --type execute --verbose=2 "$APP_DIR"
+  if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+    printf '%s' "$SPARKLE_PRIVATE_KEY" | "$GENERATE_APPCAST" --ed-key-file - --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$ASSET_DIR"
+  else
+    "$GENERATE_APPCAST" --account "${SPARKLE_KEY_ACCOUNT:-ed25519}" --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$ASSET_DIR"
+  fi
 fi
 
-log_run ditto "$APP_DIR" "$DMG_ROOT/MergeHawk.app"
-log_run ln -s /Applications "$DMG_ROOT/Applications"
-log_run hdiutil create -volname MergeHawk -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH"
-log_run codesign --force --sign "$DEVELOPER_ID_APPLICATION" "$DMG_PATH"
-log_run xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARYTOOL_PROFILE" --wait
-log_run xcrun stapler staple "$DMG_PATH"
-run_generate_appcast
-
-if [[ ! -f "$APPCAST_PATH" && "$DRY_RUN" == "0" ]]; then
-  echo "Expected appcast not found: $APPCAST_PATH" >&2
-  exit 2
+# Validate the actual feed in both phases before any public release is created.
+python3 - "$APPCAST_PATH" "$DMG_PATH" "$DOWNLOAD_URL_PREFIX$DMG_NAME" "$BUILD_NUMBER" <<'PY'
+import os, sys, xml.etree.ElementTree as ET
+feed, dmg, url, build = sys.argv[1:]
+sparkle = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
+items = ET.parse(feed).findall('./channel/item')
+assert len(items) == 1, 'Expected exactly one release in the appcast'
+item = items[0]
+enclosure = item.find('enclosure')
+assert enclosure is not None and enclosure.get('url') == url, 'Wrong download URL'
+assert (item.findtext(sparkle + 'version') or enclosure.get(sparkle + 'version')) == build, 'Wrong build'
+assert enclosure.get(sparkle + 'edSignature'), 'Missing Sparkle signature'
+assert int(enclosure.get('length', '0')) == os.path.getsize(dmg) > 0, 'Wrong archive length'
+PY
+if [[ "$PHASE" == prepare-only ]]; then
+  echo "Prepared release assets: $ASSET_DIR"
+  exit 0
 fi
 
-if ! git rev-parse "$VERSION_TAG" >/dev/null 2>&1; then
-  log_run git tag "$VERSION_TAG"
+# Publishing does not need the Sparkle signing key used during preparation.
+unset SPARKLE_PRIVATE_KEY
+if [[ "$PHASE" == publish-only ]]; then
+  check_github_authentication
 fi
-log_run git push origin "$VERSION_TAG"
 
-release_args=(release create "$VERSION_TAG" "$DMG_PATH" "$APPCAST_PATH" --title "MergeHawk $VERSION_TAG" --notes "MergeHawk $VERSION_TAG")
-if [[ "$DRAFT" == "1" ]]; then
-  release_args+=(--draft)
-fi
-log_run gh "${release_args[@]}"
+# Read all published tags, rather than trusting request time or workflow queue order.
+# This also prevents a delayed local publication from replacing a newer update feed.
+PUBLISHED_TAGS="$(gh api --paginate "repos/$RELEASE_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')"
+while IFS= read -r published_tag; do
+  [[ -z "$published_tag" ]] && continue
+  published_build="${published_tag##*-}"
+  if [[ ! "$published_build" =~ ^[0-9]{14}$ ]]; then
+    echo "Cannot establish build order for existing release: $published_tag" >&2
+    exit 2
+  fi
+  if [[ "$BUILD_NUMBER" < "$published_build" || "$BUILD_NUMBER" == "$published_build" ]]; then
+    echo "Build $BUILD_NUMBER must be newer than published build $published_build." >&2
+    exit 2
+  fi
+done <<< "$PUBLISHED_TAGS"
 
-if [[ "$DRY_RUN" == "1" ]]; then
-  echo "Dry run complete: printed the release command plan for $VERSION_TAG; nothing was published."
+# GitHub creates the tag on the downloads repository's own default branch.
+# Never push this private checkout or its commit SHA to the public repository.
+RELEASE_URL="$(gh release create "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" \
+  "$DMG_PATH" "$APPCAST_PATH" --draft --latest=false \
+  --title "MergeHawk $MARKETING_VERSION ($BUILD_NUMBER)" \
+  --notes "MergeHawk $MARKETING_VERSION ($BUILD_NUMBER). Apple Silicon; macOS 14 or later. Signed and notarized. Includes in-app software updates.")"
+if [[ "$DRAFT" == 0 ]]; then
+  if ! gh release edit "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --draft=false --latest; then
+    echo "Could not confirm publication of $RELEASE_TAG. The uploaded release has not been deleted." >&2
+    echo "Inspect https://github.com/$RELEASE_REPOSITORY/releases before retrying (original draft: $RELEASE_URL)." >&2
+    exit 1
+  fi
+  echo "Published: https://github.com/$RELEASE_REPOSITORY/releases/tag/$RELEASE_TAG"
 else
-  echo "Published GitHub release $VERSION_TAG"
+  echo "Created draft: $RELEASE_URL"
 fi

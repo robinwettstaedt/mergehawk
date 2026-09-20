@@ -52,124 +52,117 @@ By default this updates `/Applications/MergeHawk.app` if present, then
 APP_PATH="/path/to/MergeHawk.app" scripts/update-installed-app.sh
 ```
 
-## Private installers
+## Public downloads and in-app software updates
 
-The **CI** workflow runs on every pull request targeting `main`. Its
-**Tests** check runs the Swift tests and core test runner. App bundles and
-installers are built separately after merge. Branch protection requires this
-check to pass with the branch up to date before merging, including for admins.
+The source repository stays private. The separate public
+[`mergehawk-downloads`](https://github.com/robinwettstaedt/mergehawk-downloads/releases)
+repository contains a README and GitHub Releases with **only the signed,
+notarized DMG and Sparkle appcast**. No source commits, source tags, build logs,
+or credentials are copied there. GitHub's automatic source archives contain
+only the downloads repository's README.
 
-The **Private Installer** GitHub Actions workflow builds a signed, notarized
-Apple Silicon DMG after every push to protected `main`, including PR merges.
-It can also be started manually from `main`. Each run builds the triggering commit
-with automatic updates disabled, notarizes the DMG, staples Apple's
-ticket, and verifies it with Gatekeeper before uploading it.
+The **GitHub Release** workflow builds the triggering commit after every push
+to protected `main`, including PR merges. It can also be started manually from
+`main`, optionally as a draft. The former automatic private-installer workflow
+is replaced by this one workflow. The **CI / Tests** PR check runs Swift tests,
+the core test runner, and release publication tests before merge.
 
-Download the installer from the workflow run's summary or **Artifacts** section.
-The artifact is accessible to signed-in users with repository read access and is
-retained for 90 days. The repository can remain private. This workflow creates
-neither Git tags nor GitHub Releases and does not use Sparkle signing secrets.
+Install the first download manually: quit MergeHawk, open the DMG, and replace
+MergeHawk in Applications. Old private installers have updates disabled.
+Subsequent downloads use the existing in-app **Check for Updates** action and
+software-update settings. Builds require Apple Silicon and macOS 14 or later.
 
-The workflow uses the existing `release` environment, the repository variable
-`DEVELOPER_ID_APPLICATION`, and these repository or environment secrets:
+### Repository setup
 
-- `DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64` (certificate and private key)
-- `DEVELOPER_ID_CERTIFICATE_PASSWORD`
-- `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`
+The downloads repository must be public and initialized with its own README
+commit. Do not mirror or push the private source repository into it.
+`scripts/release-github.env` contains the explicit release destination,
+public appcast URL, and existing Sparkle public key. Scripts parse those files
+as inert `KEY=value` configuration, never as shell code.
 
-Signing credentials are imported into a temporary Keychain and removed after
-the run. Keep `main` protected; only trusted `main` code should receive these
-credentials. GitHub-hosted macOS runner usage counts against the repository
-owner's Actions allowance.
+Configure the following in the **private source repository**, either as
+repository settings or in its existing `release` environment:
 
-The same packaging command can run locally on an Apple Silicon Mac with Xcode,
-a Developer ID signing identity, and a saved notarization credential profile:
-
-```sh
-DEVELOPER_ID_APPLICATION="Developer ID Application: Example (TEAMID)" \
-NOTARYTOOL_PROFILE="mergehawk-notary" \
-scripts/build-private-installer.sh
-```
-
-Output is written to `dist/private-installers/<version>-<build>/`, including the
-DMG, checksum, source commit, and notarization result. The version defaults to
-`0.1.0`; the build number defaults to the current UTC timestamp. Override
-`MARKETING_VERSION` and `BUILD_NUMBER` when needed. Update `MARKETING_VERSION`
-in the workflow when releasing a new marketing version.
-
-To install, open the DMG and drag MergeHawk to Applications. To update, quit
-MergeHawk and replace the existing app; uninstalling first is unnecessary.
-These builds require Apple Silicon and macOS 14 or later. Sparkle remains a
-bundled dependency, but its updater and update controls are disabled.
-
-## GitHub Release Distribution (Sparkle channel)
-
-MergeHawk's direct-download distribution path uses GitHub Releases and Sparkle.
-The committed release defaults live in `scripts/release-github.env`. That file
-contains only repo-safe `KEY=value` entries: the public Sparkle appcast URL and
-the Sparkle public key embedded in GitHub-distributed app bundles. Release
-scripts parse this file as inert configuration data rather than executing it as
-shell.
-
-The local release script builds a Developer ID signed app, packages it for
-download, notarizes it, generates a Sparkle appcast, and publishes the release
-assets with the GitHub CLI:
-
-```sh
-DEVELOPER_ID_APPLICATION="Developer ID Application: Example (TEAMID)" \
-NOTARYTOOL_PROFILE="mergehawk-notary" \
-scripts/release-github.sh \
-  --version v0.1.0 \
-  --build 1 \
-  --draft
-```
-
-The Sparkle private key is a signing secret. It is stored in the macOS login
-Keychain for local releases and must not be committed. To export it for a
-password manager or GitHub Actions secret:
-
-```sh
-.build/artifacts/sparkle/Sparkle/bin/generate_keys -x /path/to/sparkle-private-key.txt
-```
-
-Store that file's contents in the GitHub Actions secret `SPARKLE_PRIVATE_KEY`,
-then delete the exported file.
-
-GitHub Actions can also create draft releases with
-`.github/workflows/release-github.yml`. The workflow reads the committed Sparkle
-URL/public key defaults and needs these GitHub repository settings:
-
-- Repository variable `DEVELOPER_ID_APPLICATION`
-- Optional repository variables `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_KEY` if
-  the committed defaults should be overridden
-- Repository secrets `SPARKLE_PRIVATE_KEY`,
-  `DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64`,
+- Variable `DEVELOPER_ID_APPLICATION` with the Developer ID signing identity.
+- Secrets `DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64`,
   `DEVELOPER_ID_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, and
-  `APPLE_APP_SPECIFIC_PASSWORD`
+  `APPLE_APP_SPECIFIC_PASSWORD` for signing and notarization.
+- Secret `SPARKLE_PRIVATE_KEY`, matching the committed public key.
+- Secret `DOWNLOADS_TOKEN`: a fine-grained GitHub personal access token with
+  access to **only `mergehawk-downloads`**, **Contents: Read and write** and
+  the required metadata access. Set an expiration and replace the secret when
+  rotating it. The source repository's automatic `GITHUB_TOKEN` cannot publish
+  to another repository.
 
-The workflow targets the `release` GitHub environment. For private repositories
-on GitHub Free, Pro, or Team plans, GitHub accepts the environment but does not
-support required-reviewer protection rules. After the repository is public, add
-the repository owner as a required reviewer for the `release` environment before
-publishing non-draft releases.
+The publishing token is exposed only to the publication step. Source checkout
+uses read-only permissions and does not retain Git credentials. Signing and
+notarization credentials use a temporary Keychain removed after the job.
+Keep `main` protected: only trusted code should receive release credentials.
+The workflow serializes publications and does not cancel an active release.
+Before publishing, it rejects builds whose source commit is no longer current
+`main`, including reruns of old workflow runs.
 
-Run the workflow manually from the protected `main` branch with a version such
-as `v0.1.0`. It defaults to a draft release. The workflow creates and pushes the
-tag after building from `main`; releases only run from `main`, and pushing a
-`v*` tag does not start a release workflow.
+Each build uses a UTC `YYYYMMDDHHMMSS` bundle version, preserving ordering with
+previous private installers. The marketing version remains `0.1.0`; change
+`MARKETING_VERSION` in the workflow when needed. Release tags include both,
+for example `v0.1.0-20260920123456`. GitHub creates these tags on the downloads
+repository's own default branch. A release starts as a draft with its DMG and
+appcast uploaded, then becomes public and latest. Failed uploads never advance
+the public feed. Publishing a build older than an existing published build is
+rejected. Keep publication through this serialized workflow; concurrent local
+publishing is not supported. Drafts do not offer software updates; to publish
+one later, run a fresh non-draft workflow so version ordering is checked.
+
+To create a draft manually:
 
 ```sh
-git checkout main
-git pull origin main
-gh workflow run "GitHub Release" --ref main -f version=v0.1.0 -f draft=true
+gh workflow run "GitHub Release" --ref main -f draft=true
 ```
 
-Keep `main` protected, and keep the `release` environment restricted to trusted
-reviewers before publishing non-draft releases.
+### Local release tooling
 
-Private repository releases are useful for internal testing, but public Sparkle
-updates require the appcast and downloadable app artifact to be reachable
-without GitHub authentication.
+The workflow and local releases share `scripts/release-github.sh`:
+
+```sh
+DEVELOPER_ID_APPLICATION="Developer ID Application: Example (TEAMID)" \
+NOTARYTOOL_PROFILE="mergehawk-notary" \
+scripts/release-github.sh --version v0.1.0 --build "$(date -u +%Y%m%d%H%M%S)" --draft
+```
+
+Run from a clean worktree on an Apple Silicon Mac with Xcode, signing credentials,
+and `gh` authenticated for the downloads repository. `NOTARYTOOL_KEYCHAIN` can
+select the notarization Keychain. Sparkle uses the local Keychain signing key
+(account `ed25519` by default), or `SPARKLE_PRIVATE_KEY` in CI.
+`--prepare-only` builds and verifies assets without GitHub authentication;
+`--publish-only` publishes those same assets without rebuilding. Prepared files
+are under `.build/releases/<tag>/`; only the DMG and appcast are uploaded.
+Use a new timestamp to retry a failed preparation. `--dry-run --allow-dirty`
+prints the plan without building or publishing.
+
+The gitignored `scripts/release-github.local.env` can hold both local release
+settings and the credential fields consumed by
+`scripts/configure-github-release-secrets.sh`. That helper also requires
+`DOWNLOADS_TOKEN`; `--dry-run` validates configuration without uploading it.
+The release script ignores bootstrap credentials in that shared file and uses
+its saved Keychain profiles and `gh` authentication instead.
+
+Run the focused release tests without creating worktree cache files:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Tests/release -v
+```
+
+The old `scripts/build-private-installer.sh` remains available for an explicitly
+requested local installer with updates disabled; it is no longer run by CI.
+
+### When the source repository becomes public
+
+Make a clean cut: change `RELEASE_REPOSITORY` and `SPARKLE_FEED_URL` to the main
+repository, configure publishing credentials for that destination, and publish
+the first public version there. Manually install that version once; its later
+updates will come from the main repository. After the sole initial user has
+switched, archive or delete `mergehawk-downloads`. No feed migration or bridge
+release is needed. Preserve the app identity and signing keys.
 
 ## GitHub App Setup
 
