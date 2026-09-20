@@ -14,6 +14,47 @@ final class MenuViewTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testDropdownDismissalNeverCapturesHoverOrTheOriginalButton() {
+        let view = DropdownOutsideClickNSView(frame: CGRect(x: 0, y: 0, width: 820, height: 600))
+        view.isActive = true
+        view.excludedBounds = CGRect(x: 742, y: 80, width: 28, height: 28)
+
+        for type: NSEvent.EventType in [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDragged, .scrollWheel] {
+            XCTAssertFalse(view.capturesClick(at: CGPoint(x: 400, y: 400), eventType: type))
+        }
+        // The glyph and its padded hit area continue reaching the original button.
+        for point in [CGPoint(x: 756, y: 94), CGPoint(x: 743, y: 81), CGPoint(x: 769, y: 107)] {
+            XCTAssertFalse(view.capturesClick(at: point, eventType: .leftMouseDown))
+        }
+        XCTAssertTrue(view.capturesClick(at: CGPoint(x: 400, y: 400), eventType: .leftMouseDown))
+        XCTAssertFalse(view.capturesClick(at: CGPoint(x: 900, y: 400), eventType: .leftMouseDown))
+    }
+
+    @MainActor
+    func testOutsideClickImmediatelyReleasesListForFurtherMouseEvents() throws {
+        let view = DropdownOutsideClickNSView(frame: CGRect(x: 0, y: 0, width: 820, height: 600))
+        let point = CGPoint(x: 400, y: 400)
+        let click = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+        var dismissCount = 0
+        view.dismiss = { dismissCount += 1 }
+
+        // Reopen/dismiss several times without replacing the view or moving out of the list.
+        for _ in 0..<4 {
+            view.isActive = true
+            XCTAssertTrue(view.capturesClick(at: point, eventType: .leftMouseDown))
+            view.mouseDown(with: click)
+            XCTAssertFalse(view.isActive)
+            for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp, .mouseMoved, .mouseEntered, .mouseExited] {
+                XCTAssertFalse(view.capturesClick(at: point, eventType: type))
+            }
+        }
+        XCTAssertEqual(dismissCount, 4)
+    }
+
     func testPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
         let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000))
         XCTAssertEqual(large.width, 820)
@@ -310,7 +351,7 @@ final class MenuViewTests: XCTestCase {
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .unknown) == .unknown)
 
     let prURL = URL(string: "https://github.com/acme/mergehawk/pull/12")!
-    precondition(PullRequestLinkCopyButton.clipboardString(for: prURL) == "https://github.com/acme/mergehawk/pull/12")
+    precondition(PullRequestActionsMenu.clipboardString(for: prURL) == "https://github.com/acme/mergehawk/pull/12")
     precondition(CommentCountIndicator.label(for: 3) == "3 unresolved comments")
     precondition(CommentCountIndicator.label(for: 1) == "1 unresolved comment")
     precondition(GitHubSignInView.Copy.title == "Connect GitHub")
@@ -394,12 +435,11 @@ final class MenuViewTests: XCTestCase {
     )) == "2 commits by others")
     precondition(PullRequestPinPresentation.symbolName(isPinned: false) == "pin")
     precondition(PullRequestPinPresentation.symbolName(isPinned: true) == "pin.fill")
-    precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin PR")
-    precondition(PullRequestPinPresentation.label(isPinned: true) == "Unpin PR")
-    precondition(PullRequestPinPresentation.rotationDegrees == 35.0)
+    precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin")
+    precondition(PullRequestPinPresentation.label(isPinned: true) == "Unpin")
     precondition(PullRequestHidePresentation.symbolName == "eye.slash")
-    precondition(PullRequestHidePresentation.label(isHidden: false) == "Hide PR")
-    precondition(PullRequestHidePresentation.label(isHidden: true) == "Unhide PR")
+    precondition(PullRequestHidePresentation.label(isHidden: false) == "Hide")
+    precondition(PullRequestHidePresentation.label(isHidden: true) == "Unhide")
 
     var searchState = ExpandableSearchState()
     precondition(!searchState.isExpanded)

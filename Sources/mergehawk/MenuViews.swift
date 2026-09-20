@@ -5,6 +5,7 @@ import mergehawkcore
 enum PullRequestMenuDropdown: Equatable {
     case filter
     case sort
+    case actions(String)
 }
 
 struct PullRequestMenuDropdownState: Equatable {
@@ -569,14 +570,12 @@ enum HiddenPullRequestsDisclosurePresentation {
 }
 
 enum PullRequestPinPresentation {
-    static let rotationDegrees = 35.0
-
     static func symbolName(isPinned: Bool) -> String {
         isPinned ? "pin.fill" : "pin"
     }
 
     static func label(isPinned: Bool) -> String {
-        isPinned ? "Unpin PR" : "Pin PR"
+        isPinned ? "Unpin" : "Pin"
     }
 }
 
@@ -584,7 +583,7 @@ enum PullRequestHidePresentation {
     static let symbolName = "eye.slash"
 
     static func label(isHidden: Bool) -> String {
-        isHidden ? "Unhide PR" : "Hide PR"
+        isHidden ? "Unhide" : "Hide"
     }
 }
 
@@ -682,17 +681,47 @@ struct MenuRootView: View {
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay {
-                    if dropdownState.openMenu != nil {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { dropdownState.dismiss() }
+                .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { menu in
+                    GeometryReader { geometry in
+                        DropdownOutsideClickView(
+                            isActive: dropdownState.openMenu != nil,
+                            excludedBounds: menu.map { geometry[$0.bounds] },
+                            dismiss: { dropdownState.dismiss() }
+                        )
                     }
                 }
             footer
         }
         .frame(width: resolvedSize.width, height: resolvedSize.height)
         .background(menuSurface)
+        .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { menu in
+            if let menu {
+                GeometryReader { geometry in
+                    let anchor = geometry[menu.bounds]
+                    PullRequestActionsMenu(
+                        url: menu.url,
+                        isHidden: menu.isHidden,
+                        isPinned: menu.isPinned,
+                        toggleHide: menu.toggleHide,
+                        togglePin: menu.togglePin,
+                        dismiss: { dropdownState.dismiss() }
+                    )
+                    .offset(
+                        x: max(0, anchor.maxX - PullRequestActionsMenu.width),
+                        y: anchor.maxY + PullRequestActionsMenu.height + 4 <= geometry.size.height
+                            ? anchor.maxY + 4
+                            : max(0, anchor.minY - PullRequestActionsMenu.height - 4)
+                    )
+                }
+            }
+        }
+        .onExitCommand {
+            if dropdownState.openMenu != nil {
+                dropdownState.dismiss()
+            } else {
+                dismissMenu()
+            }
+        }
         .onChange(of: controller.selectedTab) { _, _ in
             dropdownState.dismiss()
         }
@@ -798,9 +827,9 @@ struct MenuRootView: View {
             case .notifications:
                 NotificationListView(controller: controller)
             case .myPRs:
-                PullRequestListView(controller: controller, mode: .authored)
+                PullRequestListView(controller: controller, mode: .authored, dropdownState: $dropdownState)
             case .reviewRequests:
-                PullRequestListView(controller: controller, mode: .reviewRequests)
+                PullRequestListView(controller: controller, mode: .reviewRequests, dropdownState: $dropdownState)
             }
         }
     }
@@ -1592,16 +1621,19 @@ struct PullRequestListView: View {
 
     @ObservedObject var controller: DashboardController
     let mode: Mode
+    @Binding var dropdownState: PullRequestMenuDropdownState
     @State private var isHiddenExpanded: Bool
     @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
 
     init(
         controller: DashboardController,
         mode: Mode,
+        dropdownState: Binding<PullRequestMenuDropdownState> = .constant(PullRequestMenuDropdownState()),
         hiddenPullRequestsExpanded: Bool = false
     ) {
         self.controller = controller
         self.mode = mode
+        _dropdownState = dropdownState
         _isHiddenExpanded = State(initialValue: hiddenPullRequestsExpanded)
         _expandedRequestedHiddenSections = State(
             initialValue: hiddenPullRequestsExpanded ? Set(DashboardController.RequestedSection.allCases) : []
@@ -1768,6 +1800,8 @@ struct PullRequestListView: View {
             isAttention: controller.isUnreadPullRequest(pullRequest),
             isPinned: controller.isPinned(pullRequest),
             isHidden: controller.isHidden(pullRequest),
+            isActionsOpen: dropdownState.openMenu == .actions(pullRequest.id),
+            toggleActions: { dropdownState.toggle(.actions(pullRequest.id)) },
             toggleHide: {
                 controller.toggleHide(pullRequest)
             },
@@ -2252,8 +2286,8 @@ enum PullRequestColumnLayout {
     static let commentsWidth: CGFloat = 30
     static let statusWidth: CGFloat = 30
     static let changesWidth: CGFloat = 49
-    static let ageWidth: CGFloat = 45
-    static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize * 3
+    static let ageWidth: CGFloat = 30
+    static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize
 }
 
 struct RequestedSectionHeading: View {
@@ -2411,6 +2445,8 @@ struct PullRequestRow: View {
     let isAttention: Bool
     let isPinned: Bool
     let isHidden: Bool
+    var isActionsOpen = false
+    var toggleActions: () -> Void = {}
     let toggleHide: () -> Void
     let togglePin: () -> Void
     let action: () -> Void
@@ -2448,10 +2484,26 @@ struct PullRequestRow: View {
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: 0) {
-                PullRequestHideButton(isHidden: isHidden, isVisible: isHidden || isHovered, action: toggleHide)
-                PullRequestPinButton(isPinned: isPinned, isVisible: isPinned || isHovered, action: togglePin)
-                PullRequestLinkCopyButton(url: pullRequest.url)
+            Button(action: toggleActions) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .rotationEffect(.degrees(90))
+                    .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(isActionsOpen ? Color.accentColor : Color.secondary)
+            .help("PR actions")
+            .accessibilityLabel("PR actions")
+            .anchorPreference(key: PullRequestActionsAnchorKey.self, value: .bounds) { bounds in
+                isActionsOpen ? PullRequestActionsAnchor(
+                    bounds: bounds,
+                    url: pullRequest.url,
+                    isHidden: isHidden,
+                    isPinned: isPinned,
+                    toggleHide: toggleHide,
+                    togglePin: togglePin
+                ) : nil
             }
             .frame(width: PullRequestColumnLayout.actionsWidth)
         }
@@ -2536,62 +2588,8 @@ private struct PullRequestAuthorAvatar: View {
     }
 }
 
-private struct PullRequestHideButton: View {
-    let isHidden: Bool
-    let isVisible: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: PullRequestHidePresentation.symbolName)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
-                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .opacity(isVisible ? 1 : 0)
-        .allowsHitTesting(isVisible)
-        .help(PullRequestHidePresentation.label(isHidden: isHidden))
-        .accessibilityLabel(PullRequestHidePresentation.label(isHidden: isHidden))
-        .accessibilityHidden(!isVisible)
-    }
-}
-
-private struct PullRequestPinButton: View {
-    let isPinned: Bool
-    let isVisible: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: PullRequestPinPresentation.symbolName(isPinned: isPinned || isHovered))
-                .font(.system(size: 12, weight: .semibold))
-                .rotationEffect(.degrees(PullRequestPinPresentation.rotationDegrees))
-                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
-                .offset(x: PullRequestActionButtonLayout.pinGlyphOffsetX)
-                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .opacity(isVisible ? 1 : 0)
-        .allowsHitTesting(isVisible)
-        .onHover { isHovered = $0 }
-        .help(PullRequestPinPresentation.label(isPinned: isPinned))
-        .accessibilityLabel(PullRequestPinPresentation.label(isPinned: isPinned))
-        .accessibilityHidden(!isVisible)
-    }
-}
-
 private enum PullRequestActionButtonLayout {
-    static let iconSize: CGFloat = 22
     static let hitSize: CGFloat = 28
-    static let pinGlyphOffsetX: CGFloat = 1
-    static let copyGlyphOffsetX: CGFloat = -1
 }
 
 private struct DraftPullRequestIndicator: View {
@@ -2653,27 +2651,105 @@ private extension View {
     }
 }
 
-struct PullRequestLinkCopyButton: View {
-    let url: URL
+// This view stays attached across open/close cycles. Unlike a SwiftUI gesture
+// overlay, it never participates in hover hit-testing over the PR list.
+private struct DropdownOutsideClickView: NSViewRepresentable {
+    let isActive: Bool
+    let excludedBounds: CGRect?
+    let dismiss: () -> Void
 
-    @State private var isHovered = false
+    func makeNSView(context: Context) -> DropdownOutsideClickNSView {
+        DropdownOutsideClickNSView()
+    }
+
+    func updateNSView(_ view: DropdownOutsideClickNSView, context: Context) {
+        view.isActive = isActive
+        view.excludedBounds = excludedBounds
+        view.dismiss = dismiss
+    }
+}
+
+final class DropdownOutsideClickNSView: NSView {
+    var isActive = false
+    var excludedBounds: CGRect?
+    var dismiss: () -> Void = {}
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let localPoint = convert(point, from: superview)
+        return capturesClick(at: localPoint, eventType: NSApp.currentEvent?.type) ? self : nil
+    }
+
+    func capturesClick(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
+        isActive
+            && eventType == .leftMouseDown
+            && bounds.contains(point)
+            && excludedBounds?.contains(point) != true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Disable synchronously: SwiftUI may update its binding on the next pass.
+        isActive = false
+        dismiss()
+    }
+
+    override func mouseUp(with event: NSEvent) {}
+}
+
+private struct PullRequestActionsAnchor {
+    let bounds: Anchor<CGRect>
+    let url: URL
+    let isHidden: Bool
+    let isPinned: Bool
+    let toggleHide: () -> Void
+    let togglePin: () -> Void
+}
+
+private struct PullRequestActionsAnchorKey: PreferenceKey {
+    static var defaultValue: PullRequestActionsAnchor? { nil }
+
+    static func reduce(value: inout PullRequestActionsAnchor?, nextValue: () -> PullRequestActionsAnchor?) {
+        value = nextValue() ?? value
+    }
+}
+
+struct PullRequestActionsMenu: View {
+    static let width: CGFloat = 156
+    static let height: CGFloat = 94
+
+    let url: URL
+    let isHidden: Bool
+    let isPinned: Bool
+    let toggleHide: () -> Void
+    let togglePin: () -> Void
+    let dismiss: () -> Void
 
     var body: some View {
-        Button {
-            copyToPasteboard(url)
-        } label: {
-            Image(systemName: isHovered ? "doc.on.doc.fill" : "doc.on.doc")
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: PullRequestActionButtonLayout.iconSize, height: PullRequestActionButtonLayout.iconSize)
-                .offset(x: PullRequestActionButtonLayout.copyGlyphOffsetX)
-                .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
-                .contentShape(Rectangle())
+        VStack(spacing: 2) {
+            menuItem(PullRequestHidePresentation.label(isHidden: isHidden), symbol: PullRequestHidePresentation.symbolName, action: toggleHide)
+            menuItem(PullRequestPinPresentation.label(isPinned: isPinned), symbol: PullRequestPinPresentation.symbolName(isPinned: isPinned), action: togglePin)
+            menuItem("Copy link", symbol: "doc.on.doc") {
+                copyToPasteboard(url)
+            }
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .onHover { isHovered = $0 }
-        .help("Copy PR link")
-        .accessibilityLabel("Copy PR link")
+        .padding(6)
+        .frame(width: Self.width, height: Self.height)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("PR actions")
+    }
+
+    private func menuItem(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        PullRequestActionMenuItem(title: title, symbol: symbol) {
+            dismiss()
+            action()
+        }
     }
 
     static func clipboardString(for url: URL) -> String {
@@ -2684,6 +2760,32 @@ struct PullRequestLinkCopyButton: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(Self.clipboardString(for: url), forType: .string)
+    }
+}
+
+private struct PullRequestActionMenuItem: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .frame(width: 16)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 6)
+            .frame(height: 26)
+            .foregroundStyle(isHovered ? Color.white : Color.primary)
+            .background(isHovered ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
