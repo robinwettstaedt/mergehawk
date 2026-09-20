@@ -10,8 +10,7 @@ struct Runner {
         try testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents()
         try testTopLevelCommentedReviewEmitsReviewCommentedEvent()
         try testOutcomeReviewSuppressesChildReviewThreadCommentEvents()
-        try testOutcomeReviewKeepsUnrepresentedCommentFallback()
-        try testCommentCountFallbackCoversMissingFetchedActivities()
+        try testOutcomeReviewKeepsUnrelatedCommentActivity()
         try testIgnoresSelfAuthoredPeopleActivity()
         try testDetectsCIFailuresForIncomingPRs()
         try testDetectsIncomingRelationshipAddedTransitions()
@@ -44,7 +43,8 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: nil, current: current) == [])
+        try expect(PRActivityDetector.detectTransitions(previous: nil, current: current) == [])
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(previous: nil, current: current) == [])
     }
 
     private static func testDetectsNewActivityAndAuthoredPRStateTransitions() throws {
@@ -74,10 +74,12 @@ struct Runner {
             isMine: true
         )
 
-        try expect(
-            PRActivityDetector.detect(previous: previous, current: current).map(\.type)
-                == [.reviewApproved, .ciFailed]
-        )
+        let events = PRActivityDetector.detectTransitions(previous: previous, current: current)
+            + PRActivityDetector.detectProcessedPeopleActivity(
+                previous: processedActivity(for: previous),
+                current: current
+            )
+        try expect(events.map(\.type) == [.ciFailed, .reviewApproved])
 
         let previousReviews = PullRequest.fixture(
             id: "PR_2",
@@ -116,10 +118,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(
-            PRActivityDetector.detect(previous: previousReviews, current: currentReviews).map(\.type)
-                == [.changesRequested]
-        )
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previousReviews),
+            current: currentReviews
+        ).map(\.type) == [.changesRequested])
     }
 
     private static func testDetectsNewCommentActivitiesWithActors() throws {
@@ -163,7 +165,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .newComment,
                 prId: "PR_ACTIVITY",
@@ -210,7 +215,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .reviewCommented,
                 prId: "PR_REVIEW_COMMENT",
@@ -238,7 +246,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .reviewCommented,
                 prId: "PR_TOP_LEVEL_REVIEW_COMMENT",
@@ -277,7 +288,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .changesRequested,
                 prId: "PR_CHANGES_COMMENT",
@@ -289,10 +303,10 @@ struct Runner {
         ])
     }
 
-    private static func testOutcomeReviewKeepsUnrepresentedCommentFallback() throws {
-        let previous = PullRequest.fixture(id: "PR_CHANGES_WITH_MISSING_COMMENT", commentActivityCount: 0, isMine: true)
+    private static func testOutcomeReviewKeepsUnrelatedCommentActivity() throws {
+        let previous = PullRequest.fixture(id: "PR_CHANGES_WITH_COMMENT", isMine: true)
         let current = PullRequest.fixture(
-            id: "PR_CHANGES_WITH_MISSING_COMMENT",
+            id: "PR_CHANGES_WITH_COMMENT",
             commentCount: 2,
             commentActivityCount: 2,
             recentCommentActivities: [
@@ -302,6 +316,12 @@ struct Runner {
                     createdAt: Date(timeIntervalSince1970: 200),
                     source: .reviewThread,
                     reviewId: "REVIEW_CHANGES"
+                ),
+                PullRequestCommentActivity(
+                    id: "UNRELATED_COMMENT",
+                    author: "frontend-sam",
+                    createdAt: Date(timeIntervalSince1970: 300),
+                    source: .pullRequest
                 )
             ],
             reviewCount: 1,
@@ -316,49 +336,26 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .changesRequested,
-                prId: "PR_CHANGES_WITH_MISSING_COMMENT",
+                prId: "PR_CHANGES_WITH_COMMENT",
                 count: 1,
                 actorLogin: "backend-mateo",
                 activityId: "REVIEW_CHANGES",
                 happenedAt: Date(timeIntervalSince1970: 200)
             ),
-            PullRequestEvent(type: .newComment, prId: "PR_CHANGES_WITH_MISSING_COMMENT", count: 1)
-        ])
-    }
-
-    private static func testCommentCountFallbackCoversMissingFetchedActivities() throws {
-        let previous = PullRequest.fixture(
-            id: "PR_MISSING_COMMENTS",
-            commentActivityCount: 10,
-            isMine: true
-        )
-        let current = PullRequest.fixture(
-            id: "PR_MISSING_COMMENTS",
-            commentActivityCount: 13,
-            recentCommentActivities: [
-                PullRequestCommentActivity(
-                    id: "FETCHED_COMMENT",
-                    author: "teammate",
-                    createdAt: Date(timeIntervalSince1970: 200),
-                    source: .pullRequest
-                )
-            ],
-            isMine: true
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
             PullRequestEvent(
                 type: .newComment,
-                prId: "PR_MISSING_COMMENTS",
+                prId: "PR_CHANGES_WITH_COMMENT",
                 count: 1,
-                actorLogin: "teammate",
-                activityId: "FETCHED_COMMENT",
-                happenedAt: Date(timeIntervalSince1970: 200)
-            ),
-            PullRequestEvent(type: .newComment, prId: "PR_MISSING_COMMENTS", count: 2)
+                actorLogin: "frontend-sam",
+                activityId: "UNRELATED_COMMENT",
+                happenedAt: Date(timeIntervalSince1970: 300)
+            )
         ])
     }
 
@@ -389,46 +386,49 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ).isEmpty)
     }
 
     private static func testDetectsCIFailuresForIncomingPRs() throws {
         let previous = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .passing, isMine: false)
         let current = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .failing, isMine: false)
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current).map(\.type) == [.ciFailed])
+        try expect(PRActivityDetector.detectTransitions(previous: previous, current: current).map(\.type) == [.ciFailed])
     }
 
     private static func testDetectsIncomingRelationshipAddedTransitions() throws {
-        let assigned = PRActivityDetector.detect(
+        let assigned = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_ASSIGNED", isAssignedToViewer: false, isMine: false),
             current: .fixture(id: "PR_ASSIGNED", isAssignedToViewer: true, isMine: false)
         )
         try expect(assigned.map(\.type) == [.relationshipAdded])
         try expect(assigned[0].relationshipChanges == [.assigned])
 
-        let direct = PRActivityDetector.detect(
+        let direct = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_DIRECT", reviewRequestKind: .none, isMine: false),
             current: .fixture(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false)
         )
         try expect(direct.map(\.type) == [.relationshipAdded])
         try expect(direct[0].relationshipChanges == [.directReviewRequest])
 
-        let team = PRActivityDetector.detect(
+        let team = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_TEAM", reviewRequestKind: .none, isMine: false),
             current: .fixture(id: "PR_TEAM", reviewRequestKind: .team, isMine: false)
         )
         try expect(team.map(\.type) == [.relationshipAdded])
         try expect(team[0].relationshipChanges == [.teamReviewRequest])
 
-        let combined = PRActivityDetector.detect(
+        let combined = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_COMBINED", reviewRequestKind: .none, isAssignedToViewer: false, isMine: false),
             current: .fixture(id: "PR_COMBINED", reviewRequestKind: .directAndTeam, isAssignedToViewer: true, isMine: false)
         )
         try expect(combined.map(\.type) == [.relationshipAdded])
         try expect(combined[0].relationshipChanges == [.assigned, .directReviewRequest, .teamReviewRequest])
 
-        let selfAuthored = PRActivityDetector.detect(
+        let selfAuthored = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_SELF", reviewRequestKind: .none, isAssignedToViewer: false, isMine: true),
             current: .fixture(id: "PR_SELF", reviewRequestKind: .direct, isAssignedToViewer: true, isMine: true)
         )
@@ -932,6 +932,14 @@ struct Runner {
         case .teamReviewRequest:
             PullRequest.fixture(id: "PR_TEAM", reviewRequestKind: .team, isMine: false)
         }
+    }
+
+    private static func processedActivity(for pullRequest: PullRequest) -> ProcessedPullRequestActivity {
+        ProcessedPullRequestActivity(
+            pullRequestID: pullRequest.id,
+            commentIDs: Set(pullRequest.recentCommentActivities.map(\.id)),
+            submittedReviewIDs: Set(pullRequest.recentReviews.map(\.id))
+        )
     }
 
     private static func testInMemoryTokenStoreHandlesMissingStoreLoadAndClear() throws {
