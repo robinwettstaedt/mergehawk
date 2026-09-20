@@ -54,7 +54,10 @@ if os.environ.get('CHECK_CREDENTIAL_SCOPE'):
                 'DEVELOPER_ID_CERTIFICATE_PASSWORD', 'APPLE_ID', 'APPLE_TEAM_ID',
                 'APPLE_APP_SPECIFIC_PASSWORD', 'SPARKLE_PRIVATE_KEY']:
         assert key not in os.environ, 'Unnecessary credential exposed to gh: ' + key
-if args[:1] == ['api']:
+if args[:2] == ['auth', 'status']:
+    if os.environ.get('FAIL_AUTH'):
+        sys.exit(1)
+elif args[:1] == ['api']:
     if os.environ.get('FAIL_API'):
         sys.exit(1)
     print(os.environ.get('PUBLISHED_TAGS', ''))
@@ -62,6 +65,8 @@ elif args[:2] == ['release', 'create']:
     if os.environ.get('FAIL_CREATE'):
         sys.exit(1)
     print('https://github.com/example/downloads/releases/tag/untagged-test-draft')
+elif args[:2] == ['release', 'edit'] and os.environ.get('FAIL_EDIT'):
+    sys.exit(1)
 ''')
         self.env = os.environ.copy()
         self.env.update(PATH=str(self.bin) + os.pathsep + self.env['PATH'],
@@ -81,7 +86,22 @@ elif args[:2] == ['release', 'create']:
     def run_release(self, *args, phase='--publish-only'):
         return subprocess.run(
             ['bash', str(self.root / 'scripts/release-github.sh'), '--version', 'v0.1.0',
-             '--build', BUILD, phase, *args], env=self.env, capture_output=True, text=True)
+             '--build', BUILD, *([phase] if phase else []), *args],
+            env=self.env, capture_output=True, text=True)
+
+    def isolate_path(self):
+        for command in ('bash', 'python3', 'dirname', 'env'):
+            (self.bin / command).symlink_to(shutil.which(command))
+        self.env['PATH'] = str(self.bin)
+
+    def stub_preparation(self):
+        shutil.rmtree(self.assets.parent)
+        for command in ('swift', 'codesign', 'hdiutil', 'xcrun', 'spctl', 'ditto', 'sips', 'iconutil'):
+            self.command(command, '')
+        self.command('uname', "print('arm64')\n")
+        self.command('build-app-bundle.sh', '')
+        shutil.copy(self.bin / 'build-app-bundle.sh', self.root / 'scripts')
+        self.env.update(DEVELOPER_ID_APPLICATION='test-identity', NOTARYTOOL_PROFILE='test-profile')
 
     def calls(self):
         path = self.root / 'commands.jsonl'
@@ -92,6 +112,7 @@ elif args[:2] == ['release', 'create']:
         result = self.run_release()
         self.assertEqual(result.returncode, 0, result.stderr)
         gh = [call for call in self.calls() if call[0] == 'gh']
+        self.assertEqual(gh.pop(0)[1:], ['auth', 'status', '--active', '--hostname', 'github.com'])
         self.assertEqual(gh[0][1:3], ['api', '--paginate'])
         self.assertIn(f'repos/{REPO}/releases', gh[0])
         create, edit = gh[1:]
@@ -119,6 +140,55 @@ elif args[:2] == ['release', 'create']:
         self.env['FAIL_CREATE'] = '1'
         self.assertNotEqual(self.run_release().returncode, 0)
         self.assertFalse(any(c[1:3] == ['release', 'edit'] for c in self.calls()))
+
+    def test_failed_publication_identifies_uploaded_release_without_deleting_it(self):
+        self.env['FAIL_EDIT'] = '1'
+        result = self.run_release()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Could not confirm publication of ' + TAG, result.stderr)
+        self.assertIn('https://github.com/example/downloads/releases/tag/untagged-test-draft', result.stderr)
+        self.assertNotIn('Published:', result.stdout)
+        self.assertFalse(any(c[1:3] == ['release', 'delete'] for c in self.calls()))
+
+    def test_combined_release_rejects_missing_authentication_before_building(self):
+        self.env['FAIL_AUTH'] = '1'
+        result = self.run_release(phase=None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('GitHub authentication is unavailable', result.stderr)
+        self.assertEqual(self.calls(), [['git', 'status', '--porcelain'],
+                                       ['gh', 'auth', 'status', '--active', '--hostname', 'github.com']])
+
+    def test_missing_publishing_tool_is_reported_before_building(self):
+        self.isolate_path()
+        (self.bin / 'gh').unlink()
+        for phase in (None, '--publish-only'):
+            with self.subTest(phase=phase):
+                result = self.run_release(phase=phase)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Required command not found: gh', result.stderr)
+
+    def test_missing_build_tool_is_reported_before_preparation(self):
+        self.isolate_path()
+        result = self.run_release(phase='--prepare-only')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Required command not found: swift', result.stderr)
+        self.assertEqual(self.calls(), [['git', 'status', '--porcelain']])
+
+    def test_publication_does_not_require_build_tools(self):
+        self.isolate_path()
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Published:', result.stdout)
+
+    def test_missing_sparkle_artifacts_are_reported_before_notarization_without_github(self):
+        self.stub_preparation()
+        self.env['FAIL_AUTH'] = '1'
+        result = self.run_release(phase='--prepare-only')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Could not find Sparkle generate_appcast: .build/artifacts is missing', result.stderr)
+        self.assertNotIn('find:', result.stderr)
+        self.assertTrue(any(c[0] == 'build-app-bundle.sh' for c in self.calls()))
+        self.assertFalse(any(c[0] in ('gh', 'xcrun', 'hdiutil') for c in self.calls()))
 
     def test_remote_query_failure_does_not_create_release(self):
         self.env['FAIL_API'] = '1'

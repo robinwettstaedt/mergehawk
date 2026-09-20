@@ -49,6 +49,18 @@ authentication with Contents:write permission for the downloads repository.
 USAGE
 }
 
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Required command not found: $1" >&2; exit 2; }
+}
+
+check_github_authentication() {
+  require_command gh
+  if ! env -u SPARKLE_PRIVATE_KEY gh auth status --active --hostname github.com >/dev/null 2>&1; then
+    echo "GitHub authentication is unavailable. Run gh auth login or provide GH_TOKEN for $RELEASE_REPOSITORY." >&2
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version|--build|--generate-appcast)
@@ -74,6 +86,7 @@ if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || ! "$BUILD_NUMBER" =~ ^[0-
   echo 'Use --version vX.Y.Z and --build UTC YYYYMMDDHHMMSS.' >&2
   exit 2
 fi
+require_command python3
 python3 - "$BUILD_NUMBER" <<'PY'
 import datetime, sys
 try:
@@ -96,6 +109,7 @@ if [[ "$ALLOW_DIRTY" == 1 && "$DRY_RUN" != 1 ]]; then
   exit 2
 fi
 cd "$ROOT_DIR"
+require_command git
 if [[ "$ALLOW_DIRTY" != 1 ]] && [[ -n "$(git status --porcelain)" ]]; then
   echo 'Working tree must be clean before preparing or publishing a release.' >&2
   exit 2
@@ -120,7 +134,14 @@ if [[ "$DRY_RUN" == 1 ]]; then
   exit 0
 fi
 
+if [[ "$PHASE" == all ]]; then
+  check_github_authentication
+fi
+
 if [[ "$PHASE" != publish-only ]]; then
+  for tool in swift codesign hdiutil xcrun spctl ditto sips iconutil; do
+    require_command "$tool"
+  done
   : "${DEVELOPER_ID_APPLICATION:?Set the Developer ID Application signing identity}"
   : "${NOTARYTOOL_PROFILE:?Set the notarytool Keychain profile}"
   [[ "$(uname -m)" == arm64 ]] || { echo 'Build on an Apple Silicon Mac.' >&2; exit 2; }
@@ -137,6 +158,15 @@ if [[ "$PHASE" != publish-only ]]; then
     CODE_SIGN_OPTIONS=runtime MARKETING_VERSION="$MARKETING_VERSION" BUILD_NUMBER="$BUILD_NUMBER" \
     DISTRIBUTION_CHANNEL=github SPARKLE_FEED_URL="$SPARKLE_FEED_URL" SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
     "$ROOT_DIR/scripts/build-app-bundle.sh"
+  GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
+  if [[ -z "$GENERATE_APPCAST" ]]; then
+    if [[ ! -d "$ROOT_DIR/.build/artifacts" ]]; then
+      echo 'Could not find Sparkle generate_appcast: .build/artifacts is missing after the app build.' >&2
+      exit 2
+    fi
+    GENERATE_APPCAST="$(find "$ROOT_DIR/.build/artifacts" -path '*/Sparkle/bin/generate_appcast' -type f -print -quit)"
+  fi
+  [[ -x "$GENERATE_APPCAST" ]] || { echo 'Could not find Sparkle generate_appcast.' >&2; exit 2; }
   codesign --verify --deep --strict "$APP_DIR"
   python3 - "$APP_DIR/Contents/Info.plist" "$SPARKLE_FEED_URL" "$SPARKLE_PUBLIC_KEY" "$BUILD_NUMBER" <<'PY'
 import plistlib, sys
@@ -172,11 +202,6 @@ PY
   hdiutil verify "$DMG_PATH"
   spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
   spctl --assess --type execute --verbose=2 "$APP_DIR"
-  GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
-  if [[ -z "$GENERATE_APPCAST" ]]; then
-    GENERATE_APPCAST="$(find "$ROOT_DIR/.build/artifacts" -path '*/Sparkle/bin/generate_appcast' -type f -print -quit)"
-  fi
-  [[ -x "$GENERATE_APPCAST" ]] || { echo 'Could not find Sparkle generate_appcast.' >&2; exit 2; }
   if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
     printf '%s' "$SPARKLE_PRIVATE_KEY" | "$GENERATE_APPCAST" --ed-key-file - --download-url-prefix "$DOWNLOAD_URL_PREFIX" "$ASSET_DIR"
   else
@@ -205,6 +230,9 @@ fi
 
 # Publishing does not need the Sparkle signing key used during preparation.
 unset SPARKLE_PRIVATE_KEY
+if [[ "$PHASE" == publish-only ]]; then
+  check_github_authentication
+fi
 
 # Read all published tags, rather than trusting request time or workflow queue order.
 # This also prevents a delayed local publication from replacing a newer update feed.
@@ -229,7 +257,11 @@ RELEASE_URL="$(gh release create "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" \
   --title "MergeHawk $MARKETING_VERSION ($BUILD_NUMBER)" \
   --notes "MergeHawk $MARKETING_VERSION ($BUILD_NUMBER). Apple Silicon; macOS 14 or later. Signed and notarized. Includes in-app software updates.")"
 if [[ "$DRAFT" == 0 ]]; then
-  gh release edit "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --draft=false --latest
+  if ! gh release edit "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --draft=false --latest; then
+    echo "Could not confirm publication of $RELEASE_TAG. The uploaded release has not been deleted." >&2
+    echo "Inspect https://github.com/$RELEASE_REPOSITORY/releases before retrying (original draft: $RELEASE_URL)." >&2
+    exit 1
+  fi
   echo "Published: https://github.com/$RELEASE_REPOSITORY/releases/tag/$RELEASE_TAG"
 else
   echo "Created draft: $RELEASE_URL"
