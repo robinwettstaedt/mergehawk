@@ -127,7 +127,7 @@ final class AgentModeXCTests: XCTestCase {
         }
         XCTAssertEqual(
             notificationClient.records.map(\.eventType),
-            ["new_comment", "ci_failed", "other_commit_added", "relationship_added"]
+            ["new_comment", "ci_failed", "relationship_added"]
         )
         await MainActor.run {
             XCTAssertGreaterThanOrEqual(controller.state.pullRequests.filter { $0.mergeable == .unknown }.count, 2)
@@ -279,13 +279,13 @@ final class AgentModeXCTests: XCTestCase {
         }
         await waitUntil(timeout: 1.0) {
             await MainActor.run {
-                controller.visiblePullRequestNotifications.count == 4
+                controller.visiblePullRequestNotifications.count == 3
             }
         }
 
         await MainActor.run {
             // PR_3 remains team-only across refresh, so no relationship-added row appears for it.
-            XCTAssertEqual(controller.attentionCount, 4)
+            XCTAssertEqual(controller.attentionCount, 3)
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
@@ -293,11 +293,11 @@ final class AgentModeXCTests: XCTestCase {
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
-            XCTAssertEqual(controller.attentionCount, 3)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 3)
+            XCTAssertEqual(controller.attentionCount, 2)
 
             controller.markAllNotificationsRead()
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 3)
             XCTAssertEqual(controller.attentionCount, 0)
             XCTAssertFalse(controller.hasAttention)
         }
@@ -318,7 +318,7 @@ final class AgentModeXCTests: XCTestCase {
         }
 
         await MainActor.run {
-            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 3)
             XCTAssertEqual(restoredController.attentionCount, 0)
         }
     }
@@ -402,11 +402,10 @@ final class AgentModeXCTests: XCTestCase {
                     .reviewApproved,
                     .reviewCommented,
                     .ciFailed,
-                    .changesRequested,
-                    .otherCommitAdded
+                    .changesRequested
                 ]
             )
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 8)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 7)
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
@@ -421,11 +420,6 @@ final class AgentModeXCTests: XCTestCase {
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
                     .contains("Assigned to you")
-            )
-            XCTAssertTrue(
-                controller.visiblePullRequestNotifications
-                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
-                    .contains("New commit by @platform-nora")
             )
         }
     }

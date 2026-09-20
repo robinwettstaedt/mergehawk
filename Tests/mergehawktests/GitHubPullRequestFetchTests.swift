@@ -12,10 +12,9 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         let shallow = GitHubClient.pullRequestShallowSearchQuery
         XCTAssertTrue(shallow.contains("search(query: $query, type: ISSUE, first: 50)"))
         XCTAssertTrue(shallow.contains("reviewRequests(first: 20)"))
-        XCTAssertTrue(shallow.contains("commits(last: 20)"))
-        XCTAssertTrue(shallow.contains("oid"))
-        XCTAssertTrue(shallow.contains("authoredDate"))
-        XCTAssertTrue(shallow.contains("committedDate"))
+        XCTAssertTrue(shallow.contains("headRefOid"))
+        XCTAssertTrue(shallow.contains("statusCheckRollup"))
+        XCTAssertFalse(shallow.contains("commits("))
         XCTAssertTrue(shallow.contains("assignees(first: 20)"))
         XCTAssertTrue(shallow.contains("latestOpinionatedReviews(first: 20)"))
         let shallowOpinionated = String(shallow.split(separator: "latestOpinionatedReviews(first: 20)")[1]
@@ -32,7 +31,9 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         let detail = GitHubClient.pullRequestDetailQuery
         XCTAssertTrue(detail.contains("comments(last: 10)"))
         XCTAssertTrue(detail.contains("reviews(last: 10)"))
-        XCTAssertTrue(detail.contains("commits(last: 20)"))
+        XCTAssertTrue(detail.contains("headRefOid"))
+        XCTAssertTrue(detail.contains("statusCheckRollup"))
+        XCTAssertFalse(detail.contains("commits("))
         XCTAssertTrue(detail.contains("latestOpinionatedReviews(first: 20)"))
         let detailOpinionated = String(detail.split(separator: "latestOpinionatedReviews(first: 20)")[1]
             .split(separator: "reviewThreads(first: 20)")[0])
@@ -185,7 +186,7 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertEqual(failed.pullRequests.first?.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
     }
 
-    func testDetailHydrationAndCommitReplacementPreserveChangeCounts() async throws {
+    func testDetailHydrationPreservesChangeCounts() async throws {
         let session = Self.mockSession()
         PullRequestFetchMockURLProtocol.handler = { request in
             if Self.requestBody(request).contains("PullRequestDetails") {
@@ -202,19 +203,6 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         XCTAssertEqual(hydrated.pullRequests.first?.deletions, 12345)
         XCTAssertEqual(hydrated.pullRequests.first?.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
 
-        PullRequestFetchMockURLProtocol.handler = { request in
-            if request.url?.path == "/repos/acme/app/pulls/12/commits" {
-                return (Self.pullRequestCommitsResponse(), Self.okResponse(for: request))
-            }
-            return (Self.searchResponseWithInaccessibleCommitMetadata(), Self.okResponse(for: request))
-        }
-        let replaced = try await client.fetchPullRequests(
-            login: "rw",
-            previousPullRequests: [.fixture(commentActivityCount: 0, reviewCount: 0)]
-        )
-        XCTAssertEqual(replaced.pullRequests.first?.additions, 0)
-        XCTAssertEqual(replaced.pullRequests.first?.deletions, 12345)
-        XCTAssertEqual(replaced.pullRequests.first?.authorAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/123?v=4")
     }
 
     func testUnchangedPullRequestDoesNotFetchDetails() async throws {
@@ -281,31 +269,6 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         )
 
         XCTAssertEqual(result.pullRequests.first?.reviewRequestKind, .team)
-    }
-
-    func testInaccessibleCommitMetadataUsesPullRequestCommitsFallback() async throws {
-        let session = Self.mockSession()
-        var requestedCommitFallback = false
-        PullRequestFetchMockURLProtocol.handler = { request in
-            if request.url?.path == "/repos/acme/app/pulls/12/commits" {
-                requestedCommitFallback = true
-                return (Self.pullRequestCommitsResponse(), Self.okResponse(for: request))
-            }
-            return (Self.searchResponseWithInaccessibleCommitMetadata(), Self.okResponse(for: request))
-        }
-
-        let client = GitHubClient(token: "token", session: session)
-        let result = try await client.fetchPullRequests(
-            login: "rw",
-            previousPullRequests: [.fixture(commentActivityCount: 0, reviewCount: 0)]
-        )
-
-        XCTAssertEqual(result.pullRequests.count, 1)
-        XCTAssertEqual(result.pullRequests.first?.title, "Ship dashboard")
-        XCTAssertEqual(result.pullRequests.first?.recentCommits.map(\.oid), ["COMMIT_REST_1"])
-        XCTAssertEqual(result.pullRequests.first?.recentCommits.first?.authorLogin, "teammate")
-        XCTAssertEqual(result.pullRequests.first?.hasRecentCommitMetadata, true)
-        XCTAssertTrue(requestedCommitFallback)
     }
 
     func testActionableCommentCountChangeTriggersDetailFetch() async throws {
@@ -527,43 +490,6 @@ final class GitHubPullRequestFetchTests: XCTestCase {
         """.utf8)
     }
 
-    private static func searchResponseWithInaccessibleCommitMetadata() -> Data {
-        Data("""
-        {
-          "data": {
-            "search": {
-              "nodes": [
-                \(pullRequestJSONWithCommits(#"{ "nodes": [null] }"#))
-              ]
-            }
-          },
-          "errors": [
-            {
-              "type": "FORBIDDEN",
-              "path": ["search", "nodes", 0, "commits", "nodes", 0],
-              "message": "Resource not accessible by integration"
-            }
-          ]
-        }
-        """.utf8)
-    }
-
-    private static func pullRequestCommitsResponse() -> Data {
-        Data("""
-        [
-          {
-            "sha": "COMMIT_REST_1",
-            "commit": {
-              "author": { "date": "2026-05-02T11:00:00Z" },
-              "committer": { "date": "2026-05-02T11:05:00Z" }
-            },
-            "author": { "login": "teammate" },
-            "committer": { "login": "teammate" }
-          }
-        ]
-        """.utf8)
-    }
-
     private static func pullRequestJSON(
         commentCount: Int,
         reviewCount: Int,
@@ -582,6 +508,8 @@ final class GitHubPullRequestFetchTests: XCTestCase {
           "createdAt": "2026-05-01T12:00:00Z",
           "updatedAt": "2026-05-02T12:00:00Z",
           "headRefName": "ship-dashboard",
+          "headRefOid": "COMMIT_1",
+          "statusCheckRollup": { "state": "SUCCESS" },
           "isDraft": false,
           "mergeable": "MERGEABLE",
           "additions": 0,
@@ -593,47 +521,6 @@ final class GitHubPullRequestFetchTests: XCTestCase {
           "reviewRequests": \(reviewRequests),
           "assignees": { "nodes": [] },
           "repository": { "nameWithOwner": "acme/app" },
-          "commits": {
-            "nodes": [
-              {
-                "commit": {
-                  "oid": "COMMIT_1",
-                  "authoredDate": "2026-05-02T11:00:00Z",
-                  "committedDate": "2026-05-02T11:05:00Z",
-                  "author": { "user": { "login": "rw" } },
-                  "committer": { "user": { "login": "rw" } },
-                  "statusCheckRollup": { "state": "SUCCESS" }
-                }
-              }
-            ]
-          },
-          "author": { "login": "rw", "avatarUrl": "https://avatars.githubusercontent.com/u/123?v=4" }
-        }
-        """
-    }
-
-    private static func pullRequestJSONWithCommits(_ commits: String) -> String {
-        """
-        {
-          "id": "PR_1",
-          "title": "Ship dashboard",
-          "number": 12,
-          "url": "https://github.com/acme/app/pull/12",
-          "createdAt": "2026-05-01T12:00:00Z",
-          "updatedAt": "2026-05-02T12:00:00Z",
-          "headRefName": "ship-dashboard",
-          "isDraft": false,
-          "mergeable": "MERGEABLE",
-          "additions": 0,
-          "deletions": 12345,
-          "comments": { "totalCount": 0 },
-          "reviews": { "totalCount": 0, "nodes": [] },
-          "latestOpinionatedReviews": { "totalCount": 0, "nodes": [] },
-          "reviewThreads": { "nodes": [] },
-          "reviewRequests": { "nodes": [] },
-          "assignees": { "nodes": [] },
-          "repository": { "nameWithOwner": "acme/app" },
-          "commits": \(commits),
           "author": { "login": "rw", "avatarUrl": "https://avatars.githubusercontent.com/u/123?v=4" }
         }
         """

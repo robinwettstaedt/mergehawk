@@ -711,7 +711,7 @@ private struct NotificationSettingsView: View {
                 case .relationshipChanges:
                     activityPreferences.relationshipChanges = isEnabled
                 case .otherCommits:
-                    activityPreferences.otherCommits = isEnabled
+                    break
                 }
                 preferences.set(activityPreferences, for: relationship)
                 controller.preferences = preferences

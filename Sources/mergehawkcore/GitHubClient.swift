@@ -11,68 +11,10 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         }
     }
 
-    public struct CommitConnection: Decodable, Equatable, Sendable {
-        public struct Node: Decodable, Equatable, Sendable {
-            public struct Commit: Decodable, Equatable, Sendable {
-                public struct GitActor: Decodable, Equatable, Sendable {
-                    public let user: User?
-                    public init(user: User?) {
-                        self.user = user
-                    }
-                }
-
-                public struct StatusCheckRollup: Decodable, Equatable, Sendable {
-                    public let state: String?
-                    public init(state: String?) {
-                        self.state = state
-                    }
-                }
-
-                public let oid: String
-                public let authoredDate: String
-                public let committedDate: String
-                public let author: GitActor?
-                public let committer: GitActor?
-                public let statusCheckRollup: StatusCheckRollup?
-                public init(
-                    oid: String = "",
-                    authoredDate: String = "",
-                    committedDate: String = "",
-                    author: GitActor? = nil,
-                    committer: GitActor? = nil,
-                    statusCheckRollup: StatusCheckRollup?
-                ) {
-                    self.oid = oid
-                    self.authoredDate = authoredDate
-                    self.committedDate = committedDate
-                    self.author = author
-                    self.committer = committer
-                    self.statusCheckRollup = statusCheckRollup
-                }
-            }
-
-            public let commit: Commit
-            public init(commit: Commit) {
-                self.commit = commit
-            }
-        }
-
-        public let nodes: [Node]
-        public let hasMetadata: Bool
-        public init(nodes: [Node], hasMetadata: Bool = true) {
-            self.nodes = nodes
-            self.hasMetadata = hasMetadata
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case nodes
-        }
-
-        public init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            let decodedNodes = try container.decodeIfPresent([Node?].self, forKey: .nodes) ?? []
-            self.nodes = decodedNodes.compactMap { $0 }
-            self.hasMetadata = decodedNodes.allSatisfy { $0 != nil }
+    public struct StatusCheckRollup: Decodable, Equatable, Sendable {
+        public let state: String?
+        public init(state: String?) {
+            self.state = state
         }
     }
 
@@ -355,6 +297,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let createdAt: String
     public let updatedAt: String
     public let headRefName: String
+    public let headRefOid: String
+    public let statusCheckRollup: StatusCheckRollup?
     public let isDraft: Bool
     public let mergeable: String?
     public let additions: Int?
@@ -366,7 +310,6 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
     public let reviewRequests: ReviewRequestConnection
     public let assignees: AssigneeConnection
     public let repository: Repository
-    public let commits: CommitConnection?
     public let author: User?
 
     public init(
@@ -377,6 +320,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         createdAt: String,
         updatedAt: String,
         headRefName: String = "",
+        headRefOid: String = "",
+        statusCheckRollup: StatusCheckRollup? = nil,
         isDraft: Bool,
         mergeable: String?,
         additions: Int? = nil,
@@ -388,7 +333,6 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         reviewRequests: ReviewRequestConnection = .init(nodes: []),
         assignees: AssigneeConnection = .init(nodes: []),
         repository: Repository,
-        commits: CommitConnection?,
         author: User?
     ) {
         self.id = id
@@ -398,6 +342,8 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.headRefName = headRefName
+        self.headRefOid = headRefOid
+        self.statusCheckRollup = statusCheckRollup
         self.isDraft = isDraft
         self.mergeable = mergeable
         self.additions = additions
@@ -409,7 +355,6 @@ public struct GitHubPullRequestNode: Decodable, Equatable, Sendable {
         self.reviewRequests = reviewRequests
         self.assignees = assignees
         self.repository = repository
-        self.commits = commits
         self.author = author
     }
 }
@@ -422,7 +367,7 @@ public enum GitHubPullRequestNormalizer {
         login: String,
         isReviewRequestResult: Bool = false
     ) -> PullRequest {
-        let rollupState = node.commits?.nodes.last?.commit.statusCheckRollup?.state ?? "UNKNOWN"
+        let rollupState = node.statusCheckRollup?.state ?? "UNKNOWN"
         return PullRequest(
             id: node.id,
             title: node.title,
@@ -441,8 +386,7 @@ public enum GitHubPullRequestNormalizer {
             recentCommentActivities: normalizeCommentActivities(node),
             reviewCount: node.reviews.totalCount,
             recentReviews: normalizeReviews(node.reviews, login: login),
-            recentCommits: normalizeRecentCommits(node.commits),
-            hasRecentCommitMetadata: node.commits?.hasMetadata ?? false,
+            headRefOid: node.headRefOid,
             reviewRequestKind: normalizeReviewRequestKind(
                 node.reviewRequests,
                 login: login,
@@ -549,23 +493,6 @@ public enum GitHubPullRequestNormalizer {
         return (pullRequestComments + reviewThreadComments).sorted { $0.createdAt < $1.createdAt }
     }
 
-    private static func normalizeRecentCommits(
-        _ commits: GitHubPullRequestNode.CommitConnection?
-    ) -> [PullRequestCommit] {
-        commits?.nodes.compactMap { node in
-            guard !node.commit.oid.isEmpty else {
-                return nil
-            }
-            return PullRequestCommit(
-                oid: node.commit.oid,
-                authoredAt: normalizeDate(node.commit.authoredDate),
-                committedAt: normalizeDate(node.commit.committedDate),
-                authorLogin: node.commit.author?.user?.login,
-                committerLogin: node.commit.committer?.user?.login
-            )
-        } ?? []
-    }
-
     public static func normalizeReviewState(_ state: String) -> PullRequestReviewState? {
         switch state {
         case "APPROVED":
@@ -652,7 +579,6 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
     private let tokenProvider: @Sendable () async throws -> String
     private let session: URLSession
     private let decoder = JSONDecoder()
-    private static let commitDateFormatter = ISO8601DateFormatter()
 
     public init(token: String, session: URLSession = .shared) {
         self.tokenProvider = { token }
@@ -706,7 +632,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
                 return pullRequest
             }
             return PullRequestFetchResult(
-                pullRequests: await fillingMissingCommitMetadata(in: pullRequests)
+                pullRequests: pullRequests
             )
         }
 
@@ -730,7 +656,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
                 return pullRequest
             }
             return PullRequestFetchResult(
-                pullRequests: await fillingMissingCommitMetadata(in: pullRequests)
+                pullRequests: pullRequests
             )
         } catch {
             if Self.isAuthenticationFailure(error) {
@@ -789,52 +715,6 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
         return pullRequests
     }
 
-    private func fillingMissingCommitMetadata(in pullRequests: [PullRequest]) async -> [PullRequest] {
-        var enrichedPullRequests: [PullRequest] = []
-        for pullRequest in pullRequests {
-            guard pullRequest.isMine, !pullRequest.hasRecentCommitMetadata else {
-                enrichedPullRequests.append(pullRequest)
-                continue
-            }
-            do {
-                let recentCommits = try await fetchPullRequestCommits(pullRequest)
-                enrichedPullRequests.append(Self.replacingRecentCommits(in: pullRequest, with: recentCommits))
-            } catch {
-                enrichedPullRequests.append(pullRequest)
-            }
-        }
-        return enrichedPullRequests
-    }
-
-    private func fetchPullRequestCommits(_ pullRequest: PullRequest) async throws -> [PullRequestCommit] {
-        let repoParts = pullRequest.repo.split(separator: "/", maxSplits: 1).map(String.init)
-        guard repoParts.count == 2 else {
-            return []
-        }
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "api.github.com"
-        components.path = "/repos/\(repoParts[0])/\(repoParts[1])/pulls/\(pullRequest.number)/commits"
-        components.queryItems = [
-            URLQueryItem(name: "per_page", value: "100")
-        ]
-        guard let url = components.url else {
-            return []
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
-        request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
-        request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
-
-        let (data, response) = try await session.data(for: request)
-        try validate(response, endpoint: "GitHub pull request commits")
-        return Array(try decoder.decode([GitHubPullRequestCommitResponse].self, from: data)
-            .compactMap(Self.normalizePullRequestCommit)
-            .suffix(20))
-    }
-
     private static func needsDetail(shallow: PullRequest, previous: PullRequest?) -> Bool {
         guard let previous else {
             return true
@@ -857,58 +737,6 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
         return false
     }
 
-    private static func replacingRecentCommits(
-        in pullRequest: PullRequest,
-        with recentCommits: [PullRequestCommit]
-    ) -> PullRequest {
-        PullRequest(
-            id: pullRequest.id,
-            title: pullRequest.title,
-            number: pullRequest.number,
-            url: pullRequest.url,
-            repo: pullRequest.repo,
-            ciState: pullRequest.ciState,
-            reviewDecision: pullRequest.reviewDecision,
-            additions: pullRequest.additions,
-            deletions: pullRequest.deletions,
-            commentCount: pullRequest.commentCount,
-            commentActivityCount: pullRequest.commentActivityCount,
-            recentCommentActivities: pullRequest.recentCommentActivities,
-            reviewCount: pullRequest.reviewCount,
-            recentReviews: pullRequest.recentReviews,
-            recentCommits: recentCommits,
-            hasRecentCommitMetadata: true,
-            reviewRequestKind: pullRequest.reviewRequestKind,
-            isAssignedToViewer: pullRequest.isAssignedToViewer,
-            isMine: pullRequest.isMine,
-            author: pullRequest.author,
-            authorAvatarURL: pullRequest.authorAvatarURL,
-            headRefName: pullRequest.headRefName,
-            mergeable: pullRequest.mergeable,
-            draft: pullRequest.draft,
-            createdAt: pullRequest.createdAt,
-            updatedAt: pullRequest.updatedAt
-        )
-    }
-
-    private static func normalizePullRequestCommit(
-        _ response: GitHubPullRequestCommitResponse
-    ) -> PullRequestCommit? {
-        guard
-            let authoredAt = commitDateFormatter.date(from: response.commit.author.date),
-            let committedAt = commitDateFormatter.date(from: response.commit.committer.date)
-        else {
-            return nil
-        }
-        return PullRequestCommit(
-            oid: response.sha,
-            authoredAt: authoredAt,
-            committedAt: committedAt,
-            authorLogin: response.author?.login,
-            committerLogin: response.committer?.login
-        )
-    }
-
     private static func mergingDashboardFields(
         from current: PullRequest,
         withActivityFrom previous: PullRequest,
@@ -929,8 +757,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             recentCommentActivities: previous.recentCommentActivities,
             reviewCount: preserveActivityCounts ? previous.reviewCount : current.reviewCount,
             recentReviews: previous.recentReviews,
-            recentCommits: current.recentCommits,
-            hasRecentCommitMetadata: current.hasRecentCommitMetadata,
+            headRefOid: current.headRefOid,
             reviewRequestKind: current.reviewRequestKind,
             isAssignedToViewer: current.isAssignedToViewer,
             isMine: current.isMine,
@@ -963,8 +790,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             recentCommentActivities: detailed.recentCommentActivities,
             reviewCount: detailed.reviewCount,
             recentReviews: detailed.recentReviews,
-            recentCommits: detailed.recentCommits,
-            hasRecentCommitMetadata: detailed.hasRecentCommitMetadata,
+            headRefOid: detailed.headRefOid,
             reviewRequestKind: shallow.reviewRequestKind,
             isAssignedToViewer: shallow.isAssignedToViewer,
             isMine: shallow.isMine,
@@ -1082,7 +908,7 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
     private func hasNonIgnorableGraphQLErrors<DataPayload>(
         _ errors: [GraphQLResponse<DataPayload>.GraphQLError]
     ) -> Bool {
-        return errors.contains { !$0.isInaccessibleCommitMetadata }
+        !errors.isEmpty
     }
 
     static let detailRequestChunkSize = 20
@@ -1099,6 +925,10 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
               createdAt
               updatedAt
               headRefName
+              headRefOid
+              statusCheckRollup {
+                state
+              }
               isDraft
               mergeable
               additions
@@ -1164,28 +994,6 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
               repository {
                 nameWithOwner
               }
-              commits(last: 20) {
-                nodes {
-                  commit {
-                    oid
-                    authoredDate
-                    committedDate
-                    author {
-                      user {
-                        login
-                      }
-                    }
-                    committer {
-                      user {
-                        login
-                      }
-                    }
-                    statusCheckRollup {
-                      state
-                    }
-                  }
-                }
-              }
               author {
                 login
                 avatarUrl(size: 64)
@@ -1207,6 +1015,10 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             createdAt
             updatedAt
             headRefName
+            headRefOid
+            statusCheckRollup {
+              state
+            }
             isDraft
             mergeable
             additions
@@ -1288,28 +1100,6 @@ public final class GitHubClient: PullRequestSource, SourceCatalogProviding, GitH
             repository {
               nameWithOwner
             }
-            commits(last: 20) {
-              nodes {
-                commit {
-                  oid
-                  authoredDate
-                  committedDate
-                  author {
-                    user {
-                      login
-                    }
-                  }
-                  committer {
-                    user {
-                      login
-                    }
-                  }
-                  statusCheckRollup {
-                    state
-                  }
-                }
-              }
-            }
             author {
               login
               avatarUrl(size: 64)
@@ -1389,10 +1179,6 @@ private struct GraphQLResponse<DataPayload: Decodable>: Decodable {
         let message: String
         let path: [GraphQLErrorPathComponent]?
 
-        var isInaccessibleCommitMetadata: Bool {
-            message == "Resource not accessible by integration"
-                && path?.contains(.field("commits")) == true
-        }
     }
 
     let data: DataPayload?
@@ -1435,26 +1221,6 @@ private struct ViewerResponse: Decodable {
         case avatarUrl = "avatar_url"
         case profileUrl = "html_url"
     }
-}
-
-private struct GitHubPullRequestCommitResponse: Decodable {
-    struct User: Decodable {
-        let login: String
-    }
-
-    struct Commit: Decodable {
-        struct Actor: Decodable {
-            let date: String
-        }
-
-        let author: Actor
-        let committer: Actor
-    }
-
-    let sha: String
-    let commit: Commit
-    let author: User?
-    let committer: User?
 }
 
 private extension Array {

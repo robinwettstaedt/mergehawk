@@ -151,6 +151,42 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testRetiredCommitNotificationHistoryStillRoundTripsAndRenders() {
+        withStore { store, defaults in
+            let pullRequest = PullRequest(
+                id: "legacy-commit-pr",
+                title: "Legacy commit notification",
+                number: 42,
+                url: URL(string: "https://github.com/example/app/pull/42")!,
+                repo: "example/app",
+                ciState: .passing,
+                reviewDecision: .noReviewYet,
+                commentCount: 0,
+                reviewCount: 0,
+                isMine: true,
+                author: "rw",
+                mergeable: .mergeable,
+                draft: false
+            )
+            var notification = PullRequestNotification(
+                event: PullRequestEvent(
+                    type: .otherCommitAdded,
+                    prId: pullRequest.id,
+                    count: 1,
+                    actorLogin: "teammate"
+                ),
+                pullRequest: pullRequest
+            )
+            notification.read = true
+            store.pullRequestNotificationHistory = [notification]
+
+            let restored = PreferencesStore(defaults: defaults).pullRequestNotificationHistory
+            XCTAssertEqual(restored, [notification])
+            XCTAssertTrue(restored[0].read)
+            XCTAssertEqual(PullRequestNotificationTitlePresentation.title(for: restored[0]), "New commit by @teammate")
+        }
+    }
+
     private func withStore(_ body: (inout PreferencesStore, UserDefaults) -> Void) {
         let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
