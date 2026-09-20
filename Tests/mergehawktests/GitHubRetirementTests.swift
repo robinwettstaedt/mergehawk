@@ -1,3 +1,4 @@
+@testable import mergehawk
 @testable import mergehawkcore
 import Foundation
 import XCTest
@@ -284,6 +285,77 @@ final class GitHubRetirementTests: XCTestCase {
                 }
             }
         }
+    }
+
+    @MainActor
+    func testSecondaryRateLimitOnMissingResourceRetainsCommittedDashboardWithoutRetrying() async throws {
+        let previousPR = Self.previousPR()
+        let previous = Self.previousState(previousPR)
+        let restRequests = LockedRetirementCounter()
+        RetirementURLProtocol.handler = { request in
+            if request.url?.path == "/user" {
+                return Self.response(Self.json(["login": "rw"]), request)
+            }
+            if request.url?.path == "/user/repos" {
+                return Self.response(Self.json([]), request)
+            }
+            if request.url?.path == "/repos/acme/app/pulls/1" {
+                restRequests.increment()
+                return Self.response(
+                    Self.json(["message": "secondary rate limit"]),
+                    request,
+                    status: 403,
+                    headers: ["Retry-After": "60", "X-RateLimit-Remaining": "42"]
+                )
+            }
+            let query = Self.graphQLQuery(request)
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("CompletePullRequests") {
+                return Self.response(Self.hydration(nodes: [NSNull()]), request)
+            }
+            return Self.response(Data(), request, status: 500)
+        }
+        let session = Self.session()
+        let client = GitHubClient(token: "token", session: session)
+        let before = Date()
+
+        do {
+            _ = try await client.fetchCompletePullRequests(login: "rw", previousState: previous)
+            XCTFail("Expected rate limit")
+        } catch let GitHubReadError.rateLimited(retryAt) {
+            let retryAt = try XCTUnwrap(retryAt)
+            XCTAssertGreaterThanOrEqual(retryAt, before.addingTimeInterval(60))
+            XCTAssertLessThan(retryAt.timeIntervalSince(before), 61)
+        }
+        XCTAssertEqual(restRequests.value, 1)
+
+        let suiteName = "retirement-secondary-rate-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        try preferences.storePullRequestSyncState(previous)
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "token"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in GitHubClient(token: "token", session: session) }
+        )
+        let deadline = Date().addingTimeInterval(1)
+        while controller.errorMessage == nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertNotNil(controller.errorMessage)
+        XCTAssertEqual(restRequests.value, 2)
+        XCTAssertEqual(controller.state, previous.dashboard)
+        XCTAssertEqual(preferences.pullRequestSyncState, previous)
+        XCTAssertEqual(controller.state.pullRequests.map(\.id), [previousPR.id])
     }
 
     private static func previousPR(

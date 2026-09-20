@@ -803,8 +803,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             guard let http = response as? HTTPURLResponse else {
                 throw GitHubReadError.http(status: -1)
             }
-            if http.statusCode == 403,
-               http.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0" {
+            if isRateLimitResponse(http) {
                 try classifyReadResponse(http, data: data)
             } else if !allowedStatuses.contains(http.statusCode) {
                 try classifyReadResponse(http, data: data)
@@ -816,10 +815,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
     private func classifyReadResponse(_ response: HTTPURLResponse, data: Data) throws {
         guard !(200..<300).contains(response.statusCode) else { return }
         if response.statusCode == 401 { throw GitHubReadError.authentication }
-        if response.statusCode == 429
-            || (response.statusCode == 403
-                && (response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
-                    || response.value(forHTTPHeaderField: "Retry-After") != nil)) {
+        if isRateLimitResponse(response) {
             throw GitHubReadError.rateLimited(retryAt: rateLimitRetryDate(from: response))
         }
         if response.statusCode == 403 {
@@ -829,6 +825,13 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             }
         }
         throw GitHubReadError.http(status: response.statusCode)
+    }
+
+    private func isRateLimitResponse(_ response: HTTPURLResponse) -> Bool {
+        response.statusCode == 429
+            || (response.statusCode == 403
+                && (response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
+                    || response.value(forHTTPHeaderField: "Retry-After") != nil))
     }
 
     private func rateLimitRetryDate(from response: HTTPURLResponse) -> Date? {
