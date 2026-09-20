@@ -3,6 +3,38 @@ import Foundation
 import XCTest
 
 final class FetchPipelineTests: XCTestCase {
+    func testCompleteProviderPipelineIncludesDiscoveryAndHydratesDuplicateRelationshipsOnce() async throws {
+        let node = Self.discoveryNode()
+        let transport = PipelineTransport(
+            responses: [
+                Self.discoveryBoundsResponse(node: node),
+                Self.discoveryPageResponse(node: node),
+                Self.hydrationResponse()
+            ],
+            delayPerRequest: 0.02
+        )
+        let fetcher = Self.fetcher(transport)
+
+        let discovery = try await fetcher.discover(login: "rw")
+        let hydrated = try await fetcher.hydrate(discovery.pullRequests, login: "rw")
+
+        XCTAssertEqual(discovery.pullRequests.count, 1)
+        XCTAssertTrue(discovery.pullRequests[0].isAuthored)
+        XCTAssertTrue(discovery.pullRequests[0].isAssigned)
+        XCTAssertTrue(discovery.pullRequests[0].isDirectlyRequested)
+        XCTAssertTrue(discovery.pullRequests[0].isTeamRequested)
+        XCTAssertEqual(hydrated.map(\.pullRequest.id), ["PR_PIPELINE"])
+        XCTAssertEqual(transport.metrics.requestCount, 3)
+        XCTAssertEqual(transport.metrics.completeHydrationRequests, 1)
+        XCTAssertEqual(transport.metrics.injectedNetworkDelay, 0.06, accuracy: 0.000_1)
+        print(
+            "Fetch cost complete-provider-small: discovery+hydration requests=3, "
+                + "selected-query-bytes=\(transport.metrics.selectedFieldFootprint), "
+                + "response-bytes=\(transport.metrics.responsePayloadBytes), "
+                + "injected-delay=\(transport.metrics.injectedNetworkDelay)s"
+        )
+    }
+
     func testLargeCompleteHydrationFindsActivityOutsideFormerFixedWindow() async throws {
         let identity = Self.discovery(
             isAuthored: true,
@@ -120,7 +152,7 @@ final class FetchPipelineTests: XCTestCase {
         XCTAssertFalse(continuationQuery.contains("title"))
         XCTAssertFalse(continuationQuery.contains("statusCheckRollup"))
         print(
-            "Legacy small fixture comparison: the removed pipeline used three relationship searches plus "
+            "Legacy small explanatory estimate: the removed pipeline used three relationship searches plus "
                 + "a detail request and repeated dashboard selections. Complete hydration uses one shared PR "
                 + "node request after discovery; multi-page fixtures add bounded connection-only requests."
         )
@@ -169,6 +201,39 @@ final class FetchPipelineTests: XCTestCase {
             "assignees": connection(total: 0, nodes: []),
             "reviewRequests": connection(total: 0, nodes: [])
         ]]]])
+    }
+
+    private static func discoveryNode() -> [String: Any] {
+        [
+            "id": "PR_PIPELINE",
+            "number": 1,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "repository": ["nameWithOwner": "acme/app"]
+        ]
+    }
+
+    private static func discoveryBoundsResponse(node: [String: Any]) -> Data {
+        var data: [String: Any] = [:]
+        for lane in GitHubDiscoveryLane.allCases {
+            data["\(lane.rawValue)Oldest"] = ["nodes": [node]]
+            data["\(lane.rawValue)Newest"] = ["nodes": [node]]
+        }
+        return json(["data": data])
+    }
+
+    private static func discoveryPageResponse(node: [String: Any]) -> Data {
+        var data: [String: Any] = [:]
+        for lane in GitHubDiscoveryLane.allCases {
+            data[lane.rawValue] = [
+                "issueCount": 1,
+                "nodes": [node],
+                "pageInfo": [
+                    "startCursor": NSNull(), "endCursor": NSNull(),
+                    "hasPreviousPage": false, "hasNextPage": false
+                ]
+            ]
+        }
+        return json(["data": data])
     }
 
     private static func continuationResponse(comments: [String: Any]) -> Data {
