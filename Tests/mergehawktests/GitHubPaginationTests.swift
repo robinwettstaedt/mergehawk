@@ -291,6 +291,67 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 2)
     }
 
+    func testPartialHydrationRetainsSuccessfulSiblingAndRetriesOnlyFailedID() async throws {
+        let attempts = LockedCounter()
+        let transport = HydrationTransport { query, variables in
+            XCTAssertTrue(query.contains("CompletePullRequests"))
+            guard case .strings(let ids) = variables["ids"] else {
+                throw GitHubReadError.invalidPayload
+            }
+            let attempt = attempts.increment()
+            if attempt == 1 {
+                XCTAssertEqual(ids, ["PR_OK", "PR_FAILED"])
+                return Self.json([
+                    "data": ["nodes": [Self.pullRequest(id: "PR_OK"), NSNull()]],
+                    "errors": [[
+                        "message": "temporary node failure",
+                        "type": "INTERNAL",
+                        "path": ["nodes", 1]
+                    ]]
+                ])
+            }
+            XCTAssertEqual(ids, ["PR_FAILED"])
+            return Self.json(["data": ["nodes": [Self.pullRequest(id: "PR_FAILED")]]])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate(
+            [Self.discovery(id: "PR_OK"), Self.discovery(id: "PR_FAILED")],
+            login: "rw"
+        )
+
+        XCTAssertEqual(Set(hydrated.map(\.pullRequest.id)), ["PR_OK", "PR_FAILED"])
+        XCTAssertEqual(attempts.value, 2)
+    }
+
+    func testRetriedPartialHydrationClassifiesRequiredFailure() async throws {
+        for (type, expected) in [
+            ("UNAUTHENTICATED", GitHubReadError.authentication),
+            ("FORBIDDEN", .accessDenied),
+            ("RATE_LIMITED", .rateLimited(retryAt: nil))
+        ] {
+            let attempts = LockedCounter()
+            let transport = HydrationTransport { _, _ in
+                if attempts.increment() == 1 {
+                    return Self.json([
+                        "data": ["nodes": [NSNull()]],
+                        "errors": [["message": "retry", "type": "INTERNAL", "path": ["nodes", 0]]]
+                    ])
+                }
+                return Self.json([
+                    "data": ["nodes": [NSNull()]],
+                    "errors": [["message": "terminal", "type": type, "path": ["nodes", 0]]]
+                ])
+            }
+            do {
+                _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+                XCTFail("Expected classified retry failure")
+            } catch {
+                XCTAssertEqual(error as? GitHubReadError, expected)
+            }
+            XCTAssertEqual(attempts.value, 2)
+        }
+    }
+
     func testCompleteHydrationNormalizesEveryCIStateAndMissingAuthor() async throws {
         let cases: [(Any, CIState)] = [
             (["state": "SUCCESS"], .passing),

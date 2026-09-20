@@ -216,12 +216,17 @@ struct GitHubPullRequestFetcher: Sendable {
                     interval: interval,
                     initialPage: firstPage
                 )
-                if result.nodes.count < result.finalCount {
+                if result.exceededCap {
+                    leaves = try await discoverLane(lane, login: login, bounds: laneBounds, allowRetry: true)
+                } else if result.nodes.count < result.finalCount {
                     let retry = try await fetchLeaf(lane, login: login, interval: interval)
-                    guard !retry.exceededCap, retry.nodes.count >= retry.finalCount else {
+                    if retry.exceededCap {
+                        leaves = try await discoverLane(lane, login: login, bounds: laneBounds, allowRetry: true)
+                    } else if retry.nodes.count >= retry.finalCount {
+                        leaves = [LeafResult(interval: interval, nodes: retry.nodes)]
+                    } else {
                         throw GitHubReadError.incompleteCoverage("Incomplete \(lane.rawValue) discovery interval")
                     }
-                    leaves = [LeafResult(interval: interval, nodes: retry.nodes)]
                 } else {
                     leaves = [LeafResult(interval: interval, nodes: result.nodes)]
                 }
@@ -282,28 +287,60 @@ struct GitHubPullRequestFetcher: Sendable {
                 ["ids": .strings(chunk.map { $0.id })]
             )
             let envelope = try decoder.decode(GitHubGraphQLPayload<HydrationData>.self, from: data)
+            var failedIndices = Set<Int>()
             if let errors = envelope.errors, !errors.isEmpty {
-                let onlyScopedNodeErrors = errors.allSatisfy { error in
-                    guard let path = error.path, path.count >= 2 else { return false }
-                    return path[0] == .field("nodes")
+                for error in errors {
+                    guard let path = error.path,
+                          path.count >= 2,
+                          path[0] == .field("nodes"),
+                          case .index(let index) = path[1],
+                          chunk.indices.contains(index) else {
+                        try validate(errors: errors)
+                        throw GitHubReadError.invalidPayload
+                    }
+                    failedIndices.insert(index)
                 }
-                if !onlyScopedNodeErrors { try validate(errors: errors) }
             }
             guard let nodes = envelope.data?.nodes, nodes.count == chunk.count else {
                 throw GitHubReadError.invalidPayload
             }
             for (index, node) in nodes.enumerated() {
                 let expected = chunk[index]
+                if failedIndices.contains(index) { continue }
                 guard let node else {
                     missingIDs.insert(expected.id)
                     continue
                 }
-                guard node.id == expected.id, let discovery = discoveredByID[node.id] else { throw GitHubReadError.invalidPayload }
-                guard accumulators[node.id] == nil else {
-                    throw GitHubReadError.incompleteCoverage("Duplicate hydration node \(node.id)")
+                try storeHydrationNode(
+                    node,
+                    expected: expected,
+                    discoveredByID: discoveredByID,
+                    accumulators: &accumulators,
+                    continuations: &continuations
+                )
+            }
+            for index in failedIndices.sorted() {
+                let expected = chunk[index]
+                let retryData = try await read(
+                    GitHubPullRequestQueries.hydration,
+                    ["ids": .strings([expected.id])]
+                )
+                let retry = try decoder.decode(GitHubGraphQLPayload<HydrationData>.self, from: retryData)
+                try validate(errors: retry.errors)
+                guard let retryNodes = retry.data?.nodes, retryNodes.count == 1 else {
+                    throw GitHubReadError.invalidPayload
                 }
-                accumulators[node.id] = HydrationAccumulator(payload: node, discovery: discovery)
-                continuations.append(contentsOf: try initialContinuations(for: node))
+                guard let node = retryNodes[0] else {
+                    missingIDs.insert(expected.id)
+                    continue
+                }
+                try storeHydrationNode(
+                    node,
+                    expected: expected,
+                    discoveredByID: discoveredByID,
+                    accumulators: &accumulators,
+                    continuations: &continuations
+                )
             }
         }
 
@@ -338,6 +375,23 @@ struct GitHubPullRequestFetcher: Sendable {
             )
         }
         return GitHubHydrationResult(pullRequests: pullRequests, missingPullRequestIDs: missingIDs)
+    }
+
+    private func storeHydrationNode(
+        _ node: GitHubCompletePullRequestPayload,
+        expected: DiscoveredPullRequest,
+        discoveredByID: [String: DiscoveredPullRequest],
+        accumulators: inout [String: HydrationAccumulator],
+        continuations: inout [Continuation]
+    ) throws {
+        guard node.id == expected.id, let discovery = discoveredByID[node.id] else {
+            throw GitHubReadError.invalidPayload
+        }
+        guard accumulators[node.id] == nil else {
+            throw GitHubReadError.incompleteCoverage("Duplicate hydration node \(node.id)")
+        }
+        accumulators[node.id] = HydrationAccumulator(payload: node, discovery: discovery)
+        continuations.append(contentsOf: try initialContinuations(for: node))
     }
 
     func repositoryTeamRequestedPullRequestIDs(
@@ -1018,6 +1072,17 @@ struct GitHubPullRequestFetcher: Sendable {
         guard let errors, !errors.isEmpty else { return }
         if errors.contains(where: { $0.type == "VALIDATION" }) {
             throw GitHubReadError.validation(errors.map(\.message).joined(separator: "; "))
+        }
+        if errors.contains(where: { error in
+            ["UNAUTHORIZED", "UNAUTHENTICATED"].contains(error.type?.uppercased() ?? "")
+        }) {
+            throw GitHubReadError.authentication
+        }
+        if errors.contains(where: { $0.type?.uppercased() == "FORBIDDEN" }) {
+            throw GitHubReadError.accessDenied
+        }
+        if errors.contains(where: { $0.type?.uppercased() == "RATE_LIMITED" }) {
+            throw GitHubReadError.rateLimited(retryAt: nil)
         }
         throw GitHubReadError.graphQL(errors)
     }

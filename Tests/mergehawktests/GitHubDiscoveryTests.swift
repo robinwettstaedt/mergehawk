@@ -176,6 +176,49 @@ final class GitHubDiscoveryTests: XCTestCase {
         XCTAssertEqual(attempts.value, 2)
     }
 
+    func testMidPaginationCapCrossingRepartitionsTheFixedInterval() async throws {
+        let fullIntervalReads = LockedInt()
+        let transport = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 3)
+            }
+            let queryValue = Self.query(for: .authored, variables: variables)
+            if queryValue.contains("00:00:00Z..1970-01-01T00:00:03Z") {
+                let read = fullIntervalReads.increment()
+                if read == 1 {
+                    return Self.pageResponse(
+                        active: .authored,
+                        count: 101,
+                        nodes: [Self.node(id: "INITIAL", number: 1)],
+                        hasNext: true,
+                        cursor: "next"
+                    )
+                }
+                return Self.pageResponse(active: .authored, count: 1_001, nodes: [], hasNext: false)
+            }
+            if queryValue.contains("00:00:00Z..1970-01-01T00:00:01Z") {
+                return Self.pageResponse(
+                    active: .authored,
+                    count: 1,
+                    nodes: [Self.node(id: "LOW", number: 2)],
+                    hasNext: false
+                )
+            }
+            return Self.pageResponse(
+                active: .authored,
+                count: 1,
+                nodes: [Self.node(id: "HIGH", number: 3, second: 3)],
+                hasNext: false
+            )
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertEqual(Set(result.pullRequests.map(\.id)), ["LOW", "HIGH"])
+        XCTAssertEqual(result.coveredIntervals[.authored], [0...1, 2...3])
+        XCTAssertGreaterThanOrEqual(fullIntervalReads.value, 2)
+    }
+
     private static func boundsResponse(
         nonEmptyLanes: Set<GitHubDiscoveryLane>,
         oldest: Int = 0,
