@@ -195,6 +195,38 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated[0].pullRequest.reviewDecision, .changesRequested)
     }
 
+    func testKnownChangesRequestedWinsOverUncertainOpinionatedReviewsInAnyOrder() async throws {
+        var deletedAuthor = Self.review("DELETED", state: "APPROVED")
+        deletedAuthor["author"] = NSNull()
+        let unknown = Self.review("UNKNOWN", state: "FUTURE_STATE")
+        let changesRequested = Self.review("CHANGES", state: "CHANGES_REQUESTED")
+        let approved = Self.review("APPROVED", state: "APPROVED")
+        var ignoredDeletedAuthor = Self.review("IGNORED", state: "COMMENTED")
+        ignoredDeletedAuthor["author"] = NSNull()
+        let cases: [([[String: Any]], ReviewDecision)] = [
+            ([deletedAuthor, unknown, approved, changesRequested], .changesRequested),
+            ([changesRequested, approved, unknown, deletedAuthor], .changesRequested),
+            ([unknown, changesRequested, deletedAuthor, approved], .changesRequested),
+            ([approved, ignoredDeletedAuthor], .approved),
+            ([ignoredDeletedAuthor, approved], .approved),
+            ([approved, deletedAuthor], .unknown),
+            ([unknown, approved], .unknown)
+        ]
+
+        for (reviews, expected) in cases {
+            let initial = Self.pullRequest(
+                opinionated: Self.connection(total: reviews.count, nodes: reviews)
+            )
+            let transport = HydrationTransport { _, _ in
+                Self.json(["data": ["nodes": [initial]]])
+            }
+
+            let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+            XCTAssertEqual(hydrated[0].pullRequest.reviewDecision, expected)
+        }
+    }
+
     func testActivityAppendedBeyondAnchorDefersWithoutFailureAndAppearsNextRefresh() async throws {
         let firstInitial = Self.pullRequest(
             comments: Self.connection(

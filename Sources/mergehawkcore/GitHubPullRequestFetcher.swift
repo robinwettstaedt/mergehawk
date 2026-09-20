@@ -961,16 +961,22 @@ struct GitHubPullRequestFetcher: Sendable {
         pullRequestAuthor: String?
     ) -> ReviewDecision {
         var approved = false
+        var uncertain = false
         for review in reviews {
-            guard let author = review.author?.login, let pullRequestAuthor else { return .unknown }
+            let state = review.state.uppercased()
+            if ["COMMENTED", "PENDING", "DISMISSED"].contains(state) { continue }
+            guard let author = review.author?.login, let pullRequestAuthor else {
+                uncertain = true
+                continue
+            }
             if author.caseInsensitiveCompare(pullRequestAuthor) == .orderedSame { continue }
-            switch review.state.uppercased() {
+            switch state {
             case "CHANGES_REQUESTED": return .changesRequested
             case "APPROVED": approved = true
-            case "COMMENTED", "PENDING", "DISMISSED": continue
-            default: return .unknown
+            default: uncertain = true
             }
         }
+        if uncertain { return .unknown }
         return approved ? .approved : .noReviewYet
     }
 
