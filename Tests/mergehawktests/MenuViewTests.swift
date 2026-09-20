@@ -952,11 +952,11 @@ private final class MenuFakeGitHubProvider: GitHubProviding {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {

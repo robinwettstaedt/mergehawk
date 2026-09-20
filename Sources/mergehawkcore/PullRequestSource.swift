@@ -1,11 +1,8 @@
 import Foundation
 
-public protocol PullRequestSource: AnyObject {
-    var sourceKind: DashboardSource { get }
-    func fetchPullRequests(
-        login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult
+public func isGitHubReadAuthenticationError(_ error: Error) -> Bool {
+    guard let readError = error as? GitHubReadError else { return false }
+    return readError == .authentication
 }
 
 public protocol SourceCatalogProviding: AnyObject {
@@ -20,25 +17,19 @@ public protocol GitHubViewerProviding: AnyObject {
     func fetchViewer() async throws -> GitHubAccount
 }
 
-public typealias GitHubProviding = PullRequestSource
+public typealias GitHubProviding = CompletePullRequestFetching
     & SourceCatalogProviding
     & GitHubAppInstallationProviding
     & GitHubViewerProviding
 
-public final class EmptyPullRequestSource: PullRequestSource {
+public final class EmptyPullRequestSource {
     public let sourceKind: DashboardSource = .none
 
     public init() {}
 
-    public func fetchPullRequests(
-        login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
-    }
 }
 
-public final class MockPullRequestSource: PullRequestSource {
+public final class MockPullRequestSource {
     public let sourceKind: DashboardSource = .mock
     private var index = 0
     private let snapshots: [[PullRequest]]
@@ -350,13 +341,10 @@ public final class MockPullRequestSource: PullRequestSource {
         ]
     }
 
-    public func fetchPullRequests(
-        login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+    private func nextPullRequests() -> [PullRequest] {
         let snapshot = snapshots[min(index, snapshots.count - 1)]
         index += 1
-        return PullRequestFetchResult(pullRequests: snapshot)
+        return snapshot
     }
 
     public static var notificationTypeFixturePullRequestNotifications: [PullRequestNotification] {
@@ -595,10 +583,6 @@ extension MockPullRequestSource: CompletePullRequestFetching {
         login: String,
         previousState: PullRequestSyncState?
     ) async throws -> CompletePullRequestFetchResult {
-        let result = try await fetchPullRequests(
-            login: login,
-            previousPullRequests: previousState?.dashboard.pullRequests ?? []
-        )
-        return CompletePullRequestFetchResult(activePullRequests: result.pullRequests)
+        CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
     }
 }

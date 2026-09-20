@@ -142,12 +142,12 @@ private final class CatalogTestProvider: GitHubProviding {
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
-        return PullRequestFetchResult(pullRequests: [Self.pullRequest])
+        return CompletePullRequestFetchResult(activePullRequests: [Self.pullRequest])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {

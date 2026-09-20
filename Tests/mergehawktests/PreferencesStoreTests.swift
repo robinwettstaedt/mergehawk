@@ -187,6 +187,62 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testCoherentSyncStateRoundTripsDashboardHistoryAndProcessedActivity() throws {
+        try withThrowingStore { store, defaults in
+            let pullRequest = Self.pullRequest()
+            let notification = PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: pullRequest.id, activityId: "COMMENT_1"),
+                pullRequest: pullRequest
+            )
+            let state = PullRequestSyncState(
+                account: GitHubAccount(login: "rw"),
+                dashboard: DashboardState(
+                    pullRequests: [pullRequest],
+                    events: [],
+                    syncedAt: Date(timeIntervalSince1970: 10),
+                    source: .github,
+                    account: GitHubAccount(login: "rw"),
+                    authStatus: .signedIn
+                ),
+                processedActivityByPullRequestID: [
+                    pullRequest.id: ProcessedPullRequestActivity(
+                        pullRequestID: pullRequest.id,
+                        commentIDs: ["COMMENT_1"],
+                        submittedReviewIDs: ["REVIEW_1"]
+                    )
+                ],
+                notificationHistory: [notification]
+            )
+
+            try store.storePullRequestSyncState(state)
+
+            XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState, state)
+        }
+    }
+
+    func testLegacySnapshotAndHistoryImportDoesNotTrustTruncatedActivityAsProcessed() {
+        withStore { store, _ in
+            let pullRequest = Self.pullRequest()
+            let notification = PullRequestNotification(
+                event: PullRequestEvent(type: .reviewApproved, prId: pullRequest.id, activityId: "REVIEW_1"),
+                pullRequest: pullRequest
+            )
+            store.pullRequestSnapshotCache = PullRequestSnapshotCache(
+                pullRequests: [pullRequest],
+                account: GitHubAccount(login: "rw"),
+                fetchedAt: Date(timeIntervalSince1970: 10),
+                source: .github
+            )
+            store.pullRequestNotificationHistory = [notification]
+
+            let imported = store.importedLegacySyncState()
+
+            XCTAssertEqual(imported?.dashboard.pullRequests, [pullRequest])
+            XCTAssertEqual(imported?.notificationHistory, [notification])
+            XCTAssertEqual(imported?.processedActivityByPullRequestID, [:])
+        }
+    }
+
     private func withStore(_ body: (inout PreferencesStore, UserDefaults) -> Void) {
         let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -195,5 +251,33 @@ final class PreferencesStoreTests: XCTestCase {
         }
         var store = PreferencesStore(defaults: defaults)
         body(&store, defaults)
+    }
+
+    private func withThrowingStore(
+        _ body: (inout PreferencesStore, UserDefaults) throws -> Void
+    ) throws {
+        let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var store = PreferencesStore(defaults: defaults)
+        try body(&store, defaults)
+    }
+
+    private static func pullRequest() -> PullRequest {
+        PullRequest(
+            id: "PR_1",
+            title: "Persist refresh state",
+            number: 1,
+            url: URL(string: "https://github.com/example/app/pull/1")!,
+            repo: "example/app",
+            ciState: .passing,
+            reviewDecision: .approved,
+            commentCount: 0,
+            reviewCount: 0,
+            isMine: true,
+            author: "rw",
+            mergeable: .mergeable,
+            draft: false
+        )
     }
 }

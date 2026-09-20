@@ -862,7 +862,7 @@ private struct VisualPendingOAuthSignIn: GitHubOAuthSigningIn {
 
 private final class VisualLoadingGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
-    private var pullRequestsContinuation: CheckedContinuation<PullRequestFetchResult, Never>?
+    private var pullRequestsContinuation: CheckedContinuation<CompletePullRequestFetchResult, Never>?
     var isWaitingForPullRequests: Bool {
         pullRequestsContinuation != nil
     }
@@ -871,17 +871,17 @@ private final class VisualLoadingGitHubProvider: GitHubProviding {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         await withCheckedContinuation { continuation in
             pullRequestsContinuation = continuation
         }
     }
 
     func finishPullRequestFetch() {
-        pullRequestsContinuation?.resume(returning: PullRequestFetchResult(pullRequests: []))
+        pullRequestsContinuation?.resume(returning: CompletePullRequestFetchResult(activePullRequests: []))
         pullRequestsContinuation = nil
     }
 
@@ -911,11 +911,11 @@ private final class VisualPATLoadingGitHubProvider: GitHubProviding {
         viewerContinuation = nil
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -942,11 +942,11 @@ private final class VisualGitHubProvider: GitHubProviding {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {

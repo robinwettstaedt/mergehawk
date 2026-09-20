@@ -271,16 +271,6 @@ public struct PullRequestSnapshotCache: Codable, Equatable, Sendable {
     }
 }
 
-public struct PullRequestFetchResult: Equatable, Sendable {
-    public let pullRequests: [PullRequest]
-    public let refreshWarning: String?
-
-    public init(pullRequests: [PullRequest], refreshWarning: String? = nil) {
-        self.pullRequests = pullRequests
-        self.refreshWarning = refreshWarning
-    }
-}
-
 public struct RepositoryIdentity: Codable, Equatable, Hashable, Comparable, Sendable {
     public let owner: String
     public let name: String

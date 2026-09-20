@@ -121,6 +121,31 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testCompleteHydrationNormalizesEveryCIStateAndMissingAuthor() async throws {
+        let cases: [(Any, CIState)] = [
+            (["state": "SUCCESS"], .passing),
+            (["state": "FAILURE"], .failing),
+            (["state": "PENDING"], .pending),
+            (NSNull(), .unknown)
+        ]
+
+        for (status, expected) in cases {
+            var node = Self.pullRequest()
+            node["statusCheckRollup"] = status
+            node["author"] = NSNull()
+            let transport = HydrationTransport { _, _ in
+                Self.json(["data": ["nodes": [node]]])
+            }
+
+            let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            let pullRequest = try XCTUnwrap(hydrated.first?.pullRequest)
+            XCTAssertEqual(pullRequest.ciState, expected)
+            XCTAssertEqual(pullRequest.author, "unknown")
+            XCTAssertNil(pullRequest.authorAvatarURL)
+            XCTAssertFalse(pullRequest.isMine)
+        }
+    }
+
     private static func fetcher(_ transport: HydrationTransport) -> GitHubPullRequestFetcher {
         GitHubPullRequestFetcher { query, variables in
             try await transport.read(query: query, variables: variables)

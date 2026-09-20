@@ -78,9 +78,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func observeStatusButtonInputs() {
-        controller.$pullRequestNotificationHistory
+        controller.objectWillChange
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] in
                 self?.updateStatusButton()
             }
             .store(in: &cancellables)

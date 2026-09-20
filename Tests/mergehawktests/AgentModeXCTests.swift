@@ -7,18 +7,18 @@ final class AgentModeXCTests: XCTestCase {
     func testMockPullRequestDatesUseOneStableReferenceAcrossRefreshes() async throws {
         let referenceDate = Date(timeIntervalSince1970: 2_000_000_000)
         let source = MockPullRequestSource(referenceDate: referenceDate)
-        let first = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: [])
-        let second = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: first.pullRequests)
-        let firstDates = Dictionary(uniqueKeysWithValues: first.pullRequests.map {
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let firstDates = Dictionary(uniqueKeysWithValues: first.activePullRequests.map {
             ($0.id, [$0.createdAt, $0.updatedAt])
         })
-        let secondDates = Dictionary(uniqueKeysWithValues: second.pullRequests.map {
+        let secondDates = Dictionary(uniqueKeysWithValues: second.activePullRequests.map {
             ($0.id, [$0.createdAt, $0.updatedAt])
         })
 
         XCTAssertEqual(firstDates.count, 7)
         XCTAssertEqual(secondDates, firstDates)
-        for pullRequest in first.pullRequests {
+        for pullRequest in first.activePullRequests {
             XCTAssertLessThanOrEqual(pullRequest.createdAt, pullRequest.updatedAt)
             XCTAssertLessThanOrEqual(pullRequest.updatedAt, referenceDate)
         }
@@ -35,8 +35,8 @@ final class AgentModeXCTests: XCTestCase {
             })
         }
         let expectedUnits: Set<String> = ["minutes", "hours", "days", "weeks", "months"]
-        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.createdAt)), expectedUnits)
-        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.updatedAt)), expectedUnits)
+        XCTAssertEqual(ageUnits(for: first.activePullRequests.map(\.createdAt)), expectedUnits)
+        XCTAssertEqual(ageUnits(for: first.activePullRequests.map(\.updatedAt)), expectedUnits)
     }
 
     func testLaunchConfigurationAcceptsMockFlagAndEnvironment() {
@@ -75,10 +75,15 @@ final class AgentModeXCTests: XCTestCase {
     }
 
     func testMockModeStartsSignedInWithoutToken() async {
+        let suiteName = "mergehawk-mock-mode-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferencesStore = PreferencesStore(defaults: defaults)
         let notificationClient = RecordingNotificationClient()
         let controller = await MainActor.run {
             DashboardController(
                 tokenStore: InMemoryTokenStore(),
+                preferencesStore: preferencesStore,
                 launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
                 notificationClient: notificationClient,
                 automaticRefreshInterval: 0
@@ -87,7 +92,7 @@ final class AgentModeXCTests: XCTestCase {
 
         await waitUntil(timeout: 1.0) {
             await MainActor.run {
-                controller.state.syncedAt != nil
+                controller.state.syncedAt != nil && !controller.isRefreshing
             }
         }
 
@@ -127,7 +132,7 @@ final class AgentModeXCTests: XCTestCase {
         }
         XCTAssertEqual(
             notificationClient.records.map(\.eventType),
-            ["new_comment", "ci_failed", "relationship_added"]
+            ["ci_failed", "new_comment", "relationship_added"]
         )
         await MainActor.run {
             XCTAssertGreaterThanOrEqual(controller.state.pullRequests.filter { $0.mergeable == .unknown }.count, 2)

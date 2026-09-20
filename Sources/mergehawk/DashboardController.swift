@@ -4,6 +4,12 @@ import mergehawkcore
 
 @MainActor
 final class DashboardController: ObservableObject {
+    private struct PublishedPresentation: Equatable {
+        var dashboard: DashboardState
+        var notificationHistory: [PullRequestNotification]
+
+        static let empty = PublishedPresentation(dashboard: .empty, notificationHistory: [])
+    }
     enum MenuTab: String, CaseIterable, Identifiable {
         case notifications = "Notifications"
         case myPRs = "Authored"
@@ -171,14 +177,14 @@ final class DashboardController: ObservableObject {
         var count: Int { visible.count + hidden.count }
     }
 
-    @Published private(set) var state: DashboardState = .empty
+    @Published private var presentation: PublishedPresentation
+    var state: DashboardState { presentation.dashboard }
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
     @Published var selectedTab: MenuTab = .notifications
     @Published var preferences: NotificationPreferences {
         didSet {
             preferencesStore.notificationPreferences = preferences
-            syncEngine?.updatePreferences(preferences)
         }
     }
     @Published var refreshIntervalMinutes: Int {
@@ -287,15 +293,14 @@ final class DashboardController: ObservableObject {
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshAttemptID = 0
     private var catalogTask: Task<Void, Never>?
     private var providerGeneration = 0
     private var refreshingGeneration: Int?
     private static let sourceCatalogFreshnessInterval: TimeInterval = 60 * 60
-    @Published private(set) var pullRequestNotificationHistory: [PullRequestNotification] {
-        didSet {
-            preferencesStore.pullRequestNotificationHistory = pullRequestNotificationHistory
-        }
-    }
+    private var committedSyncState: PullRequestSyncState?
+    var pullRequestNotificationHistory: [PullRequestNotification] { presentation.notificationHistory }
 
     init(
         tokenStore: TokenStore = KeychainTokenStore(),
@@ -318,6 +323,14 @@ final class DashboardController: ObservableObject {
         self.oauthSignIn = oauthSignIn ?? GitHubDeviceFlowSignIn()
         self.oauthAccessTokenCache = OAuthAccessTokenCache(tokenStore: tokenStore)
         self.preferencesStore = preferencesStore
+        let storedSyncState = preferencesStore.pullRequestSyncState ?? preferencesStore.importedLegacySyncState()
+        self.committedSyncState = storedSyncState
+        self.presentation = storedSyncState.map {
+            PublishedPresentation(dashboard: $0.dashboard, notificationHistory: $0.notificationHistory)
+        } ?? PublishedPresentation(
+            dashboard: .empty,
+            notificationHistory: preferencesStore.pullRequestNotificationHistory
+        )
         self.launchConfiguration = launchConfiguration
         self.openURL = urlOpener
         self.openDeviceFlowURL = deviceFlowURLOpener
@@ -354,7 +367,6 @@ final class DashboardController: ObservableObject {
         self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
         self.startsAtLogin = self.launchAtLoginService.isEnabled
         self.authMethod = preferencesStore.authMethod
-        self.pullRequestNotificationHistory = preferencesStore.pullRequestNotificationHistory
         self.notificationClient.requestAuthorization()
         configureInitialSource()
         startAutomaticRefresh()
@@ -666,7 +678,7 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await sync()
+            await refreshDashboard()
             startCatalogRefreshIfNeeded(force: true)
         } catch {
             errorMessage = error.localizedDescription
@@ -747,7 +759,7 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await sync()
+            await refreshDashboard()
             guard shouldContinueSignIn(attemptID) else { return }
             startCatalogRefreshIfNeeded(force: true)
             try tokenStore.storeOAuthTokens(tokens)
@@ -792,7 +804,9 @@ final class DashboardController: ObservableObject {
         }
         account = nil
         preferencesStore.pullRequestSnapshotCache = .empty
-        pullRequestNotificationHistory = []
+        preferencesStore.clearPullRequestSyncState()
+        committedSyncState = nil
+        presentation = .empty
         setAuthMethod(.oauth)
         sourceCatalogProvider = nil
         gitHubAppInstallationProvider = nil
@@ -907,34 +921,37 @@ final class DashboardController: ObservableObject {
     }
 
     private func markPullRequestNotificationsRead(for pullRequest: PullRequest) {
-        pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+        updateNotificationHistory(pullRequestNotificationHistory.map { notification in
             guard notification.prId == pullRequest.id else {
                 return notification
             }
             var copy = notification
             copy.read = true
             return copy
-        }
+        })
     }
 
     func markAllNotificationsRead() {
         let visibleIds = Set(visiblePullRequestNotifications.map(\.id))
-        pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+        updateNotificationHistory(pullRequestNotificationHistory.map { notification in
             var copy = notification
             if visibleIds.contains(copy.id) {
                 copy.read = true
             }
             return copy
-        }
+        })
     }
 
     private func trimVisibleEvents() {
-        state.events.removeAll { event in
-            guard let pullRequest = state.pullRequests.first(where: { $0.id == event.prId }) else {
+        var dashboard = state
+        let pullRequestsByID = Dictionary(uniqueKeysWithValues: dashboard.pullRequests.map { ($0.id, $0) })
+        dashboard.events.removeAll { event in
+            guard let pullRequest = pullRequestsByID[event.prId] else {
                 return false
             }
             return !sourcePreferences.allowsNotifications(for: pullRequest.repo)
         }
+        updateDashboard(dashboard)
     }
 
     private func configureInitialSource() {
@@ -1025,22 +1042,17 @@ final class DashboardController: ObservableObject {
         setAuthMethod(authMethod)
         syncEngine = SyncEngine(
             source: client,
-            preferences: preferences,
             loginProvider: loginProvider,
-            accountProvider: accountProvider,
-            authStatusProvider: { .signedIn },
-            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults },
-            snapshotSeedProvider: { [weak self] login in
-                self?.cachedGitHubPullRequests(for: login) ?? []
-            },
-            snapshotCacheDidUpdate: { [weak self] cache in
-                self?.storeGitHubSnapshotCache(cache)
-            }
+            accountProvider: accountProvider
         )
     }
 
     private func configureSignedOutSource() {
         beginProviderGeneration()
+        let retainedHistory = presentation.notificationHistory
+        preferencesStore.clearPullRequestSyncState()
+        committedSyncState = nil
+        presentation = PublishedPresentation(dashboard: .empty, notificationHistory: retainedHistory)
         setAuthMethod(.oauth)
         sourceCatalog = .empty
         sourceCatalogProvider = nil
@@ -1050,17 +1062,19 @@ final class DashboardController: ObservableObject {
         let source = EmptyPullRequestSource()
         syncEngine = SyncEngine(
             source: source,
-            preferences: preferences,
             loginProvider: { "rw" },
-            accountProvider: { nil },
-            authStatusProvider: { .signedOut },
-            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
+            accountProvider: { nil }
         )
     }
 
     private func configureMockSource() {
         beginProviderGeneration()
         let account = GitHubAccount(login: "agent-fixture")
+        if committedSyncState?.account.login != account.login
+            || committedSyncState?.dashboard.source != .mock {
+            committedSyncState = nil
+            presentation = .empty
+        }
         self.account = account
         setAuthMethod(.oauth)
         let source = MockPullRequestSource(
@@ -1074,15 +1088,12 @@ final class DashboardController: ObservableObject {
         sourceCatalogSyncedAt = Date()
         sourceCatalogAccountLogin = account.login
         if launchConfiguration.showsNotificationTypeFixtures {
-            pullRequestNotificationHistory = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
+            presentation.notificationHistory = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
         }
         syncEngine = SyncEngine(
             source: source,
-            preferences: preferences,
             loginProvider: { account.login },
-            accountProvider: { account },
-            authStatusProvider: { .signedIn },
-            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
+            accountProvider: { account }
         )
     }
 
@@ -1092,6 +1103,9 @@ final class DashboardController: ObservableObject {
 
     private func beginProviderGeneration() {
         providerGeneration += 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshAttemptID += 1
         catalogTask?.cancel()
         catalogTask = nil
         isRefreshingSources = false
@@ -1112,33 +1126,11 @@ final class DashboardController: ObservableObject {
     }
 
     private func restoreCachedGitHubDashboardIfAvailable() {
-        let cache = preferencesStore.pullRequestSnapshotCache
-        guard cache.source == .github, !cache.pullRequests.isEmpty else {
-            return
-        }
-        state = DashboardState(
-            pullRequests: cache.pullRequests,
-            events: [],
-            syncedAt: cache.fetchedAt,
-            source: .github,
-            account: cache.account,
-            authStatus: .signedIn
+        guard let committedSyncState else { return }
+        presentation = PublishedPresentation(
+            dashboard: committedSyncState.dashboard,
+            notificationHistory: committedSyncState.notificationHistory
         )
-    }
-
-    private func cachedGitHubPullRequests(for login: String) -> [PullRequest] {
-        let cache = preferencesStore.pullRequestSnapshotCache
-        guard cache.source == .github, cache.account?.login == login else {
-            return []
-        }
-        return cache.pullRequests
-    }
-
-    private func storeGitHubSnapshotCache(_ cache: PullRequestSnapshotCache) {
-        guard cache.source == .github else {
-            return
-        }
-        preferencesStore.pullRequestSnapshotCache = cache
     }
 
     private func startCatalogRefreshIfNeeded(
@@ -1297,59 +1289,64 @@ final class DashboardController: ObservableObject {
             : MergeHawkAuthDefaults.installURL
     }
 
-    private func recordPullRequestNotifications(events: [PullRequestEvent], pullRequests: [PullRequest]) {
-        guard !events.isEmpty else {
-            return
-        }
-        let pullRequestsById = Dictionary(uniqueKeysWithValues: pullRequests.map { ($0.id, $0) })
-        let notifications = events.compactMap { event -> PullRequestNotification? in
-            guard let pullRequest = pullRequestsById[event.prId] else {
-                return nil
-            }
-            return PullRequestNotification(event: event, pullRequest: pullRequest)
-        }
-        guard !notifications.isEmpty else {
-            return
-        }
-        pullRequestNotificationHistory = Self.trimPullRequestNotifications(
-            notifications + pullRequestNotificationHistory
-        )
-    }
-
-    private func sync(appliesMockRefreshDelay: Bool = false) async {
-        guard let syncEngine else {
-            return
-        }
-        let generation = providerGeneration
-        guard refreshingGeneration != generation else {
-            return
-        }
-        refreshingGeneration = generation
-        isRefreshing = true
-        defer {
-            if refreshingGeneration == generation {
-                refreshingGeneration = nil
-                isRefreshing = false
-            }
-        }
+    private func performSync(
+        syncEngine: SyncEngine,
+        generation: Int,
+        appliesMockRefreshDelay: Bool
+    ) async {
         errorMessage = nil
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
-            let nextState = try await syncEngine.sync()
+            let prepared = try await syncEngine.prepare(previousState: committedSyncState)
             guard !Task.isCancelled, providerGeneration == generation else { return }
-            recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
-            state = nextState
+
+            let allowed = prepared.events.filter { value in
+                preferences.allows(event: value.event, for: value.filteringContext)
+                    && sourcePreferences.allowsNotifications(for: value.filteringContext.repo)
+            }
+            let notifications = allowed.map { value in
+                PullRequestNotification(
+                    event: value.event,
+                    pullRequest: value.filteringContext,
+                    createdAt: prepared.syncedAt
+                )
+            }
+            let history = Self.trimPullRequestNotifications(
+                notifications + presentation.notificationHistory
+            )
+            let dashboard = DashboardState(
+                pullRequests: prepared.activePullRequests,
+                events: allowed.map(\.event),
+                syncedAt: prepared.syncedAt,
+                source: prepared.source,
+                account: prepared.account,
+                authStatus: prepared.source == .none ? .signedOut : .signedIn
+            )
+            let nextState = PullRequestSyncState(
+                account: prepared.account,
+                dashboard: dashboard,
+                processedActivityByPullRequestID: prepared.processedActivityByPullRequestID,
+                notificationHistory: history
+            )
+            try preferencesStore.storePullRequestSyncState(nextState)
+            guard !Task.isCancelled, providerGeneration == generation else { return }
+            committedSyncState = nextState
+            presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
+            account = dashboard.account
+
             if authMethod == .oauth,
                !launchConfiguration.usesMockData,
                gitHubAppRepositoryAccessStatus != .noInstallations,
-               !nextState.pullRequests.isEmpty {
+               !dashboard.pullRequests.isEmpty {
                 gitHubAppRepositoryAccessStatus = .configured
                 gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
             }
-            errorMessage = syncEngine.lastRefreshWarning
             if macOSLocalNotificationsEnabled {
-                notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
+                notificationClient.post(
+                    events: allowed.map(\.event),
+                    pullRequests: prepared.activePullRequests + prepared.retiringPullRequests
+                )
             }
         } catch {
             guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else { return }
@@ -1362,7 +1359,30 @@ final class DashboardController: ObservableObject {
     }
 
     private func refreshDashboard(appliesMockRefreshDelay: Bool = false) async {
-        await sync(appliesMockRefreshDelay: appliesMockRefreshDelay)
+        if let refreshTask {
+            await refreshTask.value
+            return
+        }
+        guard let syncEngine else { return }
+        let generation = providerGeneration
+        refreshAttemptID += 1
+        let attemptID = refreshAttemptID
+        refreshingGeneration = generation
+        isRefreshing = true
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSync(
+                syncEngine: syncEngine,
+                generation: generation,
+                appliesMockRefreshDelay: appliesMockRefreshDelay
+            )
+        }
+        refreshTask = task
+        await task.value
+        guard refreshAttemptID == attemptID else { return }
+        refreshTask = nil
+        refreshingGeneration = nil
+        isRefreshing = false
         startCatalogRefreshIfNeeded()
     }
 
@@ -1378,6 +1398,9 @@ final class DashboardController: ObservableObject {
     }
 
     private func isAuthenticationFailure(_ error: Error) -> Bool {
+        if isGitHubReadAuthenticationError(error) {
+            return true
+        }
         if let error = error as? GitHubClientError {
             switch error {
             case .authRefreshFailed:
@@ -1404,6 +1427,9 @@ final class DashboardController: ObservableObject {
         try? tokenStore.clearOAuthTokens()
         account = nil
         preferencesStore.pullRequestSnapshotCache = .empty
+        preferencesStore.clearPullRequestSyncState()
+        committedSyncState = nil
+        presentation = .empty
         sourceCatalog = .empty
         sourceErrorMessage = nil
         configureSignedOutSource()
@@ -1493,13 +1519,48 @@ final class DashboardController: ObservableObject {
         _ id: PullRequestNotification.ID,
         update: (inout PullRequestNotification) -> Void
     ) {
-        pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+        updateNotificationHistory(pullRequestNotificationHistory.map { notification in
             guard notification.id == id else {
                 return notification
             }
             var copy = notification
             update(&copy)
             return copy
+        })
+    }
+
+    private func updateNotificationHistory(_ history: [PullRequestNotification]) {
+        var nextPresentation = presentation
+        nextPresentation.notificationHistory = history
+        guard var nextState = committedSyncState else {
+            preferencesStore.pullRequestNotificationHistory = history
+            presentation = nextPresentation
+            return
+        }
+        nextState.notificationHistory = history
+        do {
+            try preferencesStore.storePullRequestSyncState(nextState)
+            committedSyncState = nextState
+            presentation = nextPresentation
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateDashboard(_ dashboard: DashboardState) {
+        var nextPresentation = presentation
+        nextPresentation.dashboard = dashboard
+        guard var nextState = committedSyncState else {
+            presentation = nextPresentation
+            return
+        }
+        nextState.dashboard = dashboard
+        do {
+            try preferencesStore.storePullRequestSyncState(nextState)
+            committedSyncState = nextState
+            presentation = nextPresentation
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

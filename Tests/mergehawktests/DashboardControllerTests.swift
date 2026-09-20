@@ -1368,12 +1368,12 @@ private final class FakeGitHubProvider: GitHubProviding {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
-        return PullRequestFetchResult(pullRequests: pullRequests)
+        return CompletePullRequestFetchResult(activePullRequests: pullRequests)
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -1409,12 +1409,12 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
         viewerContinuation = nil
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
-        return PullRequestFetchResult(pullRequests: [])
+        return CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -1441,11 +1441,11 @@ private final class FailingViewerGitHubProvider: GitHubProviding {
         throw TestError.failed
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -1480,23 +1480,23 @@ private final class RecordingOAuthSignIn: GitHubOAuthSigningIn {
 
 private final class DelayedSyncGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
-    var pullRequestsContinuation: CheckedContinuation<PullRequestFetchResult, Never>?
+    var pullRequestsContinuation: CheckedContinuation<CompletePullRequestFetchResult, Never>?
 
     func fetchViewer() async throws -> GitHubAccount {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         await withCheckedContinuation { continuation in
             pullRequestsContinuation = continuation
         }
     }
 
     func finishPullRequestFetch() {
-        pullRequestsContinuation?.resume(returning: PullRequestFetchResult(pullRequests: []))
+        pullRequestsContinuation?.resume(returning: CompletePullRequestFetchResult(activePullRequests: []))
         pullRequestsContinuation = nil
     }
 
