@@ -717,6 +717,10 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
                 throw GitHubReadError.http(status: -1)
             }
             try classifyReadResponse(http, data: data)
+            if let envelope = try? decoder.decode(CompleteGraphQLErrorEnvelope.self, from: data),
+               envelope.errors?.contains(where: { $0.type?.uppercased() == "RATE_LIMITED" }) == true {
+                throw GitHubReadError.rateLimited(retryAt: rateLimitRetryDate(from: http))
+            }
             return data
         }
     }
@@ -807,16 +811,10 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         guard !(200..<300).contains(response.statusCode) else { return }
         if response.statusCode == 401 { throw GitHubReadError.authentication }
         if response.statusCode == 429
-            || (response.statusCode == 403 && response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0") {
-            let retryAt: Date?
-            if let retry = response.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init) {
-                retryAt = Date().addingTimeInterval(retry)
-            } else if let reset = response.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap(TimeInterval.init) {
-                retryAt = Date(timeIntervalSince1970: reset)
-            } else {
-                retryAt = nil
-            }
-            throw GitHubReadError.rateLimited(retryAt: retryAt)
+            || (response.statusCode == 403
+                && (response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
+                    || response.value(forHTTPHeaderField: "Retry-After") != nil)) {
+            throw GitHubReadError.rateLimited(retryAt: rateLimitRetryDate(from: response))
         }
         if response.statusCode == 403 {
             let message = (try? JSONDecoder().decode(RESTMessage.self, from: data).message) ?? ""
@@ -825,6 +823,16 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             }
         }
         throw GitHubReadError.http(status: response.statusCode)
+    }
+
+    private func rateLimitRetryDate(from response: HTTPURLResponse) -> Date? {
+        if let retry = response.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init) {
+            return Date().addingTimeInterval(retry)
+        }
+        if let reset = response.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap(TimeInterval.init) {
+            return Date(timeIntervalSince1970: reset)
+        }
+        return nil
     }
 
     public func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -969,6 +977,10 @@ private struct GraphQLRequest: Encodable {
 private struct CompleteGraphQLRequest: Encodable {
     let query: String
     let variables: [String: GitHubQueryValue]
+}
+
+private struct CompleteGraphQLErrorEnvelope: Decodable {
+    let errors: [GitHubGraphQLErrorPayload]?
 }
 
 private struct RESTMessage: Decodable {

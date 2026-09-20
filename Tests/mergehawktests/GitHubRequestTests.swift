@@ -3,6 +3,11 @@ import Foundation
 import XCTest
 
 final class GitHubRequestTests: XCTestCase {
+    override func tearDown() {
+        RequestURLProtocol.handler = nil
+        super.tearDown()
+    }
+
     func testMissingRequiredConnectionAndPageInfoFailDecoding() throws {
         let decoder = JSONDecoder()
         XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: payload(removing: "comments")))
@@ -59,6 +64,56 @@ final class GitHubRequestTests: XCTestCase {
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("pageInfo"))
     }
 
+    func testHTTP200GraphQLRateLimitPreservesResetHeader() async throws {
+        let reset = Date().addingTimeInterval(60)
+        let requests = LockedBox(0)
+        RequestURLProtocol.handler = { request in
+            requests.withValue { $0 += 1 }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["X-RateLimit-Reset": String(reset.timeIntervalSince1970)]
+            )!
+            return (Self.json(["errors": [["message": "exhausted", "type": "RATE_LIMITED"]]]), response)
+        }
+
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: nil)
+            XCTFail("Expected rate limit")
+        } catch let GitHubReadError.rateLimited(retryAt) {
+            XCTAssertEqual(try XCTUnwrap(retryAt).timeIntervalSince1970, reset.timeIntervalSince1970, accuracy: 0.001)
+        }
+        XCTAssertEqual(requests.value, 1)
+    }
+
+    func testSecondaryRateLimit403UsesRetryAfterWithoutRemainingZero() async throws {
+        let before = Date()
+        let requests = LockedBox(0)
+        RequestURLProtocol.handler = { request in
+            requests.withValue { $0 += 1 }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 403,
+                httpVersion: nil,
+                headerFields: ["Retry-After": "60"]
+            )!
+            return (Self.json(["message": "secondary rate limit"]), response)
+        }
+
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: nil)
+            XCTFail("Expected rate limit")
+        } catch let GitHubReadError.rateLimited(retryAt) {
+            let value = try XCTUnwrap(retryAt)
+            XCTAssertGreaterThanOrEqual(value, before.addingTimeInterval(60))
+            XCTAssertLessThan(value.timeIntervalSince(before), 61)
+        }
+        XCTAssertEqual(requests.value, 1)
+    }
+
     private func payload(removing key: String? = nil, pageInfo: Bool = true) -> Data {
         var object: [String: Any] = [
             "id": "PR_1", "title": "Test", "number": 1,
@@ -96,6 +151,40 @@ final class GitHubRequestTests: XCTestCase {
         } }
         return try! JSONSerialization.data(withJSONObject: object)
     }
+
+    private static func session() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    private static func json(_ object: Any) -> Data {
+        try! JSONSerialization.data(withJSONObject: object)
+    }
+}
+
+private final class RequestURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) throws -> (Data, HTTPURLResponse))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let (data, response) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 private final class LockedBox<Value>: @unchecked Sendable {

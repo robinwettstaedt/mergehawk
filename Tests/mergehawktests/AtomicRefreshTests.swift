@@ -248,6 +248,44 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testHTTP200GraphQLRateLimitHeadersDeferAutomaticClientRequests() async throws {
+        let suiteName = "atomic-graphql-rate-limit-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            AtomicRateLimitURLProtocol.handler = nil
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        let transport = AtomicRateLimitTransport(retryAfter: 0.15)
+        AtomicRateLimitURLProtocol.handler = { request in try transport.response(for: request) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AtomicRateLimitURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0.01,
+            patGitHubClientFactory: { GitHubClient(token: $0, session: session) }
+        )
+
+        await waitUntil { transport.graphQLRequestDates.count == 1 }
+        try? await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(transport.graphQLRequestDates.count, 1)
+        await waitUntil(timeout: 0.6) {
+            transport.graphQLRequestDates.count >= 3 && controller.state.authStatus == .signedIn
+        }
+
+        let requestDates = transport.graphQLRequestDates
+        XCTAssertGreaterThanOrEqual(requestDates[1].timeIntervalSince(requestDates[0]), 0.14)
+        XCTAssertEqual(controller.state.authStatus, .signedIn)
+    }
+
+    @MainActor
     func testCredentialReplacementClearsAccountScopedRateDeferral() async throws {
         let suiteName = "atomic-rate-account-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -612,6 +650,136 @@ private final class RateLimitedGitHubProvider: GitHubProviding {
     func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
         GitHubAppInstallations(installations: [])
     }
+}
+
+private final class AtomicRateLimitTransport: @unchecked Sendable {
+    private let lock = NSLock()
+    private let retryAfter: TimeInterval
+    private var storedGraphQLRequestDates: [Date] = []
+
+    init(retryAfter: TimeInterval) {
+        self.retryAfter = retryAfter
+    }
+
+    var graphQLRequestDates: [Date] { lock.withLock { storedGraphQLRequestDates } }
+
+    func response(for request: URLRequest) throws -> (Data, HTTPURLResponse) {
+        if request.url?.path == "/user" {
+            return response(Self.json(["login": "rw"]), request)
+        }
+        if request.url?.path == "/user/repos" {
+            return response(Self.json([]), request)
+        }
+        guard request.url?.path == "/graphql" else {
+            return response(Self.json(["message": "unexpected"]), request, status: 404)
+        }
+        let requestNumber = lock.withLock { () -> Int in
+            storedGraphQLRequestDates.append(Date())
+            return storedGraphQLRequestDates.count
+        }
+        if requestNumber == 1 {
+            return response(
+                Self.json(["errors": [["message": "exhausted", "type": "RATE_LIMITED"]]]),
+                request,
+                headers: ["Retry-After": String(retryAfter)]
+            )
+        }
+        let query = Self.graphQLQuery(request)
+        if query.contains("DiscoveryBounds") {
+            var data: [String: Any] = [:]
+            for lane in GitHubDiscoveryLane.allCases {
+                data["\(lane.rawValue)Oldest"] = ["nodes": []]
+                data["\(lane.rawValue)Newest"] = ["nodes": []]
+            }
+            return response(Self.json(["data": data]), request)
+        }
+        if query.contains("DiscoverPullRequests") {
+            var data: [String: Any] = [:]
+            for lane in GitHubDiscoveryLane.allCases {
+                data[lane.rawValue] = [
+                    "issueCount": 0,
+                    "nodes": [],
+                    "pageInfo": [
+                        "startCursor": NSNull(),
+                        "endCursor": NSNull(),
+                        "hasPreviousPage": false,
+                        "hasNextPage": false
+                    ]
+                ]
+            }
+            return response(Self.json(["data": data]), request)
+        }
+        return response(Self.json(["message": "unexpected query"]), request, status: 500)
+    }
+
+    private func response(
+        _ data: Data,
+        _ request: URLRequest,
+        status: Int = 200,
+        headers: [String: String]? = nil
+    ) -> (Data, HTTPURLResponse) {
+        (
+            data,
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: headers
+            )!
+        )
+    }
+
+    private static func graphQLQuery(_ request: URLRequest) -> String {
+        guard let body = requestBody(request),
+              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            return ""
+        }
+        return object["query"] as? String ?? ""
+    }
+
+    private static func requestBody(_ request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: 4096)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
+
+    private static func json(_ object: Any) -> Data {
+        try! JSONSerialization.data(withJSONObject: object)
+    }
+}
+
+private final class AtomicRateLimitURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) throws -> (Data, HTTPURLResponse))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let (data, response) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 @MainActor
