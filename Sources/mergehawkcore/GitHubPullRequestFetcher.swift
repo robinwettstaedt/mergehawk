@@ -20,6 +20,7 @@ struct GitHubHydratedPullRequest: Equatable, Sendable {
     let pullRequest: PullRequest
     let providerState: String
     let discovery: DiscoveredPullRequest
+    let hasTeamReviewRequest: Bool
 }
 
 struct GitHubHydrationResult: Equatable, Sendable {
@@ -382,7 +383,10 @@ struct GitHubPullRequestFetcher: Sendable {
             return GitHubHydratedPullRequest(
                 pullRequest: try normalize(accumulator, login: login),
                 providerState: accumulator.payload.state,
-                discovery: discovery
+                discovery: discovery,
+                hasTeamReviewRequest: accumulator.reviewRequests.values.contains {
+                    $0.requestedReviewer?.typename == "Team"
+                }
             )
         }
         return GitHubHydrationResult(pullRequests: pullRequests, missingPullRequestIDs: missingIDs)

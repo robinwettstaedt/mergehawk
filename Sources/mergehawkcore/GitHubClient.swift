@@ -665,11 +665,10 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         var active: [PullRequest] = []
         var retiring: [PullRequest] = []
         for value in hydrated {
-            let pr = value.pullRequest
+            var pr = value.pullRequest
             let wasDiscovered = discoveredIDs.contains(pr.id)
-            let baseRelevant = pr.isMine || pr.isAssignedToViewer || pr.reviewRequestKind.includesDirect
             var teamRelevant = false
-            if pr.reviewRequestKind.includesTeam {
+            if value.hasTeamReviewRequest {
                 if wasDiscovered && value.discovery.isTeamRequested {
                     teamRelevant = true
                 } else {
@@ -686,6 +685,13 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
                     teamRelevant = ids.contains(pr.id)
                 }
             }
+            pr.reviewRequestKind = switch (pr.reviewRequestKind.includesDirect, teamRelevant) {
+            case (true, true): .directAndTeam
+            case (true, false): .direct
+            case (false, true): .team
+            case (false, false): .none
+            }
+            let baseRelevant = pr.isMine || pr.isAssignedToViewer || pr.reviewRequestKind.includesDirect
             if value.providerState == "OPEN", baseRelevant || teamRelevant {
                 active.append(pr)
             } else if previousByID[pr.id] != nil {

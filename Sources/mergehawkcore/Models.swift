@@ -119,7 +119,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let reviewCount: Int
     public let recentReviews: [PullRequestReview]
     public let headRefOid: String
-    public let reviewRequestKind: ReviewRequestKind
+    public var reviewRequestKind: ReviewRequestKind
     public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String

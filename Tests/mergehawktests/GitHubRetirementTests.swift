@@ -158,6 +158,90 @@ final class GitHubRetirementTests: XCTestCase {
         XCTAssertEqual(teamQueries.value, 3)
     }
 
+    func testHydratedTeamRequestsRequireSharedRepositoryConfirmationWhenDiscoveryDidNotProveMembership() async throws {
+        let keep = Self.discoveryNode(id: "PR_TEAM_KEEP", number: 1, second: 0)
+        let unrelated = Self.discoveryNode(id: "PR_TEAM_OTHER", number: 2, second: 1)
+        let directAndTeam = Self.discoveryNode(id: "PR_DIRECT_TEAM", number: 3, second: 2)
+        let teamQueries = LockedRetirementCounter()
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("DiscoveryBounds") {
+                var data: [String: Any] = [:]
+                for lane in GitHubDiscoveryLane.allCases {
+                    let nodes: [[String: Any]] = switch lane {
+                    case .assigned: [keep, unrelated]
+                    case .direct: [directAndTeam]
+                    case .authored, .team: []
+                    }
+                    data["\(lane.rawValue)Oldest"] = ["nodes": Array(nodes.prefix(1))]
+                    data["\(lane.rawValue)Newest"] = ["nodes": Array(nodes.suffix(1))]
+                }
+                return Self.response(Self.json(["data": data]), request)
+            }
+            if query.contains("DiscoverPullRequests") {
+                var data: [String: Any] = [:]
+                for lane in GitHubDiscoveryLane.allCases {
+                    let nodes: [[String: Any]] = switch lane {
+                    case .assigned: [keep, unrelated]
+                    case .direct: [directAndTeam]
+                    case .authored, .team: []
+                    }
+                    data[lane.rawValue] = [
+                        "issueCount": nodes.count,
+                        "nodes": nodes,
+                        "pageInfo": [
+                            "startCursor": NSNull(), "endCursor": NSNull(),
+                            "hasPreviousPage": false, "hasNextPage": false
+                        ]
+                    ]
+                }
+                return Self.response(Self.json(["data": data]), request)
+            }
+            if query.contains("CompletePullRequests") {
+                return Self.response(Self.hydration(nodes: [
+                    Self.completePR(
+                        id: "PR_DIRECT_TEAM", number: 3, state: "OPEN",
+                        author: "author", directRequest: true, teamRequest: true
+                    ),
+                    Self.completePR(
+                        id: "PR_TEAM_KEEP", number: 1, state: "OPEN",
+                        author: "author", teamRequest: true
+                    ),
+                    Self.completePR(
+                        id: "PR_TEAM_OTHER", number: 2, state: "OPEN",
+                        author: "author", teamRequest: true
+                    )
+                ]), request)
+            }
+            if query.contains("RepositoryTeamMembership") {
+                teamQueries.increment()
+                let queryValue = Self.graphQLVariables(request)["query"] as? String ?? ""
+                let nodes = queryValue.contains("sort:created-asc")
+                    ? [keep]
+                    : queryValue.contains("sort:created-desc")
+                        ? [directAndTeam]
+                        : [keep, directAndTeam]
+                return Self.response(Self.repositoryTeamPage(nodes), request)
+            }
+            return Self.response(Data(), request, status: 500)
+        }
+
+        let result = try await GitHubClient(token: "token", session: Self.session())
+            .fetchCompletePullRequests(login: "rw", previousState: nil)
+
+        XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_DIRECT_TEAM", "PR_TEAM_KEEP"])
+        XCTAssertEqual(
+            result.activePullRequests.first { $0.id == "PR_TEAM_KEEP" }?.reviewRequestKind,
+            .team
+        )
+        XCTAssertEqual(
+            result.activePullRequests.first { $0.id == "PR_DIRECT_TEAM" }?.reviewRequestKind,
+            .directAndTeam
+        )
+        XCTAssertFalse(result.activePullRequests.contains { $0.id == "PR_TEAM_OTHER" })
+        XCTAssertEqual(teamQueries.value, 3)
+    }
+
     func testAmbiguousForbiddenRateLimitAndServerFailureNeverRetireQuietly() async throws {
         for scenario in ["ambiguous", "rate", "server"] {
             let previous = Self.previousState(Self.previousPR())
