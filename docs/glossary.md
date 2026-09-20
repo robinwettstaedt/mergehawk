@@ -15,6 +15,8 @@ issues, prompts, tests, UI copy, and implementation notes.
 | PR / pull request | The app-level umbrella term for a provider-hosted code review/change request, including equivalent concepts from future version control platform integrations. |
 | Provider | The version control platform or service that supplies PRs and updates. |
 | Update | A provider-derived change MergeHawk notices for a PR, such as a new comment, review, failed CI, or requested changes. |
+| Complete PR refresh | One provider read attempt that discovers relevant PRs, fetches their complete paginated activity, reconciles disappeared PRs, and commits one coherent app state. |
+| Sources refresh | A separate repository catalog and GitHub App installation refresh used by the `Sources` settings pane. |
 | Mock mode | Fixture-backed app mode without real provider credentials, provider network calls, or macOS credential prompts. |
 | Agent slot | A named isolated installed app bundle used by one agent. |
 | UI artifact | A generated visual verification file, usually a screenshot PNG. |
@@ -134,6 +136,20 @@ local notification payloads. In code, some of this is currently represented by
 Prefer `update` in product language and agent tasks. Use `event` when referring
 to the current code model or event-detection implementation.
 
+### Complete PR Refresh
+
+A provider read attempt that discovers all relevant PRs, hydrates complete
+paginated activity, checks PRs that disappeared from discovery, and prepares one
+coherent dashboard/history/activity state. The app publishes that state only after
+the full attempt and its persistence succeed. Loading and errors may change while
+the prior rows and notification history remain visible.
+
+### Sources Refresh
+
+A repository catalog and GitHub App installation refresh used by the `Sources`
+settings pane. It is scheduled separately from a complete PR refresh, has its own
+loading/error state, and does not gate dashboard publication.
+
 ## Agent Workflow Terms
 
 ### Mock Mode
@@ -149,6 +165,7 @@ Mock mode should:
 - show fixture PRs and in-app notifications
 - suppress real macOS local notification delivery
 - optionally record macOS local notification payloads to artifacts
+- offer deterministic delayed, failed, final-activity, and quiet-retirement refresh scenarios
 
 ### Agent Slot
 

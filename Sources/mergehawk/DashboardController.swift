@@ -957,7 +957,9 @@ final class DashboardController: ObservableObject {
     private func configureInitialSource() {
         if launchConfiguration.usesMockData {
             configureMockSource()
-            refresh()
+            Task {
+                await refreshDashboard()
+            }
             return
         }
 
@@ -1078,7 +1080,8 @@ final class DashboardController: ObservableObject {
         self.account = account
         setAuthMethod(.oauth)
         let source = MockPullRequestSource(
-            showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures
+            showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures,
+            scenario: launchConfiguration.mockPullRequestScenario
         )
         sourceCatalogProvider = source
         gitHubAppInstallationProvider = nil

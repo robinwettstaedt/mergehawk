@@ -29,12 +29,34 @@ public final class EmptyPullRequestSource {
 
 }
 
+public enum MockPullRequestScenario: String, CaseIterable, Sendable {
+    case standard
+    case delayedRefresh = "delayed-refresh"
+    case refreshFailure = "refresh-failure"
+    case mergedFinalActivity = "merged-final-activity"
+    case quietAccessLoss = "quiet-access-loss"
+}
+
+public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
+    case refreshFailed
+
+    public var errorDescription: String? {
+        "The mock pull request refresh failed."
+    }
+}
+
 public final class MockPullRequestSource {
     public let sourceKind: DashboardSource = .mock
     private var index = 0
     private let snapshots: [[PullRequest]]
+    private let scenario: MockPullRequestScenario
 
-    public init(showsNotificationTypeFixtures: Bool = false, referenceDate: Date = Date()) {
+    public init(
+        showsNotificationTypeFixtures: Bool = false,
+        referenceDate: Date = Date(),
+        scenario: MockPullRequestScenario = .standard
+    ) {
+        self.scenario = scenario
         let minute: TimeInterval = 60
         let hour = 60 * minute
         let day = 24 * hour
@@ -347,6 +369,70 @@ public final class MockPullRequestSource {
         return snapshot
     }
 
+    private static let scenarioBaselinePullRequest = PullRequest(
+        id: "PR_SCENARIO",
+        title: "Preserve final pull request activity",
+        number: 88,
+        url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/88")!,
+        repo: "mergehawk-labs/mergehawk",
+        ciState: .passing,
+        reviewDecision: .noReviewYet,
+        additions: 120,
+        deletions: 18,
+        commentCount: 0,
+        commentActivityCount: 0,
+        recentCommentActivities: [],
+        reviewCount: 0,
+        recentReviews: [],
+        headRefOid: "scenario-baseline",
+        isMine: true,
+        author: "agent-fixture",
+        headRefName: "MER-66-final-activity",
+        mergeable: .mergeable,
+        draft: false,
+        createdAt: Date(timeIntervalSince1970: 1_777_700_000),
+        updatedAt: Date(timeIntervalSince1970: 1_777_800_000)
+    )
+
+    private static let scenarioFinalPullRequest = PullRequest(
+        id: scenarioBaselinePullRequest.id,
+        title: scenarioBaselinePullRequest.title,
+        number: scenarioBaselinePullRequest.number,
+        url: scenarioBaselinePullRequest.url,
+        repo: scenarioBaselinePullRequest.repo,
+        ciState: .passing,
+        reviewDecision: .approved,
+        additions: scenarioBaselinePullRequest.additions,
+        deletions: scenarioBaselinePullRequest.deletions,
+        commentCount: 0,
+        commentActivityCount: 1,
+        recentCommentActivities: [
+            PullRequestCommentActivity(
+                id: "PR_SCENARIO_FINAL_COMMENT",
+                author: "frontend-sam",
+                createdAt: Date(timeIntervalSince1970: 1_777_810_000),
+                source: .pullRequest
+            )
+        ],
+        reviewCount: 1,
+        recentReviews: [
+            PullRequestReview(
+                id: "PR_SCENARIO_FINAL_REVIEW",
+                state: .approved,
+                submittedAt: Date(timeIntervalSince1970: 1_777_811_000),
+                author: "platform-nora"
+            )
+        ],
+        headRefOid: "scenario-final",
+        isMine: true,
+        author: "agent-fixture",
+        headRefName: "MER-66-final-activity",
+        mergeable: .mergeable,
+        draft: false,
+        createdAt: scenarioBaselinePullRequest.createdAt,
+        updatedAt: Date(timeIntervalSince1970: 1_777_812_000)
+    )
+
     public static var notificationTypeFixturePullRequestNotifications: [PullRequestNotification] {
         [
             PullRequestNotification(
@@ -583,6 +669,33 @@ extension MockPullRequestSource: CompletePullRequestFetching {
         login: String,
         previousState: PullRequestSyncState?
     ) async throws -> CompletePullRequestFetchResult {
-        CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
+        switch scenario {
+        case .standard, .delayedRefresh:
+            return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
+        case .refreshFailure:
+            guard index > 0 else {
+                index += 1
+                return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
+            }
+            throw MockPullRequestError.refreshFailed
+        case .mergedFinalActivity:
+            guard index > 0 else {
+                index += 1
+                return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
+            }
+            return CompletePullRequestFetchResult(
+                activePullRequests: [],
+                retiringPullRequests: [Self.scenarioFinalPullRequest]
+            )
+        case .quietAccessLoss:
+            guard index > 0 else {
+                index += 1
+                return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
+            }
+            return CompletePullRequestFetchResult(
+                activePullRequests: [],
+                quietlyRetiredPullRequestIDs: [Self.scenarioBaselinePullRequest.id]
+            )
+        }
     }
 }

@@ -22,7 +22,9 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet"] {
+                UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
+            }
         }
 
         let controller = await MainActor.run {
@@ -47,6 +49,105 @@ final class VisualVerificationXCTests: XCTestCase {
             await MainActor.run {
                 controller.state.events.isEmpty == false
             }
+        }
+
+        let delayedController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(
+                    defaults: UserDefaults(suiteName: "\(suiteName)-delayed")!
+                ),
+                launchConfiguration: LaunchConfiguration(
+                    usesMockData: true,
+                    suppressesMacOSNotifications: true,
+                    mockRefreshDelaySeconds: 0.2,
+                    mockPullRequestScenario: .delayedRefresh
+                ),
+                automaticRefreshInterval: 0
+            )
+        }
+        try await waitUntil(context: "delayed-refresh baseline") {
+            await MainActor.run { delayedController.state.syncedAt != nil && !delayedController.isRefreshing }
+        }
+        await MainActor.run { delayedController.refresh() }
+        try await waitUntil(context: "delayed complete refresh") {
+            await MainActor.run { delayedController.isRefreshing }
+        }
+        try await MainActor.run {
+            delayedController.selectedTab = .myPRs
+            try renderMenu(
+                controller: delayedController,
+                to: outputURL.appendingPathComponent("menu-refresh-loading.png")
+            )
+        }
+        try await waitUntil(context: "delayed complete refresh completion") {
+            await MainActor.run { !delayedController.isRefreshing }
+        }
+
+        let failureController = await makeScenarioController(
+            .refreshFailure,
+            suiteName: "\(suiteName)-failure"
+        )
+        try await waitUntil(context: "refresh-failure baseline") {
+            await MainActor.run { failureController.state.syncedAt != nil && !failureController.isRefreshing }
+        }
+        await MainActor.run { failureController.refresh() }
+        try await waitUntil(context: "refresh-failure result") {
+            await MainActor.run { failureController.errorMessage != nil && !failureController.isRefreshing }
+        }
+        try await MainActor.run {
+            failureController.selectedTab = .myPRs
+            try renderMenu(
+                controller: failureController,
+                to: outputURL.appendingPathComponent("menu-refresh-failure.png")
+            )
+        }
+
+        let finalActivityController = await makeScenarioController(
+            .mergedFinalActivity,
+            suiteName: "\(suiteName)-final"
+        )
+        try await waitUntil(context: "final-activity baseline") {
+            await MainActor.run {
+                finalActivityController.state.pullRequests.count == 1 && !finalActivityController.isRefreshing
+            }
+        }
+        await MainActor.run { finalActivityController.refresh() }
+        try await waitUntil(context: "merged final activity") {
+            await MainActor.run {
+                finalActivityController.pullRequestNotificationHistory.count == 2
+                    && !finalActivityController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            finalActivityController.selectedTab = .notifications
+            try renderMenu(
+                controller: finalActivityController,
+                to: outputURL.appendingPathComponent("menu-final-activity.png")
+            )
+        }
+
+        let quietRetirementController = await makeScenarioController(
+            .quietAccessLoss,
+            suiteName: "\(suiteName)-quiet"
+        )
+        try await waitUntil(context: "quiet-retirement baseline") {
+            await MainActor.run {
+                quietRetirementController.state.pullRequests.count == 1 && !quietRetirementController.isRefreshing
+            }
+        }
+        await MainActor.run { quietRetirementController.refresh() }
+        try await waitUntil(context: "quiet access-loss retirement") {
+            await MainActor.run {
+                quietRetirementController.state.pullRequests.isEmpty && !quietRetirementController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            quietRetirementController.selectedTab = .notifications
+            try renderMenu(
+                controller: quietRetirementController,
+                to: outputURL.appendingPathComponent("menu-quiet-retirement.png")
+            )
         }
 
         try await MainActor.run {
@@ -542,6 +643,23 @@ final class VisualVerificationXCTests: XCTestCase {
     }
 
     @MainActor
+    private func makeScenarioController(
+        _ scenario: MockPullRequestScenario,
+        suiteName: String
+    ) -> DashboardController {
+        DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true,
+                suppressesMacOSNotifications: true,
+                mockPullRequestScenario: scenario
+            ),
+            automaticRefreshInterval: 0
+        )
+    }
+
+    @MainActor
     private func renderMenu(
         controller: DashboardController,
         to url: URL,
@@ -728,6 +846,10 @@ private struct VisualCaptureSelection {
         "settings-notifications",
         "settings-about",
         "menu-notifications",
+        "menu-refresh-loading",
+        "menu-refresh-failure",
+        "menu-final-activity",
+        "menu-quiet-retirement",
         "menu-my-prs",
         "menu-header-tooltips",
         "menu-my-prs-laptop",

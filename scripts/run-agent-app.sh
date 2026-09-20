@@ -5,14 +5,16 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HELPER="$ROOT_DIR/scripts/verification-run.py"
 SLOT="local"
 RUN_DIR=""
+LAUNCH_STAGE="app"
 OPEN_APP=1
 UI_SURFACE="settings"
 NOTIFICATION_TYPE_FIXTURES=0
+MOCK_SCENARIO="standard"
 HEALTH_TIMEOUT_SECONDS=10
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--mock] [--notification-type-fixtures] [--open|--no-open] [--ui settings|menu]
+Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--stage <unique-name>] [--mock] [--mock-scenario <name>] [--notification-type-fixtures] [--open|--no-open] [--ui settings|menu]
 
 Launches a run-bound, mock-only MergeHawk app bundle without replacing the
 normal installed app. Opens Settings by default for unattended computer use.
@@ -20,6 +22,8 @@ Starts a fresh verification run when --run-dir is omitted.
 
 Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
+  scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario merged-final-activity --ui menu --open
+  scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --mock --open
 USAGE
 }
@@ -32,6 +36,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --run-dir)
       RUN_DIR="${2:-}"
+      shift 2
+      ;;
+    --stage)
+      LAUNCH_STAGE="${2:-}"
       shift 2
       ;;
     --mock)
@@ -48,6 +56,10 @@ while [[ $# -gt 0 ]]; do
     --notification-type-fixtures)
       NOTIFICATION_TYPE_FIXTURES=1
       shift
+      ;;
+    --mock-scenario)
+      MOCK_SCENARIO="${2:-}"
+      shift 2
       ;;
     --open)
       OPEN_APP=1
@@ -73,10 +85,21 @@ if [[ -z "$SLOT" ]]; then
   echo "--slot must not be empty" >&2
   exit 2
 fi
+if [[ ! "$LAUNCH_STAGE" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "--stage must contain only letters, numbers, dots, underscores or hyphens" >&2
+  exit 2
+fi
 if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
   echo "--ui must be settings or menu" >&2
   exit 2
 fi
+case "$MOCK_SCENARIO" in
+  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss) ;;
+  *)
+    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity or quiet-access-loss" >&2
+    exit 2
+    ;;
+esac
 
 if ! [[ "$HEALTH_TIMEOUT_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   echo "--health-timeout must be a nonnegative number" >&2
@@ -98,7 +121,12 @@ NOTIFICATION_PATH="$("$HELPER" --root "$ROOT_DIR" info --slot "$SLOT" --run-dir 
 RUNTIME_DIR="$(dirname "$RUNTIME_APP")"
 RUNTIME_EXECUTABLE="$RUNTIME_APP/Contents/MacOS/$APP_EXECUTABLE_NAME"
 PID_PATH="$RUNTIME_DIR/pid"
-LOG_PATH="$RUN_DIR/logs/app.log"
+if [[ "$LAUNCH_STAGE" == "app" ]]; then
+  LOG_PATH="$RUN_DIR/logs/app.log"
+else
+  LOG_PATH="$RUN_DIR/logs/$LAUNCH_STAGE.log"
+  NOTIFICATION_PATH="$RUN_DIR/notifications-$LAUNCH_STAGE.jsonl"
+fi
 
 FIXTURE_OPTION=""
 if [[ "$NOTIFICATION_TYPE_FIXTURES" == "1" ]]; then
@@ -164,7 +192,7 @@ stop_owned_runtime() {
   rm -f "$PID_PATH"
 }
 
-"$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command app
+"$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command "$LAUNCH_STAGE"
 
 set +e
 (
@@ -215,7 +243,10 @@ set +e
     $FIXTURE_OPTION
 
   if [[ "$OPEN_APP" == "1" ]]; then
-    open -g -n "$RUNTIME_APP" --args --verification-ui "$UI_SURFACE"
+    open -g -n "$RUNTIME_APP" --args \
+      --verification-ui "$UI_SURFACE" \
+      --mock-scenario "$MOCK_SCENARIO" \
+      --notification-log "$NOTIFICATION_PATH"
     deadline=$(/usr/bin/python3 - "$HEALTH_TIMEOUT_SECONDS" <<'PY'
 import sys, time
 print(time.monotonic() + float(sys.argv[1]))
@@ -274,11 +305,12 @@ finish_args=(
   --root "$ROOT_DIR" finish
   --slot "$SLOT"
   --run-dir "$RUN_DIR"
-  --command app
+  --command "$LAUNCH_STAGE"
   --exit-code "$exit_code"
   --file "$LOG_PATH"
   --detail "opened=$OPEN_APP"
   --detail "ui=$UI_SURFACE"
+  --detail "mock_scenario=$MOCK_SCENARIO"
 )
 if [[ -f "$NOTIFICATION_PATH" ]]; then
   finish_args+=(--file "$NOTIFICATION_PATH")

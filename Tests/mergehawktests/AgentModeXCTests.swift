@@ -492,6 +492,87 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertTrue(notificationClient.records.isEmpty)
     }
 
+    func testMockRefreshFailurePreservesExistingDashboardAndEmitsNothing() async {
+        let suiteName = "mergehawk-mock-failure-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferencesStore = PreferencesStore(defaults: defaults)
+        let notifications = RecordingNotificationClient()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: preferencesStore,
+                launchConfiguration: LaunchConfiguration(
+                    usesMockData: true,
+                    suppressesMacOSNotifications: true,
+                    mockPullRequestScenario: .refreshFailure
+                ),
+                notificationClient: notifications,
+                automaticRefreshInterval: 0
+            )
+        }
+        await waitUntil(timeout: 1) {
+            await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing }
+        }
+        let baseline = await MainActor.run { controller.state }
+
+        await MainActor.run { controller.refresh() }
+        await waitUntil(timeout: 1) {
+            await MainActor.run { controller.errorMessage != nil && !controller.isRefreshing }
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(controller.state, baseline)
+            XCTAssertEqual(controller.errorMessage, MockPullRequestError.refreshFailed.localizedDescription)
+        }
+        XCTAssertTrue(notifications.records.isEmpty)
+    }
+
+    func testMockMergedFinalActivityAndQuietAccessLossAreDeterministic() async {
+        for scenario in [MockPullRequestScenario.mergedFinalActivity, .quietAccessLoss] {
+            let suiteName = "mergehawk-mock-retirement-test-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            let preferencesStore = PreferencesStore(defaults: defaults)
+            let notifications = RecordingNotificationClient()
+            let controller = await MainActor.run {
+                DashboardController(
+                    tokenStore: InMemoryTokenStore(),
+                    preferencesStore: preferencesStore,
+                    launchConfiguration: LaunchConfiguration(
+                        usesMockData: true,
+                        suppressesMacOSNotifications: true,
+                        mockPullRequestScenario: scenario
+                    ),
+                    notificationClient: notifications,
+                    automaticRefreshInterval: 0
+                )
+            }
+            await waitUntil(timeout: 1) {
+                await MainActor.run { controller.state.pullRequests.count == 1 && !controller.isRefreshing }
+            }
+            await MainActor.run { controller.refresh() }
+            await waitUntil(timeout: 1) {
+                await MainActor.run { controller.state.pullRequests.isEmpty && !controller.isRefreshing }
+            }
+
+            if scenario == .mergedFinalActivity {
+                await MainActor.run {
+                    XCTAssertEqual(
+                        Set(controller.pullRequestNotificationHistory.map(\.activityId)),
+                        ["PR_SCENARIO_FINAL_COMMENT", "PR_SCENARIO_FINAL_REVIEW"]
+                    )
+                }
+                XCTAssertEqual(Set(notifications.records.map(\.eventType)), ["new_comment", "review_approved"])
+            } else {
+                await MainActor.run {
+                    XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+                }
+                XCTAssertTrue(notifications.records.isEmpty)
+            }
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+    }
+
     func testNotificationClickRouteOpensSingleMatchingPullRequest() {
         let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
         let route = NotificationClickRoute.route(

@@ -9,13 +9,13 @@ Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
 - SwiftPM project with a macOS 14+ AppKit/SwiftUI menu bar app.
 - `LSUIElement`-style accessory behavior at runtime with no Dock presence.
 - Native `NSStatusItem` menu populated with SwiftUI-hosted dashboard rows.
-- Compact menu tabs for `Notifications` and `My PRs`.
+- Compact menu tabs for `Notifications`, `My PRs`, and `Requested`.
 - SwiftUI Settings window with General, GitHub, Notifications, and Sources panes.
 - First-sync silent baseline behavior.
 - Event detection for new comments, new reviews, failed CI, and changes requested.
 - Notification preferences for in-menu and macOS notifications.
 - GitHub App sign-in through the GitHub device flow.
-- GitHub PR fetching through GraphQL search.
+- Complete GitHub PR discovery and paginated activity fetching through GraphQL.
 - GitHub App user token storage in macOS Keychain.
 - Advanced GitHub PAT fallback in Settings.
 
@@ -200,6 +200,14 @@ MergeHawk does not request broad classic OAuth scopes for GitHub App sign-in. Ac
 
 After signing in, install or manage repository access from the Sources settings pane. GitHub lets the user choose a personal account or organization, then choose all repositories or selected repositories. Private organization repositories require an organization owner, or an eligible repository admin when the organization allows it, to install or approve the MergeHawk GitHub App for that organization or repository. If MergeHawk is signed in but the app is not installed anywhere, the menu and Sources settings show repository access guidance instead of a normal empty PR state.
 
+Dashboard refreshes discover every currently relevant PR, hydrate complete paginated
+comment/review activity, reconcile PRs that disappeared from search, and then publish
+the dashboard, notification history, and processed-activity record together. A failed
+refresh leaves the previous dashboard intact. `Notifications` contains the local PR
+notification history directly, including final activity from a PR that was just merged
+or closed. Repository catalog and GitHub App installation checks belong to `Sources`;
+they refresh separately and cannot delay PR publication.
+
 ## Advanced Personal Access Token Fallback
 
 1. Create a GitHub fine-grained or classic personal access token for PR data.
@@ -231,3 +239,19 @@ Build the app:
 ```sh
 swift build --product mergehawk
 ```
+
+Isolated mock launches support deterministic complete-refresh scenarios:
+
+```sh
+scripts/run-agent-app.sh --slot local --mock --mock-scenario delayed-refresh --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario refresh-failure --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario merged-final-activity --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario quiet-access-loss --ui menu --open
+```
+
+Each scenario publishes a baseline first; use the menu refresh action to trigger
+the selected delay, failure, final merged activity, or quiet retirement.
+
+When reusing one verification run, give each additional launch a unique `--stage`
+such as `app-final-activity`. This keeps its app log and mock notification JSONL
+immutable while the default first launch remains the `app` stage.
