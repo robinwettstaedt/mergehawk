@@ -681,11 +681,11 @@ struct MenuRootView: View {
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { menu in
+                .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { anchors in
                     GeometryReader { geometry in
                         DropdownOutsideClickView(
                             isActive: dropdownState.openMenu != nil,
-                            excludedBounds: menu.map { geometry[$0.bounds] },
+                            excludedBounds: anchors.buttons.map { geometry[$0] },
                             dismiss: { dropdownState.dismiss() }
                         )
                     }
@@ -694,8 +694,8 @@ struct MenuRootView: View {
         }
         .frame(width: resolvedSize.width, height: resolvedSize.height)
         .background(menuSurface)
-        .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { menu in
-            if let menu {
+        .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { anchors in
+            if let menu = anchors.openMenu {
                 GeometryReader { geometry in
                     let anchor = geometry[menu.bounds]
                     PullRequestActionsMenu(
@@ -2500,14 +2500,17 @@ struct PullRequestRow: View {
             .help("PR actions")
             .accessibilityLabel("PR actions")
             .anchorPreference(key: PullRequestActionsAnchorKey.self, value: .bounds) { bounds in
-                isActionsOpen ? PullRequestActionsAnchor(
-                    bounds: bounds,
-                    url: pullRequest.url,
-                    isHidden: isHidden,
-                    isPinned: isPinned,
-                    toggleHide: toggleHide,
-                    togglePin: togglePin
-                ) : nil
+                PullRequestActionsAnchors(
+                    buttons: [bounds],
+                    openMenu: isActionsOpen ? PullRequestActionsAnchor(
+                        bounds: bounds,
+                        url: pullRequest.url,
+                        isHidden: isHidden,
+                        isPinned: isPinned,
+                        toggleHide: toggleHide,
+                        togglePin: togglePin
+                    ) : nil
+                )
             }
             .frame(width: PullRequestColumnLayout.actionsWidth)
         }
@@ -2664,7 +2667,7 @@ private extension View {
 // overlay, it never participates in hover hit-testing over the PR list.
 private struct DropdownOutsideClickView: NSViewRepresentable {
     let isActive: Bool
-    let excludedBounds: CGRect?
+    let excludedBounds: [CGRect]
     let dismiss: () -> Void
 
     func makeNSView(context: Context) -> DropdownOutsideClickNSView {
@@ -2680,7 +2683,7 @@ private struct DropdownOutsideClickView: NSViewRepresentable {
 
 final class DropdownOutsideClickNSView: NSView {
     var isActive = false
-    var excludedBounds: CGRect?
+    var excludedBounds: [CGRect] = []
     var dismiss: () -> Void = {}
 
     override var isFlipped: Bool { true }
@@ -2694,7 +2697,7 @@ final class DropdownOutsideClickNSView: NSView {
         isActive
             && eventType == .leftMouseDown
             && bounds.contains(point)
-            && excludedBounds?.contains(point) != true
+            && !excludedBounds.contains(where: { $0.contains(point) })
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -2715,11 +2718,18 @@ private struct PullRequestActionsAnchor {
     let togglePin: () -> Void
 }
 
-private struct PullRequestActionsAnchorKey: PreferenceKey {
-    static var defaultValue: PullRequestActionsAnchor? { nil }
+private struct PullRequestActionsAnchors {
+    var buttons: [Anchor<CGRect>] = []
+    var openMenu: PullRequestActionsAnchor?
+}
 
-    static func reduce(value: inout PullRequestActionsAnchor?, nextValue: () -> PullRequestActionsAnchor?) {
-        value = nextValue() ?? value
+private struct PullRequestActionsAnchorKey: PreferenceKey {
+    static var defaultValue: PullRequestActionsAnchors { PullRequestActionsAnchors() }
+
+    static func reduce(value: inout PullRequestActionsAnchors, nextValue: () -> PullRequestActionsAnchors) {
+        let next = nextValue()
+        value.buttons.append(contentsOf: next.buttons)
+        value.openMenu = next.openMenu ?? value.openMenu
     }
 }
 
@@ -2745,6 +2755,9 @@ struct PullRequestActionsMenu: View {
         .padding(6)
         .frame(width: Self.width, height: Self.height)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        // Padding belongs to the open menu, not the outside-click dismiss area.
+        .contentShape(Rectangle())
+        .onTapGesture {}
         .overlay {
             RoundedRectangle(cornerRadius: 7)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)

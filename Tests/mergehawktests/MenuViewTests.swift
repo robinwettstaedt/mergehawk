@@ -18,7 +18,7 @@ final class MenuViewTests: XCTestCase {
     func testDropdownDismissalNeverCapturesHoverOrTheOriginalButton() {
         let view = DropdownOutsideClickNSView(frame: CGRect(x: 0, y: 0, width: 820, height: 600))
         view.isActive = true
-        view.excludedBounds = CGRect(x: 742, y: 80, width: 28, height: 28)
+        view.excludedBounds = [CGRect(x: 742, y: 80, width: 28, height: 28)]
 
         for type: NSEvent.EventType in [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDragged, .scrollWheel] {
             XCTAssertFalse(view.capturesClick(at: CGPoint(x: 400, y: 400), eventType: type))
@@ -29,6 +29,29 @@ final class MenuViewTests: XCTestCase {
         }
         XCTAssertTrue(view.capturesClick(at: CGPoint(x: 400, y: 400), eventType: .leftMouseDown))
         XCTAssertFalse(view.capturesClick(at: CGPoint(x: 900, y: 400), eventType: .leftMouseDown))
+    }
+
+    @MainActor
+    func testOpenDropdownLeavesOtherRowButtonsClickable() {
+        let view = DropdownOutsideClickNSView(frame: CGRect(x: 0, y: 0, width: 820, height: 600))
+        view.isActive = true
+        view.excludedBounds = [
+            CGRect(x: 742, y: 80, width: 28, height: 28),
+            CGRect(x: 742, y: 132, width: 28, height: 28),
+            CGRect(x: 742, y: 184, width: 28, height: 28)
+        ]
+        for point in [CGPoint(x: 756, y: 94), CGPoint(x: 756, y: 146), CGPoint(x: 756, y: 198)] {
+            XCTAssertFalse(view.capturesClick(at: point, eventType: .leftMouseDown))
+        }
+        // Only the buttons pass through. Clicking a row's body or the gaps still dismisses.
+        XCTAssertTrue(view.capturesClick(at: CGPoint(x: 700, y: 146), eventType: .leftMouseDown))
+        XCTAssertTrue(view.capturesClick(at: CGPoint(x: 756, y: 120), eventType: .leftMouseDown))
+
+        var state = PullRequestMenuDropdownState(openMenu: .actions("first"))
+        state.toggle(.actions("second"))
+        XCTAssertEqual(state.openMenu, .actions("second"))
+        state.toggle(.actions("second"))
+        XCTAssertNil(state.openMenu)
     }
 
     @MainActor
