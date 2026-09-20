@@ -60,31 +60,33 @@ final class GitHubRetirementTests: XCTestCase {
         XCTAssertTrue(result.retiringPullRequests.isEmpty)
     }
 
-    func testResource404RequiresFreshMatchingViewerBeforeQuietRetirement() async throws {
-        let previous = Self.previousState(Self.previousPR())
-        var requestedPaths: [String] = []
-        RetirementURLProtocol.handler = { request in
-            requestedPaths.append(request.url!.path)
-            if request.url?.host == "api.github.com", request.url?.path == "/repos/acme/app/pulls/1" {
-                return Self.response(Self.json(["message": "Not Found"]), request, status: 404)
+    func testResource404And410RequireFreshMatchingViewerBeforeQuietRetirement() async throws {
+        for status in [404, 410] {
+            let previous = Self.previousState(Self.previousPR())
+            var requestedPaths: [String] = []
+            RetirementURLProtocol.handler = { request in
+                requestedPaths.append(request.url!.path)
+                if request.url?.host == "api.github.com", request.url?.path == "/repos/acme/app/pulls/1" {
+                    return Self.response(Self.json(["message": "Gone"]), request, status: status)
+                }
+                if request.url?.path == "/user" {
+                    return Self.response(Self.json(["login": "rw"]), request)
+                }
+                let query = Self.graphQLQuery(request)
+                if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+                if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+                if query.contains("CompletePullRequests") {
+                    return Self.response(Self.hydration(nodes: [NSNull()]), request)
+                }
+                return Self.response(Data(), request, status: 500)
             }
-            if request.url?.path == "/user" {
-                return Self.response(Self.json(["login": "rw"]), request)
-            }
-            let query = Self.graphQLQuery(request)
-            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
-            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
-            if query.contains("CompletePullRequests") {
-                return Self.response(Self.hydration(nodes: [NSNull()]), request)
-            }
-            return Self.response(Data(), request, status: 500)
+
+            let result = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: previous)
+
+            XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_1"])
+            XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
         }
-
-        let result = try await GitHubClient(token: "token", session: Self.session())
-            .fetchCompletePullRequests(login: "rw", previousState: previous)
-
-        XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_1"])
-        XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
     }
 
     func testViewerMismatchDoesNotMasqueradeAsRetirement() async throws {
@@ -114,34 +116,125 @@ final class GitHubRetirementTests: XCTestCase {
         }
     }
 
-    private static func previousPR() -> PullRequest {
+    func testAbsentAssignedDirectAndSharedTeamPRsRemainActive() async throws {
+        let assigned = Self.previousPR(id: "PR_ASSIGNED", number: 1, isMine: false, assigned: true)
+        let direct = Self.previousPR(id: "PR_DIRECT", number: 2, isMine: false, reviewKind: .direct)
+        let teamOne = Self.previousPR(id: "PR_TEAM_1", number: 3, isMine: false, reviewKind: .team)
+        let teamTwo = Self.previousPR(id: "PR_TEAM_2", number: 4, isMine: false, reviewKind: .team)
+        let previous = Self.previousState([assigned, direct, teamOne, teamTwo])
+        let teamQueries = LockedRetirementCounter()
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("CompletePullRequests") {
+                return Self.response(Self.hydration(nodes: [
+                    Self.completePR(id: assigned.id, number: assigned.number, state: "OPEN", author: "author", assignees: ["rw"]),
+                    Self.completePR(id: direct.id, number: direct.number, state: "OPEN", author: "author", directRequest: true),
+                    Self.completePR(id: teamOne.id, number: teamOne.number, state: "OPEN", author: "author", teamRequest: true),
+                    Self.completePR(id: teamTwo.id, number: teamTwo.number, state: "OPEN", author: "author", teamRequest: true)
+                ]), request)
+            }
+            if query.contains("RepositoryTeamMembership") {
+                teamQueries.increment()
+                let queryValue = Self.graphQLVariables(request)["query"] as? String ?? ""
+                let nodes = queryValue.contains("sort:created-asc")
+                    ? [Self.discoveryNode(id: teamOne.id, number: teamOne.number, second: 0)]
+                    : queryValue.contains("sort:created-desc")
+                        ? [Self.discoveryNode(id: teamTwo.id, number: teamTwo.number, second: 1)]
+                        : [
+                            Self.discoveryNode(id: teamOne.id, number: teamOne.number, second: 0),
+                            Self.discoveryNode(id: teamTwo.id, number: teamTwo.number, second: 1)
+                        ]
+                return Self.response(Self.repositoryTeamPage(nodes), request)
+            }
+            return Self.response(Data(), request, status: 500)
+        }
+
+        let result = try await GitHubClient(token: "token", session: Self.session())
+            .fetchCompletePullRequests(login: "rw", previousState: previous)
+
+        XCTAssertEqual(Set(result.activePullRequests.map(\.id)), Set(previous.dashboard.pullRequests.map(\.id)))
+        XCTAssertEqual(teamQueries.value, 3)
+    }
+
+    func testAmbiguousForbiddenRateLimitAndServerFailureNeverRetireQuietly() async throws {
+        for scenario in ["ambiguous", "rate", "server"] {
+            let previous = Self.previousState(Self.previousPR())
+            RetirementURLProtocol.handler = { request in
+                if request.url?.path == "/repos/acme/app/pulls/1" {
+                    switch scenario {
+                    case "rate":
+                        return Self.response(
+                            Self.json(["message": "rate limited"]),
+                            request,
+                            status: 403,
+                            headers: ["X-RateLimit-Remaining": "0", "Retry-After": "60"]
+                        )
+                    case "server":
+                        return Self.response(Self.json(["message": "failed"]), request, status: 500)
+                    default:
+                        return Self.response(Self.json(["message": "Forbidden"]), request, status: 403)
+                    }
+                }
+                let query = Self.graphQLQuery(request)
+                if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+                if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+                if query.contains("CompletePullRequests") {
+                    return Self.response(Self.hydration(nodes: [NSNull()]), request)
+                }
+                return Self.response(Data(), request, status: 500)
+            }
+
+            do {
+                _ = try await GitHubClient(token: "token", session: Self.session())
+                    .fetchCompletePullRequests(login: "rw", previousState: previous)
+                XCTFail("Expected \(scenario) failure")
+            } catch let error as GitHubReadError {
+                switch scenario {
+                case "rate":
+                    guard case .rateLimited(let retryAt) = error else { return XCTFail("Unexpected \(error)") }
+                    XCTAssertNotNil(retryAt)
+                case "server": XCTAssertEqual(error, .http(status: 500))
+                default: XCTAssertEqual(error, .http(status: 403))
+                }
+            }
+        }
+    }
+
+    private static func previousPR(
+        id: String = "PR_1",
+        number: Int = 1,
+        isMine: Bool = true,
+        assigned: Bool = false,
+        reviewKind: ReviewRequestKind = .none
+    ) -> PullRequest {
         PullRequest(
-            id: "PR_1", title: "Tracked PR", number: 1,
-            url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
+            id: id, title: "Tracked PR", number: number,
+            url: URL(string: "https://github.com/acme/app/pull/\(number)")!, repo: "acme/app",
             ciState: .passing, reviewDecision: .noReviewYet,
             commentCount: 0, reviewCount: 0,
-            isMine: true, author: "rw", mergeable: .mergeable, draft: false,
+            reviewRequestKind: reviewKind, isAssignedToViewer: assigned,
+            isMine: isMine, author: isMine ? "rw" : "author", mergeable: .mergeable, draft: false,
             createdAt: Date(timeIntervalSince1970: 0)
         )
     }
 
     private static func previousState(_ pullRequest: PullRequest) -> PullRequestSyncState {
+        previousState([pullRequest])
+    }
+
+    private static func previousState(_ pullRequests: [PullRequest]) -> PullRequestSyncState {
         PullRequestSyncState(
             account: GitHubAccount(login: "rw"),
             dashboard: DashboardState(
-                pullRequests: [pullRequest], events: [], syncedAt: Date(), source: .github,
+                pullRequests: pullRequests, events: [], syncedAt: Date(), source: .github,
                 account: GitHubAccount(login: "rw"), authStatus: .signedIn
             ),
-            processedActivityByPullRequestID: [
-                pullRequest.id: ProcessedPullRequestActivity(pullRequestID: pullRequest.id)
-            ],
-            notificationHistory: [
-                PullRequestNotification(
-                    event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id),
-                    pullRequest: pullRequest,
-                    read: true
-                )
-            ]
+            processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues: pullRequests.map {
+                ($0.id, ProcessedPullRequestActivity(pullRequestID: $0.id))
+            }),
+            notificationHistory: []
         )
     }
 
@@ -173,23 +266,68 @@ final class GitHubRetirementTests: XCTestCase {
     }
 
     private static func completePR(
+        id: String = "PR_1",
+        number: Int = 1,
         state: String,
+        author: String = "rw",
+        assignees: [String] = [],
+        directRequest: Bool = false,
+        teamRequest: Bool = false,
         comments: [[String: Any]] = [],
         reviews: [[String: Any]] = []
     ) -> [String: Any] {
-        [
-            "id": "PR_1", "title": "Tracked PR", "number": 1,
-            "url": "https://github.com/acme/app/pull/1", "state": state,
+        var requests: [[String: Any]] = []
+        if directRequest {
+            requests.append([
+                "id": "DIRECT_\(id)",
+                "requestedReviewer": ["__typename": "User", "id": "U_RW", "login": "rw"]
+            ])
+        }
+        if teamRequest {
+            requests.append([
+                "id": "TEAM_\(id)",
+                "requestedReviewer": [
+                    "__typename": "Team", "id": "T_TEAM", "slug": "developers",
+                    "organization": ["login": "acme"]
+                ]
+            ])
+        }
+        return [
+            "id": id, "title": "Tracked PR", "number": number,
+            "url": "https://github.com/acme/app/pull/\(number)", "state": state,
             "createdAt": "1970-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
             "headRefName": "feature", "headRefOid": "abc", "isDraft": false,
             "mergeable": "MERGEABLE", "additions": 1, "deletions": 1,
             "statusCheckRollup": ["state": "SUCCESS"],
-            "author": ["id": "U_RW", "login": "rw"],
+            "author": ["id": "U_\(author)", "login": author],
             "repository": ["nameWithOwner": "acme/app"],
             "comments": connection(comments), "reviews": connection(reviews),
             "latestOpinionatedReviews": connection([]), "reviewThreads": connection([]),
-            "assignees": connection([]), "reviewRequests": connection([])
+            "assignees": connection(assignees.map { ["id": "U_\($0)", "login": $0] }),
+            "reviewRequests": connection(requests)
         ]
+    }
+
+    private static func discoveryNode(id: String, number: Int, second: Int) -> [String: Any] {
+        [
+            "id": id,
+            "number": number,
+            "createdAt": ISO8601DateFormatter().string(
+                from: Date(timeIntervalSince1970: TimeInterval(second))
+            ),
+            "repository": ["nameWithOwner": "acme/app"]
+        ]
+    }
+
+    private static func repositoryTeamPage(_ nodes: [[String: Any]]) -> Data {
+        json(["data": ["search": [
+            "issueCount": nodes.count,
+            "nodes": nodes,
+            "pageInfo": [
+                "startCursor": NSNull(), "endCursor": NSNull(),
+                "hasPreviousPage": false, "hasNextPage": false
+            ]
+        ]]])
     }
 
     private static func connection(_ nodes: [[String: Any]]) -> [String: Any] {
@@ -223,6 +361,14 @@ final class GitHubRetirementTests: XCTestCase {
         return json["query"] as? String ?? ""
     }
 
+    private static func graphQLVariables(_ request: URLRequest) -> [String: Any] {
+        guard let body = requestBody(request),
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            return [:]
+        }
+        return json["variables"] as? [String: Any] ?? [:]
+    }
+
     private static func requestBody(_ request: URLRequest) -> Data? {
         if let body = request.httpBody { return body }
         guard let stream = request.httpBodyStream else { return nil }
@@ -248,9 +394,10 @@ final class GitHubRetirementTests: XCTestCase {
     private static func response(
         _ data: Data,
         _ request: URLRequest,
-        status: Int = 200
+        status: Int = 200,
+        headers: [String: String]? = nil
     ) -> (Data, HTTPURLResponse) {
-        (data, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+        (data, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!)
     }
 
     private static func json(_ value: Any) -> Data {
@@ -273,4 +420,11 @@ private final class RetirementURLProtocol: URLProtocol {
         }
     }
     override func stopLoading() {}
+}
+
+private final class LockedRetirementCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = 0
+    var value: Int { lock.withLock { stored } }
+    func increment() { lock.withLock { stored += 1 } }
 }

@@ -747,9 +747,9 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         request.addValue("application/vnd.github+json", forHTTPHeaderField: "accept")
         request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
         request.addValue("2022-11-28", forHTTPHeaderField: "x-github-api-version")
-        let (data, http) = try await completeREST(request, allowedStatuses: [403, 404])
+        let (data, http) = try await completeREST(request, allowedStatuses: [403, 404, 410])
         switch http.statusCode {
-        case 404:
+        case 404, 410:
             if !verifiedViewer {
                 try await verifyViewerIdentity(expectedLogin)
                 verifiedViewer = true
@@ -760,6 +760,10 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             guard message.localizedCaseInsensitiveContains("resource not accessible")
                     || message.localizedCaseInsensitiveContains("access denied") else {
                 throw GitHubReadError.http(status: 403)
+            }
+            if !verifiedViewer {
+                try await verifyViewerIdentity(expectedLogin)
+                verifiedViewer = true
             }
             return true
         default:
