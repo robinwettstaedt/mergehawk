@@ -5,6 +5,12 @@ public func isGitHubReadAuthenticationError(_ error: Error) -> Bool {
     return readError == .authentication
 }
 
+public func gitHubReadRateLimitRetryDate(_ error: Error) -> Date? {
+    guard let readError = error as? GitHubReadError,
+          case .rateLimited(let retryAt) = readError else { return nil }
+    return retryAt
+}
+
 public protocol SourceCatalogProviding: AnyObject {
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog
 }

@@ -293,6 +293,12 @@ final class DashboardController: ObservableObject {
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
+    private struct AutomaticRefreshDeferral {
+        let generation: Int
+        let accountLogin: String
+        let retryAt: Date
+    }
+    private var automaticRefreshDeferral: AutomaticRefreshDeferral?
     private var refreshTask: Task<Void, Never>?
     private var refreshAttemptID = 0
     private var catalogTask: Task<Void, Never>?
@@ -1106,6 +1112,7 @@ final class DashboardController: ObservableObject {
 
     private func beginProviderGeneration() {
         providerGeneration += 1
+        automaticRefreshDeferral = nil
         refreshTask?.cancel()
         refreshTask = nil
         refreshAttemptID += 1
@@ -1337,6 +1344,7 @@ final class DashboardController: ObservableObject {
             committedSyncState = nextState
             presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
             account = dashboard.account
+            automaticRefreshDeferral = nil
 
             if authMethod == .oauth,
                !launchConfiguration.usesMockData,
@@ -1353,6 +1361,15 @@ final class DashboardController: ObservableObject {
             }
         } catch {
             guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else { return }
+            if let retryAt = gitHubReadRateLimitRetryDate(error),
+               retryAt > now(),
+               let login = account?.login ?? committedSyncState?.account.login {
+                automaticRefreshDeferral = AutomaticRefreshDeferral(
+                    generation: generation,
+                    accountLogin: login,
+                    retryAt: retryAt
+                )
+            }
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
@@ -1361,7 +1378,11 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    private func refreshDashboard(appliesMockRefreshDelay: Bool = false) async {
+    private func refreshDashboard(
+        appliesMockRefreshDelay: Bool = false,
+        isAutomatic: Bool = false
+    ) async {
+        if isAutomatic, shouldDeferAutomaticRefresh() { return }
         if let refreshTask {
             await refreshTask.value
             return
@@ -1447,11 +1468,14 @@ final class DashboardController: ObservableObject {
         }
 
         automaticRefreshTask?.cancel()
-        let intervalNanoseconds = UInt64(automaticRefreshInterval * 1_000_000_000)
         automaticRefreshTask = Task { [weak self] in
             while !Task.isCancelled {
+                guard let self else { break }
+                let sleepSeconds = self.automaticRefreshSleepDuration(
+                    defaultInterval: automaticRefreshInterval
+                )
                 do {
-                    try await Task.sleep(nanoseconds: intervalNanoseconds)
+                    try await Task.sleep(for: .seconds(sleepSeconds))
                 } catch {
                     break
                 }
@@ -1460,12 +1484,34 @@ final class DashboardController: ObservableObject {
                     break
                 }
 
-                guard let self else {
-                    break
-                }
-                await self.refreshDashboard()
+                await self.refreshDashboard(isAutomatic: true)
             }
         }
+    }
+
+    private func shouldDeferAutomaticRefresh() -> Bool {
+        guard let deferral = currentAutomaticRefreshDeferral() else { return false }
+        if deferral.retryAt > now() { return true }
+        automaticRefreshDeferral = nil
+        return false
+    }
+
+    private func automaticRefreshSleepDuration(defaultInterval: TimeInterval) -> TimeInterval {
+        guard let deferral = currentAutomaticRefreshDeferral() else { return defaultInterval }
+        let remaining = deferral.retryAt.timeIntervalSince(now())
+        if remaining > 0 { return remaining }
+        automaticRefreshDeferral = nil
+        return 0
+    }
+
+    private func currentAutomaticRefreshDeferral() -> AutomaticRefreshDeferral? {
+        guard let deferral = automaticRefreshDeferral,
+              deferral.generation == providerGeneration,
+              deferral.accountLogin == (account?.login ?? committedSyncState?.account.login) else {
+            automaticRefreshDeferral = nil
+            return nil
+        }
+        return deferral
     }
 
     private static func compare<Value: Comparable>(

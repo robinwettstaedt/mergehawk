@@ -1,6 +1,6 @@
 @testable import mergehawk
+@testable import mergehawkcore
 import Foundation
-import mergehawkcore
 import XCTest
 
 final class AtomicRefreshTests: XCTestCase {
@@ -142,6 +142,79 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testRetryAfterSuppressesAutomaticAttemptsUntilPermitted() async throws {
+        let suiteName = "atomic-rate-limit-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        let pullRequest = makePullRequest(id: "PR_RATE", title: "Rate limited")
+        try preferences.storePullRequestSyncState(makeSyncState(pullRequest))
+        let retryAt = Date().addingTimeInterval(0.15)
+        let provider = RateLimitedGitHubProvider(
+            retryAt: retryAt,
+            result: CompletePullRequestFetchResult(activePullRequests: [pullRequest])
+        )
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0.01,
+            patGitHubClientFactory: { _ in provider }
+        )
+
+        await waitUntil { provider.fetchCount == 2 }
+        try? await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(provider.fetchCount, 2)
+        await waitUntil(timeout: 0.5) { provider.fetchCount >= 3 }
+        XCTAssertGreaterThanOrEqual(provider.requestDates[2], retryAt)
+        _ = controller
+    }
+
+    @MainActor
+    func testCredentialReplacementClearsAccountScopedRateDeferral() async throws {
+        let suiteName = "atomic-rate-account-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        let pullRequest = makePullRequest(id: "PR_RATE_ACCOUNT", title: "Old account")
+        try preferences.storePullRequestSyncState(makeSyncState(pullRequest))
+        let oldProvider = RateLimitedGitHubProvider(
+            retryAt: Date().addingTimeInterval(60),
+            result: CompletePullRequestFetchResult(activePullRequests: [pullRequest]),
+            login: "rw"
+        )
+        let newPR = makePullRequest(id: "PR_NEW_ACCOUNT", title: "New account")
+        let newProvider = RateLimitedGitHubProvider(
+            retryAt: .distantFuture,
+            result: CompletePullRequestFetchResult(activePullRequests: [newPR]),
+            login: "new-user",
+            emitsRateLimit: false
+        )
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "old"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0.01,
+            patGitHubClientFactory: { token in token == "new" ? newProvider : oldProvider }
+        )
+        await waitUntil { oldProvider.fetchCount == 2 }
+
+        await controller.signInWithToken("new")
+
+        XCTAssertEqual(newProvider.fetchCount, 1)
+        XCTAssertEqual(controller.state.account?.login, "new-user")
+        XCTAssertEqual(controller.state.pullRequests.map(\.id), [newPR.id])
+    }
+
+    @MainActor
     private func makeFixture(
         pullRequest: PullRequest = makePullRequest(id: "PR_BASELINE", title: "Baseline"),
         provider: AtomicGitHubProvider,
@@ -275,6 +348,55 @@ private final class AtomicGitHubProvider: GitHubProviding {
     }
 }
 
+private final class RateLimitedGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    private let lock = NSLock()
+    private let retryAt: Date
+    private let result: CompletePullRequestFetchResult
+    private let login: String
+    private let emitsRateLimit: Bool
+    private var storedRequestDates: [Date] = []
+
+    init(
+        retryAt: Date,
+        result: CompletePullRequestFetchResult,
+        login: String = "rw",
+        emitsRateLimit: Bool = true
+    ) {
+        self.retryAt = retryAt
+        self.result = result
+        self.login = login
+        self.emitsRateLimit = emitsRateLimit
+    }
+
+    var fetchCount: Int { lock.withLock { storedRequestDates.count } }
+    var requestDates: [Date] { lock.withLock { storedRequestDates } }
+
+    func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: login) }
+
+    func fetchCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        let count = lock.withLock { () -> Int in
+            storedRequestDates.append(Date())
+            return storedRequestDates.count
+        }
+        if emitsRateLimit, count == 2 {
+            throw GitHubReadError.rateLimited(retryAt: retryAt)
+        }
+        return result
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: accountLogin)
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+}
+
 @MainActor
 private struct AtomicFixture {
     let suiteName: String
@@ -323,5 +445,26 @@ private func makePullRequest(
         draft: false,
         createdAt: Date(timeIntervalSince1970: 1),
         updatedAt: Date(timeIntervalSince1970: 20)
+    )
+}
+
+private func makeSyncState(_ pullRequest: PullRequest) -> PullRequestSyncState {
+    let account = GitHubAccount(login: "rw")
+    return PullRequestSyncState(
+        account: account,
+        dashboard: DashboardState(
+            pullRequests: [pullRequest],
+            events: [],
+            syncedAt: Date(timeIntervalSince1970: 10),
+            source: .github,
+            account: account,
+            authStatus: .signedIn
+        ),
+        processedActivityByPullRequestID: [
+            pullRequest.id: ProcessedPullRequestActivity(
+                pullRequestID: pullRequest.id,
+                commentIDs: Set(pullRequest.recentCommentActivities.map(\.id))
+            )
+        ]
     )
 }
