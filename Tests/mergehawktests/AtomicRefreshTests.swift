@@ -104,27 +104,82 @@ final class AtomicRefreshTests: XCTestCase {
         let fixture = try makeFixture(provider: provider)
         defer { fixture.cleanup() }
         await waitUntil { provider.fetchCount == 1 }
-        let comments = (0..<121).map { index in
+        let comments = (0..<61).map { index in
             PullRequestCommentActivity(
                 id: "LARGE_COMMENT_\(index)",
                 author: "reviewer",
-                createdAt: Date(timeIntervalSince1970: TimeInterval(100 + index)),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(100 + 2 * index)),
                 source: .pullRequest
+            )
+        }
+        let reviews = (0..<60).map { index in
+            PullRequestReview(
+                id: "LARGE_REVIEW_\(index)",
+                state: .approved,
+                submittedAt: Date(timeIntervalSince1970: TimeInterval(101 + 2 * index)),
+                author: "reviewer"
             )
         }
         let current = makePullRequest(
             id: fixture.pullRequest.id,
             title: "Large complete result",
-            comments: comments
+            comments: comments,
+            reviews: reviews
         )
 
         XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
         provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [current]))
         await waitUntil { !fixture.controller.isRefreshing }
 
-        XCTAssertEqual(fixture.controller.state.pullRequests.first?.recentCommentActivities.count, 121)
+        XCTAssertEqual(fixture.controller.state.pullRequests.first?.recentCommentActivities.count, 61)
         XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 30)
+        let expectedNewest = (
+            comments.map { ($0.id, $0.createdAt) }
+                + reviews.map { ($0.id, $0.submittedAt) }
+        ).sorted { $0.1 > $1.1 }.prefix(30).map(\.0)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.compactMap(\.activityId), expectedNewest)
         XCTAssertEqual(fixture.notifications.records.count, 121)
+    }
+
+    @MainActor
+    func testEqualActivityTimestampsUseDeterministicHistoryTieBreak() async throws {
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        let timestamp = Date(timeIntervalSince1970: 200)
+        let comments = (0..<16).map { index in
+            PullRequestCommentActivity(
+                id: String(format: "EQUAL_COMMENT_%02d", index),
+                author: "reviewer",
+                createdAt: timestamp,
+                source: .pullRequest
+            )
+        }
+        let reviews = (0..<15).map { index in
+            PullRequestReview(
+                id: String(format: "EQUAL_REVIEW_%02d", index),
+                state: .approved,
+                submittedAt: timestamp,
+                author: "reviewer"
+            )
+        }
+        let current = makePullRequest(
+            id: fixture.pullRequest.id,
+            title: "Equal timestamps",
+            comments: comments,
+            reviews: reviews
+        )
+
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [current]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        let expected = (comments.map(\.id) + reviews.map(\.id)).sorted(by: >).prefix(30)
+        XCTAssertEqual(
+            fixture.controller.pullRequestNotificationHistory.compactMap(\.activityId),
+            Array(expected)
+        )
+        XCTAssertEqual(fixture.notifications.records.count, 31)
     }
 
     @MainActor
@@ -923,7 +978,8 @@ private func makePullRequest(
             createdAt: Date(timeIntervalSince1970: 5),
             source: .pullRequest
         )
-    ]
+    ],
+    reviews: [PullRequestReview] = []
 ) -> PullRequest {
     PullRequest(
         id: id,
@@ -936,8 +992,8 @@ private func makePullRequest(
         commentCount: comments.count,
         commentActivityCount: comments.count,
         recentCommentActivities: comments,
-        reviewCount: 0,
-        recentReviews: [],
+        reviewCount: reviews.count,
+        recentReviews: reviews,
         headRefOid: "abc",
         isMine: true,
         author: "rw",

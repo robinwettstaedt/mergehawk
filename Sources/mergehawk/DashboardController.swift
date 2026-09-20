@@ -1324,7 +1324,7 @@ final class DashboardController: ObservableObject {
                 PullRequestNotification(
                     event: value.event,
                     pullRequest: value.filteringContext,
-                    createdAt: prepared.syncedAt
+                    createdAt: value.event.happenedAt ?? prepared.syncedAt
                 )
             }
             let retainedHistory = committedSyncState?.account.login == prepared.account.login
@@ -1564,10 +1564,19 @@ final class DashboardController: ObservableObject {
         if lhs.createdAt != rhs.createdAt {
             return lhs.createdAt > rhs.createdAt
         }
+        if lhs.activityId != rhs.activityId {
+            return (lhs.activityId ?? "") > (rhs.activityId ?? "")
+        }
+        if lhs.eventType.rawValue != rhs.eventType.rawValue {
+            return lhs.eventType.rawValue < rhs.eventType.rawValue
+        }
         if lhs.repo != rhs.repo {
             return lhs.repo < rhs.repo
         }
-        return lhs.prNumber > rhs.prNumber
+        if lhs.prNumber != rhs.prNumber {
+            return lhs.prNumber > rhs.prNumber
+        }
+        return lhs.id < rhs.id
     }
 
     private func updatePullRequestNotification(
