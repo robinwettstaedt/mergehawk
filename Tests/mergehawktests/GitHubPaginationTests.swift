@@ -119,6 +119,176 @@ final class GitHubPaginationTests: XCTestCase {
                 return
             }
         }
+        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 2)
+    }
+
+    func testOnlyIncompleteConnectionRetriesWhileSuccessfulSiblingStaysPrivate() async throws {
+        let initial = Self.pullRequest(
+            comments: Self.connection(
+                total: 11,
+                nodes: (1..<11).map { Self.comment("C\($0)") },
+                previous: "comments-before"
+            ),
+            reviews: Self.connection(
+                total: 11,
+                nodes: (1..<11).map { Self.review("R\($0)", state: "COMMENTED") },
+                previous: "reviews-before"
+            )
+        )
+        let continuations = LockedCounter()
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            let attempt = continuations.increment()
+            if attempt == 1 {
+                XCTAssertTrue(query.contains("comments(last:"))
+                XCTAssertTrue(query.contains("reviews(last:"))
+                return Self.json(["data": [
+                    "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C1")])],
+                    "c1": ["reviews": Self.connection(total: 11, nodes: [Self.review("R0", state: "APPROVED")])]
+                ]])
+            }
+            XCTAssertTrue(query.contains("comments(last:"))
+            XCTAssertFalse(query.contains("reviews(last:"))
+            return Self.json(["data": [
+                "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C0")])]
+            ]])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+        XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 11)
+        XCTAssertEqual(hydrated[0].pullRequest.recentReviews.count, 11)
+        XCTAssertEqual(continuations.value, 2)
+    }
+
+    func testLatestOpinionatedPaginationAndTopLevelBoundaryDeduplication() async throws {
+        let initial = Self.pullRequest(
+            comments: Self.connection(
+                total: 11,
+                nodes: (1..<11).map { Self.comment("C\($0)") },
+                previous: "comments-before"
+            ),
+            opinionated: Self.connection(
+                total: 21,
+                nodes: (1..<21).map { Self.review("O\($0)", state: "APPROVED") },
+                previous: "opinions-before"
+            )
+        )
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            return Self.json(["data": [
+                "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C1"), Self.comment("C0")])],
+                "c1": ["latestOpinionatedReviews": Self.connection(
+                    total: 21,
+                    nodes: [Self.review("O0", state: "CHANGES_REQUESTED")]
+                )]
+            ]])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+        XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 11)
+        XCTAssertEqual(hydrated[0].pullRequest.reviewDecision, .changesRequested)
+    }
+
+    func testActivityAppendedBeyondAnchorDefersWithoutFailureAndAppearsNextRefresh() async throws {
+        let firstInitial = Self.pullRequest(
+            comments: Self.connection(
+                total: 11,
+                nodes: (2...11).map { Self.comment("C\($0)") },
+                previous: "before"
+            )
+        )
+        let firstTransport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [firstInitial]]])
+            }
+            return Self.json(["data": [
+                "c0": ["comments": Self.connection(total: 12, nodes: [Self.comment("C1")])]
+            ]])
+        }
+        let first = try await Self.fetcher(firstTransport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+        XCTAssertEqual(first.recentCommentActivities.count, 11)
+
+        let secondInitial = Self.pullRequest(
+            comments: Self.connection(
+                total: 12,
+                nodes: (3...12).map { Self.comment("C\($0)") },
+                previous: "before"
+            )
+        )
+        let secondTransport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [secondInitial]]])
+            }
+            return Self.json(["data": [
+                "c0": ["comments": Self.connection(
+                    total: 12,
+                    nodes: [Self.comment("C1"), Self.comment("C2")]
+                )]
+            ]])
+        }
+        let second = try await Self.fetcher(secondTransport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+        let engine = SyncEngine(source: EmptyPullRequestSource(), loginProvider: { "rw" })
+        let baseline = try await engine.prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [first])
+        )
+        let state = PullRequestSyncState(
+            account: baseline.account,
+            dashboard: DashboardState(
+                pullRequests: [first], events: [], syncedAt: baseline.syncedAt, source: .github,
+                account: baseline.account, authStatus: .signedIn
+            ),
+            processedActivityByPullRequestID: baseline.processedActivityByPullRequestID
+        )
+        let prepared = try await engine.prepare(
+            previousState: state,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [second])
+        )
+
+        XCTAssertEqual(prepared.events.map(\.event.activityId), ["C12"])
+    }
+
+    func testHydrationAndContinuationBatchesStayBoundedAtTwenty() async throws {
+        let discoveries = (0..<21).map { Self.discovery(id: "PR_\($0)") }
+        let transport = HydrationTransport { query, variables in
+            if query.contains("CompletePullRequests") {
+                guard case .strings(let ids) = variables["ids"] else {
+                    throw GitHubReadError.invalidPayload
+                }
+                let nodes = ids.map { id in
+                    Self.pullRequest(
+                        id: id,
+                        comments: Self.connection(
+                            total: 11,
+                            nodes: (1..<11).map { Self.comment("\(id)_C\($0)") },
+                            previous: "before"
+                        )
+                    )
+                }
+                return Self.json(["data": ["nodes": nodes]])
+            }
+            var data: [String: Any] = [:]
+            var index = 0
+            while case .string(let id) = variables["id\(index)"] {
+                data["c\(index)"] = [
+                    "comments": Self.connection(total: 11, nodes: [Self.comment("\(id)_C0")])
+                ]
+                index += 1
+            }
+            return Self.json(["data": data])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate(discoveries, login: "rw")
+
+        XCTAssertEqual(hydrated.count, 21)
+        XCTAssertEqual(transport.queries.filter { $0.contains("CompletePullRequests") }.count, 2)
+        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 2)
     }
 
     func testCompleteHydrationNormalizesEveryCIStateAndMissingAuthor() async throws {
@@ -152,9 +322,9 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
-    private static func discovery() -> DiscoveredPullRequest {
+    private static func discovery(id: String = "PR_1") -> DiscoveredPullRequest {
         DiscoveredPullRequest(
-            id: "PR_1",
+            id: id,
             repository: "acme/app",
             number: 1,
             createdAt: Date(timeIntervalSince1970: 0),
@@ -166,6 +336,7 @@ final class GitHubPaginationTests: XCTestCase {
     }
 
     private static func pullRequest(
+        id: String = "PR_1",
         comments: [String: Any] = connection(total: 0, nodes: []),
         reviews: [String: Any] = connection(total: 0, nodes: []),
         opinionated: [String: Any] = connection(total: 0, nodes: []),
@@ -174,7 +345,7 @@ final class GitHubPaginationTests: XCTestCase {
         requests: [String: Any] = connection(total: 0, nodes: [])
     ) -> [String: Any] {
         [
-            "id": "PR_1", "title": "Complete hydration", "number": 1,
+            "id": id, "title": "Complete hydration", "number": 1,
             "url": "https://github.com/acme/app/pull/1", "state": "OPEN",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z",
             "headRefName": "feature", "headRefOid": "abc", "isDraft": false,
@@ -258,4 +429,11 @@ private final class HydrationTransport: @unchecked Sendable {
         lock.withLock { storedQueries.append(query) }
         return try handler(query, variables)
     }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = 0
+    var value: Int { lock.withLock { stored } }
+    func increment() -> Int { lock.withLock { stored += 1; return stored } }
 }

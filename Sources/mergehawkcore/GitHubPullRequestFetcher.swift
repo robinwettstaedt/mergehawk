@@ -106,6 +106,27 @@ struct GitHubPullRequestFetcher: Sendable {
         let kind: ConnectionKind
         let before: String
         let expectedTotal: Int?
+        let initialBefore: String
+        let attempt: Int
+
+        init(
+            kind: ConnectionKind,
+            before: String,
+            expectedTotal: Int?,
+            initialBefore: String? = nil,
+            attempt: Int = 0
+        ) {
+            self.kind = kind
+            self.before = before
+            self.expectedTotal = expectedTotal
+            self.initialBefore = initialBefore ?? before
+            self.attempt = attempt
+        }
+    }
+
+    private struct ContinuationVisit: Hashable {
+        let kind: ConnectionKind
+        let attempt: Int
     }
 
     private struct HydrationAccumulator {
@@ -286,12 +307,13 @@ struct GitHubPullRequestFetcher: Sendable {
             }
         }
 
-        var visitedCursors: [ConnectionKind: Set<String>] = [:]
+        var visitedCursors: [ContinuationVisit: Set<String>] = [:]
         while !continuations.isEmpty {
             let batch = Array(continuations.prefix(GitHubPullRequestQueries.continuationBatchSize))
             continuations.removeFirst(min(batch.count, continuations.count))
             for item in batch {
-                guard visitedCursors[item.kind, default: []].insert(item.before).inserted else {
+                let visit = ContinuationVisit(kind: item.kind, attempt: item.attempt)
+                guard visitedCursors[visit, default: []].insert(item.before).inserted else {
                     throw GitHubReadError.incompleteCoverage("Repeated continuation cursor")
                 }
             }
@@ -611,7 +633,14 @@ struct GitHubPullRequestFetcher: Sendable {
         }
         guard var accumulator = accumulators[prID] else { throw GitHubReadError.invalidPayload }
         if let expected = continuation.expectedTotal, let observed = page.totalCount, observed < expected {
-            throw GitHubReadError.incompleteCoverage("Connection total decreased during traversal")
+            try retryIncompleteConnection(
+                continuation,
+                accumulator: &accumulator,
+                queue: &queue,
+                message: "Connection total decreased during traversal"
+            )
+            accumulators[prID] = accumulator
+            return
         }
         switch (continuation.kind, page) {
         case (.comments, .comments(let value)):
@@ -643,12 +672,83 @@ struct GitHubPullRequestFetcher: Sendable {
 
         if page.pageInfo.hasPreviousPage {
             guard let cursor = page.pageInfo.startCursor else { throw GitHubReadError.invalidPayload }
-            queue.append(Continuation(kind: continuation.kind, before: cursor, expectedTotal: continuation.expectedTotal))
+            queue.append(Continuation(
+                kind: continuation.kind,
+                before: cursor,
+                expectedTotal: continuation.expectedTotal,
+                initialBefore: continuation.initialBefore,
+                attempt: continuation.attempt
+            ))
         } else if let expected = continuation.expectedTotal {
             let actual = accumulatedCount(for: continuation.kind, in: accumulator)
-            guard actual >= expected else {
-                throw GitHubReadError.incompleteCoverage("Connection returned \(actual) of \(expected) items")
+            if actual < expected {
+                try retryIncompleteConnection(
+                    continuation,
+                    accumulator: &accumulator,
+                    queue: &queue,
+                    message: "Connection returned \(actual) of \(expected) items"
+                )
             }
+        }
+        accumulators[prID] = accumulator
+    }
+
+    private func retryIncompleteConnection(
+        _ continuation: Continuation,
+        accumulator: inout HydrationAccumulator,
+        queue: inout [Continuation],
+        message: String
+    ) throws {
+        guard continuation.attempt == 0 else {
+            throw GitHubReadError.incompleteCoverage(message)
+        }
+        resetConnection(continuation.kind, in: &accumulator)
+        queue.append(Continuation(
+            kind: continuation.kind,
+            before: continuation.initialBefore,
+            expectedTotal: continuation.expectedTotal,
+            initialBefore: continuation.initialBefore,
+            attempt: 1
+        ))
+    }
+
+    private func resetConnection(
+        _ kind: ConnectionKind,
+        in accumulator: inout HydrationAccumulator
+    ) {
+        switch kind {
+        case .comments:
+            accumulator.comments = Dictionary(
+                uniqueKeysWithValues: accumulator.payload.comments.nodes.map { ($0.id, $0) }
+            )
+        case .reviews:
+            accumulator.reviews = Dictionary(
+                uniqueKeysWithValues: accumulator.payload.reviews.nodes.map { ($0.id, $0) }
+            )
+        case .opinionatedReviews:
+            accumulator.opinionatedReviews = Dictionary(
+                uniqueKeysWithValues: accumulator.payload.latestOpinionatedReviews.nodes.map { ($0.id, $0) }
+            )
+        case .threads:
+            accumulator.threads = Dictionary(
+                uniqueKeysWithValues: accumulator.payload.reviewThreads.nodes.map { ($0.id, $0) }
+            )
+            accumulator.threadComments = Dictionary(
+                uniqueKeysWithValues: accumulator.payload.reviewThreads.nodes.map { thread in
+                    (thread.id, Dictionary(uniqueKeysWithValues: thread.comments.nodes.map { ($0.id, $0) }))
+                }
+            )
+        case .assignees:
+            accumulator.assignees = Dictionary(
+                uniqueKeysWithValues: accumulator.payload.assignees.nodes.map { ($0.id ?? $0.login, $0) }
+            )
+        case .reviewRequests:
+            accumulator.reviewRequests = Dictionary(
+                uniqueKeysWithValues: accumulator.payload.reviewRequests.nodes.map { ($0.id, $0) }
+            )
+        case .threadComments(_, let threadID):
+            let initial = accumulator.payload.reviewThreads.nodes.first { $0.id == threadID }?.comments.nodes ?? []
+            accumulator.threadComments[threadID] = Dictionary(uniqueKeysWithValues: initial.map { ($0.id, $0) })
         }
     }
 
