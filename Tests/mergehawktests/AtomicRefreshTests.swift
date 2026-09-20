@@ -55,6 +55,79 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationAndSourcePreferenceChangesDuringFetchApplyAtCommit() async throws {
+        for mode in ["notification", "source"] {
+            let provider = AtomicGitHubProvider(result: .suspended)
+            let fixture = try makeFixture(provider: provider)
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 }
+            if mode == "notification" {
+                fixture.controller.preferences = NotificationPreferences(
+                    authored: .disabled,
+                    assigned: .disabled,
+                    directReviewRequests: .disabled,
+                    teamReviewRequests: .disabled
+                )
+            } else {
+                fixture.controller.setRepositoryPreferences(
+                    repo: fixture.pullRequest.repo,
+                    preferences: RepositorySourcePreferences(
+                        notifications: .disabled,
+                        myPullRequests: .inherit,
+                        reviewRequests: .inherit
+                    )
+                )
+            }
+            let current = makePullRequest(
+                id: fixture.pullRequest.id,
+                title: fixture.pullRequest.title,
+                comments: fixture.pullRequest.recentCommentActivities + [
+                    PullRequestCommentActivity(
+                        id: "COMMENT_\(mode)",
+                        author: "reviewer",
+                        createdAt: Date(timeIntervalSince1970: 30),
+                        source: .pullRequest
+                    )
+                ]
+            )
+            provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [current]))
+            await waitUntil { !fixture.controller.isRefreshing }
+
+            XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
+            XCTAssertTrue(fixture.notifications.records.isEmpty)
+        }
+    }
+
+    @MainActor
+    func testLargeCompleteResultPublishesOnlyAfterAllActivityIsPrepared() async throws {
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        let comments = (0..<121).map { index in
+            PullRequestCommentActivity(
+                id: "LARGE_COMMENT_\(index)",
+                author: "reviewer",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(100 + index)),
+                source: .pullRequest
+            )
+        }
+        let current = makePullRequest(
+            id: fixture.pullRequest.id,
+            title: "Large complete result",
+            comments: comments
+        )
+
+        XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [current]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.state.pullRequests.first?.recentCommentActivities.count, 121)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 30)
+        XCTAssertEqual(fixture.notifications.records.count, 121)
+    }
+
+    @MainActor
     func testRepeatedRefreshRequestsShareOneSuspendedAttempt() async throws {
         let provider = AtomicGitHubProvider(result: .suspended)
         let fixture = try makeFixture(provider: provider)
@@ -203,7 +276,9 @@ final class AtomicRefreshTests: XCTestCase {
                 suppressesMacOSNotifications: true
             ),
             automaticRefreshInterval: 0.01,
-            patGitHubClientFactory: { token in token == "new" ? newProvider : oldProvider }
+            patGitHubClientFactory: { token -> any GitHubProviding in
+                token == "new" ? newProvider : oldProvider
+            }
         )
         await waitUntil { oldProvider.fetchCount == 2 }
 
@@ -212,6 +287,62 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertEqual(newProvider.fetchCount, 1)
         XCTAssertEqual(controller.state.account?.login, "new-user")
         XCTAssertEqual(controller.state.pullRequests.map(\.id), [newPR.id])
+    }
+
+    @MainActor
+    func testLateOldProviderCompletionCannotOverwriteReplacementCredentials() async throws {
+        let suiteName = "atomic-late-provider-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        let oldPR = makePullRequest(id: "PR_OLD", title: "Old provider")
+        try preferences.storePullRequestSyncState(makeSyncState(oldPR))
+        let oldProvider = AtomicGitHubProvider(result: .suspended)
+        let newPR = makePullRequest(id: "PR_NEW", title: "New provider")
+        let newProvider = RateLimitedGitHubProvider(
+            retryAt: .distantFuture,
+            result: CompletePullRequestFetchResult(activePullRequests: [newPR]),
+            login: "new-user",
+            emitsRateLimit: false
+        )
+        let notifications = RecordingNotificationClient()
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "old"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            notificationClient: notifications,
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { token -> any GitHubProviding in
+                if token == "new" { return newProvider }
+                return oldProvider
+            }
+        )
+        await waitUntil { oldProvider.fetchCount == 1 }
+
+        await controller.signInWithToken("new")
+        oldProvider.finish(with: CompletePullRequestFetchResult(activePullRequests: [
+            makePullRequest(
+                id: oldPR.id,
+                title: oldPR.title,
+                comments: oldPR.recentCommentActivities + [
+                    PullRequestCommentActivity(
+                        id: "COMMENT_LATE_OLD_PROVIDER",
+                        author: "reviewer",
+                        createdAt: Date(timeIntervalSince1970: 40),
+                        source: .pullRequest
+                    )
+                ]
+            )
+        ]))
+        try? await Task.sleep(for: .milliseconds(20))
+
+        XCTAssertEqual(controller.state.account?.login, "new-user")
+        XCTAssertEqual(controller.state.pullRequests.map(\.id), [newPR.id])
+        XCTAssertTrue(notifications.records.isEmpty)
     }
 
     @MainActor
