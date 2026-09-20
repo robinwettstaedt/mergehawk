@@ -347,6 +347,97 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testFailedPATAccountReplacementClearsPriorAccountStateAndRelaunchCannotRestoreIt() async throws {
+        let oldProvider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [
+                makePullRequest(id: "PR_ALICE", title: "Alice's PR")
+            ])),
+            login: "rw"
+        )
+        let bobProvider = AtomicGitHubProvider(result: .failure, login: "bob")
+        let fixture = try makeFixture(
+            provider: oldProvider,
+            patProviderFactory: { token in token == "bob-token" ? bobProvider : oldProvider }
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { oldProvider.fetchCount == 1 && !fixture.controller.isRefreshing }
+
+        await fixture.controller.signInWithToken("bob-token")
+
+        XCTAssertEqual(fixture.controller.errorMessage, "Refresh failed")
+        XCTAssertTrue(fixture.controller.state.pullRequests.isEmpty)
+        XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertNil(fixture.preferences.pullRequestSyncState)
+        XCTAssertEqual(fixture.preferences.pullRequestSnapshotCache, .empty)
+        XCTAssertTrue(fixture.preferences.pullRequestNotificationHistory.isEmpty)
+
+        let relaunched = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "bob-token"),
+            preferencesStore: fixture.preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in bobProvider }
+        )
+        await waitUntil { bobProvider.fetchCount >= 2 && relaunched.errorMessage != nil }
+        XCTAssertTrue(relaunched.state.pullRequests.isEmpty)
+        XCTAssertTrue(relaunched.pullRequestNotificationHistory.isEmpty)
+    }
+
+    @MainActor
+    func testFailedOAuthAccountReplacementClearsPriorAccountState() async throws {
+        let oldProvider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [
+                makePullRequest(id: "PR_ALICE_OAUTH", title: "Alice before OAuth")
+            ]))
+        )
+        let bobProvider = AtomicGitHubProvider(result: .failure, login: "bob")
+        let fixture = try makeFixture(
+            provider: oldProvider,
+            oauthSignIn: ImmediateAtomicOAuthSignIn(),
+            oauthProvider: bobProvider
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { oldProvider.fetchCount == 1 && !fixture.controller.isRefreshing }
+
+        await fixture.controller.signInWithGitHub()
+        await waitUntil { fixture.controller.errorMessage == "Refresh failed" }
+
+        XCTAssertTrue(fixture.controller.state.pullRequests.isEmpty)
+        XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertNil(fixture.preferences.pullRequestSyncState)
+        XCTAssertEqual(fixture.preferences.pullRequestSnapshotCache, .empty)
+        XCTAssertTrue(fixture.preferences.pullRequestNotificationHistory.isEmpty)
+    }
+
+    @MainActor
+    func testUnverifiedPATReplacementFailureRetainsPriorAccountState() async throws {
+        let oldProvider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [
+                makePullRequest(id: "PR_ALICE_UNVERIFIED", title: "Alice remains")
+            ]))
+        )
+        let invalidProvider = AtomicGitHubProvider(result: .failure, login: "bob", viewerFails: true)
+        let fixture = try makeFixture(
+            provider: oldProvider,
+            patProviderFactory: { token in token == "invalid" ? invalidProvider : oldProvider }
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { oldProvider.fetchCount == 1 && !fixture.controller.isRefreshing }
+        let priorDashboard = fixture.controller.state
+        let priorHistory = fixture.controller.pullRequestNotificationHistory
+        let priorPersisted = fixture.preferences.pullRequestSyncState
+
+        await fixture.controller.signInWithToken("invalid")
+
+        XCTAssertEqual(fixture.controller.state, priorDashboard)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, priorHistory)
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState, priorPersisted)
+    }
+
+    @MainActor
     func testSameAccountReauthenticationRetainsHistoryReadFlags() async throws {
         let provider = AtomicGitHubProvider(
             result: .success(CompletePullRequestFetchResult(activePullRequests: [
@@ -472,7 +563,10 @@ final class AtomicRefreshTests: XCTestCase {
         pullRequest: PullRequest = makePullRequest(id: "PR_BASELINE", title: "Baseline"),
         provider: AtomicGitHubProvider,
         encoder: @escaping (PullRequestSyncState) throws -> Data = { try JSONEncoder().encode($0) },
-        urlOpener: @escaping @MainActor (URL) -> Void = { _ in }
+        urlOpener: @escaping @MainActor (URL) -> Void = { _ in },
+        oauthSignIn: GitHubOAuthSigningIn? = nil,
+        oauthProvider: AtomicGitHubProvider? = nil,
+        patProviderFactory: ((String) -> any GitHubProviding)? = nil
     ) throws -> AtomicFixture {
         let suiteName = "atomic-refresh-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -513,7 +607,9 @@ final class AtomicRefreshTests: XCTestCase {
             ),
             notificationClient: notifications,
             automaticRefreshInterval: 0,
-            patGitHubClientFactory: { _ in provider },
+            oauthSignIn: oauthSignIn,
+            patGitHubClientFactory: patProviderFactory ?? { _ in provider },
+            oauthGitHubClientFactory: { _ in oauthProvider ?? provider },
             urlOpener: urlOpener
         )
         return AtomicFixture(
@@ -563,16 +659,19 @@ private final class AtomicGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     private var result: ResultMode
     private let login: String
+    private let viewerFails: Bool
     private var continuation: CheckedContinuation<CompletePullRequestFetchResult, Error>?
     private(set) var fetchCount = 0
 
-    init(result: ResultMode, login: String = "rw") {
+    init(result: ResultMode, login: String = "rw", viewerFails: Bool = false) {
         self.result = result
         self.login = login
+        self.viewerFails = viewerFails
     }
 
     func fetchViewer() async throws -> GitHubAccount {
-        GitHubAccount(login: login)
+        if viewerFails { throw AtomicTestError.refreshFailed }
+        return GitHubAccount(login: login)
     }
 
     func fetchCompletePullRequests(
@@ -600,6 +699,23 @@ private final class AtomicGitHubProvider: GitHubProviding {
 
     func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
         GitHubAppInstallations(installations: [])
+    }
+}
+
+@MainActor
+private struct ImmediateAtomicOAuthSignIn: GitHubOAuthSigningIn {
+    func requestDeviceCode() async throws -> DeviceFlowChallenge {
+        DeviceFlowChallenge(
+            userCode: "CODE",
+            deviceCode: "device",
+            verificationURI: URL(string: "https://github.com/login/device")!,
+            expiresAt: Date().addingTimeInterval(600),
+            interval: 1
+        )
+    }
+
+    func pollForTokens(challenge: DeviceFlowChallenge) async throws -> OAuthTokens {
+        OAuthTokens(accessToken: "bob-access", refreshToken: "bob-refresh", expiresAt: .distantFuture)
     }
 }
 

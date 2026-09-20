@@ -677,7 +677,7 @@ final class DashboardController: ObservableObject {
             oauthAccessTokenCache.clear()
             try tokenStore.clearOAuthTokens()
             try tokenStore.storePAT(trimmed)
-            account = viewer
+            acceptVerifiedAccount(viewer)
             configureGitHubSource(
                 client: client,
                 authMethod: .pat,
@@ -758,7 +758,7 @@ final class DashboardController: ObservableObject {
             let client = makeOAuthGitHubClient()
             let viewer = try await client.fetchViewer()
             guard shouldContinueSignIn(attemptID) else { return }
-            account = viewer
+            acceptVerifiedAccount(viewer)
             configureGitHubSource(
                 client: client,
                 authMethod: .oauth,
@@ -1019,7 +1019,7 @@ final class DashboardController: ObservableObject {
                 }
                 let viewer = try await client.fetchViewer()
                 await MainActor.run {
-                    self?.account = viewer
+                    self?.acceptVerifiedAccount(viewer)
                 }
                 return viewer.login
             },
@@ -1053,6 +1053,18 @@ final class DashboardController: ObservableObject {
             loginProvider: loginProvider,
             accountProvider: accountProvider
         )
+    }
+
+    private func acceptVerifiedAccount(_ verifiedAccount: GitHubAccount) {
+        if let previousLogin = committedSyncState?.account.login,
+           previousLogin.caseInsensitiveCompare(verifiedAccount.login) != .orderedSame {
+            preferencesStore.pullRequestSnapshotCache = .empty
+            preferencesStore.pullRequestNotificationHistory = []
+            preferencesStore.clearPullRequestSyncState()
+            committedSyncState = nil
+            presentation = .empty
+        }
+        account = verifiedAccount
     }
 
     private func configureSignedOutSource() {
