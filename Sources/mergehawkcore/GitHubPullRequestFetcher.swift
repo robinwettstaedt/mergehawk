@@ -286,27 +286,25 @@ struct GitHubPullRequestFetcher: Sendable {
                 GitHubPullRequestQueries.hydration,
                 ["ids": .strings(chunk.map { $0.id })]
             )
-            let envelope = try decoder.decode(GitHubGraphQLPayload<HydrationData>.self, from: data)
+            let raw = try rawHydrationResponse(data, expectedCount: chunk.count)
             var failedIndices = Set<Int>()
-            if let errors = envelope.errors, !errors.isEmpty {
-                for error in errors {
+            if !raw.errors.isEmpty {
+                for error in raw.errors {
                     guard let path = error.path,
                           path.count >= 2,
                           path[0] == .field("nodes"),
                           case .index(let index) = path[1],
                           chunk.indices.contains(index) else {
-                        try validate(errors: errors)
+                        try validate(errors: raw.errors)
                         throw GitHubReadError.invalidPayload
                     }
                     failedIndices.insert(index)
                 }
             }
-            guard let nodes = envelope.data?.nodes, nodes.count == chunk.count else {
-                throw GitHubReadError.invalidPayload
-            }
-            for (index, node) in nodes.enumerated() {
+            for (index, rawNode) in raw.nodes.enumerated() {
                 let expected = chunk[index]
                 if failedIndices.contains(index) { continue }
+                let node = try decodeHydrationNode(rawNode)
                 guard let node else {
                     missingIDs.insert(expected.id)
                     continue
@@ -325,12 +323,9 @@ struct GitHubPullRequestFetcher: Sendable {
                     GitHubPullRequestQueries.hydration,
                     ["ids": .strings([expected.id])]
                 )
-                let retry = try decoder.decode(GitHubGraphQLPayload<HydrationData>.self, from: retryData)
+                let retry = try rawHydrationResponse(retryData, expectedCount: 1)
                 try validate(errors: retry.errors)
-                guard let retryNodes = retry.data?.nodes, retryNodes.count == 1 else {
-                    throw GitHubReadError.invalidPayload
-                }
-                guard let node = retryNodes[0] else {
+                guard let node = try decodeHydrationNode(retry.nodes[0]) else {
                     missingIDs.insert(expected.id)
                     continue
                 }
@@ -357,8 +352,24 @@ struct GitHubPullRequestFetcher: Sendable {
             let query = continuationQuery(batch)
             let variables = continuationVariables(batch)
             let data = try await read(query, variables)
-            let pages = try decodeContinuationPages(data, batch: batch)
-            for (item, page) in zip(batch, pages) {
+            let decoded = try decodeContinuationPages(data, batch: batch, allowsScopedErrors: true)
+            for (index, page) in decoded.pages {
+                try merge(page: page, for: batch[index], into: &accumulators, queue: &continuations)
+            }
+            for index in decoded.failedIndices.sorted() {
+                let item = batch[index]
+                let retryData = try await read(
+                    continuationQuery([item]),
+                    continuationVariables([item])
+                )
+                let retry = try decodeContinuationPages(
+                    retryData,
+                    batch: [item],
+                    allowsScopedErrors: false
+                )
+                guard let page = retry.pages[0], retry.failedIndices.isEmpty else {
+                    throw GitHubReadError.invalidPayload
+                }
                 try merge(page: page, for: item, into: &accumulators, queue: &continuations)
             }
         }
@@ -375,6 +386,34 @@ struct GitHubPullRequestFetcher: Sendable {
             )
         }
         return GitHubHydrationResult(pullRequests: pullRequests, missingPullRequestIDs: missingIDs)
+    }
+
+    private func rawHydrationResponse(
+        _ data: Data,
+        expectedCount: Int
+    ) throws -> (nodes: [Any], errors: [GitHubGraphQLErrorPayload]) {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw GitHubReadError.invalidPayload
+        }
+        let errors = try decodeErrors(object["errors"])
+        guard let dataObject = object["data"] as? [String: Any],
+              let nodes = dataObject["nodes"] as? [Any],
+              nodes.count == expectedCount else {
+            throw GitHubReadError.invalidPayload
+        }
+        return (nodes, errors)
+    }
+
+    private func decodeHydrationNode(_ value: Any) throws -> GitHubCompletePullRequestPayload? {
+        if value is NSNull { return nil }
+        let data = try JSONSerialization.data(withJSONObject: value)
+        return try decoder.decode(GitHubCompletePullRequestPayload.self, from: data)
+    }
+
+    private func decodeErrors(_ value: Any?) throws -> [GitHubGraphQLErrorPayload] {
+        guard let value, !(value is NSNull) else { return [] }
+        let data = try JSONSerialization.data(withJSONObject: value)
+        return try decoder.decode([GitHubGraphQLErrorPayload].self, from: data)
     }
 
     private func storeHydrationNode(
@@ -641,16 +680,39 @@ struct GitHubPullRequestFetcher: Sendable {
         return result
     }
 
-    private func decodeContinuationPages(_ data: Data, batch: [Continuation]) throws -> [ContinuationPage] {
-        let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        if let errorObject = envelope?["errors"] {
-            let errorsData = try JSONSerialization.data(withJSONObject: ["errors": errorObject])
-            struct ErrorOnly: Decodable { let errors: [GitHubGraphQLErrorPayload] }
-            let errors = try decoder.decode(ErrorOnly.self, from: errorsData).errors
-            try validate(errors: errors)
+    private func decodeContinuationPages(
+        _ data: Data,
+        batch: [Continuation],
+        allowsScopedErrors: Bool
+    ) throws -> (pages: [Int: ContinuationPage], failedIndices: Set<Int>) {
+        guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw GitHubReadError.invalidPayload
         }
-        guard let dataObject = envelope?["data"] as? [String: Any] else { throw GitHubReadError.invalidPayload }
-        return try batch.enumerated().map { index, continuation in
+        let errors = try decodeErrors(envelope["errors"])
+        var failedIndices = Set<Int>()
+        if !errors.isEmpty {
+            guard allowsScopedErrors else {
+                try validate(errors: errors)
+                throw GitHubReadError.invalidPayload
+            }
+            for error in errors {
+                guard let path = error.path,
+                      let first = path.first,
+                      case .field(let alias) = first,
+                      alias.hasPrefix("c"),
+                      let index = Int(alias.dropFirst()),
+                      batch.indices.contains(index) else {
+                    try validate(errors: errors)
+                    throw GitHubReadError.invalidPayload
+                }
+                failedIndices.insert(index)
+            }
+        }
+        guard let dataObject = envelope["data"] as? [String: Any] else {
+            throw GitHubReadError.invalidPayload
+        }
+        var pages: [Int: ContinuationPage] = [:]
+        for (index, continuation) in batch.enumerated() where !failedIndices.contains(index) {
             guard
                 let node = dataObject["c\(index)"] as? [String: Any],
                 let connection = node[continuation.kind.connectionName]
@@ -660,17 +722,18 @@ struct GitHubPullRequestFetcher: Sendable {
             let connectionData = try JSONSerialization.data(withJSONObject: connection)
             switch continuation.kind {
             case .comments, .threadComments:
-                return .comments(try decoder.decode(GitHubStrictConnection<GitHubPayloadComment>.self, from: connectionData))
+                pages[index] = .comments(try decoder.decode(GitHubStrictConnection<GitHubPayloadComment>.self, from: connectionData))
             case .reviews, .opinionatedReviews:
-                return .reviews(try decoder.decode(GitHubStrictConnection<GitHubPayloadReview>.self, from: connectionData))
+                pages[index] = .reviews(try decoder.decode(GitHubStrictConnection<GitHubPayloadReview>.self, from: connectionData))
             case .threads:
-                return .threads(try decoder.decode(GitHubStrictConnection<GitHubPayloadReviewThread>.self, from: connectionData))
+                pages[index] = .threads(try decoder.decode(GitHubStrictConnection<GitHubPayloadReviewThread>.self, from: connectionData))
             case .assignees:
-                return .users(try decoder.decode(GitHubStrictConnection<GitHubPayloadUser>.self, from: connectionData))
+                pages[index] = .users(try decoder.decode(GitHubStrictConnection<GitHubPayloadUser>.self, from: connectionData))
             case .reviewRequests:
-                return .requests(try decoder.decode(GitHubStrictConnection<GitHubPayloadReviewRequest>.self, from: connectionData))
+                pages[index] = .requests(try decoder.decode(GitHubStrictConnection<GitHubPayloadReviewRequest>.self, from: connectionData))
             }
         }
+        return (pages, failedIndices)
     }
 
     private func merge(

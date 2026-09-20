@@ -301,12 +301,14 @@ final class GitHubPaginationTests: XCTestCase {
             let attempt = attempts.increment()
             if attempt == 1 {
                 XCTAssertEqual(ids, ["PR_OK", "PR_FAILED"])
+                var failedChild = Self.pullRequest(id: "PR_FAILED")
+                failedChild["comments"] = NSNull()
                 return Self.json([
-                    "data": ["nodes": [Self.pullRequest(id: "PR_OK"), NSNull()]],
+                    "data": ["nodes": [Self.pullRequest(id: "PR_OK"), failedChild]],
                     "errors": [[
-                        "message": "temporary node failure",
+                        "message": "temporary child failure",
                         "type": "INTERNAL",
-                        "path": ["nodes", 1]
+                        "path": ["nodes", 1, "comments"]
                     ]]
                 ])
             }
@@ -321,6 +323,57 @@ final class GitHubPaginationTests: XCTestCase {
 
         XCTAssertEqual(Set(hydrated.map(\.pullRequest.id)), ["PR_OK", "PR_FAILED"])
         XCTAssertEqual(attempts.value, 2)
+    }
+
+    func testPartialContinuationRetainsSuccessfulAliasAndRetriesOnlyFailedAlias() async throws {
+        let initial = Self.pullRequest(
+            comments: Self.connection(
+                total: 11,
+                nodes: (1..<11).map { Self.comment("C\($0)") },
+                previous: "comments-before"
+            ),
+            reviews: Self.connection(
+                total: 11,
+                nodes: (1..<11).map { Self.review("R\($0)", state: "COMMENTED") },
+                previous: "reviews-before"
+            )
+        )
+        let continuationAttempts = LockedCounter()
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            let attempt = continuationAttempts.increment()
+            if attempt == 1 {
+                XCTAssertTrue(query.contains("comments(last:"))
+                XCTAssertTrue(query.contains("reviews(last:"))
+                return Self.json([
+                    "data": [
+                        "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C0")])],
+                        "c1": NSNull()
+                    ],
+                    "errors": [[
+                        "message": "review alias failed",
+                        "type": "INTERNAL",
+                        "path": ["c1", "reviews"]
+                    ]]
+                ])
+            }
+            XCTAssertFalse(query.contains("comments(last:"))
+            XCTAssertTrue(query.contains("reviews(last:"))
+            return Self.json(["data": [
+                "c0": ["reviews": Self.connection(
+                    total: 11,
+                    nodes: [Self.review("R0", state: "APPROVED")]
+                )]
+            ]])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+        XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 11)
+        XCTAssertEqual(hydrated[0].pullRequest.recentReviews.count, 11)
+        XCTAssertEqual(continuationAttempts.value, 2)
     }
 
     func testRetriedPartialHydrationClassifiesRequiredFailure() async throws {
