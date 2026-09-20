@@ -2543,7 +2543,7 @@ struct PullRequestRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 4) {
-                Text("@\(pullRequest.author)")
+                Text(pullRequest.author)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
