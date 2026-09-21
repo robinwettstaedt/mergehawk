@@ -24,7 +24,9 @@ public final class SyncEngine {
     ) async throws -> PreparedPullRequestRefresh {
         let login = try await loginProvider()
         let account = try await accountProvider() ?? previousState?.account ?? GitHubAccount(login: login)
-        let trustedPrevious = previousState?.account.login == account.login ? previousState : nil
+        let trustedPrevious = previousState.flatMap { previous in
+            previous.account.login.caseInsensitiveCompare(account.login) == .orderedSame ? previous : nil
+        }
         let previousByID = Dictionary(
             uniqueKeysWithValues: (trustedPrevious?.dashboard.pullRequests ?? []).map { ($0.id, $0) }
         )

@@ -1090,7 +1090,9 @@ final class DashboardController: ObservableObject {
     private func configureMockSource() {
         beginProviderGeneration()
         let account = GitHubAccount(login: "agent-fixture")
-        if committedSyncState?.account.login != account.login
+        if committedSyncState.map({
+            $0.account.login.caseInsensitiveCompare(account.login) != .orderedSame
+        }) == true
             || committedSyncState?.dashboard.source != .mock {
             committedSyncState = nil
             presentation = .empty
@@ -1166,7 +1168,9 @@ final class DashboardController: ObservableObject {
         guard let expectedLogin else {
             return
         }
-        if sourceCatalogAccountLogin != expectedLogin {
+        if sourceCatalogAccountLogin.map({
+            $0.caseInsensitiveCompare(expectedLogin) != .orderedSame
+        }) == true {
             sourceCatalog = .empty
             sourceCatalogSyncedAt = nil
             sourceCatalogAccountLogin = nil
@@ -1327,9 +1331,9 @@ final class DashboardController: ObservableObject {
                     createdAt: value.event.happenedAt ?? prepared.syncedAt
                 )
             }
-            let retainedHistory = committedSyncState?.account.login == prepared.account.login
-                ? presentation.notificationHistory
-                : []
+            let retainedHistory = committedSyncState.map {
+                $0.account.login.caseInsensitiveCompare(prepared.account.login) == .orderedSame
+            } == true ? presentation.notificationHistory : []
             let history = Self.trimPullRequestNotifications(notifications + retainedHistory)
             let dashboard = DashboardState(
                 pullRequests: prepared.activePullRequests,
@@ -1513,7 +1517,8 @@ final class DashboardController: ObservableObject {
     private func currentAutomaticRefreshDeferral() -> AutomaticRefreshDeferral? {
         guard let deferral = automaticRefreshDeferral,
               deferral.generation == providerGeneration,
-              deferral.accountLogin == (account?.login ?? committedSyncState?.account.login) else {
+              let currentLogin = account?.login ?? committedSyncState?.account.login,
+              deferral.accountLogin.caseInsensitiveCompare(currentLogin) == .orderedSame else {
             automaticRefreshDeferral = nil
             return nil
         }

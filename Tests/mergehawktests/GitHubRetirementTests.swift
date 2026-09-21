@@ -42,6 +42,77 @@ final class GitHubRetirementTests: XCTestCase {
         XCTAssertEqual(Set(prepared.events.map(\.event.type)), [.newComment, .reviewApproved])
     }
 
+    @MainActor
+    func testCaseVariationRetainsHistoryAndFinalMergedActivityAcrossCompleteRefresh() async throws {
+        let previousPR = Self.previousPR()
+        var previous = Self.previousState(previousPR)
+        var priorNotification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: previousPR.id, activityId: "PRIOR_COMMENT"),
+            pullRequest: previousPR,
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        priorNotification.read = true
+        previous.notificationHistory = [priorNotification]
+        RetirementURLProtocol.handler = { request in
+            if request.url?.path == "/user" {
+                return Self.response(Self.json(["login": "rw"]), request)
+            }
+            if request.url?.path == "/user/repos" {
+                return Self.response(Self.json([]), request)
+            }
+            let query = Self.graphQLQuery(request)
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("CompletePullRequests") {
+                return Self.response(Self.hydration(nodes: [
+                    Self.completePR(
+                        state: "MERGED",
+                        comments: [Self.comment("FINAL_CASE_COMMENT")],
+                        reviews: [Self.review("FINAL_CASE_REVIEW")]
+                    )
+                ]), request)
+            }
+            return Self.response(Data(), request, status: 500)
+        }
+        previous.account = GitHubAccount(login: "RW")
+        previous.dashboard.account = GitHubAccount(login: "RW")
+        let suiteName = "retirement-login-case-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        try preferences.storePullRequestSyncState(previous)
+        let session = Self.session()
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "token"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in GitHubClient(token: "token", session: session) }
+        )
+        let deadline = Date().addingTimeInterval(1)
+        while controller.pullRequestNotificationHistory.count < 3, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(controller.state.pullRequests.isEmpty)
+        XCTAssertEqual(controller.state.account?.login, "rw")
+        XCTAssertEqual(
+            Set(controller.pullRequestNotificationHistory.compactMap(\.activityId)),
+            ["PRIOR_COMMENT", "FINAL_CASE_COMMENT", "FINAL_CASE_REVIEW"]
+        )
+        XCTAssertTrue(
+            controller.pullRequestNotificationHistory.first { $0.activityId == "PRIOR_COMMENT" }?.read == true
+        )
+        XCTAssertEqual(
+            Set(preferences.pullRequestSyncState?.notificationHistory.compactMap(\.activityId) ?? []),
+            ["PRIOR_COMMENT", "FINAL_CASE_COMMENT", "FINAL_CASE_REVIEW"]
+        )
+    }
+
     func testAbsentButStillAuthoredOpenPRRemainsActive() async throws {
         let previous = Self.previousState(Self.previousPR())
         RetirementURLProtocol.handler = { request in

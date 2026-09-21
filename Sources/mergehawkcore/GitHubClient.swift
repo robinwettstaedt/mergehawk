@@ -625,9 +625,11 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         }
         let discovery = try await fetcher.discover(login: login)
         let discoveredIDs = Set(discovery.pullRequests.map(\.id))
-        let previousPullRequests = previousState?.account.login == login
-            ? previousState?.dashboard.pullRequests ?? []
-            : []
+        let previousPullRequests = previousState.flatMap { previous in
+            previous.account.login.caseInsensitiveCompare(login) == .orderedSame
+                ? previous.dashboard.pullRequests
+                : nil
+        } ?? []
         let previousByID = Dictionary(uniqueKeysWithValues: previousPullRequests.map { ($0.id, $0) })
 
         let discoveredHydration = try await fetcher.hydrateForReconciliation(
