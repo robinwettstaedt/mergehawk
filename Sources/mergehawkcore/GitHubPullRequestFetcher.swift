@@ -930,7 +930,14 @@ struct GitHubPullRequestFetcher: Sendable {
             $0[$1.id] = $1
         }.values.sorted { $0.createdAt < $1.createdAt }
         let reviews = try value.reviews.values.compactMap { review -> PullRequestReview? in
-            guard let submittedAt = review.submittedAt, let state = normalizeReviewState(review.state) else { return nil }
+            let state: PullRequestReviewState?
+            switch review.state.uppercased() {
+            case "APPROVED": state = .approved
+            case "CHANGES_REQUESTED": state = .changesRequested
+            case "COMMENTED": state = .commented
+            default: state = nil
+            }
+            guard let submittedAt = review.submittedAt, let state else { return nil }
             return PullRequestReview(
                 id: review.id,
                 state: state,
@@ -943,6 +950,17 @@ struct GitHubPullRequestFetcher: Sendable {
             !thread.isResolved && thread.viewerCanResolve
                 && (value.threadComments[thread.id]?.values.contains { !$0.viewerDidAuthor } ?? false)
         }.count
+        let ciState: CIState = switch payload.statusCheckRollup?.state {
+        case "SUCCESS": .passing
+        case "FAILURE", "ERROR": .failing
+        case "PENDING", "EXPECTED": .pending
+        default: .unknown
+        }
+        let mergeable: MergeableState = switch payload.mergeable {
+        case "MERGEABLE": .mergeable
+        case "CONFLICTING": .conflicting
+        default: .unknown
+        }
 
         return PullRequest(
             id: payload.id,
@@ -950,7 +968,7 @@ struct GitHubPullRequestFetcher: Sendable {
             number: payload.number,
             url: URL(string: payload.url)!,
             repo: payload.repository.nameWithOwner,
-            ciState: GitHubPullRequestNormalizer.normalizeCIState(payload.statusCheckRollup?.state),
+            ciState: ciState,
             reviewDecision: normalizeReviewDecision(
                 Array(value.opinionatedReviews.values),
                 pullRequestAuthor: payload.author?.login
@@ -969,15 +987,11 @@ struct GitHubPullRequestFetcher: Sendable {
             author: payload.author?.login ?? "unknown",
             authorAvatarURL: payload.author?.avatarUrl,
             headRefName: payload.headRefName,
-            mergeable: GitHubPullRequestNormalizer.normalizeMergeableState(payload.mergeable),
+            mergeable: mergeable,
             draft: payload.isDraft,
             createdAt: try parseDate(payload.createdAt),
             updatedAt: try parseDate(payload.updatedAt)
         )
-    }
-
-    private func normalizeReviewState(_ state: String) -> PullRequestReviewState? {
-        GitHubPullRequestNormalizer.normalizeReviewState(state.uppercased())
     }
 
     private func normalizeReviewDecision(
