@@ -50,6 +50,36 @@ final class SourceRefreshTests: XCTestCase {
         try await waitUntil { provider.fetchSourceCatalogCount == 2 }
     }
 
+    @MainActor
+    func testRecentCatalogWithoutAccountOwnershipIsInvalidatedAndRefetched() async throws {
+        let suiteName = "source-missing-owner-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var preferences = PreferencesStore(defaults: defaults)
+        preferences.authMethod = .pat
+        preferences.sourceCatalog = SourceCatalog(
+            repositories: [RepositorySource(owner: "old", name: "catalog")]
+        )
+        preferences.sourceCatalogSyncedAt = Date()
+        preferences.sourceCatalogAccountLogin = nil
+        let provider = CatalogTestProvider()
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: preferences,
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: false,
+                suppressesMacOSNotifications: true
+            ),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider }
+        )
+
+        try await waitUntil { provider.fetchSourceCatalogCount == 1 }
+
+        XCTAssertEqual(controller.sourceCatalog.repositoryCount, 1)
+        XCTAssertEqual(preferences.sourceCatalogAccountLogin, "rw")
+    }
+
     func testCatalogFailureLeavesPublishedPRsAndSetsSourceError() async throws {
         let provider = CatalogTestProvider(catalogError: CatalogTestProvider.TestError.failed)
         let controller = await MainActor.run {

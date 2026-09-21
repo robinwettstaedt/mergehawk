@@ -493,6 +493,80 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testDifferentAccountReplacementClearsSourcesCatalogBeforeSuspendedRefreshCompletes() async throws {
+        let oldProvider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [
+                makePullRequest(id: "PR_SOURCE_OWNER", title: "Old source owner")
+            ]))
+        )
+        let bobProvider = AtomicGitHubProvider(result: .suspended, login: "bob")
+        let catalog = SourceCatalog(
+            repositories: [RepositorySource(owner: "acme", name: "private-app")],
+            accountLogin: "rw"
+        )
+        let fixture = try makeFixture(
+            provider: oldProvider,
+            patProviderFactory: { token in token == "bob" ? bobProvider : oldProvider },
+            sourceCatalog: catalog
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { oldProvider.fetchCount == 1 && !fixture.controller.isRefreshing }
+        let sourcePreferences = SourcePreferences(
+            owners: [
+                "acme": OwnerSourcePreferences(
+                    notifications: false,
+                    myPullRequests: true,
+                    reviewRequests: false
+                )
+            ],
+            repositories: [:]
+        )
+        fixture.controller.sourcePreferences = sourcePreferences
+
+        let signIn = Task { await fixture.controller.signInWithToken("bob") }
+        await waitUntil { bobProvider.fetchCount == 1 }
+
+        XCTAssertEqual(fixture.controller.sourceCatalog, .empty)
+        XCTAssertEqual(fixture.preferences.sourceCatalog, .empty)
+        XCTAssertNil(fixture.preferences.sourceCatalogSyncedAt)
+        XCTAssertNil(fixture.preferences.sourceCatalogAccountLogin)
+        XCTAssertEqual(fixture.controller.sourcePreferences, sourcePreferences)
+        bobProvider.finish(with: CompletePullRequestFetchResult(activePullRequests: []))
+        await signIn.value
+    }
+
+    @MainActor
+    func testSameAccountCaseVariationPreservesSourcesCatalogDuringSuspendedRefresh() async throws {
+        let oldProvider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [
+                makePullRequest(id: "PR_SOURCE_SAME", title: "Same source owner")
+            ]))
+        )
+        let sameProvider = AtomicGitHubProvider(result: .suspended, login: "RW")
+        let catalog = SourceCatalog(
+            repositories: [RepositorySource(owner: "acme", name: "private-app")],
+            accountLogin: "rw"
+        )
+        let fixture = try makeFixture(
+            provider: oldProvider,
+            patProviderFactory: { token in token == "same" ? sameProvider : oldProvider },
+            sourceCatalog: catalog
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { oldProvider.fetchCount == 1 && !fixture.controller.isRefreshing }
+
+        let signIn = Task { await fixture.controller.signInWithToken("same") }
+        await waitUntil { sameProvider.fetchCount == 1 }
+
+        XCTAssertEqual(fixture.controller.sourceCatalog, catalog)
+        XCTAssertEqual(fixture.preferences.sourceCatalog, catalog)
+        XCTAssertNotNil(fixture.preferences.sourceCatalogSyncedAt)
+        XCTAssertEqual(fixture.preferences.sourceCatalogAccountLogin, "rw")
+        sameProvider.finish(with: CompletePullRequestFetchResult(activePullRequests: []))
+        await signIn.value
+    }
+
+    @MainActor
     func testSameAccountReauthenticationRetainsHistoryReadFlags() async throws {
         let provider = AtomicGitHubProvider(
             result: .success(CompletePullRequestFetchResult(activePullRequests: [
@@ -621,12 +695,18 @@ final class AtomicRefreshTests: XCTestCase {
         urlOpener: @escaping @MainActor (URL) -> Void = { _ in },
         oauthSignIn: GitHubOAuthSigningIn? = nil,
         oauthProvider: AtomicGitHubProvider? = nil,
-        patProviderFactory: ((String) -> any GitHubProviding)? = nil
+        patProviderFactory: ((String) -> any GitHubProviding)? = nil,
+        sourceCatalog: SourceCatalog? = nil
     ) throws -> AtomicFixture {
         let suiteName = "atomic-refresh-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         var seedPreferences = PreferencesStore(defaults: defaults)
         seedPreferences.authMethod = .pat
+        if let sourceCatalog {
+            seedPreferences.sourceCatalog = sourceCatalog
+            seedPreferences.sourceCatalogSyncedAt = Date()
+            seedPreferences.sourceCatalogAccountLogin = "rw"
+        }
         let notification = PullRequestNotification(
             event: PullRequestEvent(type: .newComment, prId: pullRequest.id, activityId: "COMMENT_OLD"),
             pullRequest: pullRequest,

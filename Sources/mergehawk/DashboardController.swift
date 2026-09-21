@@ -1056,13 +1056,26 @@ final class DashboardController: ObservableObject {
     }
 
     private func acceptVerifiedAccount(_ verifiedAccount: GitHubAccount) {
-        if let previousLogin = committedSyncState?.account.login,
-           previousLogin.caseInsensitiveCompare(verifiedAccount.login) != .orderedSame {
+        let committedAccountChanged = committedSyncState.map {
+            $0.account.login.caseInsensitiveCompare(verifiedAccount.login) != .orderedSame
+        } == true
+        if committedAccountChanged {
             preferencesStore.pullRequestSnapshotCache = .empty
             preferencesStore.pullRequestNotificationHistory = []
             preferencesStore.clearPullRequestSyncState()
             committedSyncState = nil
             presentation = .empty
+        }
+        let catalogAccountChanged = sourceCatalogAccountLogin.map {
+            $0.caseInsensitiveCompare(verifiedAccount.login) != .orderedSame
+        } == true
+        if committedAccountChanged || catalogAccountChanged {
+            sourceCatalog = .empty
+            sourceCatalogSyncedAt = nil
+            sourceCatalogAccountLogin = nil
+            preferencesStore.sourceCatalogSyncedAt = nil
+            preferencesStore.sourceCatalogAccountLogin = nil
+            sourceErrorMessage = nil
         }
         account = verifiedAccount
     }
@@ -1168,9 +1181,7 @@ final class DashboardController: ObservableObject {
         guard let expectedLogin else {
             return
         }
-        if sourceCatalogAccountLogin.map({
-            $0.caseInsensitiveCompare(expectedLogin) != .orderedSame
-        }) == true {
+        if sourceCatalogAccountLogin?.caseInsensitiveCompare(expectedLogin) != .orderedSame {
             sourceCatalog = .empty
             sourceCatalogSyncedAt = nil
             sourceCatalogAccountLogin = nil
@@ -1236,7 +1247,7 @@ final class DashboardController: ObservableObject {
     private func isCurrentProvider(_ generation: Int, login: String) -> Bool {
         providerGeneration == generation
             && !Task.isCancelled
-            && (account?.login ?? state.account?.login) == login
+            && (account?.login ?? state.account?.login)?.caseInsensitiveCompare(login) == .orderedSame
     }
 
     private var canCheckGitHubAppRepositoryAccess: Bool {
