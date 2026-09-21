@@ -1124,7 +1124,22 @@ final class DashboardController: ObservableObject {
         sourceCatalogSyncedAt = Date()
         sourceCatalogAccountLogin = account.login
         if launchConfiguration.showsNotificationTypeFixtures {
-            presentation.notificationHistory = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
+            let history = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
+            let dashboard = committedSyncState?.dashboard ?? DashboardState(
+                pullRequests: [],
+                events: [],
+                syncedAt: nil,
+                source: .mock,
+                account: account,
+                authStatus: .signedIn
+            )
+            committedSyncState = PullRequestSyncState(
+                account: account,
+                dashboard: dashboard,
+                processedActivityByPullRequestID: committedSyncState?.processedActivityByPullRequestID ?? [:],
+                notificationHistory: history
+            )
+            presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
         }
         syncEngine = SyncEngine(
             source: source,

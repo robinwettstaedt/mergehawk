@@ -294,7 +294,8 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
-                URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/27")
+                // The newest actual activity is the mergehawk PR comment; relationship changes fall back to sync time.
+                URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
