@@ -161,6 +161,140 @@ final class GitHubRetirementTests: XCTestCase {
         }
     }
 
+    func testRetriedRootNodeNotFoundUsesVerifiedResourceRetirementAndPreservesSibling() async throws {
+        for status in [404, 410] {
+            let retained = Self.previousPR(id: "PR_KEEP", number: 1)
+            let missing = Self.previousPR(id: "PR_MISSING", number: 2)
+            let previous = Self.previousState([retained, missing])
+            var hydrationAttempts = 0
+            var requestedPaths: [String] = []
+            RetirementURLProtocol.handler = { request in
+                requestedPaths.append(request.url!.path)
+                if request.url?.path == "/repos/acme/app/pulls/2" {
+                    return Self.response(Self.json(["message": "Gone"]), request, status: status)
+                }
+                if request.url?.path == "/user" {
+                    return Self.response(Self.json(["login": "rw"]), request)
+                }
+                let query = Self.graphQLQuery(request)
+                if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+                if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+                if query.contains("CompletePullRequests") {
+                    hydrationAttempts += 1
+                    let ids = Self.graphQLVariables(request)["ids"] as? [String]
+                    let error: [String: Any] = [
+                        "message": "Could not resolve to a node",
+                        "type": "NOT_FOUND",
+                        "path": ["nodes", hydrationAttempts == 1 ? 1 : 0]
+                    ]
+                    if hydrationAttempts == 1 {
+                        XCTAssertEqual(ids, ["PR_KEEP", "PR_MISSING"])
+                        return Self.response(Self.hydration(
+                            nodes: [Self.completePR(id: "PR_KEEP", number: 1, state: "OPEN"), NSNull()],
+                            errors: [error]
+                        ), request)
+                    }
+                    XCTAssertEqual(ids, ["PR_MISSING"])
+                    return Self.response(Self.hydration(nodes: [NSNull()], errors: [error]), request)
+                }
+                return Self.response(Data(), request, status: 500)
+            }
+
+            let result = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: previous)
+
+            XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_KEEP"])
+            XCTAssertTrue(result.retiringPullRequests.isEmpty)
+            XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_MISSING"])
+            XCTAssertEqual(hydrationAttempts, 2)
+            XCTAssertEqual(requestedPaths.filter { $0 == "/repos/acme/app/pulls/2" }.count, 1)
+            XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
+        }
+    }
+
+    func testOnlyExactNullRootNodeNotFoundCanEnterResourceRetirement() async throws {
+        let retryFailures: [(name: String, node: Any, errors: [[String: Any]])] = [
+            (
+                "mixed-auth",
+                NSNull(),
+                [
+                    ["message": "missing", "type": "NOT_FOUND", "path": ["nodes", 0]],
+                    ["message": "expired", "type": "UNAUTHENTICATED"]
+                ]
+            ),
+            (
+                "rate",
+                NSNull(),
+                [["message": "limited", "type": "RATE_LIMITED", "path": ["nodes", 0]]]
+            ),
+            (
+                "child",
+                NSNull(),
+                [["message": "child missing", "type": "NOT_FOUND", "path": ["nodes", 0, "comments"]]]
+            ),
+            (
+                "non-null",
+                Self.completePR(state: "OPEN"),
+                [["message": "inconsistent", "type": "NOT_FOUND", "path": ["nodes", 0]]]
+            ),
+            (
+                "mismatched-index",
+                NSNull(),
+                [["message": "wrong node", "type": "NOT_FOUND", "path": ["nodes", 1]]]
+            )
+        ]
+
+        for failure in retryFailures {
+            var hydrationAttempts = 0
+            var resourceRequests = 0
+            RetirementURLProtocol.handler = { request in
+                if request.url?.path.hasPrefix("/repos/") == true {
+                    resourceRequests += 1
+                    return Self.response(Self.json(["message": "Not Found"]), request, status: 404)
+                }
+                let query = Self.graphQLQuery(request)
+                if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+                if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+                if query.contains("CompletePullRequests") {
+                    hydrationAttempts += 1
+                    if hydrationAttempts == 1 {
+                        return Self.response(Self.hydration(
+                            nodes: [NSNull()],
+                            errors: [["message": "retry", "type": "INTERNAL", "path": ["nodes", 0]]]
+                        ), request)
+                    }
+                    return Self.response(Self.hydration(
+                        nodes: [failure.node],
+                        errors: failure.errors
+                    ), request)
+                }
+                return Self.response(Data(), request, status: 500)
+            }
+
+            do {
+                _ = try await GitHubClient(token: "token", session: Self.session())
+                    .fetchCompletePullRequests(
+                        login: "rw",
+                        previousState: Self.previousState(Self.previousPR())
+                    )
+                XCTFail("Expected \(failure.name) GraphQL failure")
+            } catch let error as GitHubReadError {
+                switch failure.name {
+                case "mixed-auth":
+                    XCTAssertEqual(error, .authentication)
+                case "rate":
+                    XCTAssertEqual(error, .rateLimited(retryAt: nil))
+                default:
+                    guard case .graphQL = error else {
+                        return XCTFail("Unexpected \(failure.name) error: \(error)")
+                    }
+                }
+            }
+            XCTAssertEqual(hydrationAttempts, 2, failure.name)
+            XCTAssertEqual(resourceRequests, 0, failure.name)
+        }
+    }
+
     func testViewerMismatchDoesNotMasqueradeAsRetirement() async throws {
         let previous = Self.previousState(Self.previousPR())
         RetirementURLProtocol.handler = { request in
@@ -488,8 +622,12 @@ final class GitHubRetirementTests: XCTestCase {
         return json(["data": object])
     }
 
-    private static func hydration(nodes: [Any]) -> Data {
-        json(["data": ["nodes": nodes]])
+    private static func hydration(nodes: [Any], errors: [[String: Any]] = []) -> Data {
+        var response: [String: Any] = ["data": ["nodes": nodes]]
+        if !errors.isEmpty {
+            response["errors"] = errors
+        }
+        return json(response)
     }
 
     private static func completePR(

@@ -325,6 +325,10 @@ struct GitHubPullRequestFetcher: Sendable {
                     ["ids": .strings([expected.id])]
                 )
                 let retry = try rawHydrationResponse(retryData, expectedCount: 1)
+                if isMissingNodeCandidate(retry.nodes[0], errors: retry.errors, index: 0) {
+                    missingIDs.insert(expected.id)
+                    continue
+                }
                 try validate(errors: retry.errors)
                 guard let node = try decodeHydrationNode(retry.nodes[0]) else {
                     missingIDs.insert(expected.id)
@@ -406,6 +410,18 @@ struct GitHubPullRequestFetcher: Sendable {
             throw GitHubReadError.invalidPayload
         }
         return (nodes, errors)
+    }
+
+    private func isMissingNodeCandidate(
+        _ node: Any,
+        errors: [GitHubGraphQLErrorPayload],
+        index: Int
+    ) -> Bool {
+        guard node is NSNull, !errors.isEmpty else { return false }
+        return errors.allSatisfy { error in
+            error.type?.uppercased() == "NOT_FOUND"
+                && error.path == [.field("nodes"), .index(index)]
+        }
     }
 
     private func decodeHydrationNode(_ value: Any) throws -> GitHubCompletePullRequestPayload? {
