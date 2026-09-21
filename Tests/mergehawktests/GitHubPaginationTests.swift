@@ -39,6 +39,12 @@ final class GitHubPaginationTests: XCTestCase {
             XCTAssertFalse(query.contains("title"))
             XCTAssertFalse(query.contains("headRefOid"))
             XCTAssertFalse(query.contains("statusCheckRollup"))
+            XCTAssertFalse(query.contains("author { id"))
+            XCTAssertTrue(query.contains("author { login }"))
+            XCTAssertTrue(query.contains("assignees(last:"))
+            XCTAssertTrue(query.contains("nodes { id login avatarUrl(size: 64) }"))
+            XCTAssertTrue(query.contains("... on User { id login }"))
+            XCTAssertTrue(query.contains("... on Team { id slug"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 20, nodes: (0..<10).map { Self.comment("C\($0)") })],
                 "c1": ["reviews": Self.connection(total: 11, nodes: [Self.review("R0", state: "APPROVED")])],
@@ -79,6 +85,8 @@ final class GitHubPaginationTests: XCTestCase {
                 return Self.json(["data": ["nodes": [initial]]])
             }
             XCTAssertEqual(Self.string(variables["id0"]), "T_OLD")
+            XCTAssertFalse(query.contains("author { id"))
+            XCTAssertTrue(query.contains("author { login }"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 11, nodes: [
                     Self.comment("TC1", viewerDidAuthor: true),
@@ -180,6 +188,9 @@ final class GitHubPaginationTests: XCTestCase {
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
+            XCTAssertFalse(query.contains("author { id"))
+            XCTAssertTrue(query.contains("latestOpinionatedReviews(last:"))
+            XCTAssertTrue(query.contains("author { login }"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C1"), Self.comment("C0")])],
                 "c1": ["latestOpinionatedReviews": Self.connection(
@@ -193,6 +204,36 @@ final class GitHubPaginationTests: XCTestCase {
 
         XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 11)
         XCTAssertEqual(hydrated[0].pullRequest.reviewDecision, .changesRequested)
+    }
+
+    func testHydrationPreservesActorLoginsAndActivityWithoutActorNodeIDs() async throws {
+        let prAuthor: [String: Any] = [
+            "login": "pr-author",
+            "avatarUrl": "https://avatars.example/pr-author.png"
+        ]
+        var comment = Self.comment("COMMENT_WITH_ACTOR")
+        comment["author"] = ["login": "comment-author"]
+        var review = Self.review("REVIEW_WITH_ACTOR", state: "APPROVED")
+        review["author"] = ["login": "review-author"]
+        var node = Self.pullRequest(
+            comments: Self.connection(total: 1, nodes: [comment]),
+            reviews: Self.connection(total: 1, nodes: [review]),
+            opinionated: Self.connection(total: 1, nodes: [review])
+        )
+        node["author"] = prAuthor
+        let transport = HydrationTransport { query, _ in
+            XCTAssertFalse(query.contains("author { id"))
+            return Self.json(["data": ["nodes": [node]]])
+        }
+
+        let pullRequest = try await Self.fetcher(transport)
+            .hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.author, "pr-author")
+        XCTAssertEqual(pullRequest.authorAvatarURL, URL(string: "https://avatars.example/pr-author.png"))
+        XCTAssertEqual(pullRequest.recentCommentActivities.first?.author, "comment-author")
+        XCTAssertEqual(pullRequest.recentReviews.first?.author, "review-author")
+        XCTAssertEqual(pullRequest.reviewDecision, .approved)
     }
 
     func testKnownChangesRequestedWinsOverUncertainOpinionatedReviewsInAnyOrder() async throws {

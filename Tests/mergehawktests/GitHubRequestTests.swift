@@ -21,6 +21,32 @@ final class GitHubRequestTests: XCTestCase {
         XCTAssertEqual(decoded.comments.nodes.first?.author, nil)
     }
 
+    func testActorAuthorsDecodeWithoutUnsupportedNodeIDs() throws {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: payload()) as? [String: Any]
+        )
+        object["author"] = [
+            "login": "pr-author",
+            "avatarUrl": "https://avatars.example/pr-author.png"
+        ]
+        var comments = try XCTUnwrap(object["comments"] as? [String: Any])
+        var nodes = try XCTUnwrap(comments["nodes"] as? [[String: Any]])
+        nodes[0]["author"] = ["login": "comment-author"]
+        comments["nodes"] = nodes
+        object["comments"] = comments
+
+        let decoded = try JSONDecoder().decode(
+            GitHubCompletePullRequestPayload.self,
+            from: Self.json(object)
+        )
+
+        XCTAssertNil(decoded.author?.id)
+        XCTAssertEqual(decoded.author?.login, "pr-author")
+        XCTAssertEqual(decoded.author?.avatarUrl, URL(string: "https://avatars.example/pr-author.png"))
+        XCTAssertNil(decoded.comments.nodes[0].author?.id)
+        XCTAssertEqual(decoded.comments.nodes[0].author?.login, "comment-author")
+    }
+
     func testRetryPolicyRetriesOnlyOrdinaryTransientReads() async throws {
         let attempts = LockedBox(0)
         let sleeps = LockedBox<[TimeInterval]>([])
@@ -62,6 +88,13 @@ final class GitHubRequestTests: XCTestCase {
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("headRefOid"))
         XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("commits("))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("pageInfo"))
+        XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("author { id"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("author { login avatarUrl(size: 64) }"))
+        XCTAssertEqual(GitHubPullRequestQueries.hydration.components(separatedBy: "author { login }").count - 1, 4)
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("assignees(last: 20)"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("nodes { id login avatarUrl(size: 64) }"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("... on User { id login }"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("... on Team { id slug"))
     }
 
     func testHTTP200GraphQLRateLimitPreservesResetHeader() async throws {

@@ -668,11 +668,11 @@ struct GitHubPullRequestFetcher: Sendable {
     }
 
     private var commentConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { id login } pullRequestReview { id } }"
+        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { login } pullRequestReview { id } }"
     }
 
     private var reviewConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id state submittedAt viewerDidAuthor author { id login } }"
+        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id state submittedAt viewerDidAuthor author { login } }"
     }
 
     private func continuationVariables(_ batch: [Continuation]) -> [String: GitHubQueryValue] {

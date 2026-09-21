@@ -23,22 +23,22 @@ enum GitHubPullRequestQueries {
       additions
       deletions
       statusCheckRollup { state }
-      author { id login avatarUrl(size: 64) }
+      author { login avatarUrl(size: 64) }
       repository { nameWithOwner }
       comments(last: 10) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id createdAt viewerDidAuthor author { id login } }
+        nodes { id createdAt viewerDidAuthor author { login } }
       }
       reviews(last: 10) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id state submittedAt viewerDidAuthor author { id login } }
+        nodes { id state submittedAt viewerDidAuthor author { login } }
       }
       latestOpinionatedReviews(last: 20) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id state submittedAt viewerDidAuthor author { id login } }
+        nodes { id state submittedAt viewerDidAuthor author { login } }
       }
       reviewThreads(last: 20) {
         totalCount
@@ -51,7 +51,7 @@ enum GitHubPullRequestQueries {
             totalCount
             pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
             nodes {
-              id createdAt viewerDidAuthor author { id login }
+              id createdAt viewerDidAuthor author { login }
               pullRequestReview { id }
             }
           }
