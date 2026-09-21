@@ -449,10 +449,12 @@ final class AtomicRefreshTests: XCTestCase {
             ]))
         )
         let bobProvider = AtomicGitHubProvider(result: .failure, login: "bob")
+        var openedDeviceFlowURLs: [URL] = []
         let fixture = try makeFixture(
             provider: oldProvider,
             oauthSignIn: ImmediateAtomicOAuthSignIn(),
-            oauthProvider: bobProvider
+            oauthProvider: bobProvider,
+            deviceFlowURLOpener: { openedDeviceFlowURLs.append($0) }
         )
         defer { fixture.cleanup() }
         await waitUntil { oldProvider.fetchCount == 1 && !fixture.controller.isRefreshing }
@@ -460,6 +462,7 @@ final class AtomicRefreshTests: XCTestCase {
         await fixture.controller.signInWithGitHub()
         await waitUntil { fixture.controller.errorMessage == "Refresh failed" }
 
+        XCTAssertEqual(openedDeviceFlowURLs, [URL(string: "https://github.com/login/device")!])
         XCTAssertTrue(fixture.controller.state.pullRequests.isEmpty)
         XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.isEmpty)
         XCTAssertNil(fixture.preferences.pullRequestSyncState)
@@ -696,7 +699,8 @@ final class AtomicRefreshTests: XCTestCase {
         oauthSignIn: GitHubOAuthSigningIn? = nil,
         oauthProvider: AtomicGitHubProvider? = nil,
         patProviderFactory: ((String) -> any GitHubProviding)? = nil,
-        sourceCatalog: SourceCatalog? = nil
+        sourceCatalog: SourceCatalog? = nil,
+        deviceFlowURLOpener: @escaping @MainActor (URL) -> Void = { _ in }
     ) throws -> AtomicFixture {
         let suiteName = "atomic-refresh-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -745,7 +749,8 @@ final class AtomicRefreshTests: XCTestCase {
             oauthSignIn: oauthSignIn,
             patGitHubClientFactory: patProviderFactory ?? { _ in provider },
             oauthGitHubClientFactory: { _ in oauthProvider ?? provider },
-            urlOpener: urlOpener
+            urlOpener: urlOpener,
+            deviceFlowURLOpener: deviceFlowURLOpener
         )
         return AtomicFixture(
             suiteName: suiteName,
