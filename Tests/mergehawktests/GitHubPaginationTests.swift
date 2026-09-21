@@ -250,6 +250,206 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(pullRequest.reviewDecision, .approved)
     }
 
+    func testCompleteHydrationPreservesDashboardAndActivityMetadata() async throws {
+        let topLevelComment = Self.comment(
+            "COMMENT_1",
+            author: "comment-author",
+            createdAt: "2026-05-02T09:00:00Z"
+        )
+        let authoredReview = Self.review(
+            "REVIEW_FALSE",
+            state: "APPROVED",
+            author: "rw",
+            submittedAt: "2026-05-02T11:00:00Z",
+            viewerDidAuthor: false
+        )
+        let viewerReview = Self.review(
+            "REVIEW_TRUE",
+            state: "COMMENTED",
+            author: "teammate",
+            submittedAt: "2026-05-02T12:00:00Z",
+            viewerDidAuthor: true
+        )
+        let opinionatedReview = Self.review(
+            "OPINION",
+            state: "APPROVED",
+            author: "reviewer"
+        )
+        let resolvedThread = Self.thread(
+            "RESOLVED",
+            isResolved: true,
+            comments: [
+                Self.comment(
+                    "RESOLVED_COMMENT",
+                    author: "reviewer",
+                    createdAt: "2026-05-02T10:00:00Z",
+                    reviewID: "REVIEW_FALSE"
+                )
+            ]
+        )
+        let actionableThread = Self.thread(
+            "ACTIONABLE",
+            comments: [
+                Self.comment(
+                    "SELF_COMMENT",
+                    viewerDidAuthor: true,
+                    author: "rw",
+                    createdAt: "2026-05-02T11:00:00Z",
+                    reviewID: "REVIEW_TRUE"
+                ),
+                Self.comment(
+                    "ACTIONABLE_COMMENT",
+                    author: "teammate",
+                    createdAt: "2026-05-02T12:00:00Z",
+                    reviewID: "REVIEW_TRUE"
+                )
+            ]
+        )
+        var node = Self.pullRequest(
+            comments: Self.connection(total: 1, nodes: [topLevelComment]),
+            reviews: Self.connection(total: 2, nodes: [authoredReview, viewerReview]),
+            opinionated: Self.connection(total: 1, nodes: [opinionatedReview]),
+            threads: Self.connection(total: 2, nodes: [resolvedThread, actionableThread])
+        )
+        node["title"] = "Ship dashboard"
+        node["number"] = 12
+        node["url"] = "https://github.com/acme/mergehawk/pull/12"
+        node["repository"] = ["nameWithOwner": "acme/mergehawk"]
+        node["createdAt"] = "2026-05-01T12:00:00Z"
+        node["updatedAt"] = "2026-05-02T12:00:00Z"
+        node["headRefName"] = "ship-dashboard"
+        node["headRefOid"] = "commit-1"
+        node["isDraft"] = true
+        node["mergeable"] = "MERGEABLE"
+        node["additions"] = 42
+        node["deletions"] = 7
+        node["statusCheckRollup"] = ["state": "FAILURE"]
+        node["author"] = [
+            "id": "USER_RW", "login": "RW",
+            "avatarUrl": "https://avatars.example/rw.png"
+        ]
+        let transport = HydrationTransport { _, _ in
+            Self.json(["data": ["nodes": [node]]])
+        }
+
+        let pullRequest = try await Self.fetcher(transport)
+            .hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.id, "PR_1")
+        XCTAssertEqual(pullRequest.title, "Ship dashboard")
+        XCTAssertEqual(pullRequest.number, 12)
+        XCTAssertEqual(pullRequest.url, URL(string: "https://github.com/acme/mergehawk/pull/12"))
+        XCTAssertEqual(pullRequest.repo, "acme/mergehawk")
+        XCTAssertEqual(pullRequest.ciState, .failing)
+        XCTAssertEqual(pullRequest.reviewDecision, .approved)
+        XCTAssertEqual(pullRequest.additions, 42)
+        XCTAssertEqual(pullRequest.deletions, 7)
+        XCTAssertEqual(pullRequest.commentCount, 1)
+        XCTAssertEqual(pullRequest.commentActivityCount, 4)
+        XCTAssertEqual(pullRequest.reviewCount, 2)
+        XCTAssertEqual(pullRequest.headRefOid, "commit-1")
+        XCTAssertTrue(pullRequest.isMine)
+        XCTAssertEqual(pullRequest.author, "RW")
+        XCTAssertEqual(pullRequest.authorAvatarURL, URL(string: "https://avatars.example/rw.png"))
+        XCTAssertEqual(pullRequest.headRefName, "ship-dashboard")
+        XCTAssertEqual(pullRequest.mergeable, .mergeable)
+        XCTAssertTrue(pullRequest.draft)
+        XCTAssertEqual(pullRequest.createdAt, Self.date("2026-05-01T12:00:00Z"))
+        XCTAssertEqual(pullRequest.updatedAt, Self.date("2026-05-02T12:00:00Z"))
+
+        let topLevel = try XCTUnwrap(pullRequest.recentCommentActivities.first { $0.id == "COMMENT_1" })
+        XCTAssertEqual(topLevel.author, "comment-author")
+        XCTAssertEqual(topLevel.createdAt, Self.date("2026-05-02T09:00:00Z"))
+        XCTAssertEqual(topLevel.source, .pullRequest)
+        XCTAssertNil(topLevel.reviewId)
+        let resolved = try XCTUnwrap(pullRequest.recentCommentActivities.first { $0.id == "RESOLVED_COMMENT" })
+        XCTAssertEqual(resolved.source, .reviewThread)
+        XCTAssertEqual(resolved.reviewId, "REVIEW_FALSE")
+        let selfComment = try XCTUnwrap(pullRequest.recentCommentActivities.first { $0.id == "SELF_COMMENT" })
+        XCTAssertTrue(selfComment.viewerDidAuthor)
+        let actionable = try XCTUnwrap(pullRequest.recentCommentActivities.first { $0.id == "ACTIONABLE_COMMENT" })
+        XCTAssertEqual(actionable.author, "teammate")
+        XCTAssertFalse(actionable.viewerDidAuthor)
+
+        let payloadFalse = try XCTUnwrap(pullRequest.recentReviews.first { $0.id == "REVIEW_FALSE" })
+        XCTAssertEqual(payloadFalse.state, .approved)
+        XCTAssertEqual(payloadFalse.submittedAt, Self.date("2026-05-02T11:00:00Z"))
+        XCTAssertEqual(payloadFalse.author, "rw")
+        XCTAssertFalse(payloadFalse.viewerDidAuthor)
+        let payloadTrue = try XCTUnwrap(pullRequest.recentReviews.first { $0.id == "REVIEW_TRUE" })
+        XCTAssertEqual(payloadTrue.state, .commented)
+        XCTAssertEqual(payloadTrue.author, "teammate")
+        XCTAssertTrue(payloadTrue.viewerDidAuthor)
+    }
+
+    func testActionableCountExcludesResolvedUnresolvableAndSelfAuthoredThreadsWithoutDroppingActivity() async throws {
+        let threads = [
+            Self.thread("SELF", comments: [Self.comment("SELF_COMMENT", viewerDidAuthor: true)]),
+            Self.thread(
+                "UNRESOLVABLE",
+                viewerCanResolve: false,
+                comments: [Self.comment("UNRESOLVABLE_COMMENT")]
+            ),
+            Self.thread(
+                "ACTIONABLE",
+                comments: [Self.comment("ACTIONABLE_SELF", viewerDidAuthor: true), Self.comment("ACTIONABLE_OTHER")]
+            ),
+            Self.thread("RESOLVED", isResolved: true, comments: [Self.comment("RESOLVED_COMMENT")])
+        ]
+        let node = Self.pullRequest(threads: Self.connection(total: threads.count, nodes: threads))
+        let transport = HydrationTransport { _, _ in
+            Self.json(["data": ["nodes": [node]]])
+        }
+
+        let pullRequest = try await Self.fetcher(transport)
+            .hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.commentCount, 1)
+        XCTAssertEqual(pullRequest.commentActivityCount, 5)
+        XCTAssertEqual(Set(pullRequest.recentCommentActivities.map(\.id)), [
+            "SELF_COMMENT", "UNRESOLVABLE_COMMENT", "ACTIONABLE_SELF", "ACTIONABLE_OTHER", "RESOLVED_COMMENT"
+        ])
+    }
+
+    func testHydrationNormalizesRelationshipKindsAndViewerAssignment() async throws {
+        let cases: [(String, [[String: Any]], Bool, [[String: Any]], ReviewRequestKind, Bool)] = [
+            ("NONE", [], false, [Self.user("teammate")], .none, false),
+            ("DIRECT", [Self.request("DIRECT", typeName: "User", login: "RW")], false, [Self.user("RW")], .direct, true),
+            ("RAW_TEAM", [Self.request("TEAM", typeName: "Team")], false, [], .none, false),
+            ("TEAM", [Self.request("TEAM", typeName: "Team")], true, [], .team, false),
+            (
+                "BOTH",
+                [Self.request("DIRECT", typeName: "User", login: "rw"), Self.request("TEAM", typeName: "Team")],
+                true,
+                [],
+                .directAndTeam,
+                false
+            )
+        ]
+
+        for (id, requests, hasTeamEvidence, assignees, expectedKind, expectedAssignment) in cases {
+            var node = Self.pullRequest(
+                id: id,
+                assignees: Self.connection(total: assignees.count, nodes: assignees),
+                requests: Self.connection(total: requests.count, nodes: requests)
+            )
+            node["author"] = Self.user("teammate")
+            let discovery = Self.discovery(
+                id: id,
+                isDirectlyRequested: expectedKind.includesDirect,
+                isTeamRequested: hasTeamEvidence
+            )
+            let transport = HydrationTransport { _, _ in
+                Self.json(["data": ["nodes": [node]]])
+            }
+
+            let pullRequest = try await Self.fetcher(transport).hydrate([discovery], login: "rw")[0].pullRequest
+
+            XCTAssertEqual(pullRequest.reviewRequestKind, expectedKind, id)
+            XCTAssertEqual(pullRequest.isAssignedToViewer, expectedAssignment, id)
+        }
+    }
+
     func testKnownChangesRequestedWinsOverUncertainOpinionatedReviewsInAnyOrder() async throws {
         var deletedAuthor = Self.review("DELETED", state: "APPROVED")
         deletedAuthor["author"] = NSNull()
@@ -496,7 +696,10 @@ final class GitHubPaginationTests: XCTestCase {
         let cases: [(Any, CIState)] = [
             (["state": "SUCCESS"], .passing),
             (["state": "FAILURE"], .failing),
+            (["state": "ERROR"], .failing),
             (["state": "PENDING"], .pending),
+            (["state": "EXPECTED"], .pending),
+            (["state": "FUTURE_STATE"], .unknown),
             (NSNull(), .unknown)
         ]
 
@@ -517,13 +720,38 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testCompleteHydrationNormalizesEveryMergeableState() async throws {
+        let cases: [(Any, MergeableState)] = [
+            ("MERGEABLE", .mergeable),
+            ("CONFLICTING", .conflicting),
+            ("UNKNOWN", .unknown),
+            (NSNull(), .unknown)
+        ]
+
+        for (mergeable, expected) in cases {
+            var node = Self.pullRequest()
+            node["mergeable"] = mergeable
+            let transport = HydrationTransport { _, _ in
+                Self.json(["data": ["nodes": [node]]])
+            }
+
+            let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+            XCTAssertEqual(hydrated[0].pullRequest.mergeable, expected)
+        }
+    }
+
     private static func fetcher(_ transport: HydrationTransport) -> GitHubPullRequestFetcher {
         GitHubPullRequestFetcher { query, variables in
             try await transport.read(query: query, variables: variables)
         }
     }
 
-    private static func discovery(id: String = "PR_1") -> DiscoveredPullRequest {
+    private static func discovery(
+        id: String = "PR_1",
+        isDirectlyRequested: Bool = true,
+        isTeamRequested: Bool = false
+    ) -> DiscoveredPullRequest {
         DiscoveredPullRequest(
             id: id,
             repository: "acme/app",
@@ -531,8 +759,8 @@ final class GitHubPaginationTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 0),
             isAuthored: false,
             isAssigned: false,
-            isDirectlyRequested: true,
-            isTeamRequested: false
+            isDirectlyRequested: isDirectlyRequested,
+            isTeamRequested: isTeamRequested
         )
     }
 
@@ -580,11 +808,14 @@ final class GitHubPaginationTests: XCTestCase {
     private static func comment(
         _ id: String,
         viewerDidAuthor: Bool = false,
+        author: String? = nil,
+        createdAt: String = "2026-01-01T00:00:00Z",
         reviewID: String? = nil
     ) -> [String: Any] {
         var result: [String: Any] = [
-            "id": id, "createdAt": "2026-01-01T00:00:00Z",
-            "viewerDidAuthor": viewerDidAuthor, "author": user(viewerDidAuthor ? "rw" : "reviewer")
+            "id": id, "createdAt": createdAt,
+            "viewerDidAuthor": viewerDidAuthor,
+            "author": user(author ?? (viewerDidAuthor ? "rw" : "reviewer"))
         ]
         if let reviewID {
             result["pullRequestReview"] = ["id": reviewID]
@@ -599,26 +830,54 @@ final class GitHubPaginationTests: XCTestCase {
         return query[startRange.lowerBound..<endRange.lowerBound]
     }
 
-    private static func review(_ id: String, state: String) -> [String: Any] {
+    private static func review(
+        _ id: String,
+        state: String,
+        author: String = "reviewer",
+        submittedAt: String = "2026-01-01T00:00:00Z",
+        viewerDidAuthor: Bool = false
+    ) -> [String: Any] {
         [
-            "id": id, "state": state, "submittedAt": "2026-01-01T00:00:00Z",
-            "viewerDidAuthor": false, "author": user("reviewer")
+            "id": id, "state": state, "submittedAt": submittedAt,
+            "viewerDidAuthor": viewerDidAuthor, "author": user(author)
         ]
     }
 
     private static func thread(
         _ id: String,
+        isResolved: Bool = false,
+        viewerCanResolve: Bool = true,
         comments: [[String: Any]] = [],
         commentsConnection: [String: Any]? = nil
     ) -> [String: Any] {
         [
-            "id": id, "isResolved": false, "viewerCanResolve": true,
+            "id": id, "isResolved": isResolved, "viewerCanResolve": viewerCanResolve,
             "comments": commentsConnection ?? connection(total: comments.count, nodes: comments)
         ]
     }
 
-    private static func request(_ id: String) -> [String: Any] {
-        ["id": id, "requestedReviewer": ["__typename": "User", "id": "USER_\(id)", "login": "rw"]]
+    private static func request(
+        _ id: String,
+        typeName: String = "User",
+        login: String = "rw"
+    ) -> [String: Any] {
+        if typeName == "Team" {
+            return [
+                "id": id,
+                "requestedReviewer": [
+                    "__typename": "Team", "id": "TEAM_\(id)", "slug": "developers",
+                    "organization": ["login": "acme"]
+                ]
+            ]
+        }
+        return [
+            "id": id,
+            "requestedReviewer": ["__typename": "User", "id": "USER_\(id)", "login": login]
+        ]
+    }
+
+    private static func date(_ value: String) -> Date {
+        ISO8601DateFormatter().date(from: value)!
     }
 
     private static func string(_ value: GitHubQueryValue?) -> String? {

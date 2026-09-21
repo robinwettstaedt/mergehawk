@@ -3,6 +3,33 @@ import Foundation
 import XCTest
 
 final class GitHubDiscoveryTests: XCTestCase {
+    func testInitialDiscoveryPageUsesAllFourRelationshipSelectors() async throws {
+        let transport = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: Set(GitHubDiscoveryLane.allCases))
+            }
+
+            let expectedSelectors: [GitHubDiscoveryLane: String] = [
+                .authored: "author:rw",
+                .assigned: "assignee:rw",
+                .direct: "user-review-requested:@me",
+                .team: "team-review-requested-user:rw"
+            ]
+            for lane in GitHubDiscoveryLane.allCases {
+                let laneQuery = Self.query(for: lane, variables: variables)
+                XCTAssertTrue(laneQuery.contains("is:open is:pr"))
+                XCTAssertTrue(laneQuery.contains(try XCTUnwrap(expectedSelectors[lane])))
+                XCTAssertTrue(laneQuery.contains("created:"))
+            }
+            return Self.pageResponse(activeLanes: [], count: 0, nodes: [])
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertTrue(result.pullRequests.isEmpty)
+        XCTAssertEqual(transport.readCount, 2)
+    }
+
     func testDeduplicatesAcrossRelationshipLanesAndUnionsFlags() async throws {
         let transport = DiscoveryTransport { query, variables in
             if query.contains("DiscoveryBounds") {
