@@ -249,6 +249,56 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestListCopy.emptyReviewRequests, "No review requests or assigned PRs.")
     }
 
+    func testRefreshStatusPresentationDistinguishesSuccessLoadingAndFailure() {
+        let idle = RefreshStatusPresentation(
+            isRefreshing: false,
+            errorMessage: nil,
+            lastUpdatedText: "14:30",
+            help: "Refresh",
+            accessibilityLabel: "Refresh"
+        )
+        XCTAssertEqual(idle.state, .idle)
+        XCTAssertEqual(idle.symbolName, "arrow.clockwise")
+        XCTAssertEqual(idle.help, "Refresh")
+        XCTAssertEqual(idle.accessibilityLabel, "Refresh")
+
+        let loading = RefreshStatusPresentation(
+            isRefreshing: true,
+            errorMessage: "Stale failure",
+            lastUpdatedText: "14:30",
+            help: "Refresh",
+            accessibilityLabel: "Refresh"
+        )
+        XCTAssertEqual(loading.state, .refreshing)
+        XCTAssertEqual(loading.accessibilityLabel, "Refresh, refreshing")
+
+        let failed = RefreshStatusPresentation(
+            isRefreshing: false,
+            errorMessage: "The refresh failed.",
+            lastUpdatedText: "14:30",
+            help: "Refresh",
+            accessibilityLabel: "Refresh"
+        )
+        XCTAssertEqual(failed.state, .failed)
+        XCTAssertEqual(failed.symbolName, "exclamationmark.triangle.fill")
+        XCTAssertEqual(failed.help, "Refresh failed: The refresh failed. Click to retry.")
+        XCTAssertEqual(
+            failed.accessibilityLabel,
+            "Refresh failed. The refresh failed. Last successful refresh at 14:30. Activate to retry."
+        )
+
+        let sourcesDefault = RefreshStatusPresentation(
+            isRefreshing: false,
+            errorMessage: nil,
+            lastUpdatedText: "never",
+            help: "Refresh sources",
+            accessibilityLabel: "Refresh sources"
+        )
+        XCTAssertEqual(sourcesDefault.state, .idle)
+        XCTAssertEqual(sourcesDefault.help, "Refresh sources")
+        XCTAssertEqual(sourcesDefault.accessibilityLabel, "Refresh sources")
+    }
+
     // MER-58 regression: during NSMenu tracking, key equivalents are matched against the open
     // menu's native items first and then the app's main menu — the hosted view hierarchy is never
     // consulted. Hidden native trap items are required so ⌘, and ⌘Q do not fall through to the

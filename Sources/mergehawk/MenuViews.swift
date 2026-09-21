@@ -777,6 +777,7 @@ struct MenuRootView: View {
                 indicatorColor: controller.hasAttention ? .red : .green,
                 isRefreshing: controller.isRefreshing,
                 updatedAt: controller.state.syncedAt,
+                errorMessage: controller.errorMessage,
                 action: {
                     dropdownState.dismiss()
                     controller.refresh()
@@ -988,6 +989,7 @@ struct RefreshStatusControl: View {
     let indicatorColor: Color
     let isRefreshing: Bool
     let updatedAt: Date?
+    var errorMessage: String? = nil
     let action: () -> Void
     let isRefreshEnabled: Bool
     let help: String
@@ -1031,6 +1033,7 @@ struct RefreshStatusControl: View {
 
     @ViewBuilder
     private func horizontalButton(height: CGFloat) -> some View {
+        let presentation = statusPresentation
         let shape = RoundedRectangle(cornerRadius: 6)
         let button = Button(action: action) {
             HStack(spacing: Layout.horizontalSpacing) {
@@ -1039,8 +1042,9 @@ struct RefreshStatusControl: View {
                         .controlSize(.small)
                         .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
                 } else {
-                    Image(systemName: "arrow.clockwise")
+                    Image(systemName: presentation.symbolName)
                         .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(presentation.state == .failed ? Color.red : Color.secondary)
                         .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
                 }
                 Text("\(timestampPrefix)\(compactUpdatedText)")
@@ -1064,8 +1068,8 @@ struct RefreshStatusControl: View {
         .clipShape(shape)
         .onHover { isHovered = $0 }
         .disabled(!isRefreshEnabled)
-        .help(help)
-        .accessibilityLabel(accessibilityLabel)
+        .help(presentation.help)
+        .accessibilityLabel(presentation.accessibilityLabel)
 
         if let keyboardShortcut {
             button.keyboardShortcut(keyboardShortcut)
@@ -1085,16 +1089,17 @@ struct RefreshStatusControl: View {
                 .controlSize(.small)
                 .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
         } else {
+            let presentation = statusPresentation
             let button = Button(action: action) {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: presentation.symbolName)
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(presentation.state == .failed ? Color.red : Color.secondary)
                     .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
             .disabled(!isRefreshEnabled)
-            .help(help)
-            .accessibilityLabel(accessibilityLabel)
+            .help(presentation.help)
+            .accessibilityLabel(presentation.accessibilityLabel)
 
             if let keyboardShortcut {
                 button.keyboardShortcut(keyboardShortcut)
@@ -1120,6 +1125,58 @@ struct RefreshStatusControl: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "H:mm"
         return formatter.string(from: updatedAt)
+    }
+
+    private var statusPresentation: RefreshStatusPresentation {
+        RefreshStatusPresentation(
+            isRefreshing: isRefreshing,
+            errorMessage: errorMessage,
+            lastUpdatedText: compactUpdatedText,
+            help: help,
+            accessibilityLabel: accessibilityLabel
+        )
+    }
+}
+
+struct RefreshStatusPresentation: Equatable {
+    enum State: Equatable {
+        case idle
+        case refreshing
+        case failed
+    }
+
+    let state: State
+    let symbolName: String
+    let help: String
+    let accessibilityLabel: String
+
+    init(
+        isRefreshing: Bool,
+        errorMessage: String?,
+        lastUpdatedText: String,
+        help: String,
+        accessibilityLabel: String
+    ) {
+        let failure = errorMessage.flatMap { $0.isEmpty ? nil : $0 }
+        if isRefreshing {
+            state = .refreshing
+            symbolName = "arrow.clockwise"
+            self.help = help
+            self.accessibilityLabel = "\(accessibilityLabel), refreshing"
+        } else if let failure {
+            state = .failed
+            symbolName = "exclamationmark.triangle.fill"
+            self.help = "Refresh failed: \(failure) Click to retry."
+            let lastSuccess = lastUpdatedText == "never"
+                ? "No successful refresh yet."
+                : "Last successful refresh at \(lastUpdatedText)."
+            self.accessibilityLabel = "\(accessibilityLabel) failed. \(failure) \(lastSuccess) Activate to retry."
+        } else {
+            state = .idle
+            symbolName = "arrow.clockwise"
+            self.help = help
+            self.accessibilityLabel = accessibilityLabel
+        }
     }
 }
 
