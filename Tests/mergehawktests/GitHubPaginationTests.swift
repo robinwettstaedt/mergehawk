@@ -45,10 +45,14 @@ final class GitHubPaginationTests: XCTestCase {
             XCTAssertTrue(query.contains("nodes { id login avatarUrl(size: 64) }"))
             XCTAssertTrue(query.contains("... on User { id login }"))
             XCTAssertTrue(query.contains("... on Team { id slug"))
+            let topLevelComments = try XCTUnwrap(Self.selection(in: query, from: "c0:", to: "c1:"))
+            XCTAssertFalse(topLevelComments.contains("pullRequestReview"))
+            let reviewThreads = try XCTUnwrap(Self.selection(in: query, from: "c2:", to: "c3:"))
+            XCTAssertTrue(reviewThreads.contains("pullRequestReview { id }"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 20, nodes: (0..<10).map { Self.comment("C\($0)") })],
                 "c1": ["reviews": Self.connection(total: 11, nodes: [Self.review("R0", state: "APPROVED")])],
-                "c2": ["reviewThreads": Self.connection(total: 21, nodes: [Self.thread("T0", comments: [Self.comment("THREAD_COMMENT")])])],
+                "c2": ["reviewThreads": Self.connection(total: 21, nodes: [Self.thread("T0", comments: [Self.comment("THREAD_COMMENT", reviewID: "THREAD_REVIEW")])])],
                 "c3": ["assignees": Self.connection(total: 21, nodes: [Self.user("rw")])],
                 "c4": ["reviewRequests": Self.connection(total: 21, nodes: [Self.request("Q0")])]
             ]])
@@ -64,6 +68,12 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated[0].pullRequest.commentCount, 1)
         XCTAssertTrue(hydrated[0].pullRequest.isAssignedToViewer)
         XCTAssertEqual(hydrated[0].pullRequest.reviewRequestKind, .direct)
+        let topLevelComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "C0" })
+        XCTAssertEqual(topLevelComment.source, .pullRequest)
+        XCTAssertNil(topLevelComment.reviewId)
+        let threadComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "THREAD_COMMENT" })
+        XCTAssertEqual(threadComment.source, .reviewThread)
+        XCTAssertEqual(threadComment.reviewId, "THREAD_REVIEW")
         XCTAssertEqual(transport.queries.filter { $0.contains("CompletePullRequests") }.count, 1)
         XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 1)
     }
@@ -87,10 +97,11 @@ final class GitHubPaginationTests: XCTestCase {
             XCTAssertEqual(Self.string(variables["id0"]), "T_OLD")
             XCTAssertFalse(query.contains("author { id"))
             XCTAssertTrue(query.contains("author { login }"))
+            XCTAssertTrue(query.contains("pullRequestReview { id }"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 11, nodes: [
                     Self.comment("TC1", viewerDidAuthor: true),
-                    Self.comment("TC0", viewerDidAuthor: false)
+                    Self.comment("TC0", viewerDidAuthor: false, reviewID: "THREAD_REVIEW")
                 ])]
             ]])
         }
@@ -99,6 +110,9 @@ final class GitHubPaginationTests: XCTestCase {
 
         XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 11)
         XCTAssertEqual(hydrated[0].pullRequest.commentCount, 1)
+        let continuedComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "TC0" })
+        XCTAssertEqual(continuedComment.source, .reviewThread)
+        XCTAssertEqual(continuedComment.reviewId, "THREAD_REVIEW")
     }
 
     func testIncompleteContinuationCoverageFailsInsteadOfPublishingPartialData() async throws {
@@ -563,12 +577,26 @@ final class GitHubPaginationTests: XCTestCase {
         ["id": "USER_\(login)", "login": login]
     }
 
-    private static func comment(_ id: String, viewerDidAuthor: Bool = false) -> [String: Any] {
-        [
+    private static func comment(
+        _ id: String,
+        viewerDidAuthor: Bool = false,
+        reviewID: String? = nil
+    ) -> [String: Any] {
+        var result: [String: Any] = [
             "id": id, "createdAt": "2026-01-01T00:00:00Z",
-            "viewerDidAuthor": viewerDidAuthor, "author": user(viewerDidAuthor ? "rw" : "reviewer"),
-            "pullRequestReview": NSNull()
+            "viewerDidAuthor": viewerDidAuthor, "author": user(viewerDidAuthor ? "rw" : "reviewer")
         ]
+        if let reviewID {
+            result["pullRequestReview"] = ["id": reviewID]
+        }
+        return result
+    }
+
+    private static func selection(in query: String, from start: String, to end: String) -> Substring? {
+        guard let startRange = query.range(of: start),
+              let endRange = query.range(of: end, range: startRange.upperBound..<query.endIndex)
+        else { return nil }
+        return query[startRange.lowerBound..<endRange.lowerBound]
     }
 
     private static func review(_ id: String, state: String) -> [String: Any] {

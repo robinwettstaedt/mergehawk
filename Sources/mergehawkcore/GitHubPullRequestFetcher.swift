@@ -638,7 +638,7 @@ struct GitHubPullRequestFetcher: Sendable {
     private func continuationSelection(for kind: ConnectionKind, cursor: String) -> String {
         switch kind {
         case .comments:
-            return "... on PullRequest { comments(last: 10, before: \(cursor)) { \(commentConnectionFields) } }"
+            return "... on PullRequest { comments(last: 10, before: \(cursor)) { \(topLevelCommentConnectionFields) } }"
         case .reviews:
             return "... on PullRequest { reviews(last: 10, before: \(cursor)) { \(reviewConnectionFields) } }"
         case .opinionatedReviews:
@@ -649,7 +649,7 @@ struct GitHubPullRequestFetcher: Sendable {
               totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
               nodes {
                 id isResolved viewerCanResolve
-                comments(last: 10) { \(commentConnectionFields) }
+                comments(last: 10) { \(reviewCommentConnectionFields) }
               }
             } }
             """
@@ -663,11 +663,15 @@ struct GitHubPullRequestFetcher: Sendable {
             } }
             """
         case .threadComments:
-            return "... on PullRequestReviewThread { comments(last: 10, before: \(cursor)) { \(commentConnectionFields) } }"
+            return "... on PullRequestReviewThread { comments(last: 10, before: \(cursor)) { \(reviewCommentConnectionFields) } }"
         }
     }
 
-    private var commentConnectionFields: String {
+    private var topLevelCommentConnectionFields: String {
+        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { login } }"
+    }
+
+    private var reviewCommentConnectionFields: String {
         "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { login } pullRequestReview { id } }"
     }
 
