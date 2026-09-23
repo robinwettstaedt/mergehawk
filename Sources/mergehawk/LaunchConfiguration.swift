@@ -1,4 +1,5 @@
 import Foundation
+import mergehawkcore
 
 struct LaunchConfiguration: Equatable {
     enum VerificationUI: String {
@@ -11,6 +12,7 @@ struct LaunchConfiguration: Equatable {
     var notificationLogPath: String? = nil
     var showsNotificationTypeFixtures: Bool = false
     var mockRefreshDelaySeconds: TimeInterval = 0
+    var mockPullRequestScenario: MockPullRequestScenario = .standard
     var verificationUI: VerificationUI? = nil
 
     static func current(
@@ -27,6 +29,12 @@ struct LaunchConfiguration: Equatable {
             || usesMockData
         let showsNotificationTypeFixtures = arguments.contains("--notification-type-fixtures")
             || truthy(environment["MERGEHAWK_NOTIFICATION_TYPE_FIXTURES"])
+        let mockScenario = usesMockData
+            ? (value(after: "--mock-scenario", in: arguments)
+                ?? environment["MERGEHAWK_MOCK_SCENARIO"])
+                .flatMap(MockPullRequestScenario.init(rawValue:)) ?? .standard
+            : .standard
+        let configuredDelay = positiveTimeInterval(environment["MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS"])
 
         return LaunchConfiguration(
             usesMockData: usesMockData,
@@ -34,7 +42,9 @@ struct LaunchConfiguration: Equatable {
             notificationLogPath: value(after: "--notification-log", in: arguments)
                 ?? environment["MERGEHAWK_NOTIFICATION_LOG"],
             showsNotificationTypeFixtures: showsNotificationTypeFixtures,
-            mockRefreshDelaySeconds: positiveTimeInterval(environment["MERGEHAWK_MOCK_REFRESH_DELAY_SECONDS"]) ?? 0,
+            mockRefreshDelaySeconds: configuredDelay
+                ?? (mockScenario == .delayedRefresh ? 3 : 0),
+            mockPullRequestScenario: mockScenario,
             verificationUI: usesMockData
                 ? value(after: "--verification-ui", in: arguments).flatMap(VerificationUI.init(rawValue:))
                 : nil

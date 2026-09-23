@@ -6,9 +6,16 @@ struct PreferencesStore {
     static let defaultRefreshIntervalMinutes = 2
 
     private let defaults: UserDefaults
+    private let syncStateEncoder: (PullRequestSyncState) throws -> Data
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        syncStateEncoder: @escaping (PullRequestSyncState) throws -> Data = {
+            try JSONEncoder().encode($0)
+        }
+    ) {
         self.defaults = defaults
+        self.syncStateEncoder = syncStateEncoder
     }
 
     var notificationPreferences: NotificationPreferences {
@@ -62,6 +69,16 @@ struct PreferencesStore {
         }
     }
 
+    var sourceCatalogSyncedAt: Date? {
+        get { defaults.object(forKey: "sources.catalogSyncedAt") as? Date }
+        set { defaults.set(newValue, forKey: "sources.catalogSyncedAt") }
+    }
+
+    var sourceCatalogAccountLogin: String? {
+        get { defaults.string(forKey: "sources.catalogAccountLogin") }
+        set { defaults.set(newValue, forKey: "sources.catalogAccountLogin") }
+    }
+
     var pullRequestSnapshotCache: PullRequestSnapshotCache {
         get {
             decoded(for: "pullRequests.snapshotCache", fallback: .empty)
@@ -80,22 +97,55 @@ struct PreferencesStore {
         }
     }
 
-    var gitHubInboxNotifications: [GitHubInboxNotification] {
-        get {
-            decoded(for: "notifications.githubInbox", fallback: [])
+    var pullRequestSyncState: PullRequestSyncState? {
+        guard let data = defaults.data(forKey: "pullRequests.syncState"),
+              let value = try? JSONDecoder().decode(PullRequestSyncState.self, from: data),
+              value.formatVersion == PullRequestSyncState.currentFormatVersion else {
+            return nil
         }
-        set {
-            encode(newValue, for: "notifications.githubInbox")
-        }
+        return value
     }
 
-    var gitHubInboxSyncMetadata: GitHubInboxSyncMetadata {
-        get {
-            decoded(for: "notifications.githubInboxMetadata", fallback: .empty)
-        }
-        set {
-            encode(newValue, for: "notifications.githubInboxMetadata")
-        }
+    /// Storing new state retires the legacy keys, so an unreadable state can never fall back to an old snapshot.
+    func storePullRequestSyncState(_ value: PullRequestSyncState) throws {
+        let data = try syncStateEncoder(value)
+        defaults.set(data, forKey: "pullRequests.syncState")
+        defaults.removeObject(forKey: "pullRequests.snapshotCache")
+        defaults.removeObject(forKey: "notifications.prHistory")
+    }
+
+    func clearPullRequestSyncState() {
+        defaults.removeObject(forKey: "pullRequests.syncState")
+    }
+
+    /// The legacy snapshot kept only recent comments and reviews, so its fetch time marks everything older
+    /// as processed. Without a fetch time there is no safe baseline, and the first refresh starts a new one.
+    func importedLegacySyncState() -> PullRequestSyncState? {
+        let cache = pullRequestSnapshotCache
+        guard let account = cache.account, cache.source == .github else { return nil }
+        let processed = cache.fetchedAt.map { fetchedAt in
+            Dictionary(cache.pullRequests.map { pr in
+                (pr.id, ProcessedPullRequestActivity(
+                    pullRequestID: pr.id,
+                    commentIDs: Set(pr.recentCommentActivities.map(\.id)),
+                    submittedReviewIDs: Set(pr.recentReviews.map(\.id)),
+                    processedThrough: fetchedAt
+                ))
+            }, uniquingKeysWith: { first, _ in first })
+        } ?? [:]
+        return PullRequestSyncState(
+            account: account,
+            dashboard: DashboardState(
+                pullRequests: cache.pullRequests,
+                events: [],
+                syncedAt: cache.fetchedAt,
+                source: cache.source,
+                account: account,
+                authStatus: .signedIn
+            ),
+            processedActivityByPullRequestID: processed,
+            notificationHistory: pullRequestNotificationHistory
+        )
     }
 
     var refreshIntervalMinutes: Int {

@@ -10,14 +10,8 @@ struct Runner {
         try testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents()
         try testTopLevelCommentedReviewEmitsReviewCommentedEvent()
         try testOutcomeReviewSuppressesChildReviewThreadCommentEvents()
-        try testOutcomeReviewKeepsUnrepresentedCommentFallback()
-        try testCommentCountFallbackCoversMissingFetchedActivities()
+        try testOutcomeReviewKeepsUnrelatedCommentActivity()
         try testIgnoresSelfAuthoredPeopleActivity()
-        try testDetectsOtherCommitsOnAuthoredPullRequests()
-        try testOtherCommitActorRequiresOneDistinctOtherLogin()
-        try testLegacyCommitSnapshotsBaselineWithoutEvents()
-        try testIgnoresViewerOnlyAndUnknownAuthoredCommits()
-        try testIgnoresOtherCommitsOnNonAuthoredPullRequests()
         try testDetectsCIFailuresForIncomingPRs()
         try testDetectsIncomingRelationshipAddedTransitions()
         try testRelationshipAddedFilteringUsesChangedRelationships()
@@ -27,20 +21,7 @@ struct Runner {
         try testNotificationPreferencesTreatReviewEventsAsReviewActivity()
         try testNotificationPreferencesAllowOverlappingRelationshipOnce()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
-        try await testSyncBaselinesFirstFetchAndReportsPRs()
-        try await testSyncEmitsFilteredEventsAfterBaseline()
-        try await testSyncFiltersIncomingEventsByMatrix()
-        try await testSyncFiltersEventsBySourcePreferences()
-        try await testSyncSeedsPreviousSnapshotsAndUpdatesSnapshotCache()
-        try await testSyncSurfacesSourceRefreshWarning()
-        try await testEmptyPullRequestSourceReportsNoneAndNoPullRequests()
-        try testNormalizesPullRequestSearchNodes()
-        try testNormalizesActionableUnresolvedComments()
-        try testNormalizesReviewOutcomeFromLatestOpinionatedReviews()
-        try testNormalizesReviewRequestKinds()
-        try testNormalizesViewerAssignment()
-        try testNormalizesCommitIdentityMetadata()
-        try testBuildsThreePullRequestSearchQueries()
+        try await testPreparedRefreshUsesDurableProcessedActivity()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
         print("mergehawkcore tests passed")
     }
@@ -55,7 +36,8 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: nil, current: current) == [])
+        try expect(PRActivityDetector.detectTransitions(previous: nil, current: current) == [])
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(previous: nil, current: current) == [])
     }
 
     private static func testDetectsNewActivityAndAuthoredPRStateTransitions() throws {
@@ -85,10 +67,12 @@ struct Runner {
             isMine: true
         )
 
-        try expect(
-            PRActivityDetector.detect(previous: previous, current: current).map(\.type)
-                == [.reviewApproved, .ciFailed]
-        )
+        let events = PRActivityDetector.detectTransitions(previous: previous, current: current)
+            + PRActivityDetector.detectProcessedPeopleActivity(
+                previous: processedActivity(for: previous),
+                current: current
+            )
+        try expect(events.map(\.type) == [.ciFailed, .reviewApproved])
 
         let previousReviews = PullRequest.fixture(
             id: "PR_2",
@@ -127,10 +111,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(
-            PRActivityDetector.detect(previous: previousReviews, current: currentReviews).map(\.type)
-                == [.changesRequested]
-        )
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previousReviews),
+            current: currentReviews
+        ).map(\.type) == [.changesRequested])
     }
 
     private static func testDetectsNewCommentActivitiesWithActors() throws {
@@ -174,7 +158,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .newComment,
                 prId: "PR_ACTIVITY",
@@ -221,7 +208,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .reviewCommented,
                 prId: "PR_REVIEW_COMMENT",
@@ -249,7 +239,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .reviewCommented,
                 prId: "PR_TOP_LEVEL_REVIEW_COMMENT",
@@ -288,7 +281,10 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .changesRequested,
                 prId: "PR_CHANGES_COMMENT",
@@ -300,10 +296,10 @@ struct Runner {
         ])
     }
 
-    private static func testOutcomeReviewKeepsUnrepresentedCommentFallback() throws {
-        let previous = PullRequest.fixture(id: "PR_CHANGES_WITH_MISSING_COMMENT", commentActivityCount: 0, isMine: true)
+    private static func testOutcomeReviewKeepsUnrelatedCommentActivity() throws {
+        let previous = PullRequest.fixture(id: "PR_CHANGES_WITH_COMMENT", isMine: true)
         let current = PullRequest.fixture(
-            id: "PR_CHANGES_WITH_MISSING_COMMENT",
+            id: "PR_CHANGES_WITH_COMMENT",
             commentCount: 2,
             commentActivityCount: 2,
             recentCommentActivities: [
@@ -313,6 +309,12 @@ struct Runner {
                     createdAt: Date(timeIntervalSince1970: 200),
                     source: .reviewThread,
                     reviewId: "REVIEW_CHANGES"
+                ),
+                PullRequestCommentActivity(
+                    id: "UNRELATED_COMMENT",
+                    author: "frontend-sam",
+                    createdAt: Date(timeIntervalSince1970: 300),
+                    source: .pullRequest
                 )
             ],
             reviewCount: 1,
@@ -327,49 +329,26 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ) == [
             PullRequestEvent(
                 type: .changesRequested,
-                prId: "PR_CHANGES_WITH_MISSING_COMMENT",
+                prId: "PR_CHANGES_WITH_COMMENT",
                 count: 1,
                 actorLogin: "backend-mateo",
                 activityId: "REVIEW_CHANGES",
                 happenedAt: Date(timeIntervalSince1970: 200)
             ),
-            PullRequestEvent(type: .newComment, prId: "PR_CHANGES_WITH_MISSING_COMMENT", count: 1)
-        ])
-    }
-
-    private static func testCommentCountFallbackCoversMissingFetchedActivities() throws {
-        let previous = PullRequest.fixture(
-            id: "PR_MISSING_COMMENTS",
-            commentActivityCount: 10,
-            isMine: true
-        )
-        let current = PullRequest.fixture(
-            id: "PR_MISSING_COMMENTS",
-            commentActivityCount: 13,
-            recentCommentActivities: [
-                PullRequestCommentActivity(
-                    id: "FETCHED_COMMENT",
-                    author: "teammate",
-                    createdAt: Date(timeIntervalSince1970: 200),
-                    source: .pullRequest
-                )
-            ],
-            isMine: true
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
             PullRequestEvent(
                 type: .newComment,
-                prId: "PR_MISSING_COMMENTS",
+                prId: "PR_CHANGES_WITH_COMMENT",
                 count: 1,
-                actorLogin: "teammate",
-                activityId: "FETCHED_COMMENT",
-                happenedAt: Date(timeIntervalSince1970: 200)
-            ),
-            PullRequestEvent(type: .newComment, prId: "PR_MISSING_COMMENTS", count: 2)
+                actorLogin: "frontend-sam",
+                activityId: "UNRELATED_COMMENT",
+                happenedAt: Date(timeIntervalSince1970: 300)
+            )
         ])
     }
 
@@ -400,251 +379,49 @@ struct Runner {
             isMine: true
         )
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
-    }
-
-    private static func testDetectsOtherCommitsOnAuthoredPullRequests() throws {
-        let previous = PullRequest.fixture(
-            id: "PR_OTHER_COMMIT",
-            recentCommits: [
-                PullRequestCommit(
-                    oid: "commit-old",
-                    authoredAt: Date(timeIntervalSince1970: 100),
-                    committedAt: Date(timeIntervalSince1970: 100),
-                    authorLogin: "rw",
-                    committerLogin: "rw"
-                )
-            ],
-            isMine: true,
-            author: "rw"
-        )
-        let singleOther = PullRequest.fixture(
-            id: "PR_OTHER_COMMIT",
-            recentCommits: previous.recentCommits + [
-                PullRequestCommit(
-                    oid: "commit-new",
-                    authoredAt: Date(timeIntervalSince1970: 200),
-                    committedAt: Date(timeIntervalSince1970: 250),
-                    authorLogin: "frontend-sam",
-                    committerLogin: "rw"
-                )
-            ],
-            isMine: true,
-            author: "rw"
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: singleOther) == [
-            PullRequestEvent(
-                type: .otherCommitAdded,
-                prId: "PR_OTHER_COMMIT",
-                count: 1,
-                actorLogin: "frontend-sam",
-                happenedAt: Date(timeIntervalSince1970: 250)
-            )
-        ])
-
-        let multipleOthers = PullRequest.fixture(
-            id: "PR_OTHER_COMMIT",
-            recentCommits: previous.recentCommits + [
-                PullRequestCommit(
-                    oid: "commit-new-1",
-                    authoredAt: Date(timeIntervalSince1970: 200),
-                    committedAt: Date(timeIntervalSince1970: 250),
-                    authorLogin: "frontend-sam",
-                    committerLogin: "rw"
-                ),
-                PullRequestCommit(
-                    oid: "commit-new-2",
-                    authoredAt: Date(timeIntervalSince1970: 300),
-                    committedAt: Date(timeIntervalSince1970: 350),
-                    authorLogin: "docs-lee",
-                    committerLogin: "docs-lee"
-                )
-            ],
-            isMine: true,
-            author: "rw"
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: multipleOthers) == [
-            PullRequestEvent(
-                type: .otherCommitAdded,
-                prId: "PR_OTHER_COMMIT",
-                count: 2,
-                happenedAt: Date(timeIntervalSince1970: 350)
-            )
-        ])
-    }
-
-    private static func testOtherCommitActorRequiresOneDistinctOtherLogin() throws {
-        let previous = PullRequest.fixture(
-            id: "PR_SPLIT_COMMIT",
-            recentCommits: [
-                PullRequestCommit(
-                    oid: "commit-old",
-                    authoredAt: Date(timeIntervalSince1970: 100),
-                    committedAt: Date(timeIntervalSince1970: 100),
-                    authorLogin: "rw",
-                    committerLogin: "rw"
-                )
-            ],
-            isMine: true,
-            author: "rw"
-        )
-        let current = PullRequest.fixture(
-            id: "PR_SPLIT_COMMIT",
-            recentCommits: previous.recentCommits + [
-                PullRequestCommit(
-                    oid: "commit-new",
-                    authoredAt: Date(timeIntervalSince1970: 200),
-                    committedAt: Date(timeIntervalSince1970: 250),
-                    authorLogin: "frontend-sam",
-                    committerLogin: "web-flow"
-                )
-            ],
-            isMine: true,
-            author: "rw"
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: current) == [
-            PullRequestEvent(
-                type: .otherCommitAdded,
-                prId: "PR_SPLIT_COMMIT",
-                count: 1,
-                happenedAt: Date(timeIntervalSince1970: 250)
-            )
-        ])
-    }
-
-    private static func testLegacyCommitSnapshotsBaselineWithoutEvents() throws {
-        let legacyJSON = """
-        {
-          "id": "PR_LEGACY_COMMIT_CACHE",
-          "title": "Decode legacy PR snapshot",
-          "number": 40,
-          "url": "https://github.com/acme/mergehawk/pull/40",
-          "repo": "acme/mergehawk",
-          "ciState": "passing",
-          "reviewDecision": "review_required",
-          "commentCount": 0,
-          "commentActivityCount": 0,
-          "recentCommentActivities": [],
-          "reviewCount": 0,
-          "recentReviews": [],
-          "reviewRequestKind": "none",
-          "isAssignedToViewer": false,
-          "isMine": true,
-          "author": "rw",
-          "headRefName": "feature",
-          "mergeable": "unknown",
-          "draft": false,
-          "createdAt": 0,
-          "updatedAt": 0
-        }
-        """
-        let previous = try JSONDecoder().decode(PullRequest.self, from: Data(legacyJSON.utf8))
-        try expect(previous.recentCommits.isEmpty)
-        try expect(!previous.hasRecentCommitMetadata)
-
-        let current = PullRequest.fixture(
-            id: "PR_LEGACY_COMMIT_CACHE",
-            recentCommits: [
-                PullRequestCommit(
-                    oid: "commit-existing",
-                    authoredAt: Date(timeIntervalSince1970: 100),
-                    committedAt: Date(timeIntervalSince1970: 100),
-                    authorLogin: "frontend-sam",
-                    committerLogin: "frontend-sam"
-                )
-            ],
-            isMine: true,
-            author: "rw"
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
-    }
-
-    private static func testIgnoresViewerOnlyAndUnknownAuthoredCommits() throws {
-        let previous = PullRequest.fixture(id: "PR_VIEWER_COMMIT", isMine: true, author: "rw")
-        let current = PullRequest.fixture(
-            id: "PR_VIEWER_COMMIT",
-            recentCommits: [
-                PullRequestCommit(
-                    oid: "commit-viewer",
-                    authoredAt: Date(timeIntervalSince1970: 100),
-                    committedAt: Date(timeIntervalSince1970: 100),
-                    authorLogin: "RW",
-                    committerLogin: "rw"
-                ),
-                PullRequestCommit(
-                    oid: "commit-unknown",
-                    authoredAt: Date(timeIntervalSince1970: 200),
-                    committedAt: Date(timeIntervalSince1970: 200)
-                )
-            ],
-            isMine: true,
-            author: "rw"
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
-    }
-
-    private static func testIgnoresOtherCommitsOnNonAuthoredPullRequests() throws {
-        let previous = PullRequest.fixture(id: "PR_INCOMING_COMMIT", isMine: false, author: "teammate")
-        let current = PullRequest.fixture(
-            id: "PR_INCOMING_COMMIT",
-            recentCommits: [
-                PullRequestCommit(
-                    oid: "commit-new",
-                    authoredAt: Date(timeIntervalSince1970: 100),
-                    committedAt: Date(timeIntervalSince1970: 100),
-                    authorLogin: "frontend-sam",
-                    committerLogin: "frontend-sam"
-                )
-            ],
-            isMine: false,
-            author: "teammate"
-        )
-
-        try expect(PRActivityDetector.detect(previous: previous, current: current).isEmpty)
+        try expect(PRActivityDetector.detectProcessedPeopleActivity(
+            previous: processedActivity(for: previous),
+            current: current
+        ).isEmpty)
     }
 
     private static func testDetectsCIFailuresForIncomingPRs() throws {
         let previous = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .passing, isMine: false)
         let current = PullRequest.fixture(id: "PR_INCOMING_CI", ciState: .failing, isMine: false)
 
-        try expect(PRActivityDetector.detect(previous: previous, current: current).map(\.type) == [.ciFailed])
+        try expect(PRActivityDetector.detectTransitions(previous: previous, current: current).map(\.type) == [.ciFailed])
     }
 
     private static func testDetectsIncomingRelationshipAddedTransitions() throws {
-        let assigned = PRActivityDetector.detect(
+        let assigned = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_ASSIGNED", isAssignedToViewer: false, isMine: false),
             current: .fixture(id: "PR_ASSIGNED", isAssignedToViewer: true, isMine: false)
         )
         try expect(assigned.map(\.type) == [.relationshipAdded])
         try expect(assigned[0].relationshipChanges == [.assigned])
 
-        let direct = PRActivityDetector.detect(
+        let direct = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_DIRECT", reviewRequestKind: .none, isMine: false),
             current: .fixture(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false)
         )
         try expect(direct.map(\.type) == [.relationshipAdded])
         try expect(direct[0].relationshipChanges == [.directReviewRequest])
 
-        let team = PRActivityDetector.detect(
+        let team = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_TEAM", reviewRequestKind: .none, isMine: false),
             current: .fixture(id: "PR_TEAM", reviewRequestKind: .team, isMine: false)
         )
         try expect(team.map(\.type) == [.relationshipAdded])
         try expect(team[0].relationshipChanges == [.teamReviewRequest])
 
-        let combined = PRActivityDetector.detect(
+        let combined = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_COMBINED", reviewRequestKind: .none, isAssignedToViewer: false, isMine: false),
             current: .fixture(id: "PR_COMBINED", reviewRequestKind: .directAndTeam, isAssignedToViewer: true, isMine: false)
         )
         try expect(combined.map(\.type) == [.relationshipAdded])
         try expect(combined[0].relationshipChanges == [.assigned, .directReviewRequest, .teamReviewRequest])
 
-        let selfAuthored = PRActivityDetector.detect(
+        let selfAuthored = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_SELF", reviewRequestKind: .none, isAssignedToViewer: false, isMine: true),
             current: .fixture(id: "PR_SELF", reviewRequestKind: .direct, isAssignedToViewer: true, isMine: true)
         )
@@ -693,14 +470,6 @@ struct Runner {
 
         try expect(NotificationPreferences.defaults.allows(event: event, for: authored))
         try expect(!NotificationPreferences.defaults.allows(event: event, for: assigned))
-        try expect(NotificationPreferences.defaults.allows(
-            event: PullRequestEvent(type: .otherCommitAdded, prId: authored.id),
-            for: authored
-        ))
-        try expect(!NotificationPreferences.defaults.allows(
-            event: PullRequestEvent(type: .otherCommitAdded, prId: assigned.id),
-            for: assigned
-        ))
         try expect(NotificationPreferences.defaults.allows(
             event: PullRequestEvent(
                 type: .relationshipAdded,
@@ -847,432 +616,61 @@ struct Runner {
         try expect(preferences.allowsMyPullRequests(for: "malformed") == true)
     }
 
-    private static func testSyncBaselinesFirstFetchAndReportsPRs() async throws {
-        let source = SequencePullRequestSource(snapshots: [[.fixture(id: "1", isMine: true)]])
-        let engine = SyncEngine(source: source, loginProvider: { "rw" })
 
-        let result = try await engine.sync()
-
-        try expect(result.pullRequests.count == 1)
-        try expect(result.events == [])
-        try expect(result.source == .mock)
-        try expect(result.account?.login == "rw")
-    }
-
-    private static func testSyncEmitsFilteredEventsAfterBaseline() async throws {
-        let source = SequencePullRequestSource(snapshots: [
-            [.fixture(id: "1", ciState: .passing, commentCount: 0, isMine: true)],
-            [.fixture(
-                id: "1",
-                ciState: .failing,
-                commentCount: 1,
-                recentCommentActivities: [
-                    PullRequestCommentActivity(
-                        id: "COMMENT_NEW",
-                        author: "teammate",
-                        createdAt: Date(timeIntervalSince1970: 200),
-                        source: .pullRequest
-                    )
-                ],
-                isMine: true
-            )]
-        ])
-        let engine = SyncEngine(source: source, loginProvider: { "rw" })
-
-        _ = try await engine.sync()
-        let result = try await engine.sync()
-
-        try expect(result.events.map(\.type) == [.newComment, .ciFailed])
-    }
-
-    private static func testSyncFiltersIncomingEventsByMatrix() async throws {
-        let source = SequencePullRequestSource(snapshots: [
-            [
-                .fixture(
-                    id: "assigned",
-                    ciState: .passing,
-                    commentCount: 0,
-                    isAssignedToViewer: true,
-                    isMine: false
-                )
-            ],
-            [
-                .fixture(
-                    id: "assigned",
-                    ciState: .failing,
-                    commentCount: 1,
-                    recentCommentActivities: [
-                        PullRequestCommentActivity(
-                            id: "COMMENT_ASSIGNED",
-                            author: "teammate",
-                            createdAt: Date(timeIntervalSince1970: 200),
-                            source: .pullRequest
-                        )
-                    ],
-                    isAssignedToViewer: true,
-                    isMine: false
-                )
-            ]
-        ])
-        let preferences = NotificationPreferences(
-            authored: .disabled,
-            assigned: PullRequestNotificationActivityPreferences(
-                comments: true,
-                reviewActivity: false,
-                ciFailures: false
-            ),
-            directReviewRequests: .disabled,
-            teamReviewRequests: .disabled
-        )
-        let engine = SyncEngine(
-            source: source,
-            preferences: preferences,
-            loginProvider: { "rw" }
-        )
-
-        _ = try await engine.sync()
-        let result = try await engine.sync()
-
-        try expect(result.events.map(\.type) == [.newComment])
-    }
-
-    private static func testSyncFiltersEventsBySourcePreferences() async throws {
-        let source = SequencePullRequestSource(snapshots: [
-            [.fixture(id: "1", repo: "work/app", commentCount: 0, isMine: true)],
-            [.fixture(
-                id: "1",
-                repo: "work/app",
-                commentCount: 1,
-                recentCommentActivities: [
-                    PullRequestCommentActivity(
-                        id: "COMMENT_NEW",
-                        author: "teammate",
-                        createdAt: Date(timeIntervalSince1970: 200),
-                        source: .pullRequest
-                    )
-                ],
-                isMine: true
-            )]
-        ])
-        let sourcePreferences = SourcePreferences(
-            owners: [
-                "work": OwnerSourcePreferences(
-                    notifications: false,
-                    myPullRequests: true,
-                    reviewRequests: true
-                )
-            ],
-            repositories: [:]
-        )
-        let engine = SyncEngine(
-            source: source,
-            loginProvider: { "rw" },
-            sourcePreferencesProvider: { sourcePreferences }
-        )
-
-        _ = try await engine.sync()
-        let result = try await engine.sync()
-
-        try expect(result.events.isEmpty)
-    }
-
-    private static func testSyncSeedsPreviousSnapshotsAndUpdatesSnapshotCache() async throws {
-        let previous = PullRequest.fixture(
-            id: "1",
-            commentCount: 0,
-            recentCommentActivities: [],
-            isMine: true
-        )
-        let current = PullRequest.fixture(
-            id: "1",
-            commentCount: 1,
-            recentCommentActivities: [
-                PullRequestCommentActivity(
-                    id: "COMMENT_AFTER_RESTART",
-                    author: "teammate",
-                    createdAt: Date(timeIntervalSince1970: 300),
-                    source: .pullRequest
-                )
-            ],
-            isMine: true
-        )
-        let source = SequencePullRequestSource(snapshots: [[current]])
-        var storedCache: PullRequestSnapshotCache?
-        let engine = SyncEngine(
-            source: source,
-            loginProvider: { "rw" },
-            initialPullRequests: [previous],
-            snapshotCacheDidUpdate: { cache in
-                storedCache = cache
-            }
-        )
-
-        let result = try await engine.sync()
-
-        try expect(source.receivedPreviousPullRequestIds == [["1"]])
-        try expect(result.events.map(\.activityId) == ["COMMENT_AFTER_RESTART"])
-        try expect(storedCache?.pullRequests == [current])
-        try expect(storedCache?.account?.login == "rw")
-        try expect(storedCache?.source == .mock)
-    }
-
-    private static func testSyncSurfacesSourceRefreshWarning() async throws {
-        let source = SequencePullRequestSource(
-            snapshots: [[.fixture(id: "1", isMine: true)]],
-            warnings: ["Using cached activity."]
-        )
-        let engine = SyncEngine(source: source, loginProvider: { "rw" })
-
-        _ = try await engine.sync()
-
-        try expect(engine.lastRefreshWarning == "Using cached activity.")
-    }
-
-    private static func testEmptyPullRequestSourceReportsNoneAndNoPullRequests() async throws {
+    private static func testPreparedRefreshUsesDurableProcessedActivity() async throws {
         let source = EmptyPullRequestSource()
         let engine = SyncEngine(
             source: source,
             loginProvider: { "rw" },
-            accountProvider: { nil },
-            authStatusProvider: { .signedOut }
+            accountProvider: { GitHubAccount(login: "rw") },
+            now: { Date(timeIntervalSince1970: 10) }
         )
-
-        let result = try await engine.sync()
-
-        try expect(result.source == .none)
-        try expect(result.authStatus == .signedOut)
-        try expect(result.account?.login == "rw")
-        try expect(result.pullRequests.isEmpty)
-        try expect(result.events.isEmpty)
-    }
-
-    private static func testNormalizesPullRequestSearchNodes() throws {
-        let node = GitHubPullRequestNode(
-            id: "PR_1",
-            title: "Ship dashboard",
-            number: 12,
-            url: "https://github.com/acme/mergehawk/pull/12",
-            createdAt: "2026-05-01T12:00:00Z",
-            updatedAt: "2026-05-02T12:00:00Z",
-            headRefName: "ship-dashboard",
-            isDraft: true,
-            mergeable: "MERGEABLE",
-            comments: .init(totalCount: 2, nodes: [
-                .init(
-                    id: "COMMENT_1",
-                    createdAt: "2026-05-02T10:00:00Z",
-                    viewerDidAuthor: false,
-                    author: .init(login: "reviewer")
-                )
-            ]),
-            reviews: .init(totalCount: 1, nodes: [
-                .init(
-                    id: "REVIEW_1",
-                    state: "APPROVED",
-                    submittedAt: "2026-05-02T11:00:00Z",
-                    author: .init(login: "reviewer")
-                )
-            ]),
-            latestOpinionatedReviews: .init(totalCount: 0, nodes: []),
-            reviewThreads: .init(nodes: [
-                .fixture(idPrefix: "RESOLVED_COMMENT", isResolved: true, viewerCanResolve: true, viewerDidAuthorComments: [false]),
-                .fixture(
-                    idPrefix: "ACTIONABLE_COMMENT",
-                    isResolved: false,
-                    viewerCanResolve: true,
-                    viewerDidAuthorComments: [true, false]
-                )
-            ]),
-            repository: .init(nameWithOwner: "acme/mergehawk"),
-            commits: .init(nodes: [.init(commit: .init(statusCheckRollup: .init(state: "FAILURE")))]),
-            author: .init(login: "rw")
-        )
-
-        try expect(GitHubPullRequestNormalizer.normalize(node, login: "rw") == PullRequest(
-            id: "PR_1",
-            title: "Ship dashboard",
-            number: 12,
-            url: URL(string: "https://github.com/acme/mergehawk/pull/12")!,
-            repo: "acme/mergehawk",
-            ciState: .failing,
-            reviewDecision: .noReviewYet,
-            commentCount: 1,
-            commentActivityCount: 5,
+        let baselinePR = PullRequest.fixture(
             recentCommentActivities: [
                 PullRequestCommentActivity(
-                    id: "COMMENT_1",
-                    author: "reviewer",
-                    createdAt: Date(timeIntervalSince1970: 1_777_716_000),
+                    id: "BASELINE",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 1),
                     source: .pullRequest
-                ),
-                PullRequestCommentActivity(
-                    id: "RESOLVED_COMMENT_1",
-                    author: "teammate",
-                    createdAt: Date(timeIntervalSince1970: 1_777_723_200),
-                    source: .reviewThread,
-                    reviewId: "REVIEW_1"
-                ),
-                PullRequestCommentActivity(
-                    id: "ACTIONABLE_COMMENT_1",
-                    author: "rw",
-                    viewerDidAuthor: true,
-                    createdAt: Date(timeIntervalSince1970: 1_777_723_200),
-                    source: .reviewThread,
-                    reviewId: "REVIEW_1"
-                ),
-                PullRequestCommentActivity(
-                    id: "ACTIONABLE_COMMENT_2",
-                    author: "teammate",
-                    createdAt: Date(timeIntervalSince1970: 1_777_723_200),
-                    source: .reviewThread,
-                    reviewId: "REVIEW_1"
                 )
             ],
-            reviewCount: 1,
-            recentReviews: [
-                PullRequestReview(
-                    id: "REVIEW_1",
-                    state: .approved,
-                    submittedAt: Date(timeIntervalSince1970: 1_777_719_600),
-                    author: "reviewer"
+            isMine: true
+        )
+        let baseline = try await engine.prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [baselinePR])
+        )
+        try expect(baseline.events.isEmpty)
+
+        let previous = PullRequestSyncState(
+            account: baseline.account,
+            dashboard: DashboardState(
+                pullRequests: baseline.activePullRequests,
+                events: [],
+                syncedAt: baseline.syncedAt,
+                source: baseline.source,
+                account: baseline.account,
+                authStatus: .signedIn
+            ),
+            processedActivityByPullRequestID: baseline.processedActivityByPullRequestID
+        )
+        let nextPR = PullRequest.fixture(
+            recentCommentActivities: baselinePR.recentCommentActivities + [
+                PullRequestCommentActivity(
+                    id: "NEW",
+                    author: "teammate",
+                    createdAt: Date(timeIntervalSince1970: 2),
+                    source: .pullRequest
                 )
             ],
-            isMine: true,
-            author: "rw",
-            headRefName: "ship-dashboard",
-            mergeable: .mergeable,
-            draft: true,
-            createdAt: Date(timeIntervalSince1970: 1_777_636_800),
-            updatedAt: Date(timeIntervalSince1970: 1_777_723_200)
-        ))
-    }
-
-    private static func testNormalizesActionableUnresolvedComments() throws {
-        let node = GitHubPullRequestNode.fixture(
-            comments: .init(totalCount: 8),
-            reviewThreads: .init(nodes: [
-                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [true]),
-                .fixture(isResolved: false, viewerCanResolve: false, viewerDidAuthorComments: [false]),
-                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [true, false]),
-                .fixture(isResolved: true, viewerCanResolve: true, viewerDidAuthorComments: [false])
-            ])
+            isMine: true
         )
-
-        try expect(GitHubPullRequestNormalizer.normalize(node, login: "rw").commentCount == 1)
-        try expect(GitHubPullRequestNormalizer.normalize(node, login: "rw").commentActivityCount == 13)
-    }
-
-    private static func testNormalizesReviewOutcomeFromLatestOpinionatedReviews() throws {
-        let approvedWithUnresolvedComments = GitHubPullRequestNode.fixture(
-            latestOpinionatedReviews: .init(totalCount: 1, nodes: [
-                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z", author: .init(login: "reviewer"))
-            ]),
-            reviewThreads: .init(nodes: [
-                .fixture(isResolved: false, viewerCanResolve: true, viewerDidAuthorComments: [false])
-            ])
+        let prepared = try await engine.prepare(
+            previousState: previous,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [nextPR])
         )
-
-        let changesRequestedWins = GitHubPullRequestNode.fixture(
-            latestOpinionatedReviews: .init(totalCount: 2, nodes: [
-                .init(id: "APPROVAL", state: "APPROVED", submittedAt: "2026-05-02T11:00:00Z", author: .init(login: "reviewer")),
-                .init(id: "CHANGES", state: "CHANGES_REQUESTED", submittedAt: "2026-05-02T12:00:00Z", author: .init(login: "other"))
-            ])
-        )
-
-        let approved = GitHubPullRequestNormalizer.normalize(approvedWithUnresolvedComments, login: "rw")
-        try expect(approved.reviewDecision == .approved)
-        try expect(approved.commentCount == 1)
-        try expect(GitHubPullRequestNormalizer.normalize(changesRequestedWins, login: "rw").reviewDecision == .changesRequested)
-    }
-
-    private static func testBuildsThreePullRequestSearchQueries() throws {
-        try expect(GitHubClient.pullRequestSearchQueries(login: "rw") == [
-            "is:open is:pr author:rw",
-            "is:open is:pr assignee:rw",
-            "is:open is:pr review-requested:rw"
-        ])
-    }
-
-    private static func testNormalizesReviewRequestKinds() throws {
-        let directNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [
-            .init(typeName: "User", login: "rw")
-        ])
-        let teamNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [
-            .init(typeName: "Team", slug: "developers", organization: .init(login: "acme"))
-        ])
-        let directAndTeamNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [
-            .init(typeName: "User", login: "rw"),
-            .init(typeName: "Team", slug: "developers", organization: .init(login: "acme"))
-        ])
-        let noneNode = GitHubPullRequestNode.reviewRequestFixture(reviewers: [])
-
-        try expect(
-            GitHubPullRequestNormalizer.normalize(
-                directNode,
-                login: "rw",
-                isReviewRequestResult: true
-            ).reviewRequestKind == .direct
-        )
-        try expect(
-            GitHubPullRequestNormalizer.normalize(
-                teamNode,
-                login: "rw",
-                isReviewRequestResult: true
-            ).reviewRequestKind == .team
-        )
-        try expect(
-            GitHubPullRequestNormalizer.normalize(
-                directAndTeamNode,
-                login: "rw",
-                isReviewRequestResult: true
-            ).reviewRequestKind == .directAndTeam
-        )
-        try expect(
-            GitHubPullRequestNormalizer.normalize(
-                noneNode,
-                login: "rw"
-            ).reviewRequestKind == .none
-        )
-    }
-
-    private static func testNormalizesViewerAssignment() throws {
-        let assignedNode = GitHubPullRequestNode.fixture(
-            assignees: .init(nodes: [.init(login: "rw"), .init(login: "teammate")])
-        )
-        let unassignedNode = GitHubPullRequestNode.fixture(
-            assignees: .init(nodes: [.init(login: "teammate")])
-        )
-
-        try expect(GitHubPullRequestNormalizer.normalize(assignedNode, login: "rw").isAssignedToViewer)
-        try expect(!GitHubPullRequestNormalizer.normalize(unassignedNode, login: "rw").isAssignedToViewer)
-    }
-
-    private static func testNormalizesCommitIdentityMetadata() throws {
-        let node = GitHubPullRequestNode.fixture(
-            reviewThreads: .init(nodes: []),
-            commits: .init(nodes: [
-                .init(commit: .init(
-                    oid: "commit-1",
-                    authoredDate: "2026-05-01T10:00:00Z",
-                    committedDate: "2026-05-01T10:05:00Z",
-                    author: .init(user: .init(login: "frontend-sam")),
-                    committer: .init(user: .init(login: "rw")),
-                    statusCheckRollup: .init(state: "SUCCESS")
-                ))
-            ])
-        )
-
-        let pullRequest = GitHubPullRequestNormalizer.normalize(node, login: "rw")
-        try expect(pullRequest.ciState == .passing)
-        try expect(pullRequest.recentCommits == [
-            PullRequestCommit(
-                oid: "commit-1",
-                authoredAt: Date(timeIntervalSince1970: 1_777_629_600),
-                committedAt: Date(timeIntervalSince1970: 1_777_629_900),
-                authorLogin: "frontend-sam",
-                committerLogin: "rw"
-            )
-        ])
+        try expect(prepared.events.map(\.event.activityId) == ["NEW"])
+        try expect(prepared.syncedAt == Date(timeIntervalSince1970: 10))
     }
 
     private static func activityPreferences(
@@ -1282,8 +680,7 @@ struct Runner {
             comments: activity == .comments,
             reviewActivity: activity == .reviewActivity,
             ciFailures: activity == .ciFailures,
-            relationshipChanges: activity == .relationshipChanges,
-            otherCommits: activity == .otherCommits
+            relationshipChanges: activity == .relationshipChanges
         )
     }
 
@@ -1317,6 +714,14 @@ struct Runner {
         }
     }
 
+    private static func processedActivity(for pullRequest: PullRequest) -> ProcessedPullRequestActivity {
+        ProcessedPullRequestActivity(
+            pullRequestID: pullRequest.id,
+            commentIDs: Set(pullRequest.recentCommentActivities.map(\.id)),
+            submittedReviewIDs: Set(pullRequest.recentReviews.map(\.id))
+        )
+    }
+
     private static func testInMemoryTokenStoreHandlesMissingStoreLoadAndClear() throws {
         let store = InMemoryTokenStore()
 
@@ -1346,103 +751,6 @@ private struct TestFailure: Error, CustomStringConvertible {
     }
 }
 
-private extension GitHubPullRequestNode {
-    static func fixture(
-        comments: CommentConnection = .init(totalCount: 0),
-        reviews: ReviewConnection = .init(totalCount: 0),
-        latestOpinionatedReviews: OpinionatedReviewConnection = .init(totalCount: 0, nodes: []),
-        reviewThreads: ReviewThreadConnection = .init(nodes: []),
-        assignees: AssigneeConnection = .init(nodes: []),
-        commits: CommitConnection = .init(nodes: [])
-    ) -> GitHubPullRequestNode {
-        GitHubPullRequestNode(
-            id: "PR_FIXTURE",
-            title: "Fixture PR",
-            number: 12,
-            url: "https://github.com/acme/mergehawk/pull/12",
-            createdAt: "2026-05-01T12:00:00Z",
-            updatedAt: "2026-05-02T12:00:00Z",
-            isDraft: false,
-            mergeable: "MERGEABLE",
-            comments: comments,
-            reviews: reviews,
-            latestOpinionatedReviews: latestOpinionatedReviews,
-            reviewThreads: reviewThreads,
-            assignees: assignees,
-            repository: .init(nameWithOwner: "acme/mergehawk"),
-            commits: commits,
-            author: .init(login: "teammate")
-        )
-    }
-
-    static func reviewRequestFixture(reviewers: [RequestedReviewer]) -> GitHubPullRequestNode {
-        GitHubPullRequestNode(
-            id: "PR_REVIEW",
-            title: "Review requested",
-            number: 21,
-            url: "https://github.com/acme/mergehawk/pull/21",
-            createdAt: "2026-05-01T12:00:00Z",
-            updatedAt: "2026-05-02T12:00:00Z",
-            isDraft: false,
-            mergeable: "MERGEABLE",
-            comments: .init(totalCount: 0),
-            reviews: .init(totalCount: 0),
-            reviewThreads: .init(nodes: []),
-            reviewRequests: .init(nodes: reviewers.map { .init(requestedReviewer: $0) }),
-            repository: .init(nameWithOwner: "acme/mergehawk"),
-            commits: .init(nodes: []),
-            author: .init(login: "teammate")
-        )
-    }
-}
-
-private extension GitHubPullRequestNode.ReviewThreadConnection.Node {
-    static func fixture(
-        idPrefix: String = "REVIEW_COMMENT",
-        isResolved: Bool,
-        viewerCanResolve: Bool,
-        viewerDidAuthorComments: [Bool],
-        reviewId: String? = "REVIEW_1"
-    ) -> Self {
-        .init(
-            isResolved: isResolved,
-            viewerCanResolve: viewerCanResolve,
-            comments: .init(nodes: viewerDidAuthorComments.enumerated().map { index, viewerDidAuthor in
-                .init(
-                    id: "\(idPrefix)_\(index + 1)",
-                    createdAt: "2026-05-02T12:00:00Z",
-                    viewerDidAuthor: viewerDidAuthor,
-                    author: .init(login: viewerDidAuthor ? "rw" : "teammate"),
-                    pullRequestReview: reviewId.map { .init(id: $0) }
-                )
-            })
-        )
-    }
-}
-
-private final class SequencePullRequestSource: PullRequestSource {
-    let sourceKind: DashboardSource = .mock
-    private var snapshots: [[PullRequest]]
-    private var warnings: [String?]
-    private(set) var receivedPreviousPullRequestIds: [[String]] = []
-
-    init(snapshots: [[PullRequest]], warnings: [String?] = []) {
-        self.snapshots = snapshots
-        self.warnings = warnings
-    }
-
-    func fetchPullRequests(
-        login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        receivedPreviousPullRequestIds.append(previousPullRequests.map(\.id).sorted())
-        return PullRequestFetchResult(
-            pullRequests: snapshots.isEmpty ? [] : snapshots.removeFirst(),
-            refreshWarning: warnings.isEmpty ? nil : warnings.removeFirst()
-        )
-    }
-}
-
 private extension PullRequest {
     static func fixture(
         id: String = "PR_1",
@@ -1457,8 +765,6 @@ private extension PullRequest {
         recentCommentActivities: [PullRequestCommentActivity] = [],
         reviewCount: Int = 0,
         recentReviews: [PullRequestReview] = [],
-        recentCommits: [PullRequestCommit] = [],
-        hasRecentCommitMetadata: Bool = true,
         reviewRequestKind: ReviewRequestKind = .none,
         isAssignedToViewer: Bool = false,
         isMine: Bool = false,
@@ -1479,8 +785,6 @@ private extension PullRequest {
             recentCommentActivities: recentCommentActivities,
             reviewCount: reviewCount,
             recentReviews: recentReviews,
-            recentCommits: recentCommits,
-            hasRecentCommitMetadata: hasRecentCommitMetadata,
             reviewRequestKind: reviewRequestKind,
             isAssignedToViewer: isAssignedToViewer,
             isMine: isMine,

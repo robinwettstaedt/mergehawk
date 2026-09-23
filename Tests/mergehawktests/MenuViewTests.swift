@@ -249,6 +249,56 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestListCopy.emptyReviewRequests, "No review requests or assigned PRs.")
     }
 
+    func testRefreshStatusPresentationDistinguishesSuccessLoadingAndFailure() {
+        let idle = RefreshStatusPresentation(
+            isRefreshing: false,
+            errorMessage: nil,
+            lastUpdatedText: "14:30",
+            help: "Refresh",
+            accessibilityLabel: "Refresh"
+        )
+        XCTAssertEqual(idle.state, .idle)
+        XCTAssertEqual(idle.symbolName, "arrow.clockwise")
+        XCTAssertEqual(idle.help, "Refresh")
+        XCTAssertEqual(idle.accessibilityLabel, "Refresh")
+
+        let loading = RefreshStatusPresentation(
+            isRefreshing: true,
+            errorMessage: "Stale failure",
+            lastUpdatedText: "14:30",
+            help: "Refresh",
+            accessibilityLabel: "Refresh"
+        )
+        XCTAssertEqual(loading.state, .refreshing)
+        XCTAssertEqual(loading.accessibilityLabel, "Refresh, refreshing")
+
+        let failed = RefreshStatusPresentation(
+            isRefreshing: false,
+            errorMessage: "The refresh failed.",
+            lastUpdatedText: "14:30",
+            help: "Refresh",
+            accessibilityLabel: "Refresh"
+        )
+        XCTAssertEqual(failed.state, .failed)
+        XCTAssertEqual(failed.symbolName, "exclamationmark.triangle.fill")
+        XCTAssertEqual(failed.help, "Refresh failed: The refresh failed. Click to retry.")
+        XCTAssertEqual(
+            failed.accessibilityLabel,
+            "Refresh failed. The refresh failed. Last successful refresh at 14:30. Activate to retry."
+        )
+
+        let sourcesDefault = RefreshStatusPresentation(
+            isRefreshing: false,
+            errorMessage: nil,
+            lastUpdatedText: "never",
+            help: "Refresh sources",
+            accessibilityLabel: "Refresh sources"
+        )
+        XCTAssertEqual(sourcesDefault.state, .idle)
+        XCTAssertEqual(sourcesDefault.help, "Refresh sources")
+        XCTAssertEqual(sourcesDefault.accessibilityLabel, "Refresh sources")
+    }
+
     // MER-58 regression: during NSMenu tracking, key equivalents are matched against the open
     // menu's native items first and then the app's main menu — the hosted view hierarchy is never
     // consulted. Hidden native trap items are required so ⌘, and ⌘Q do not fall through to the
@@ -354,7 +404,6 @@ final class MenuViewTests: XCTestCase {
 
 @MainActor let mergehawkMenuViewTest: Void = {
     precondition(DashboardController.MenuTab.allCases.map(\.rawValue) == ["Notifications", "Authored", "Requested"])
-    precondition(DashboardController.NotificationSubtab.allCases.map(\.rawValue) == ["PRs", "Other"])
     precondition(MenuTabShortcutHint.title(for: .notifications) == "⌘1")
     precondition(MenuTabShortcutHint.title(for: .myPRs) == "⌘2")
     precondition(MenuTabShortcutHint.title(for: .reviewRequests) == "⌘3")
@@ -387,8 +436,6 @@ final class MenuViewTests: XCTestCase {
     precondition(GitHubSignInView.Copy.loadingTitle == "Authorized")
     precondition(GitHubSignInView.Copy.loadingDetail == "Loading MergeHawk...")
     precondition(GitHubSignInView.Copy.patButtonTitle == "Open Settings")
-    precondition(GitHubInboxUnavailableCopy.title == "GitHub Inbox unavailable")
-    precondition(GitHubInboxUnavailableCopy.message.contains("classic personal access token"))
     precondition(GitHubAppRepositoryAccessCopy.buttonTitle == "Install or Manage Repository Access")
     precondition(GitHubAppRepositoryAccessCopy.title(for: .noInstallations) == "Repository access not configured")
     precondition(GitHubAppRepositoryAccessCopy.message(for: .noVisibleRepositories).contains("no accessible repositories"))
@@ -420,7 +467,6 @@ final class MenuViewTests: XCTestCase {
     precondition(NotificationReadPresentation.markAllHelp == "Mark all notifications as read")
     precondition(NotificationReadPresentation.markOneHelp == "Mark as read")
     precondition(NotificationReadPresentation.markPRAccessibilityLabel == "Mark PR notification as read")
-    precondition(NotificationReadPresentation.markOtherAccessibilityLabel == "Mark other notification as read")
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests or assigned PRs.")
     precondition(PullRequestListCopy.noFilterMatches == "No PRs match these filters.")
@@ -646,14 +692,6 @@ final class MenuViewTests: XCTestCase {
         sourceFilteredController.attentionCount == 0
             && !sourceFilteredStatusBarController.statusButtonHasAttentionForTesting()
     }
-
-    let inboxOnlyController = signedInMockController()
-    waitUntil(timeout: 1.0) {
-        inboxOnlyController.visibleGitHubInboxNotifications.filter(\.unread).count == 1
-    }
-    let inboxOnlyStatusBarController = StatusBarController(controller: inboxOnlyController)
-    precondition(inboxOnlyController.attentionCount == 0)
-    precondition(!inboxOnlyStatusBarController.statusButtonHasAttentionForTesting())
 
     let older = PullRequest(
         id: "older",
@@ -964,11 +1002,11 @@ private final class MenuFakeGitHubProvider: GitHubProviding {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -980,9 +1018,4 @@ private final class MenuFakeGitHubProvider: GitHubProviding {
         return try installationsResult.get()
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }

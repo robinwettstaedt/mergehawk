@@ -1,11 +1,14 @@
 import Foundation
 
-public protocol PullRequestSource: AnyObject {
-    var sourceKind: DashboardSource { get }
-    func fetchPullRequests(
-        login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult
+public func isGitHubReadAuthenticationError(_ error: Error) -> Bool {
+    guard let readError = error as? GitHubReadError else { return false }
+    return readError == .authentication
+}
+
+public func gitHubReadRateLimitRetryDate(_ error: Error) -> Date? {
+    guard let readError = error as? GitHubReadError,
+          case .rateLimited(let retryAt) = readError else { return nil }
+    return retryAt
 }
 
 public protocol SourceCatalogProviding: AnyObject {
@@ -20,45 +23,51 @@ public protocol GitHubViewerProviding: AnyObject {
     func fetchViewer() async throws -> GitHubAccount
 }
 
-public typealias GitHubProviding = PullRequestSource
+public typealias GitHubProviding = CompletePullRequestFetching
     & SourceCatalogProviding
     & GitHubAppInstallationProviding
     & GitHubViewerProviding
-    & GitHubInboxProviding
 
-public protocol GitHubInboxProviding: AnyObject {
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult
-    func markInboxThreadRead(threadId: String) async throws
-}
-
-public final class EmptyPullRequestSource: PullRequestSource {
+public final class EmptyPullRequestSource {
     public let sourceKind: DashboardSource = .none
 
     public init() {}
 
-    public func fetchPullRequests(
-        login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
+}
+
+public enum MockPullRequestScenario: String, CaseIterable, Sendable {
+    case standard
+    case delayedRefresh = "delayed-refresh"
+    case refreshFailure = "refresh-failure"
+    case mergedFinalActivity = "merged-final-activity"
+    case quietAccessLoss = "quiet-access-loss"
+}
+
+public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
+    case refreshFailed
+
+    public var errorDescription: String? {
+        "The mock pull request refresh failed."
     }
 }
 
-public final class MockPullRequestSource: PullRequestSource {
+public final class MockPullRequestSource {
     public let sourceKind: DashboardSource = .mock
     private var index = 0
     private let snapshots: [[PullRequest]]
-    private let inboxNotifications: [GitHubInboxNotification]
+    private let scenario: MockPullRequestScenario
 
-    public init(showsNotificationTypeFixtures: Bool = false, referenceDate: Date = Date()) {
+    public init(
+        showsNotificationTypeFixtures: Bool = false,
+        referenceDate: Date = Date(),
+        scenario: MockPullRequestScenario = .standard
+    ) {
+        self.scenario = scenario
         let minute: TimeInterval = 60
         let hour = 60 * minute
         let day = 24 * hour
         func ago(_ interval: TimeInterval) -> Date { referenceDate.addingTimeInterval(-interval) }
 
-        self.inboxNotifications = showsNotificationTypeFixtures
-            ? Self.notificationTypeFixtureInboxNotifications
-            : Self.defaultInboxNotifications
         self.snapshots = [
             [
                 PullRequest(
@@ -93,15 +102,6 @@ public final class MockPullRequestSource: PullRequestSource {
                     deletions: 6_789,
                     commentCount: 5,
                     reviewCount: 2,
-                    recentCommits: [
-                        PullRequestCommit(
-                            oid: "PR_4_COMMIT_BASELINE",
-                            authoredAt: Date(timeIntervalSince1970: 1_777_806_000),
-                            committedAt: Date(timeIntervalSince1970: 1_777_806_000),
-                            authorLogin: "rw",
-                            committerLogin: "rw"
-                        )
-                    ],
                     isMine: true,
                     author: "rw",
                     headRefName: "MER-33-review-assignment-summary",
@@ -254,22 +254,6 @@ public final class MockPullRequestSource: PullRequestSource {
                     deletions: 6_789,
                     commentCount: 5,
                     reviewCount: 2,
-                    recentCommits: [
-                        PullRequestCommit(
-                            oid: "PR_4_COMMIT_BASELINE",
-                            authoredAt: Date(timeIntervalSince1970: 1_777_806_000),
-                            committedAt: Date(timeIntervalSince1970: 1_777_806_000),
-                            authorLogin: "rw",
-                            committerLogin: "rw"
-                        ),
-                        PullRequestCommit(
-                            oid: "PR_4_COMMIT_OTHER",
-                            authoredAt: Date(timeIntervalSince1970: 1_777_814_000),
-                            committedAt: Date(timeIntervalSince1970: 1_777_814_200),
-                            authorLogin: "platform-nora",
-                            committerLogin: "platform-nora"
-                        )
-                    ],
                     isMine: true,
                     author: "rw",
                     headRefName: "MER-33-review-assignment-summary",
@@ -385,14 +369,75 @@ public final class MockPullRequestSource: PullRequestSource {
         ]
     }
 
-    public func fetchPullRequests(
-        login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+    private func nextPullRequests() -> [PullRequest] {
         let snapshot = snapshots[min(index, snapshots.count - 1)]
         index += 1
-        return PullRequestFetchResult(pullRequests: snapshot)
+        return snapshot
     }
+
+    private static let scenarioBaselinePullRequest = PullRequest(
+        id: "PR_SCENARIO",
+        title: "Preserve final pull request activity",
+        number: 88,
+        url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/88")!,
+        repo: "mergehawk-labs/mergehawk",
+        ciState: .passing,
+        reviewDecision: .noReviewYet,
+        additions: 120,
+        deletions: 18,
+        commentCount: 0,
+        commentActivityCount: 0,
+        recentCommentActivities: [],
+        reviewCount: 0,
+        recentReviews: [],
+        headRefOid: "scenario-baseline",
+        isMine: true,
+        author: "agent-fixture",
+        headRefName: "MER-66-final-activity",
+        mergeable: .mergeable,
+        draft: false,
+        createdAt: Date(timeIntervalSince1970: 1_777_700_000),
+        updatedAt: Date(timeIntervalSince1970: 1_777_800_000)
+    )
+
+    private static let scenarioFinalPullRequest = PullRequest(
+        id: scenarioBaselinePullRequest.id,
+        title: scenarioBaselinePullRequest.title,
+        number: scenarioBaselinePullRequest.number,
+        url: scenarioBaselinePullRequest.url,
+        repo: scenarioBaselinePullRequest.repo,
+        ciState: .passing,
+        reviewDecision: .approved,
+        additions: scenarioBaselinePullRequest.additions,
+        deletions: scenarioBaselinePullRequest.deletions,
+        commentCount: 0,
+        commentActivityCount: 1,
+        recentCommentActivities: [
+            PullRequestCommentActivity(
+                id: "PR_SCENARIO_FINAL_COMMENT",
+                author: "frontend-sam",
+                createdAt: Date(timeIntervalSince1970: 1_777_810_000),
+                source: .pullRequest
+            )
+        ],
+        reviewCount: 1,
+        recentReviews: [
+            PullRequestReview(
+                id: "PR_SCENARIO_FINAL_REVIEW",
+                state: .approved,
+                submittedAt: Date(timeIntervalSince1970: 1_777_811_000),
+                author: "platform-nora"
+            )
+        ],
+        headRefOid: "scenario-final",
+        isMine: true,
+        author: "agent-fixture",
+        headRefName: "MER-66-final-activity",
+        mergeable: .mergeable,
+        draft: false,
+        createdAt: scenarioBaselinePullRequest.createdAt,
+        updatedAt: Date(timeIntervalSince1970: 1_777_812_000)
+    )
 
     public static var notificationTypeFixturePullRequestNotifications: [PullRequestNotification] {
         [
@@ -457,16 +502,6 @@ public final class MockPullRequestSource: PullRequestSource {
                 ),
                 pullRequest: notificationFixtureChangesRequestedPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_798_800)
-            ),
-            PullRequestNotification(
-                event: PullRequestEvent(
-                    type: .otherCommitAdded,
-                    prId: notificationFixtureOtherCommitPullRequest.id,
-                    count: 1,
-                    actorLogin: "platform-nora"
-                ),
-                pullRequest: notificationFixtureOtherCommitPullRequest,
-                createdAt: Date(timeIntervalSince1970: 1_777_797_000)
             ),
             PullRequestNotification(
                 event: PullRequestEvent(type: .ciFailed, prId: notificationFixtureCIPullRequest.id),
@@ -587,24 +622,6 @@ public final class MockPullRequestSource: PullRequestSource {
         updatedAt: Date(timeIntervalSince1970: 1_777_795_200)
     )
 
-    private static let notificationFixtureOtherCommitPullRequest = PullRequest(
-        id: "PR_NOTIFICATION_OTHER_COMMIT",
-        title: "Coordinate authored branch updates",
-        number: 46,
-        url: URL(string: "https://github.com/example/desktop/pull/46")!,
-        repo: "example/desktop",
-        ciState: .passing,
-        reviewDecision: .noReviewYet,
-        commentCount: 0,
-        reviewCount: 0,
-        isMine: true,
-        author: "agent-fixture",
-        headRefName: "authored-branch-updates",
-        mergeable: .mergeable,
-        draft: false,
-        updatedAt: Date(timeIntervalSince1970: 1_777_797_000)
-    )
-
     private static let notificationFixtureChangesRequestedPullRequest = PullRequest(
         id: "PR_NOTIFICATION_CHANGES",
         title: "Tighten billing retry copy",
@@ -644,111 +661,47 @@ extension MockPullRequestSource: SourceCatalogProviding {
     }
 }
 
-extension MockPullRequestSource: GitHubInboxProviding {
-    public func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(
-            notifications: inboxNotifications,
-            metadata: GitHubInboxSyncMetadata(
-                eTag: metadata.eTag,
-                lastFetchedAt: Date(),
-                pollIntervalSeconds: 60
-            )
-        )
+extension EmptyPullRequestSource: CompletePullRequestFetching {
+    public func fetchCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
     }
+}
 
-    public func markInboxThreadRead(threadId: String) async throws {}
-
-    private static let defaultInboxNotifications = [
-        GitHubInboxNotification(
-            threadId: "mock-issue-1",
-            repo: "example/app",
-            subjectTitle: "Crash when saving source preferences",
-            subjectType: "Issue",
-            reason: "mention",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_809_600),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-issue-1")!,
-            webURL: URL(string: "https://github.com/example/app/issues/42")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-discussion-1",
-            repo: "example/web",
-            subjectTitle: "Ideas for review request grouping",
-            subjectType: "Discussion",
-            reason: "subscribed",
-            unread: false,
-            updatedAt: Date(timeIntervalSince1970: 1_777_723_200),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-discussion-1")!,
-            webURL: URL(string: "https://github.com/example/web/discussions/8")!
-        )
-    ]
-
-    public static let notificationTypeFixtureInboxNotifications = [
-        GitHubInboxNotification(
-            threadId: "mock-fixture-issue",
-            repo: "example/app",
-            subjectTitle: "Crash when saving source preferences",
-            subjectType: "Issue",
-            reason: "mention",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_809_600),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-issue")!,
-            webURL: URL(string: "https://github.com/example/app/issues/42")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-discussion",
-            repo: "example/web",
-            subjectTitle: "Ideas for review request grouping",
-            subjectType: "Discussion",
-            reason: "subscribed",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_806_000),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-discussion")!,
-            webURL: URL(string: "https://github.com/example/web/discussions/8")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-release",
-            repo: "example/desktop",
-            subjectTitle: "MergeHawk 0.2.0",
-            subjectType: "Release",
-            reason: "subscribed",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_802_400),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-release")!,
-            webURL: URL(string: "https://github.com/example/desktop/releases/tag/v0.2.0")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-commit",
-            repo: "example/mergehawk",
-            subjectTitle: "Improve menu snapshot coverage",
-            subjectType: "Commit",
-            reason: "author",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_798_800),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-commit")!,
-            webURL: URL(string: "https://github.com/example/mergehawk/commit/mock-fixture")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-check-suite",
-            repo: "example/app",
-            subjectTitle: "CI workflow requires attention",
-            subjectType: "CheckSuite",
-            reason: "ci_activity",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_795_200),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-check-suite")!,
-            webURL: URL(string: "https://github.com/example/app/actions/runs/123456")!
-        ),
-        GitHubInboxNotification(
-            threadId: "mock-fixture-vulnerability-alert",
-            repo: "example/security",
-            subjectTitle: "Dependency alert for swift-argument-parser",
-            subjectType: "RepositoryVulnerabilityAlert",
-            reason: "security_alert",
-            unread: true,
-            updatedAt: Date(timeIntervalSince1970: 1_777_791_600),
-            threadURL: URL(string: "https://api.github.com/notifications/threads/mock-fixture-vulnerability-alert")!,
-            webURL: URL(string: "https://github.com/example/security/security/dependabot")!
-        )
-    ]
+extension MockPullRequestSource: CompletePullRequestFetching {
+    public func fetchCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        switch scenario {
+        case .standard, .delayedRefresh:
+            return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
+        case .refreshFailure:
+            guard index > 0 else {
+                index += 1
+                return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
+            }
+            throw MockPullRequestError.refreshFailed
+        case .mergedFinalActivity:
+            guard index > 0 else {
+                index += 1
+                return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
+            }
+            return CompletePullRequestFetchResult(
+                activePullRequests: [],
+                retiringPullRequests: [Self.scenarioFinalPullRequest]
+            )
+        case .quietAccessLoss:
+            guard index > 0 else {
+                index += 1
+                return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
+            }
+            return CompletePullRequestFetchResult(
+                activePullRequests: [],
+                quietlyRetiredPullRequestIDs: [Self.scenarioBaselinePullRequest.id]
+            )
+        }
+    }
 }

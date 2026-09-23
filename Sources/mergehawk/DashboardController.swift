@@ -4,17 +4,16 @@ import mergehawkcore
 
 @MainActor
 final class DashboardController: ObservableObject {
+    private struct PublishedPresentation: Equatable {
+        var dashboard: DashboardState
+        var notificationHistory: [PullRequestNotification]
+
+        static let empty = PublishedPresentation(dashboard: .empty, notificationHistory: [])
+    }
     enum MenuTab: String, CaseIterable, Identifiable {
         case notifications = "Notifications"
         case myPRs = "Authored"
         case reviewRequests = "Requested"
-
-        var id: String { rawValue }
-    }
-
-    enum NotificationSubtab: String, CaseIterable, Identifiable {
-        case pullRequests = "PRs"
-        case other = "Other"
 
         var id: String { rawValue }
     }
@@ -178,15 +177,19 @@ final class DashboardController: ObservableObject {
         var count: Int { visible.count + hidden.count }
     }
 
-    @Published private(set) var state: DashboardState = .empty
+    @Published private var presentation: PublishedPresentation
+    var state: DashboardState { presentation.dashboard }
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
+    /// Set only by a failed complete PR refresh, so the refresh control never reports unrelated errors.
+    @Published private(set) var refreshErrorMessage: String?
+    /// Set when a local change (such as marking a notification read) could not be saved.
+    @Published private(set) var saveErrorMessage: String?
+    @Published private(set) var launchAtLoginErrorMessage: String?
     @Published var selectedTab: MenuTab = .notifications
-    @Published var selectedNotificationSubtab: NotificationSubtab = .pullRequests
     @Published var preferences: NotificationPreferences {
         didSet {
             preferencesStore.notificationPreferences = preferences
-            syncEngine?.updatePreferences(preferences)
         }
     }
     @Published var refreshIntervalMinutes: Int {
@@ -256,6 +259,7 @@ final class DashboardController: ObservableObject {
     }
     @Published private(set) var isRefreshingSources = false
     @Published private(set) var sourceCatalogSyncedAt: Date?
+    private var sourceCatalogAccountLogin: String?
     @Published private(set) var sourceErrorMessage: String?
     @Published private(set) var gitHubAppRepositoryAccessStatus: GitHubAppRepositoryAccessStatus = .notApplicable
     private var gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
@@ -287,7 +291,6 @@ final class DashboardController: ObservableObject {
     private let notificationClient: NotificationPosting
     private var sourceCatalogProvider: SourceCatalogProviding?
     private var gitHubAppInstallationProvider: GitHubAppInstallationProviding?
-    private var gitHubInboxProvider: GitHubInboxProviding?
     private let openURL: @MainActor (URL) -> Void
     private let openDeviceFlowURL: @MainActor (URL) -> Void
     private let copyStringToClipboard: @MainActor (String) -> Void
@@ -295,22 +298,20 @@ final class DashboardController: ObservableObject {
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
-    private var isRefreshingInbox = false
-    @Published private(set) var pullRequestNotificationHistory: [PullRequestNotification] {
-        didSet {
-            preferencesStore.pullRequestNotificationHistory = pullRequestNotificationHistory
-        }
+    private struct AutomaticRefreshDeferral {
+        let generation: Int
+        let accountLogin: String
+        let retryAt: Date
     }
-    @Published private(set) var gitHubInboxNotifications: [GitHubInboxNotification] {
-        didSet {
-            preferencesStore.gitHubInboxNotifications = gitHubInboxNotifications
-        }
-    }
-    private var gitHubInboxSyncMetadata: GitHubInboxSyncMetadata {
-        didSet {
-            preferencesStore.gitHubInboxSyncMetadata = gitHubInboxSyncMetadata
-        }
-    }
+    private var automaticRefreshDeferral: AutomaticRefreshDeferral?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshAttemptID = 0
+    private var catalogTask: Task<Void, Never>?
+    private var providerGeneration = 0
+    private var refreshingGeneration: Int?
+    private static let sourceCatalogFreshnessInterval: TimeInterval = 60 * 60
+    private var committedSyncState: PullRequestSyncState?
+    var pullRequestNotificationHistory: [PullRequestNotification] { presentation.notificationHistory }
 
     init(
         tokenStore: TokenStore = KeychainTokenStore(),
@@ -333,6 +334,14 @@ final class DashboardController: ObservableObject {
         self.oauthSignIn = oauthSignIn ?? GitHubDeviceFlowSignIn()
         self.oauthAccessTokenCache = OAuthAccessTokenCache(tokenStore: tokenStore)
         self.preferencesStore = preferencesStore
+        let storedSyncState = preferencesStore.pullRequestSyncState ?? preferencesStore.importedLegacySyncState()
+        self.committedSyncState = storedSyncState
+        self.presentation = storedSyncState.map {
+            PublishedPresentation(dashboard: $0.dashboard, notificationHistory: $0.notificationHistory)
+        } ?? PublishedPresentation(
+            dashboard: .empty,
+            notificationHistory: preferencesStore.pullRequestNotificationHistory
+        )
         self.launchConfiguration = launchConfiguration
         self.openURL = urlOpener
         self.openDeviceFlowURL = deviceFlowURLOpener
@@ -364,12 +373,11 @@ final class DashboardController: ObservableObject {
         self.hiddenPullRequestIds = preferencesStore.hiddenPullRequestIds
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.sourceCatalog = preferencesStore.sourceCatalog
+        self.sourceCatalogSyncedAt = preferencesStore.sourceCatalogSyncedAt
+        self.sourceCatalogAccountLogin = preferencesStore.sourceCatalogAccountLogin
         self.macOSLocalNotificationsEnabled = preferencesStore.macOSLocalNotificationsEnabled
         self.startsAtLogin = self.launchAtLoginService.isEnabled
         self.authMethod = preferencesStore.authMethod
-        self.pullRequestNotificationHistory = preferencesStore.pullRequestNotificationHistory
-        self.gitHubInboxNotifications = preferencesStore.gitHubInboxNotifications
-        self.gitHubInboxSyncMetadata = preferencesStore.gitHubInboxSyncMetadata
         self.notificationClient.requestAuthorization()
         configureInitialSource()
         startAutomaticRefresh()
@@ -377,6 +385,7 @@ final class DashboardController: ObservableObject {
 
     deinit {
         automaticRefreshTask?.cancel()
+        catalogTask?.cancel()
     }
 
     var hasAttention: Bool {
@@ -391,18 +400,6 @@ final class DashboardController: ObservableObject {
         pullRequestNotificationHistory
             .filter { sourcePreferences.allowsNotifications(for: $0.repo) }
             .sorted(by: Self.compareNotifications)
-    }
-
-    var visibleGitHubInboxNotifications: [GitHubInboxNotification] {
-        gitHubInboxNotifications
-            .filter { sourcePreferences.allowsNotifications(for: $0.repo) }
-            .sorted(by: Self.compareInboxNotifications)
-    }
-
-    var showsGitHubInboxUnavailableHint: Bool {
-        state.authStatus == .signedIn
-            && gitHubInboxProvider == nil
-            && !launchConfiguration.usesMockData
     }
 
     var showsGitHubAppRepositoryAccessPrompt: Bool {
@@ -685,17 +682,15 @@ final class DashboardController: ObservableObject {
             oauthAccessTokenCache.clear()
             try tokenStore.clearOAuthTokens()
             try tokenStore.storePAT(trimmed)
-            account = viewer
+            acceptVerifiedAccount(viewer)
             configureGitHubSource(
                 client: client,
                 authMethod: .pat,
-                allowsGitHubInboxNotifications: GitHubTokenCapabilities
-                    .supportsGitHubInboxNotifications(token: trimmed),
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await fetchSourceCatalog()
-            await sync()
+            await refreshDashboard()
+            startCatalogRefreshIfNeeded(force: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -768,18 +763,16 @@ final class DashboardController: ObservableObject {
             let client = makeOAuthGitHubClient()
             let viewer = try await client.fetchViewer()
             guard shouldContinueSignIn(attemptID) else { return }
-            account = viewer
+            acceptVerifiedAccount(viewer)
             configureGitHubSource(
                 client: client,
                 authMethod: .oauth,
-                allowsGitHubInboxNotifications: false,
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await fetchSourceCatalog()
+            await refreshDashboard()
             guard shouldContinueSignIn(attemptID) else { return }
-            await sync()
-            guard shouldContinueSignIn(attemptID) else { return }
+            startCatalogRefreshIfNeeded(force: true)
             try tokenStore.storeOAuthTokens(tokens)
             try tokenStore.clearPAT()
             deviceFlowChallenge = nil
@@ -813,6 +806,7 @@ final class DashboardController: ObservableObject {
 
     func signOut() {
         cancelDeviceFlowSignIn()
+        beginProviderGeneration()
         do {
             oauthAccessTokenCache.clear()
             try tokenStore.clear()
@@ -821,15 +815,19 @@ final class DashboardController: ObservableObject {
         }
         account = nil
         preferencesStore.pullRequestSnapshotCache = .empty
-        pullRequestNotificationHistory = []
-        gitHubInboxNotifications = []
-        gitHubInboxSyncMetadata = .empty
+        preferencesStore.clearPullRequestSyncState()
+        committedSyncState = nil
+        presentation = .empty
         setAuthMethod(.oauth)
         sourceCatalogProvider = nil
         gitHubAppInstallationProvider = nil
         gitHubAppRepositoryAccessStatus = .notApplicable
         gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         sourceCatalog = .empty
+        sourceCatalogSyncedAt = nil
+        sourceCatalogAccountLogin = nil
+        preferencesStore.sourceCatalogSyncedAt = nil
+        preferencesStore.sourceCatalogAccountLogin = nil
         sourceErrorMessage = nil
         configureSignedOutSource()
         refresh()
@@ -853,14 +851,18 @@ final class DashboardController: ObservableObject {
     }
 
     func setStartsAtLogin(_ startsAtLogin: Bool) {
-        errorMessage = nil
+        launchAtLoginErrorMessage = nil
         do {
             try launchAtLoginService.setEnabled(startsAtLogin)
             self.startsAtLogin = launchAtLoginService.isEnabled
         } catch {
             self.startsAtLogin = launchAtLoginService.isEnabled
-            errorMessage = error.localizedDescription
+            launchAtLoginErrorMessage = error.localizedDescription
         }
+    }
+
+    func dismissSaveError() {
+        saveErrorMessage = nil
     }
 
     func setOwnerPreferences(owner: String, preferences: OwnerSourcePreferences) {
@@ -874,9 +876,11 @@ final class DashboardController: ObservableObject {
     }
 
     func refreshSources() {
-        Task {
-            await fetchSourceCatalog(appliesMockRefreshDelay: true)
-        }
+        startCatalogRefreshIfNeeded(force: true, appliesMockRefreshDelay: true)
+    }
+
+    func refreshSourcesIfNeeded() {
+        startCatalogRefreshIfNeeded()
     }
 
     func open(_ url: URL) {
@@ -927,83 +931,50 @@ final class DashboardController: ObservableObject {
         open(notification.url)
     }
 
-    func openGitHubInboxNotification(_ notification: GitHubInboxNotification) {
-        open(notification.webURL)
-        markGitHubInboxNotificationRead(notification)
-    }
-
     func markPullRequestNotificationRead(_ notification: PullRequestNotification) {
         updatePullRequestNotification(notification.id) { $0.read = true }
     }
 
     private func markPullRequestNotificationsRead(for pullRequest: PullRequest) {
-        pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+        updateNotificationHistory(pullRequestNotificationHistory.map { notification in
             guard notification.prId == pullRequest.id else {
                 return notification
             }
             var copy = notification
             copy.read = true
             return copy
-        }
-    }
-
-    func markGitHubInboxNotificationRead(_ notification: GitHubInboxNotification) {
-        updateGitHubInboxNotification(notification.threadId) { $0.unread = false }
-        Task {
-            do {
-                try await gitHubInboxProvider?.markInboxThreadRead(threadId: notification.threadId)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
+        })
     }
 
     func markAllNotificationsRead() {
-        switch selectedNotificationSubtab {
-        case .pullRequests:
-            let visibleIds = Set(visiblePullRequestNotifications.map(\.id))
-            pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
-                var copy = notification
-                if visibleIds.contains(copy.id) {
-                    copy.read = true
-                }
-                return copy
+        let visibleIds = Set(visiblePullRequestNotifications.map(\.id))
+        updateNotificationHistory(pullRequestNotificationHistory.map { notification in
+            var copy = notification
+            if visibleIds.contains(copy.id) {
+                copy.read = true
             }
-        case .other:
-            let unread = visibleGitHubInboxNotifications.filter(\.unread)
-            let unreadIds = Set(unread.map(\.threadId))
-            gitHubInboxNotifications = gitHubInboxNotifications.map { notification in
-                var copy = notification
-                if unreadIds.contains(copy.threadId) {
-                    copy.unread = false
-                }
-                return copy
-            }
-            Task {
-                do {
-                    for notification in unread {
-                        try await gitHubInboxProvider?.markInboxThreadRead(threadId: notification.threadId)
-                    }
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
+            return copy
+        })
     }
 
     private func trimVisibleEvents() {
-        state.events.removeAll { event in
-            guard let pullRequest = state.pullRequests.first(where: { $0.id == event.prId }) else {
+        var dashboard = state
+        let pullRequestsByID = Dictionary(uniqueKeysWithValues: dashboard.pullRequests.map { ($0.id, $0) })
+        dashboard.events.removeAll { event in
+            guard let pullRequest = pullRequestsByID[event.prId] else {
                 return false
             }
             return !sourcePreferences.allowsNotifications(for: pullRequest.repo)
         }
+        updateDashboard(dashboard)
     }
 
     private func configureInitialSource() {
         if launchConfiguration.usesMockData {
             configureMockSource()
-            refresh()
+            Task {
+                await refreshDashboard()
+            }
             return
         }
 
@@ -1032,36 +1003,32 @@ final class DashboardController: ObservableObject {
     private func configureStoredOAuthSource() {
         configureStoredGitHubSource(
             client: makeOAuthGitHubClient(),
-            authMethod: .oauth,
-            allowsGitHubInboxNotifications: false
+            authMethod: .oauth
         )
     }
 
     private func configureStoredPATSource(token: String) {
         configureStoredGitHubSource(
             client: patGitHubClientFactory(token),
-            authMethod: .pat,
-            allowsGitHubInboxNotifications: GitHubTokenCapabilities.supportsGitHubInboxNotifications(token: token)
+            authMethod: .pat
         )
     }
 
     private func configureStoredGitHubSource(
         client: any GitHubProviding,
-        authMethod: GitHubAuthMethod,
-        allowsGitHubInboxNotifications: Bool
+        authMethod: GitHubAuthMethod
     ) {
         restoreCachedGitHubDashboardIfAvailable()
         configureGitHubSource(
             client: client,
             authMethod: authMethod,
-            allowsGitHubInboxNotifications: allowsGitHubInboxNotifications,
             loginProvider: { [weak self] in
                 if let login = self?.account?.login {
                     return login
                 }
                 let viewer = try await client.fetchViewer()
                 await MainActor.run {
-                    self?.account = viewer
+                    self?.acceptVerifiedAccount(viewer)
                 }
                 return viewer.login
             },
@@ -1075,10 +1042,10 @@ final class DashboardController: ObservableObject {
     private func configureGitHubSource(
         client: any GitHubProviding,
         authMethod: GitHubAuthMethod,
-        allowsGitHubInboxNotifications: Bool,
         loginProvider: @escaping () async throws -> String,
         accountProvider: @escaping () async throws -> GitHubAccount?
     ) {
+        beginProviderGeneration()
         sourceCatalogProvider = client
         if authMethod == .oauth {
             gitHubAppInstallationProvider = client
@@ -1089,79 +1056,123 @@ final class DashboardController: ObservableObject {
             gitHubAppRepositoryAccessStatus = .notApplicable
             gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         }
-        if allowsGitHubInboxNotifications {
-            gitHubInboxProvider = client
-        } else {
-            gitHubInboxProvider = nil
-            gitHubInboxNotifications = []
-            gitHubInboxSyncMetadata = .empty
-        }
         setAuthMethod(authMethod)
         syncEngine = SyncEngine(
             source: client,
-            preferences: preferences,
             loginProvider: loginProvider,
-            accountProvider: accountProvider,
-            authStatusProvider: { .signedIn },
-            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults },
-            snapshotSeedProvider: { [weak self] login in
-                self?.cachedGitHubPullRequests(for: login) ?? []
-            },
-            snapshotCacheDidUpdate: { [weak self] cache in
-                self?.storeGitHubSnapshotCache(cache)
-            }
+            accountProvider: accountProvider
         )
     }
 
+    private func acceptVerifiedAccount(_ verifiedAccount: GitHubAccount) {
+        let committedAccountChanged = committedSyncState.map {
+            $0.account.login.caseInsensitiveCompare(verifiedAccount.login) != .orderedSame
+        } == true
+        if committedAccountChanged {
+            preferencesStore.pullRequestSnapshotCache = .empty
+            preferencesStore.pullRequestNotificationHistory = []
+            preferencesStore.clearPullRequestSyncState()
+            committedSyncState = nil
+            presentation = .empty
+        }
+        let catalogAccountChanged = sourceCatalogAccountLogin.map {
+            $0.caseInsensitiveCompare(verifiedAccount.login) != .orderedSame
+        } == true
+        if committedAccountChanged || catalogAccountChanged {
+            sourceCatalog = .empty
+            sourceCatalogSyncedAt = nil
+            sourceCatalogAccountLogin = nil
+            preferencesStore.sourceCatalogSyncedAt = nil
+            preferencesStore.sourceCatalogAccountLogin = nil
+            sourceErrorMessage = nil
+        }
+        account = verifiedAccount
+        restoreCachedGitHubDashboardIfAvailable()
+    }
+
     private func configureSignedOutSource() {
+        beginProviderGeneration()
+        let retainedHistory = presentation.notificationHistory
+        presentation = PublishedPresentation(dashboard: .empty, notificationHistory: retainedHistory)
         setAuthMethod(.oauth)
         sourceCatalog = .empty
         sourceCatalogProvider = nil
         gitHubAppInstallationProvider = nil
         gitHubAppRepositoryAccessStatus = .notApplicable
         gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
-        gitHubInboxProvider = nil
         let source = EmptyPullRequestSource()
         syncEngine = SyncEngine(
             source: source,
-            preferences: preferences,
-            loginProvider: { "rw" },
-            accountProvider: { nil },
-            authStatusProvider: { .signedOut },
-            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
+            loginProvider: { "" },
+            accountProvider: { nil }
         )
     }
 
     private func configureMockSource() {
+        beginProviderGeneration()
         let account = GitHubAccount(login: "agent-fixture")
+        if committedSyncState.map({
+            $0.account.login.caseInsensitiveCompare(account.login) != .orderedSame
+        }) == true
+            || committedSyncState?.dashboard.source != .mock {
+            committedSyncState = nil
+            presentation = .empty
+        }
         self.account = account
         setAuthMethod(.oauth)
         let source = MockPullRequestSource(
-            showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures
+            showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures,
+            scenario: launchConfiguration.mockPullRequestScenario
         )
         sourceCatalogProvider = source
         gitHubAppInstallationProvider = nil
         gitHubAppRepositoryAccessStatus = .notApplicable
         gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
-        gitHubInboxProvider = source
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
         sourceCatalogSyncedAt = Date()
+        sourceCatalogAccountLogin = account.login
         if launchConfiguration.showsNotificationTypeFixtures {
-            pullRequestNotificationHistory = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
-            gitHubInboxNotifications = MockPullRequestSource.notificationTypeFixtureInboxNotifications
+            let history = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
+            let dashboard = committedSyncState?.dashboard ?? DashboardState(
+                pullRequests: [],
+                events: [],
+                syncedAt: nil,
+                source: .mock,
+                account: account,
+                authStatus: .signedIn
+            )
+            committedSyncState = PullRequestSyncState(
+                account: account,
+                dashboard: dashboard,
+                processedActivityByPullRequestID: committedSyncState?.processedActivityByPullRequestID ?? [:],
+                notificationHistory: history
+            )
+            presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
         }
         syncEngine = SyncEngine(
             source: source,
-            preferences: preferences,
             loginProvider: { account.login },
-            accountProvider: { account },
-            authStatusProvider: { .signedIn },
-            sourcePreferencesProvider: { [weak self] in self?.sourcePreferences ?? .defaults }
+            accountProvider: { account }
         )
     }
 
     private func makeOAuthGitHubClient() -> any GitHubProviding {
         oauthGitHubClientFactory(makeOAuthAccessTokenProvider())
+    }
+
+    private func beginProviderGeneration() {
+        providerGeneration += 1
+        automaticRefreshDeferral = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshAttemptID += 1
+        catalogTask?.cancel()
+        catalogTask = nil
+        isRefreshingSources = false
+        refreshingGeneration = nil
+        isRefreshing = false
+        refreshErrorMessage = nil
+        saveErrorMessage = nil
     }
 
     private func makeOAuthAccessTokenProvider() -> @Sendable () async throws -> String {
@@ -1177,72 +1188,91 @@ final class DashboardController: ObservableObject {
     }
 
     private func restoreCachedGitHubDashboardIfAvailable() {
-        let cache = preferencesStore.pullRequestSnapshotCache
-        guard cache.source == .github, !cache.pullRequests.isEmpty else {
-            return
-        }
-        state = DashboardState(
-            pullRequests: cache.pullRequests,
-            events: [],
-            syncedAt: cache.fetchedAt,
-            source: .github,
-            account: cache.account,
-            authStatus: .signedIn
+        guard let committedSyncState else { return }
+        presentation = PublishedPresentation(
+            dashboard: committedSyncState.dashboard,
+            notificationHistory: committedSyncState.notificationHistory
         )
     }
 
-    private func cachedGitHubPullRequests(for login: String) -> [PullRequest] {
-        let cache = preferencesStore.pullRequestSnapshotCache
-        guard cache.source == .github, cache.account?.login == login else {
-            return []
+    private func startCatalogRefreshIfNeeded(
+        force: Bool = false,
+        appliesMockRefreshDelay: Bool = false
+    ) {
+        guard catalogTask == nil, sourceCatalogProvider != nil else {
+            return
         }
-        return cache.pullRequests
-    }
+        let expectedLogin = account?.login ?? state.account?.login
+        guard let expectedLogin else {
+            return
+        }
+        if sourceCatalogAccountLogin?.caseInsensitiveCompare(expectedLogin) != .orderedSame {
+            sourceCatalog = .empty
+            sourceCatalogSyncedAt = nil
+            sourceCatalogAccountLogin = nil
+            preferencesStore.sourceCatalogSyncedAt = nil
+            preferencesStore.sourceCatalogAccountLogin = nil
+        }
+        if !force,
+           let sourceCatalogSyncedAt,
+           now() < sourceCatalogSyncedAt.addingTimeInterval(Self.sourceCatalogFreshnessInterval) {
+            return
+        }
 
-    private func storeGitHubSnapshotCache(_ cache: PullRequestSnapshotCache) {
-        guard cache.source == .github else {
-            return
-        }
-        preferencesStore.pullRequestSnapshotCache = cache
-    }
-
-    private func fetchSourceCatalog(appliesMockRefreshDelay: Bool = false) async {
-        guard let sourceCatalogProvider else {
-            return
-        }
-        guard !isRefreshingSources else {
-            return
-        }
+        let generation = providerGeneration
         isRefreshingSources = true
-        defer { isRefreshingSources = false }
         sourceErrorMessage = nil
-        let installations = await fetchGitHubAppInstallationsForAccessStatus()
-        guard !Task.isCancelled else { return }
-        await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
-        guard !Task.isCancelled else { return }
-        do {
-            let fetchedCatalog = try await sourceCatalogProvider.fetchSourceCatalog(
-                accountLogin: account?.login ?? state.account?.login
+        catalogTask = Task { [weak self] in
+            await self?.performCatalogRefresh(
+                expectedLogin: expectedLogin,
+                generation: generation,
+                appliesMockRefreshDelay: appliesMockRefreshDelay
             )
-            guard !Task.isCancelled else { return }
+            guard let self, self.providerGeneration == generation else { return }
+            self.isRefreshingSources = false
+            self.catalogTask = nil
+        }
+    }
+
+    private func performCatalogRefresh(
+        expectedLogin: String,
+        generation: Int,
+        appliesMockRefreshDelay: Bool
+    ) async {
+        guard let sourceCatalogProvider else { return }
+        let installations = await fetchGitHubAppInstallationsForAccessStatus(
+            generation: generation,
+            expectedLogin: expectedLogin
+        )
+        guard isCurrentProvider(generation, login: expectedLogin) else { return }
+        await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
+        guard isCurrentProvider(generation, login: expectedLogin) else { return }
+        do {
+            let fetchedCatalog = try await sourceCatalogProvider.fetchSourceCatalog(accountLogin: expectedLogin)
+            guard isCurrentProvider(generation, login: expectedLogin) else { return }
             sourceCatalog = fetchedCatalog
-            sourceCatalogSyncedAt = Date()
+            sourceCatalogSyncedAt = now()
+            sourceCatalogAccountLogin = expectedLogin
+            preferencesStore.sourceCatalogSyncedAt = sourceCatalogSyncedAt
+            preferencesStore.sourceCatalogAccountLogin = expectedLogin
             updateGitHubAppRepositoryAccessStatus(
                 installations: installations,
                 sourceCatalog: fetchedCatalog
             )
         } catch {
-            guard !Task.isCancelled, !(error is CancellationError) else { return }
+            guard isCurrentProvider(generation, login: expectedLogin), !(error is CancellationError) else { return }
             updateGitHubAppRepositoryAccessStatus(
                 installations: installations,
                 sourceCatalog: nil
             )
-            if isAuthenticationFailure(error) {
-                handleAuthenticationFailure(error)
-            } else {
-                sourceErrorMessage = error.localizedDescription
-            }
+            sourceErrorMessage = error.localizedDescription
         }
+    }
+
+    private func isCurrentProvider(_ generation: Int, login: String) -> Bool {
+        providerGeneration == generation
+            && !Task.isCancelled
+            && (account?.login ?? state.account?.login)?.caseInsensitiveCompare(login) == .orderedSame
     }
 
     private var canCheckGitHubAppRepositoryAccess: Bool {
@@ -1251,7 +1281,11 @@ final class DashboardController: ObservableObject {
             && !launchConfiguration.usesMockData
     }
 
-    private func fetchGitHubAppInstallationsForAccessStatus() async -> GitHubAppInstallations? {
+    private func fetchGitHubAppInstallationsForAccessStatus(
+        generation: Int,
+        expectedLogin: String
+    ) async -> GitHubAppInstallations? {
+        guard isCurrentProvider(generation, login: expectedLogin) else { return nil }
         guard canCheckGitHubAppRepositoryAccess else {
             gitHubAppRepositoryAccessStatus = .notApplicable
             gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
@@ -1265,13 +1299,12 @@ final class DashboardController: ObservableObject {
 
         gitHubAppRepositoryAccessStatus = .checking
         do {
-            return try await gitHubAppInstallationProvider.fetchGitHubAppInstallations()
+            let installations = try await gitHubAppInstallationProvider.fetchGitHubAppInstallations()
+            return isCurrentProvider(generation, login: expectedLogin) ? installations : nil
         } catch {
-            if isAuthenticationFailure(error) {
-                handleAuthenticationFailure(error)
-            } else {
-                gitHubAppRepositoryAccessStatus = .unknown
-            }
+            guard isCurrentProvider(generation, login: expectedLogin) else { return nil }
+            gitHubAppRepositoryAccessStatus = .unknown
+            sourceErrorMessage = error.localizedDescription
             gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
             return nil
         }
@@ -1311,106 +1344,125 @@ final class DashboardController: ObservableObject {
             : MergeHawkAuthDefaults.installURL
     }
 
-    private func fetchGitHubInboxNotifications() async {
-        guard let gitHubInboxProvider else {
-            return
-        }
-        if let lastFetchedAt = gitHubInboxSyncMetadata.lastFetchedAt,
-           let pollIntervalSeconds = gitHubInboxSyncMetadata.pollIntervalSeconds,
-           Date() < lastFetchedAt.addingTimeInterval(TimeInterval(pollIntervalSeconds)) {
-            return
-        }
-        guard !isRefreshingInbox else {
-            return
-        }
-        isRefreshingInbox = true
-        do {
-            let result = try await gitHubInboxProvider.fetchInboxNotifications(metadata: gitHubInboxSyncMetadata)
-            gitHubInboxSyncMetadata = result.metadata
-            if !result.isNotModified {
-                gitHubInboxNotifications = Self.mergeInboxNotifications(
-                    existing: gitHubInboxNotifications,
-                    fetched: result.notifications
-                )
-            }
-        } catch {
-            if isAuthenticationFailure(error) {
-                handleAuthenticationFailure(error)
-            } else {
-                errorMessage = error.localizedDescription
-            }
-        }
-        isRefreshingInbox = false
-    }
-
-    private func recordPullRequestNotifications(events: [PullRequestEvent], pullRequests: [PullRequest]) {
-        guard !events.isEmpty else {
-            return
-        }
-        let pullRequestsById = Dictionary(uniqueKeysWithValues: pullRequests.map { ($0.id, $0) })
-        let notifications = events.compactMap { event -> PullRequestNotification? in
-            guard let pullRequest = pullRequestsById[event.prId] else {
-                return nil
-            }
-            return PullRequestNotification(event: event, pullRequest: pullRequest)
-        }
-        guard !notifications.isEmpty else {
-            return
-        }
-        pullRequestNotificationHistory = Self.trimPullRequestNotifications(
-            notifications + pullRequestNotificationHistory
-        )
-    }
-
-    private func sync(appliesMockRefreshDelay: Bool = false) async {
-        guard let syncEngine else {
-            return
-        }
-        guard !isRefreshing else {
-            return
-        }
-        isRefreshing = true
-        defer { isRefreshing = false }
-        errorMessage = nil
+    private func performSync(
+        syncEngine: SyncEngine,
+        generation: Int,
+        appliesMockRefreshDelay: Bool
+    ) async {
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
-            let nextState = try await syncEngine.sync()
-            guard !Task.isCancelled else { return }
-            recordPullRequestNotifications(events: nextState.events, pullRequests: nextState.pullRequests)
-            state = nextState
+            let prepared = try await syncEngine.prepare(previousState: committedSyncState)
+            guard !Task.isCancelled, providerGeneration == generation else { return }
+
+            let allowed = prepared.events.filter { value in
+                preferences.allows(event: value.event, for: value.filteringContext)
+                    && sourcePreferences.allowsNotifications(for: value.filteringContext.repo)
+            }
+            let notifications = allowed.map { value in
+                PullRequestNotification(
+                    event: value.event,
+                    pullRequest: value.filteringContext,
+                    createdAt: value.event.happenedAt ?? prepared.syncedAt
+                )
+            }
+            let isSignedOut = prepared.source == .none
+            let retainedHistory = isSignedOut || committedSyncState?.trusted(for: prepared.account.login) != nil
+                ? presentation.notificationHistory
+                : []
+            let history = Self.trimPullRequestNotifications(notifications + retainedHistory)
+            // Detection reads processed IDs, so the stored dashboard omits per-PR comment and review lists.
+            let dashboard = DashboardState(
+                pullRequests: prepared.activePullRequests.map(\.withoutActivityHistory),
+                events: allowed.map(\.event),
+                syncedAt: prepared.syncedAt,
+                source: prepared.source,
+                account: isSignedOut ? nil : prepared.account,
+                authStatus: isSignedOut ? .signedOut : .signedIn
+            )
+            if isSignedOut {
+                presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
+                account = nil
+                automaticRefreshDeferral = nil
+                refreshErrorMessage = nil
+                return
+            }
+            let nextState = PullRequestSyncState(
+                account: prepared.account,
+                dashboard: dashboard,
+                processedActivityByPullRequestID: prepared.processedActivityByPullRequestID,
+                notificationHistory: history
+            )
+            try preferencesStore.storePullRequestSyncState(nextState)
+            guard !Task.isCancelled, providerGeneration == generation else { return }
+            committedSyncState = nextState
+            presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
+            account = dashboard.account
+            automaticRefreshDeferral = nil
+            refreshErrorMessage = nil
+
             if authMethod == .oauth,
                !launchConfiguration.usesMockData,
                gitHubAppRepositoryAccessStatus != .noInstallations,
-               !nextState.pullRequests.isEmpty {
+               !dashboard.pullRequests.isEmpty {
                 gitHubAppRepositoryAccessStatus = .configured
                 gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
             }
-            errorMessage = syncEngine.lastRefreshWarning
             if macOSLocalNotificationsEnabled {
-                notificationClient.post(events: nextState.events, pullRequests: nextState.pullRequests)
+                notificationClient.post(
+                    events: allowed.map(\.event),
+                    pullRequests: prepared.activePullRequests + prepared.retiringPullRequests
+                )
             }
-            await fetchGitHubInboxNotifications()
         } catch {
-            guard !Task.isCancelled, !(error is CancellationError) else { return }
+            guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else { return }
+            if let retryAt = gitHubReadRateLimitRetryDate(error),
+               retryAt > now(),
+               let login = account?.login ?? committedSyncState?.account.login {
+                automaticRefreshDeferral = AutomaticRefreshDeferral(
+                    generation: generation,
+                    accountLogin: login,
+                    retryAt: retryAt
+                )
+            }
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
-                errorMessage = error.localizedDescription
+                refreshErrorMessage = error.localizedDescription
             }
         }
     }
 
-    private func refreshDashboard(appliesMockRefreshDelay: Bool = false) async {
-        if canCheckGitHubAppRepositoryAccess {
-            await fetchSourceCatalog(appliesMockRefreshDelay: appliesMockRefreshDelay)
+    private func refreshDashboard(
+        appliesMockRefreshDelay: Bool = false,
+        isAutomatic: Bool = false
+    ) async {
+        if isAutomatic, shouldDeferAutomaticRefresh() { return }
+        if let refreshTask {
+            await refreshTask.value
+            return
         }
-        await sync(appliesMockRefreshDelay: appliesMockRefreshDelay)
-        // sync() establishes authStatus — if the catalog check was skipped earlier
-        // because auth wasn't ready yet, run it now that we know we're signed in.
-        if canCheckGitHubAppRepositoryAccess && gitHubAppRepositoryAccessStatus == .unknown {
-            await fetchSourceCatalog()
+        guard let syncEngine else { return }
+        let generation = providerGeneration
+        refreshAttemptID += 1
+        let attemptID = refreshAttemptID
+        refreshingGeneration = generation
+        isRefreshing = true
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSync(
+                syncEngine: syncEngine,
+                generation: generation,
+                appliesMockRefreshDelay: appliesMockRefreshDelay
+            )
         }
+        refreshTask = task
+        await task.value
+        guard refreshAttemptID == attemptID else { return }
+        refreshTask = nil
+        refreshingGeneration = nil
+        isRefreshing = false
+        startCatalogRefreshIfNeeded()
     }
 
     private func delayMockRefreshIfNeeded(applies: Bool) async {
@@ -1425,15 +1477,11 @@ final class DashboardController: ObservableObject {
     }
 
     private func isAuthenticationFailure(_ error: Error) -> Bool {
-        if let error = error as? GitHubClientError {
-            switch error {
-            case .authRefreshFailed:
-                return true
-            case .httpFailure(_, 401):
-                return true
-            case .httpFailure, .graphQLErrors:
-                break
-            }
+        if isGitHubReadAuthenticationError(error) {
+            return true
+        }
+        if let error = error as? GitHubClientError, error.rejectsCredentials {
+            return true
         }
         if let error = error as? GitHubOAuthError {
             switch error {
@@ -1446,6 +1494,8 @@ final class DashboardController: ObservableObject {
         return false
     }
 
+    /// Signs out without discarding the committed state: signing back in as the same account restores it,
+    /// and `acceptVerifiedAccount` clears it if a different account signs in.
     private func handleAuthenticationFailure(_ error: Error) {
         oauthAccessTokenCache.clear()
         try? tokenStore.clearOAuthTokens()
@@ -1465,11 +1515,14 @@ final class DashboardController: ObservableObject {
         }
 
         automaticRefreshTask?.cancel()
-        let intervalNanoseconds = UInt64(automaticRefreshInterval * 1_000_000_000)
         automaticRefreshTask = Task { [weak self] in
             while !Task.isCancelled {
+                guard let self else { break }
+                let sleepSeconds = self.automaticRefreshSleepDuration(
+                    defaultInterval: automaticRefreshInterval
+                )
                 do {
-                    try await Task.sleep(nanoseconds: intervalNanoseconds)
+                    try await Task.sleep(for: .seconds(sleepSeconds))
                 } catch {
                     break
                 }
@@ -1478,12 +1531,35 @@ final class DashboardController: ObservableObject {
                     break
                 }
 
-                guard let self else {
-                    break
-                }
-                await self.refreshDashboard()
+                await self.refreshDashboard(isAutomatic: true)
             }
         }
+    }
+
+    private func shouldDeferAutomaticRefresh() -> Bool {
+        guard let deferral = currentAutomaticRefreshDeferral() else { return false }
+        if deferral.retryAt > now() { return true }
+        automaticRefreshDeferral = nil
+        return false
+    }
+
+    private func automaticRefreshSleepDuration(defaultInterval: TimeInterval) -> TimeInterval {
+        guard let deferral = currentAutomaticRefreshDeferral() else { return defaultInterval }
+        let remaining = deferral.retryAt.timeIntervalSince(now())
+        if remaining > 0 { return remaining }
+        automaticRefreshDeferral = nil
+        return 0
+    }
+
+    private func currentAutomaticRefreshDeferral() -> AutomaticRefreshDeferral? {
+        guard let deferral = automaticRefreshDeferral,
+              deferral.generation == providerGeneration,
+              let currentLogin = account?.login ?? committedSyncState?.account.login,
+              deferral.accountLogin.caseInsensitiveCompare(currentLogin) == .orderedSame else {
+            automaticRefreshDeferral = nil
+            return nil
+        }
+        return deferral
     }
 
     private static func compare<Value: Comparable>(
@@ -1523,17 +1599,6 @@ final class DashboardController: ObservableObject {
         Array(notifications.sorted(by: compareNotifications).prefix(30))
     }
 
-    private static func mergeInboxNotifications(
-        existing: [GitHubInboxNotification],
-        fetched: [GitHubInboxNotification]
-    ) -> [GitHubInboxNotification] {
-        var byId = Dictionary(uniqueKeysWithValues: existing.map { ($0.threadId, $0) })
-        for notification in fetched {
-            byId[notification.threadId] = notification
-        }
-        return Array(byId.values.sorted(by: compareInboxNotifications).prefix(30))
-    }
-
     private static func compareNotifications(
         _ lhs: PullRequestNotification,
         _ rhs: PullRequestNotification
@@ -1541,50 +1606,69 @@ final class DashboardController: ObservableObject {
         if lhs.createdAt != rhs.createdAt {
             return lhs.createdAt > rhs.createdAt
         }
-        if lhs.repo != rhs.repo {
-            return lhs.repo < rhs.repo
+        if lhs.activityId != rhs.activityId {
+            return (lhs.activityId ?? "") > (rhs.activityId ?? "")
         }
-        return lhs.prNumber > rhs.prNumber
-    }
-
-    private static func compareInboxNotifications(
-        _ lhs: GitHubInboxNotification,
-        _ rhs: GitHubInboxNotification
-    ) -> Bool {
-        if lhs.updatedAt != rhs.updatedAt {
-            return lhs.updatedAt > rhs.updatedAt
+        if lhs.eventType.rawValue != rhs.eventType.rawValue {
+            return lhs.eventType.rawValue < rhs.eventType.rawValue
         }
         if lhs.repo != rhs.repo {
             return lhs.repo < rhs.repo
         }
-        return lhs.subjectTitle < rhs.subjectTitle
+        if lhs.prNumber != rhs.prNumber {
+            return lhs.prNumber > rhs.prNumber
+        }
+        return lhs.id < rhs.id
     }
 
     private func updatePullRequestNotification(
         _ id: PullRequestNotification.ID,
         update: (inout PullRequestNotification) -> Void
     ) {
-        pullRequestNotificationHistory = pullRequestNotificationHistory.map { notification in
+        updateNotificationHistory(pullRequestNotificationHistory.map { notification in
             guard notification.id == id else {
                 return notification
             }
             var copy = notification
             update(&copy)
             return copy
+        })
+    }
+
+    private func updateNotificationHistory(_ history: [PullRequestNotification]) {
+        var nextPresentation = presentation
+        nextPresentation.notificationHistory = history
+        guard var nextState = committedSyncState else {
+            preferencesStore.pullRequestNotificationHistory = history
+            presentation = nextPresentation
+            return
+        }
+        nextState.notificationHistory = history
+        do {
+            try preferencesStore.storePullRequestSyncState(nextState)
+            committedSyncState = nextState
+            presentation = nextPresentation
+            saveErrorMessage = nil
+        } catch {
+            saveErrorMessage = error.localizedDescription
         }
     }
 
-    private func updateGitHubInboxNotification(
-        _ threadId: GitHubInboxNotification.ID,
-        update: (inout GitHubInboxNotification) -> Void
-    ) {
-        gitHubInboxNotifications = gitHubInboxNotifications.map { notification in
-            guard notification.threadId == threadId else {
-                return notification
-            }
-            var copy = notification
-            update(&copy)
-            return copy
+    private func updateDashboard(_ dashboard: DashboardState) {
+        var nextPresentation = presentation
+        nextPresentation.dashboard = dashboard
+        guard var nextState = committedSyncState else {
+            presentation = nextPresentation
+            return
+        }
+        nextState.dashboard = dashboard
+        do {
+            try preferencesStore.storePullRequestSyncState(nextState)
+            committedSyncState = nextState
+            presentation = nextPresentation
+            saveErrorMessage = nil
+        } catch {
+            saveErrorMessage = error.localizedDescription
         }
     }
 

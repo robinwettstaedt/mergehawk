@@ -8,110 +8,6 @@ final class GitHubInboxTests: XCTestCase {
         super.tearDown()
     }
 
-    func testFetchInboxNotificationsFiltersPullRequestsAndPersistsMetadata() async throws {
-        let session = Self.mockSession()
-        var capturedRequest: URLRequest?
-        MockURLProtocol.handler = { request in
-            capturedRequest = request
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: [
-                    "ETag": #""inbox-etag""#,
-                    "X-Poll-Interval": "120"
-                ]
-            )!
-            let data = Data("""
-            [
-              {
-                "id": "issue-thread",
-                "repository": { "full_name": "acme/app" },
-                "subject": {
-                  "title": "Broken save button",
-                  "url": "https://api.github.com/repos/acme/app/issues/12",
-                  "latest_comment_url": null,
-                  "type": "Issue"
-                },
-                "reason": "mention",
-                "unread": true,
-                "updated_at": "2026-05-02T12:00:00Z",
-                "url": "https://api.github.com/notifications/threads/issue-thread"
-              },
-              {
-                "id": "pr-thread",
-                "repository": { "full_name": "acme/app" },
-                "subject": {
-                  "title": "Ship dashboard",
-                  "url": "https://api.github.com/repos/acme/app/pulls/13",
-                  "latest_comment_url": null,
-                  "type": "PullRequest"
-                },
-                "reason": "review_requested",
-                "unread": true,
-                "updated_at": "2026-05-02T13:00:00Z",
-                "url": "https://api.github.com/notifications/threads/pr-thread"
-              }
-            ]
-            """.utf8)
-            return (data, response)
-        }
-
-        let client = GitHubClient(token: "token", session: session)
-        let result = try await client.fetchInboxNotifications(
-            metadata: GitHubInboxSyncMetadata(eTag: #""old-etag""#, lastFetchedAt: nil, pollIntervalSeconds: nil)
-        )
-
-        XCTAssertEqual(capturedRequest?.url?.absoluteString, "https://api.github.com/notifications?all=true&per_page=50")
-        XCTAssertEqual(capturedRequest?.value(forHTTPHeaderField: "If-None-Match"), #""old-etag""#)
-        XCTAssertEqual(result.notifications.map(\.threadId), ["issue-thread"])
-        XCTAssertEqual(result.notifications.first?.webURL, URL(string: "https://github.com/acme/app/issues/12"))
-        XCTAssertEqual(result.metadata.eTag, #""inbox-etag""#)
-        XCTAssertEqual(result.metadata.pollIntervalSeconds, 120)
-        XCTAssertFalse(result.isNotModified)
-    }
-
-    func testFetchInboxNotificationsHandlesNotModified() async throws {
-        let session = Self.mockSession()
-        MockURLProtocol.handler = { request in
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 304,
-                httpVersion: nil,
-                headerFields: ["X-Poll-Interval": "90"]
-            )!
-            return (Data(), response)
-        }
-
-        let client = GitHubClient(token: "token", session: session)
-        let result = try await client.fetchInboxNotifications(metadata: .empty)
-
-        XCTAssertTrue(result.isNotModified)
-        XCTAssertEqual(result.notifications, [])
-        XCTAssertEqual(result.metadata.pollIntervalSeconds, 90)
-    }
-
-    func testMarkInboxThreadReadUsesThreadEndpoint() async throws {
-        let session = Self.mockSession()
-        var capturedRequest: URLRequest?
-        MockURLProtocol.handler = { request in
-            capturedRequest = request
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 205,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (Data(), response)
-        }
-
-        let client = GitHubClient(token: "token", session: session)
-        try await client.markInboxThreadRead(threadId: "123")
-
-        XCTAssertEqual(capturedRequest?.httpMethod, "PATCH")
-        XCTAssertEqual(capturedRequest?.url?.absoluteString, "https://api.github.com/notifications/threads/123")
-    }
-
     func testFetchGitHubAppInstallationsParsesAccountsAndRepositorySelection() async throws {
         let session = Self.mockSession()
         var capturedRequest: URLRequest?
@@ -149,17 +45,56 @@ final class GitHubInboxTests: XCTestCase {
         let result = try await client.fetchGitHubAppInstallations()
 
         XCTAssertEqual(capturedRequest?.httpMethod, "GET")
-        XCTAssertEqual(capturedRequest?.url?.absoluteString, "https://api.github.com/user/installations")
+        XCTAssertEqual(
+            capturedRequest?.url?.absoluteString,
+            "https://api.github.com/user/installations?per_page=100&page=1"
+        )
         XCTAssertEqual(capturedRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer token")
         XCTAssertEqual(result.installations.map(\.accountLogin), ["rw", "acme"])
         XCTAssertEqual(result.installations.map(\.repositorySelection), [.all, .selected])
         XCTAssertEqual(result.installations.first?.htmlURL, URL(string: "https://github.com/settings/installations/1001"))
     }
 
+    func testFetchGitHubAppInstallationsPaginatesToTotalCount() async throws {
+        let session = Self.mockSession()
+        var requestedPages: [String] = []
+        MockURLProtocol.handler = { request in
+            requestedPages.append(request.url!.absoluteString)
+            let page = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "page" })?.value
+            let range = page == "1" ? 1...100 : 101...101
+            let installations = range.map { id in
+                [
+                    "id": id,
+                    "account": ["login": "account-\(id)", "type": "Organization"],
+                    "repository_selection": "selected",
+                    "html_url": "https://github.com/settings/installations/\(id)"
+                ] as [String: Any]
+            }
+            let data = try JSONSerialization.data(withJSONObject: [
+                "total_count": 101,
+                "installations": installations
+            ])
+            return (data, Self.okResponse(for: request))
+        }
+
+        let result = try await GitHubClient(token: "token", session: session).fetchGitHubAppInstallations()
+
+        XCTAssertEqual(result.installations.count, 101)
+        XCTAssertEqual(requestedPages, [
+            "https://api.github.com/user/installations?per_page=100&page=1",
+            "https://api.github.com/user/installations?per_page=100&page=2"
+        ])
+    }
+
     private static func mockSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    private static func okResponse(for request: URLRequest) -> HTTPURLResponse {
+        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
     }
 }
 

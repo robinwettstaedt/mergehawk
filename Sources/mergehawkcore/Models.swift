@@ -20,6 +20,15 @@ public enum ReviewRequestKind: String, Codable, Equatable, Sendable {
     case team
     case directAndTeam = "direct_and_team"
 
+    public init(direct: Bool, team: Bool) {
+        self = switch (direct, team) {
+        case (true, true): .directAndTeam
+        case (true, false): .direct
+        case (false, true): .team
+        case (false, false): .none
+        }
+    }
+
     public var includesDirect: Bool {
         switch self {
         case .direct, .directAndTeam:
@@ -103,29 +112,6 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     }
 }
 
-public struct PullRequestCommit: Identifiable, Codable, Equatable, Sendable {
-    public var id: String { oid }
-    public let oid: String
-    public let authoredAt: Date
-    public let committedAt: Date
-    public let authorLogin: String?
-    public let committerLogin: String?
-
-    public init(
-        oid: String,
-        authoredAt: Date,
-        committedAt: Date,
-        authorLogin: String? = nil,
-        committerLogin: String? = nil
-    ) {
-        self.oid = oid
-        self.authoredAt = authoredAt
-        self.committedAt = committedAt
-        self.authorLogin = authorLogin
-        self.committerLogin = committerLogin
-    }
-}
-
 public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -138,12 +124,11 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let deletions: Int?
     public let commentCount: Int
     public let commentActivityCount: Int
-    public let recentCommentActivities: [PullRequestCommentActivity]
+    public var recentCommentActivities: [PullRequestCommentActivity]
     public let reviewCount: Int
-    public let recentReviews: [PullRequestReview]
-    public let recentCommits: [PullRequestCommit]
-    public let hasRecentCommitMetadata: Bool
-    public let reviewRequestKind: ReviewRequestKind
+    public var recentReviews: [PullRequestReview]
+    public let headRefOid: String
+    public var reviewRequestKind: ReviewRequestKind
     public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String
@@ -169,8 +154,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         recentCommentActivities: [PullRequestCommentActivity] = [],
         reviewCount: Int,
         recentReviews: [PullRequestReview] = [],
-        recentCommits: [PullRequestCommit] = [],
-        hasRecentCommitMetadata: Bool = true,
+        headRefOid: String = "",
         reviewRequestKind: ReviewRequestKind = .none,
         isAssignedToViewer: Bool = false,
         isMine: Bool,
@@ -196,8 +180,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.recentCommentActivities = recentCommentActivities
         self.reviewCount = reviewCount
         self.recentReviews = recentReviews
-        self.recentCommits = recentCommits
-        self.hasRecentCommitMetadata = hasRecentCommitMetadata
+        self.headRefOid = headRefOid
         self.reviewRequestKind = reviewRequestKind
         self.isAssignedToViewer = isAssignedToViewer
         self.isMine = isMine
@@ -208,6 +191,13 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.draft = draft
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public var withoutActivityHistory: PullRequest {
+        var copy = self
+        copy.recentCommentActivities = []
+        copy.recentReviews = []
+        return copy
     }
 
     enum CodingKeys: String, CodingKey {
@@ -225,8 +215,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case recentCommentActivities
         case reviewCount
         case recentReviews
-        case recentCommits
-        case hasRecentCommitMetadata
+        case headRefOid
         case reviewRequestKind
         case isAssignedToViewer
         case isMine
@@ -258,12 +247,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         )
         self.reviewCount = try container.decode(Int.self, forKey: .reviewCount)
         self.recentReviews = try container.decode([PullRequestReview].self, forKey: .recentReviews)
-        let hasRecentCommitsKey = container.contains(.recentCommits)
-        self.recentCommits = try container.decodeIfPresent([PullRequestCommit].self, forKey: .recentCommits) ?? []
-        self.hasRecentCommitMetadata = try container.decodeIfPresent(
-            Bool.self,
-            forKey: .hasRecentCommitMetadata
-        ) ?? hasRecentCommitsKey
+        self.headRefOid = try container.decodeIfPresent(String.self, forKey: .headRefOid) ?? ""
         self.reviewRequestKind = try container.decode(ReviewRequestKind.self, forKey: .reviewRequestKind)
         self.isAssignedToViewer = try container.decode(Bool.self, forKey: .isAssignedToViewer)
         self.isMine = try container.decode(Bool.self, forKey: .isMine)
@@ -300,16 +284,6 @@ public struct PullRequestSnapshotCache: Codable, Equatable, Sendable {
         self.account = account
         self.fetchedAt = fetchedAt
         self.source = source
-    }
-}
-
-public struct PullRequestFetchResult: Equatable, Sendable {
-    public let pullRequests: [PullRequest]
-    public let refreshWarning: String?
-
-    public init(pullRequests: [PullRequest], refreshWarning: String? = nil) {
-        self.pullRequests = pullRequests
-        self.refreshWarning = refreshWarning
     }
 }
 
@@ -666,81 +640,14 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     }
 }
 
-public struct GitHubInboxNotification: Identifiable, Codable, Equatable, Sendable {
-    public var id: String { threadId }
-    public let threadId: String
-    public let repo: String
-    public let subjectTitle: String
-    public let subjectType: String
-    public let reason: String
-    public var unread: Bool
-    public let updatedAt: Date
-    public let threadURL: URL
-    public let webURL: URL
-
-    public init(
-        threadId: String,
-        repo: String,
-        subjectTitle: String,
-        subjectType: String,
-        reason: String,
-        unread: Bool,
-        updatedAt: Date,
-        threadURL: URL,
-        webURL: URL
-    ) {
-        self.threadId = threadId
-        self.repo = repo
-        self.subjectTitle = subjectTitle
-        self.subjectType = subjectType
-        self.reason = reason
-        self.unread = unread
-        self.updatedAt = updatedAt
-        self.threadURL = threadURL
-        self.webURL = webURL
-    }
-}
-
-public struct GitHubInboxSyncMetadata: Codable, Equatable, Sendable {
-    public var eTag: String?
-    public var lastFetchedAt: Date?
-    public var pollIntervalSeconds: Int?
-
-    public static let empty = GitHubInboxSyncMetadata(
-        eTag: nil,
-        lastFetchedAt: nil,
-        pollIntervalSeconds: nil
-    )
-
-    public init(eTag: String?, lastFetchedAt: Date?, pollIntervalSeconds: Int?) {
-        self.eTag = eTag
-        self.lastFetchedAt = lastFetchedAt
-        self.pollIntervalSeconds = pollIntervalSeconds
-    }
-}
-
-public struct GitHubInboxFetchResult: Equatable, Sendable {
-    public let notifications: [GitHubInboxNotification]
-    public let metadata: GitHubInboxSyncMetadata
-    public let isNotModified: Bool
-
-    public init(
-        notifications: [GitHubInboxNotification],
-        metadata: GitHubInboxSyncMetadata,
-        isNotModified: Bool = false
-    ) {
-        self.notifications = notifications
-        self.metadata = metadata
-        self.isNotModified = isNotModified
-    }
-}
-
 public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
     case comments
     case reviewActivity = "review_activity"
     case ciFailures = "ci_failures"
     case relationshipChanges = "relationship_changes"
     case otherCommits = "other_commits"
+
+    public static let allCases: [Self] = [.comments, .reviewActivity, .ciFailures, .relationshipChanges]
 
     public init(eventType: PullRequestEventType) {
         switch eventType {
@@ -763,35 +670,30 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
     public var reviewActivity: Bool
     public var ciFailures: Bool
     public var relationshipChanges: Bool
-    public var otherCommits: Bool
 
     public static let authoredDefaults = PullRequestNotificationActivityPreferences(
         comments: true,
         reviewActivity: true,
         ciFailures: true,
-        relationshipChanges: false,
-        otherCommits: true
+        relationshipChanges: false
     )
     public static let enabled = PullRequestNotificationActivityPreferences(
         comments: true,
         reviewActivity: true,
         ciFailures: true,
-        relationshipChanges: true,
-        otherCommits: true
+        relationshipChanges: true
     )
     public static let disabled = PullRequestNotificationActivityPreferences(
         comments: false,
         reviewActivity: false,
         ciFailures: false,
-        relationshipChanges: false,
-        otherCommits: false
+        relationshipChanges: false
     )
     public static let relationshipChangesOnly = PullRequestNotificationActivityPreferences(
         comments: false,
         reviewActivity: false,
         ciFailures: false,
-        relationshipChanges: true,
-        otherCommits: false
+        relationshipChanges: true
     )
 
     enum CodingKeys: String, CodingKey {
@@ -799,21 +701,18 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
         case reviewActivity
         case ciFailures
         case relationshipChanges
-        case otherCommits
     }
 
     public init(
         comments: Bool,
         reviewActivity: Bool,
         ciFailures: Bool,
-        relationshipChanges: Bool = false,
-        otherCommits: Bool = false
+        relationshipChanges: Bool = false
     ) {
         self.comments = comments
         self.reviewActivity = reviewActivity
         self.ciFailures = ciFailures
         self.relationshipChanges = relationshipChanges
-        self.otherCommits = otherCommits
     }
 
     public init(from decoder: Decoder) throws {
@@ -822,7 +721,6 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
         self.reviewActivity = try container.decode(Bool.self, forKey: .reviewActivity)
         self.ciFailures = try container.decode(Bool.self, forKey: .ciFailures)
         self.relationshipChanges = try container.decodeIfPresent(Bool.self, forKey: .relationshipChanges) ?? false
-        self.otherCommits = try container.decodeIfPresent(Bool.self, forKey: .otherCommits) ?? false
     }
 
     public func allows(_ activity: PullRequestNotificationActivity) -> Bool {
@@ -836,7 +734,7 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
         case .relationshipChanges:
             relationshipChanges
         case .otherCommits:
-            otherCommits
+            false
         }
     }
 }

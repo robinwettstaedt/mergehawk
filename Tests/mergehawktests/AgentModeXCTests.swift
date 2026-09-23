@@ -7,18 +7,18 @@ final class AgentModeXCTests: XCTestCase {
     func testMockPullRequestDatesUseOneStableReferenceAcrossRefreshes() async throws {
         let referenceDate = Date(timeIntervalSince1970: 2_000_000_000)
         let source = MockPullRequestSource(referenceDate: referenceDate)
-        let first = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: [])
-        let second = try await source.fetchPullRequests(login: "agent-fixture", previousPullRequests: first.pullRequests)
-        let firstDates = Dictionary(uniqueKeysWithValues: first.pullRequests.map {
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let firstDates = Dictionary(uniqueKeysWithValues: first.activePullRequests.map {
             ($0.id, [$0.createdAt, $0.updatedAt])
         })
-        let secondDates = Dictionary(uniqueKeysWithValues: second.pullRequests.map {
+        let secondDates = Dictionary(uniqueKeysWithValues: second.activePullRequests.map {
             ($0.id, [$0.createdAt, $0.updatedAt])
         })
 
         XCTAssertEqual(firstDates.count, 7)
         XCTAssertEqual(secondDates, firstDates)
-        for pullRequest in first.pullRequests {
+        for pullRequest in first.activePullRequests {
             XCTAssertLessThanOrEqual(pullRequest.createdAt, pullRequest.updatedAt)
             XCTAssertLessThanOrEqual(pullRequest.updatedAt, referenceDate)
         }
@@ -35,8 +35,8 @@ final class AgentModeXCTests: XCTestCase {
             })
         }
         let expectedUnits: Set<String> = ["minutes", "hours", "days", "weeks", "months"]
-        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.createdAt)), expectedUnits)
-        XCTAssertEqual(ageUnits(for: first.pullRequests.map(\.updatedAt)), expectedUnits)
+        XCTAssertEqual(ageUnits(for: first.activePullRequests.map(\.createdAt)), expectedUnits)
+        XCTAssertEqual(ageUnits(for: first.activePullRequests.map(\.updatedAt)), expectedUnits)
     }
 
     func testLaunchConfigurationAcceptsMockFlagAndEnvironment() {
@@ -75,10 +75,15 @@ final class AgentModeXCTests: XCTestCase {
     }
 
     func testMockModeStartsSignedInWithoutToken() async {
+        let suiteName = "mergehawk-mock-mode-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferencesStore = PreferencesStore(defaults: defaults)
         let notificationClient = RecordingNotificationClient()
         let controller = await MainActor.run {
             DashboardController(
                 tokenStore: InMemoryTokenStore(),
+                preferencesStore: preferencesStore,
                 launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
                 notificationClient: notificationClient,
                 automaticRefreshInterval: 0
@@ -87,7 +92,7 @@ final class AgentModeXCTests: XCTestCase {
 
         await waitUntil(timeout: 1.0) {
             await MainActor.run {
-                controller.state.syncedAt != nil
+                controller.state.syncedAt != nil && !controller.isRefreshing
             }
         }
 
@@ -127,7 +132,7 @@ final class AgentModeXCTests: XCTestCase {
         }
         XCTAssertEqual(
             notificationClient.records.map(\.eventType),
-            ["new_comment", "ci_failed", "other_commit_added", "relationship_added"]
+            ["ci_failed", "new_comment", "relationship_added"]
         )
         await MainActor.run {
             XCTAssertGreaterThanOrEqual(controller.state.pullRequests.filter { $0.mergeable == .unknown }.count, 2)
@@ -279,25 +284,26 @@ final class AgentModeXCTests: XCTestCase {
         }
         await waitUntil(timeout: 1.0) {
             await MainActor.run {
-                controller.visiblePullRequestNotifications.count == 4
+                controller.visiblePullRequestNotifications.count == 3
             }
         }
 
         await MainActor.run {
             // PR_3 remains team-only across refresh, so no relationship-added row appears for it.
-            XCTAssertEqual(controller.attentionCount, 4)
+            XCTAssertEqual(controller.attentionCount, 3)
             XCTAssertTrue(controller.hasAttention)
             XCTAssertEqual(
                 controller.visiblePullRequestNotifications.map(\.url).first,
-                URL(string: "https://github.com/mergehawk-labs/desktop-app/pull/27")
+                // The newest actual activity is the mergehawk PR comment; relationship changes fall back to sync time.
+                URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14")
             )
 
             controller.markPullRequestNotificationRead(controller.visiblePullRequestNotifications[0])
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
-            XCTAssertEqual(controller.attentionCount, 3)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 3)
+            XCTAssertEqual(controller.attentionCount, 2)
 
             controller.markAllNotificationsRead()
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 3)
             XCTAssertEqual(controller.attentionCount, 0)
             XCTAssertFalse(controller.hasAttention)
         }
@@ -318,7 +324,7 @@ final class AgentModeXCTests: XCTestCase {
         }
 
         await MainActor.run {
-            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 4)
+            XCTAssertEqual(restoredController.visiblePullRequestNotifications.count, 3)
             XCTAssertEqual(restoredController.attentionCount, 0)
         }
     }
@@ -368,40 +374,6 @@ final class AgentModeXCTests: XCTestCase {
         }
     }
 
-    func testOtherNotificationsDoNotDriveGlobalAttention() async {
-        let suiteName = "mergehawk-other-notifications-test-\(UUID().uuidString)"
-        defer {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-
-        let controller = await MainActor.run {
-            DashboardController(
-                tokenStore: InMemoryTokenStore(),
-                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
-                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-                automaticRefreshInterval: 0
-            )
-        }
-
-        await waitUntil(timeout: 1.0) {
-            await MainActor.run {
-                controller.state.syncedAt != nil && controller.visibleGitHubInboxNotifications.count == 2
-            }
-        }
-
-        await MainActor.run {
-            XCTAssertEqual(controller.visibleGitHubInboxNotifications.filter(\.unread).count, 1)
-            XCTAssertFalse(controller.hasAttention)
-            XCTAssertEqual(controller.attentionCount, 0)
-
-            controller.selectedNotificationSubtab = .other
-            controller.markAllNotificationsRead()
-
-            XCTAssertEqual(controller.visibleGitHubInboxNotifications.filter(\.unread).count, 0)
-            XCTAssertFalse(controller.hasAttention)
-        }
-    }
-
     func testNotificationTypeFixtureModeSeedsAllMockNotificationKinds() async {
         let suiteName = "mergehawk-notification-type-fixtures-test-\(UUID().uuidString)"
         defer {
@@ -436,11 +408,10 @@ final class AgentModeXCTests: XCTestCase {
                     .reviewApproved,
                     .reviewCommented,
                     .ciFailed,
-                    .changesRequested,
-                    .otherCommitAdded
+                    .changesRequested
                 ]
             )
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 8)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 7)
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
@@ -456,16 +427,6 @@ final class AgentModeXCTests: XCTestCase {
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
                     .contains("Assigned to you")
             )
-            XCTAssertTrue(
-                controller.visiblePullRequestNotifications
-                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
-                    .contains("New commit by @platform-nora")
-            )
-            XCTAssertEqual(
-                Set(controller.visibleGitHubInboxNotifications.map(\.subjectType)),
-                ["Issue", "Discussion", "Release", "Commit", "CheckSuite", "RepositoryVulnerabilityAlert"]
-            )
-            XCTAssertEqual(controller.visibleGitHubInboxNotifications.count, 6)
         }
     }
 
@@ -528,9 +489,89 @@ final class AgentModeXCTests: XCTestCase {
         await MainActor.run {
             XCTAssertTrue(controller.state.events.isEmpty)
             XCTAssertTrue(controller.visiblePullRequestNotifications.isEmpty)
-            XCTAssertTrue(controller.visibleGitHubInboxNotifications.isEmpty)
         }
         XCTAssertTrue(notificationClient.records.isEmpty)
+    }
+
+    func testMockRefreshFailurePreservesExistingDashboardAndEmitsNothing() async {
+        let suiteName = "mergehawk-mock-failure-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferencesStore = PreferencesStore(defaults: defaults)
+        let notifications = RecordingNotificationClient()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: preferencesStore,
+                launchConfiguration: LaunchConfiguration(
+                    usesMockData: true,
+                    suppressesMacOSNotifications: true,
+                    mockPullRequestScenario: .refreshFailure
+                ),
+                notificationClient: notifications,
+                automaticRefreshInterval: 0
+            )
+        }
+        await waitUntil(timeout: 1) {
+            await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing }
+        }
+        let baseline = await MainActor.run { controller.state }
+
+        await MainActor.run { controller.refresh() }
+        await waitUntil(timeout: 1) {
+            await MainActor.run { controller.refreshErrorMessage != nil && !controller.isRefreshing }
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(controller.state, baseline)
+            XCTAssertEqual(controller.refreshErrorMessage, MockPullRequestError.refreshFailed.localizedDescription)
+        }
+        XCTAssertTrue(notifications.records.isEmpty)
+    }
+
+    func testMockMergedFinalActivityAndQuietAccessLossAreDeterministic() async {
+        for scenario in [MockPullRequestScenario.mergedFinalActivity, .quietAccessLoss] {
+            let suiteName = "mergehawk-mock-retirement-test-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            let preferencesStore = PreferencesStore(defaults: defaults)
+            let notifications = RecordingNotificationClient()
+            let controller = await MainActor.run {
+                DashboardController(
+                    tokenStore: InMemoryTokenStore(),
+                    preferencesStore: preferencesStore,
+                    launchConfiguration: LaunchConfiguration(
+                        usesMockData: true,
+                        suppressesMacOSNotifications: true,
+                        mockPullRequestScenario: scenario
+                    ),
+                    notificationClient: notifications,
+                    automaticRefreshInterval: 0
+                )
+            }
+            await waitUntil(timeout: 1) {
+                await MainActor.run { controller.state.pullRequests.count == 1 && !controller.isRefreshing }
+            }
+            await MainActor.run { controller.refresh() }
+            await waitUntil(timeout: 1) {
+                await MainActor.run { controller.state.pullRequests.isEmpty && !controller.isRefreshing }
+            }
+
+            if scenario == .mergedFinalActivity {
+                await MainActor.run {
+                    XCTAssertEqual(
+                        Set(controller.pullRequestNotificationHistory.map(\.activityId)),
+                        ["PR_SCENARIO_FINAL_COMMENT", "PR_SCENARIO_FINAL_REVIEW"]
+                    )
+                }
+                XCTAssertEqual(Set(notifications.records.map(\.eventType)), ["new_comment", "review_approved"])
+            } else {
+                await MainActor.run {
+                    XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+                }
+                XCTAssertTrue(notifications.records.isEmpty)
+            }
+            defaults.removePersistentDomain(forName: suiteName)
+        }
     }
 
     func testNotificationClickRouteOpensSingleMatchingPullRequest() {

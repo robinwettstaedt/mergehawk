@@ -296,6 +296,29 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testLaunchAtLoginFailureIsShownSeparatelyAndClearedBySuccess() {
+        let service = FailingLaunchAtLoginService()
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            launchAtLoginService: service,
+            automaticRefreshInterval: 0
+        )
+
+        controller.setStartsAtLogin(true)
+
+        XCTAssertFalse(controller.startsAtLogin)
+        XCTAssertEqual(controller.launchAtLoginErrorMessage, FailingLaunchAtLoginService.TestError.failed.localizedDescription)
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertNil(controller.refreshErrorMessage)
+
+        service.fails = false
+        controller.setStartsAtLogin(true)
+
+        XCTAssertTrue(controller.startsAtLogin)
+        XCTAssertNil(controller.launchAtLoginErrorMessage)
+    }
+
+    @MainActor
     func testPATSignInClearsLoadingAfterFailure() async {
         let controller = DashboardController(
             tokenStore: InMemoryTokenStore(),
@@ -307,6 +330,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         XCTAssertFalse(controller.isSigningInWithToken)
         XCTAssertEqual(controller.errorMessage, FailingViewerGitHubProvider.TestError.failed.localizedDescription)
+        XCTAssertNil(controller.refreshErrorMessage)
         XCTAssertEqual(controller.state.authStatus, .signedOut)
     }
 
@@ -417,38 +441,6 @@ private enum TestTimeout: Error {
     precondition(controller.state.events.isEmpty)
 }()
 
-@MainActor let mergehawkGitHubAppAuthDoesNotSupportInboxNotificationsTest: Void = {
-    precondition(GitHubAuthMethod.oauth.label == "GitHub App")
-    precondition(!GitHubTokenCapabilities.supportsGitHubInboxNotifications(token: "github_pat_fine_grained"))
-    precondition(GitHubTokenCapabilities.supportsGitHubInboxNotifications(token: "ghp_classic"))
-}()
-
-@MainActor let mergehawkGitHubAppAuthShowsInboxUnavailableHintTest: Void = {
-    let suiteName = "mergehawk-github-app-inbox-unavailable-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suiteName)!
-    defer {
-        defaults.removePersistentDomain(forName: suiteName)
-    }
-
-    let tokenStore = InMemoryTokenStore()
-    try! tokenStore.storeOAuthTokens(
-        OAuthTokens(accessToken: "access", refreshToken: "refresh", expiresAt: .distantFuture)
-    )
-    var preferencesStore = PreferencesStore(defaults: defaults)
-    preferencesStore.pullRequestSnapshotCache = signedInSnapshotCache()
-    preferencesStore.gitHubInboxNotifications = [inboxNotificationFixture()]
-
-    let controller = DashboardController(
-        tokenStore: tokenStore,
-        preferencesStore: preferencesStore,
-        automaticRefreshInterval: 0
-    )
-
-    precondition(controller.state.authStatus == .signedIn)
-    precondition(controller.showsGitHubInboxUnavailableHint)
-    precondition(controller.visibleGitHubInboxNotifications.isEmpty)
-}()
-
 @MainActor let mergehawkSignOutClearsCachedNotificationsTest: Void = {
     let suiteName = "mergehawk-signout-clears-notifications-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -464,13 +456,6 @@ private enum TestTimeout: Error {
             pullRequest: signedInSnapshotCache().pullRequests[0]
         )
     ]
-    preferencesStore.gitHubInboxNotifications = [inboxNotificationFixture()]
-    preferencesStore.gitHubInboxSyncMetadata = GitHubInboxSyncMetadata(
-        eTag: #""etag""#,
-        lastFetchedAt: Date(timeIntervalSince1970: 1_777_800_000),
-        pollIntervalSeconds: 120
-    )
-
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
         preferencesStore: preferencesStore,
@@ -478,13 +463,9 @@ private enum TestTimeout: Error {
     )
 
     precondition(!controller.pullRequestNotificationHistory.isEmpty)
-    precondition(!controller.visibleGitHubInboxNotifications.isEmpty)
     controller.signOut()
     precondition(controller.pullRequestNotificationHistory.isEmpty)
-    precondition(controller.visibleGitHubInboxNotifications.isEmpty)
     precondition(preferencesStore.pullRequestNotificationHistory.isEmpty)
-    precondition(preferencesStore.gitHubInboxNotifications.isEmpty)
-    precondition(preferencesStore.gitHubInboxSyncMetadata == .empty)
 }()
 
 @MainActor let mergehawkGitHubAppRepositoryAccessStatusTest: Void = {
@@ -1411,12 +1392,12 @@ private final class FakeGitHubProvider: GitHubProviding {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
-        return PullRequestFetchResult(pullRequests: pullRequests)
+        return CompletePullRequestFetchResult(activePullRequests: pullRequests)
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -1428,11 +1409,6 @@ private final class FakeGitHubProvider: GitHubProviding {
         return try installationsResult.get()
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 private final class DelayedViewerGitHubProvider: GitHubProviding {
@@ -1457,12 +1433,12 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
         viewerContinuation = nil
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
-        return PullRequestFetchResult(pullRequests: [])
+        return CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -1474,11 +1450,6 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
         GitHubAppInstallations(installations: [])
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 private final class FailingViewerGitHubProvider: GitHubProviding {
@@ -1494,11 +1465,11 @@ private final class FailingViewerGitHubProvider: GitHubProviding {
         throw TestError.failed
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
-        PullRequestFetchResult(pullRequests: [])
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
+        CompletePullRequestFetchResult(activePullRequests: [])
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -1509,11 +1480,6 @@ private final class FailingViewerGitHubProvider: GitHubProviding {
         GitHubAppInstallations(installations: [])
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 @MainActor
@@ -1538,23 +1504,23 @@ private final class RecordingOAuthSignIn: GitHubOAuthSigningIn {
 
 private final class DelayedSyncGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
-    var pullRequestsContinuation: CheckedContinuation<PullRequestFetchResult, Never>?
+    var pullRequestsContinuation: CheckedContinuation<CompletePullRequestFetchResult, Never>?
 
     func fetchViewer() async throws -> GitHubAccount {
         GitHubAccount(login: "rw")
     }
 
-    func fetchPullRequests(
+    func fetchCompletePullRequests(
         login: String,
-        previousPullRequests: [PullRequest]
-    ) async throws -> PullRequestFetchResult {
+        previousState: PullRequestSyncState?
+    ) async throws -> CompletePullRequestFetchResult {
         await withCheckedContinuation { continuation in
             pullRequestsContinuation = continuation
         }
     }
 
     func finishPullRequestFetch() {
-        pullRequestsContinuation?.resume(returning: PullRequestFetchResult(pullRequests: []))
+        pullRequestsContinuation?.resume(returning: CompletePullRequestFetchResult(activePullRequests: []))
         pullRequestsContinuation = nil
     }
 
@@ -1566,14 +1532,21 @@ private final class DelayedSyncGitHubProvider: GitHubProviding {
         GitHubAppInstallations(installations: [])
     }
 
-    func fetchInboxNotifications(metadata: GitHubInboxSyncMetadata) async throws -> GitHubInboxFetchResult {
-        GitHubInboxFetchResult(notifications: [], metadata: metadata)
-    }
-
-    func markInboxThreadRead(threadId: String) async throws {}
 }
 
 @MainActor
+private final class FailingLaunchAtLoginService: LaunchAtLoginServicing {
+    enum TestError: Error { case failed }
+
+    private(set) var isEnabled = false
+    var fails = true
+
+    func setEnabled(_ isEnabled: Bool) throws {
+        if fails { throw TestError.failed }
+        self.isEnabled = isEnabled
+    }
+}
+
 private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
     private(set) var requestedValues: [Bool] = []
     var isEnabled: Bool
@@ -1610,19 +1583,5 @@ private func signedInSnapshotCache() -> PullRequestSnapshotCache {
         account: GitHubAccount(login: "rw"),
         fetchedAt: Date(timeIntervalSince1970: 1_777_800_000),
         source: .github
-    )
-}
-
-private func inboxNotificationFixture() -> GitHubInboxNotification {
-    GitHubInboxNotification(
-        threadId: "issue-thread",
-        repo: "example/mergehawk",
-        subjectTitle: "Cached issue",
-        subjectType: "Issue",
-        reason: "mention",
-        unread: true,
-        updatedAt: Date(timeIntervalSince1970: 1_777_800_000),
-        threadURL: URL(string: "https://api.github.com/notifications/threads/issue-thread")!,
-        webURL: URL(string: "https://github.com/example/mergehawk/issues/1")!
     )
 }

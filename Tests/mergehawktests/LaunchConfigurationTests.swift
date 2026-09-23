@@ -75,4 +75,37 @@ final class LaunchConfigurationTests: XCTestCase {
             )
         )
     }
+
+    func testMockScenariosParseFromArgumentsAndEnvironment() {
+        XCTAssertEqual(
+            LaunchConfiguration.current(
+                arguments: ["mergehawk", "--mock", "--mock-scenario", "merged-final-activity"],
+                environment: [:]
+            ).mockPullRequestScenario,
+            .mergedFinalActivity
+        )
+        let delayed = LaunchConfiguration.current(
+            arguments: ["mergehawk"],
+            environment: [
+                "MERGEHAWK_MOCK_MODE": "1",
+                "MERGEHAWK_MOCK_SCENARIO": "delayed-refresh"
+            ]
+        )
+        XCTAssertEqual(delayed.mockPullRequestScenario, .delayedRefresh)
+        XCTAssertEqual(delayed.mockRefreshDelaySeconds, 3)
+        XCTAssertEqual(
+            LaunchConfiguration.current(
+                arguments: ["mergehawk", "--mock", "--mock-scenario", "unknown"],
+                environment: [:]
+            ).mockPullRequestScenario,
+            .standard
+        )
+        XCTAssertEqual(
+            LaunchConfiguration.current(
+                arguments: ["mergehawk", "--mock-scenario", "refresh-failure"],
+                environment: [:]
+            ).mockPullRequestScenario,
+            .standard
+        )
+    }
 }

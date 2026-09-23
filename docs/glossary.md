@@ -9,13 +9,14 @@ issues, prompts, tests, UI copy, and implementation notes.
 | Term | Meaning |
 | --- | --- |
 | In-app notification | A MergeHawk UI item shown in the app, currently in the `Notifications` tab. |
-| PR notification history | MergeHawk-owned PR-related in-app notification rows shown in `Notifications > PRs`. |
-| GitHub Inbox notification | Provider-owned non-PR GitHub notification thread shown in `Notifications > Other`. |
+| PR notification history | MergeHawk-owned PR-related in-app notification rows shown in `Notifications`. |
 | macOS local notification | A system notification delivered through macOS Notification Center. |
 | Notification payload | The title/body/update metadata MergeHawk would send to macOS Notification Center. |
 | PR / pull request | The app-level umbrella term for a provider-hosted code review/change request, including equivalent concepts from future version control platform integrations. |
 | Provider | The version control platform or service that supplies PRs and updates. |
 | Update | A provider-derived change MergeHawk notices for a PR, such as a new comment, review, failed CI, or requested changes. |
+| Complete PR refresh | One provider read attempt that discovers relevant PRs, fetches their complete paginated activity, reconciles disappeared PRs, and commits one coherent app state. |
+| Sources refresh | A separate repository catalog and GitHub App installation refresh used by the `Sources` settings pane. |
 | Mock mode | Fixture-backed app mode without real provider credentials, provider network calls, or macOS credential prompts. |
 | Agent slot | A named isolated installed app bundle used by one agent. |
 | UI artifact | A generated visual verification file, usually a screenshot PNG. |
@@ -28,7 +29,7 @@ An app-owned notification item shown inside MergeHawk, currently in the
 `Notifications` tab.
 
 In-app notifications are derived from provider activity such as new comments,
-new reviews, failed CI, requested changes, or non-PR GitHub Inbox threads. They
+new reviews, failed CI, or requested changes. They
 are part of the app state and can be rendered, filtered, marked read, and tested
 without using macOS Notification Center.
 
@@ -36,7 +37,6 @@ Use this term when referring to:
 
 - rows in the `Notifications` tab
 - provider updates such as new comments or failed CI
-- non-PR GitHub Inbox rows shown in `Notifications > Other`
 - mock GitHub activity shown in the app UI
 - notification preferences that affect which activity appears in the app
 
@@ -44,23 +44,12 @@ Avoid using plain "notification" when the distinction matters.
 
 ### PR Notification History
 
-MergeHawk-owned PR-related in-app notification rows shown in
-`Notifications > PRs`.
+MergeHawk-owned PR-related in-app notification rows shown in `Notifications`.
 
 PR notification history is derived from updates detected by MergeHawk, such as
 new comments, new reviews, failed CI, or requested changes. Rows are retained
 locally, can be marked read, and should still open the original PR even if that
 PR is no longer in the active dashboard list.
-
-### GitHub Inbox Notification
-
-A provider-owned non-PR GitHub notification thread shown in
-`Notifications > Other`.
-
-GitHub Inbox notifications come from GitHub's notifications API. Use this term
-for issues, discussions, releases, or other non-PR GitHub notification threads
-that MergeHawk shows inside the app. PR notification threads from GitHub's inbox
-are excluded from `Other` so they do not duplicate PR notification history.
 
 ### macOS Local Notification
 
@@ -147,6 +136,20 @@ local notification payloads. In code, some of this is currently represented by
 Prefer `update` in product language and agent tasks. Use `event` when referring
 to the current code model or event-detection implementation.
 
+### Complete PR Refresh
+
+A provider read attempt that discovers all relevant PRs, hydrates complete
+paginated activity, checks PRs that disappeared from discovery, and prepares one
+coherent dashboard/history/activity state. The app publishes that state only after
+the full attempt and its persistence succeed. Loading and errors may change while
+the prior rows and notification history remain visible.
+
+### Sources Refresh
+
+A repository catalog and GitHub App installation refresh used by the `Sources`
+settings pane. It is scheduled separately from a complete PR refresh, has its own
+loading/error state, and does not gate dashboard publication.
+
 ## Agent Workflow Terms
 
 ### Mock Mode
@@ -162,6 +165,7 @@ Mock mode should:
 - show fixture PRs and in-app notifications
 - suppress real macOS local notification delivery
 - optionally record macOS local notification payloads to artifacts
+- offer deterministic delayed, failed, final-activity, and quiet-retirement refresh scenarios
 
 ### Agent Slot
 

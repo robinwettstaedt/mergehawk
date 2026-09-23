@@ -221,6 +221,12 @@ private struct GeneralSettingsView: View {
                 get: { controller.startsAtLogin },
                 set: { controller.setStartsAtLogin($0) }
             ))
+            if let error = controller.launchAtLoginErrorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             LabeledContent("Source", value: controller.sourceLabel)
             LabeledContent("Account", value: controller.accountLabel)
             Picker("Refresh Interval", selection: $controller.refreshIntervalMinutes) {
@@ -478,9 +484,7 @@ private struct GitHubSettingsView: View {
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
 
-                                        GitHubAppAccessNotes(showsInstallLink: true, switchToPAT: {
-                                            selectedSignInMode = .pat
-                                        })
+                                        GitHubAppAccessNotes(showsInstallLink: true)
                                     }
                                 }
                             } else {
@@ -713,7 +717,7 @@ private struct NotificationSettingsView: View {
                 case .relationshipChanges:
                     activityPreferences.relationshipChanges = isEnabled
                 case .otherCommits:
-                    activityPreferences.otherCommits = isEnabled
+                    break
                 }
                 preferences.set(activityPreferences, for: relationship)
                 controller.preferences = preferences
@@ -898,7 +902,7 @@ private struct SourcesSettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            controller.refreshSources()
+            controller.refreshSourcesIfNeeded()
         }
     }
 
@@ -921,7 +925,6 @@ private struct SourcesSettingsView: View {
 
 private struct GitHubAppAccessNotes: View {
     var showsInstallLink: Bool
-    var switchToPAT: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -929,8 +932,6 @@ private struct GitHubAppAccessNotes: View {
                 icon: "building.2",
                 text: "Private organization repositories require the MergeHawk GitHub App to be installed on that organization or selected repositories."
             )
-            Divider()
-            patNoteRow
             if showsInstallLink {
                 Divider()
                 Link(destination: MergeHawkAuthDefaults.installURL) {
@@ -946,27 +947,6 @@ private struct GitHubAppAccessNotes: View {
             }
         }
         .settingsSurface(darkFillOpacity: 0.14, showsBorder: true)
-    }
-
-    private var patNoteRow: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "bell.badge")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, alignment: .center)
-            Group {
-                Text("GitHub Inbox notifications in Notifications > Other require the classic ")
-                + Text("personal access token").foregroundColor(switchToPAT != nil ? .accentColor : .secondary).underline(switchToPAT != nil)
-                + Text(" fallback.")
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture { switchToPAT?() }
     }
 
     private func noteRow(icon: String, text: String) -> some View {
@@ -990,7 +970,7 @@ private struct PATContextNotes: View {
         VStack(alignment: .leading, spacing: 0) {
             noteRow(
                 icon: "building.2",
-                text: "Use this if your organization restricts OAuth apps, or if you need GitHub Inbox notifications (Notifications > Other)."
+                text: "Use this if your organization restricts OAuth apps."
             )
             Divider()
             noteRow(
@@ -1023,16 +1003,15 @@ private struct PATAccessNotes: View {
             noteRow(
                 icon: "key",
                 title: "Classic PAT",
-                isRecommended: true,
                 scopes: ["repo", "read:user", "read:org"],
-                footer: "Required for Notifications > Other"
+                footer: "Supports PRs in repositories available to the token"
             )
             Divider()
             noteRow(
                 icon: "key.viewfinder",
                 title: "Fine-grained PAT",
                 scopes: ["Metadata: Read-only", "Pull requests: Read-only", "Issues: Read-only", "Commit statuses: Read-only", "Checks: Read-only"],
-                footer: "Does not support Notifications > Other"
+                footer: "Limit access to selected repositories"
             )
         }
         .settingsSurface(darkFillOpacity: 0.14, showsBorder: true)

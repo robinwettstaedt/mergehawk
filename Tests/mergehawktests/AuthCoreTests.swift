@@ -295,6 +295,42 @@ final class AuthCoreTests: XCTestCase {
         XCTAssertEqual(try store.loadOAuthTokens()?.refreshToken, "r2")
     }
 
+    func testOAuthRefresherSeparatesRejectedTokenFromMalformedResponse() async throws {
+        let rejected = try await Self.refreshError(status: 200, body: #"{"error":"bad_refresh_token"}"#)
+        let rejection = try XCTUnwrap(rejected as? GitHubClientError)
+        XCTAssertTrue(rejection.rejectsCredentials)
+        XCTAssertTrue(rejection.localizedDescription.hasSuffix("Please sign in again."))
+
+        let malformed = try await Self.refreshError(status: 200, body: "<html>proxy error</html>")
+        XCTAssertEqual(malformed as? GitHubReadError, .invalidPayload)
+
+        let limitedError = try await Self.refreshError(status: 429, body: "{}")
+        let limited = try XCTUnwrap(limitedError as? GitHubClientError)
+        XCTAssertFalse(limited.rejectsCredentials)
+        XCTAssertTrue(limited.localizedDescription.hasSuffix("MergeHawk will retry."))
+    }
+
+    private static func refreshError(status: Int, body: String) async throws -> Error {
+        let refresher = OAuthTokenRefresher(
+            tokenStore: InMemoryTokenStore(),
+            defaultCredentials: OAuthClientCredentials(clientID: "cid")
+        ) { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            return (Data(body.utf8), response)
+        }
+        do {
+            _ = try await refresher.refreshIfNeeded(
+                tokens: OAuthTokens(accessToken: "old", refreshToken: "r1", expiresAt: .distantPast),
+                host: URL(string: "https://github.com")!,
+                persist: false
+            )
+        } catch {
+            return error
+        }
+        XCTFail("Expected refresh to fail")
+        return CancellationError()
+    }
+
     func testOAuthRefresherSkipsWhenRefreshTokenIsMissing() async throws {
         let store = InMemoryTokenStore()
         let tokens = OAuthTokens(accessToken: "access", refreshToken: "", expiresAt: nil)
