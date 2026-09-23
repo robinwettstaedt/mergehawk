@@ -22,8 +22,32 @@ public final class SyncEngine {
         previousState: PullRequestSyncState?,
         fetchResult: CompletePullRequestFetchResult
     ) async throws -> PreparedPullRequestRefresh {
+        try await prepare(
+            previousState: previousState,
+            fetchResult: fetchResult,
+            login: try await loginProvider()
+        )
+    }
+
+    public func prepare(previousState: PullRequestSyncState?) async throws -> PreparedPullRequestRefresh {
         let login = try await loginProvider()
-        let account = try await accountProvider() ?? previousState?.account ?? GitHubAccount(login: login)
+        let fetchResult = try await source.fetchCompletePullRequests(
+            login: login,
+            previousState: previousState
+        )
+        return try await prepare(previousState: previousState, fetchResult: fetchResult, login: login)
+    }
+
+    /// Identity always comes from the login the fetch ran as, so another account's state is never trusted.
+    private func prepare(
+        previousState: PullRequestSyncState?,
+        fetchResult: CompletePullRequestFetchResult,
+        login: String
+    ) async throws -> PreparedPullRequestRefresh {
+        let account = [try await accountProvider(), previousState?.account]
+            .compactMap { $0 }
+            .first { $0.login.caseInsensitiveCompare(login) == .orderedSame }
+            ?? GitHubAccount(login: login)
         let trustedPrevious = previousState?.trusted(for: account.login)
         let previousByID = Dictionary(
             uniqueKeysWithValues: (trustedPrevious?.dashboard.pullRequests ?? []).map { ($0.id, $0) }
@@ -80,15 +104,6 @@ public final class SyncEngine {
             events: events,
             syncedAt: now()
         )
-    }
-
-    public func prepare(previousState: PullRequestSyncState?) async throws -> PreparedPullRequestRefresh {
-        let login = try await loginProvider()
-        let fetchResult = try await source.fetchCompletePullRequests(
-            login: login,
-            previousState: previousState
-        )
-        return try await prepare(previousState: previousState, fetchResult: fetchResult)
     }
 
     private static func retirementFilteringContext(

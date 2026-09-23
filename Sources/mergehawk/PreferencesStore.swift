@@ -106,18 +106,33 @@ struct PreferencesStore {
         return value
     }
 
+    /// Storing new state retires the legacy keys, so an unreadable state can never fall back to an old snapshot.
     func storePullRequestSyncState(_ value: PullRequestSyncState) throws {
         let data = try syncStateEncoder(value)
         defaults.set(data, forKey: "pullRequests.syncState")
+        defaults.removeObject(forKey: "pullRequests.snapshotCache")
+        defaults.removeObject(forKey: "notifications.prHistory")
     }
 
     func clearPullRequestSyncState() {
         defaults.removeObject(forKey: "pullRequests.syncState")
     }
 
+    /// The legacy snapshot kept only recent comments and reviews, so its fetch time marks everything older
+    /// as processed. Without a fetch time there is no safe baseline, and the first refresh starts a new one.
     func importedLegacySyncState() -> PullRequestSyncState? {
         let cache = pullRequestSnapshotCache
         guard let account = cache.account, cache.source == .github else { return nil }
+        let processed = cache.fetchedAt.map { fetchedAt in
+            Dictionary(cache.pullRequests.map { pr in
+                (pr.id, ProcessedPullRequestActivity(
+                    pullRequestID: pr.id,
+                    commentIDs: Set(pr.recentCommentActivities.map(\.id)),
+                    submittedReviewIDs: Set(pr.recentReviews.map(\.id)),
+                    processedThrough: fetchedAt
+                ))
+            }, uniquingKeysWith: { first, _ in first })
+        } ?? [:]
         return PullRequestSyncState(
             account: account,
             dashboard: DashboardState(
@@ -128,7 +143,7 @@ struct PreferencesStore {
                 account: account,
                 authStatus: .signedIn
             ),
-            processedActivityByPullRequestID: [:],
+            processedActivityByPullRequestID: processed,
             notificationHistory: pullRequestNotificationHistory
         )
     }

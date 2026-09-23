@@ -142,6 +142,68 @@ final class SyncEngineTests: XCTestCase {
         )
     }
 
+    func testStateFromAnotherAccountIsNotTrustedWhenNoAccountIsProvided() async throws {
+        let previousPR = Self.pullRequest(comments: [Self.comment("C_OLD")])
+        let previous = PullRequestSyncState(
+            account: GitHubAccount(login: "rw"),
+            dashboard: Self.dashboard([previousPR]),
+            processedActivityByPullRequestID: [previousPR.id: PRActivityDetector.processedActivity(for: previousPR)]
+        )
+        let engine = SyncEngine(
+            source: EmptyPullRequestSource(),
+            loginProvider: { "bob" },
+            accountProvider: { nil }
+        )
+        let current = Self.pullRequest(comments: [Self.comment("C_OLD"), Self.comment("C_NEW")])
+
+        let prepared = try await engine.prepare(
+            previousState: previous,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [current])
+        )
+
+        XCTAssertEqual(prepared.account.login, "bob")
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testProcessedThroughCountsOnlyNewerActivityAsUnseen() async throws {
+        let cutoff = Date(timeIntervalSince1970: 1_000)
+        let previousPR = Self.pullRequest()
+        let previous = PullRequestSyncState(
+            account: GitHubAccount(login: "rw"),
+            dashboard: Self.dashboard([previousPR]),
+            processedActivityByPullRequestID: [
+                previousPR.id: ProcessedPullRequestActivity(pullRequestID: previousPR.id, processedThrough: cutoff)
+            ]
+        )
+        func comment(_ id: String, at seconds: TimeInterval) -> PullRequestCommentActivity {
+            PullRequestCommentActivity(
+                id: id,
+                author: "reviewer",
+                viewerDidAuthor: false,
+                createdAt: Date(timeIntervalSince1970: seconds),
+                source: .pullRequest
+            )
+        }
+        let olderReview = PullRequestReview(
+            id: "R_OLD",
+            state: .approved,
+            submittedAt: Date(timeIntervalSince1970: 900),
+            author: "reviewer"
+        )
+        let current = Self.pullRequest(
+            comments: [comment("C_OLD", at: 900), comment("C_AT_CUTOFF", at: 1_000), comment("C_NEW", at: 1_100)],
+            reviews: [olderReview]
+        )
+
+        let prepared = try await Self.engine().prepare(
+            previousState: previous,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [current])
+        )
+
+        XCTAssertEqual(prepared.events.compactMap(\.event.activityId), ["C_NEW"])
+        XCTAssertNil(prepared.processedActivityByPullRequestID[current.id]?.processedThrough)
+    }
+
     private static func engine() -> SyncEngine {
         SyncEngine(
             source: EmptyPullRequestSource(),

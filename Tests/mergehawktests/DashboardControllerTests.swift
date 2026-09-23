@@ -296,6 +296,29 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testLaunchAtLoginFailureIsShownSeparatelyAndClearedBySuccess() {
+        let service = FailingLaunchAtLoginService()
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            launchAtLoginService: service,
+            automaticRefreshInterval: 0
+        )
+
+        controller.setStartsAtLogin(true)
+
+        XCTAssertFalse(controller.startsAtLogin)
+        XCTAssertEqual(controller.launchAtLoginErrorMessage, FailingLaunchAtLoginService.TestError.failed.localizedDescription)
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertNil(controller.refreshErrorMessage)
+
+        service.fails = false
+        controller.setStartsAtLogin(true)
+
+        XCTAssertTrue(controller.startsAtLogin)
+        XCTAssertNil(controller.launchAtLoginErrorMessage)
+    }
+
+    @MainActor
     func testPATSignInClearsLoadingAfterFailure() async {
         let controller = DashboardController(
             tokenStore: InMemoryTokenStore(),
@@ -307,6 +330,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         XCTAssertFalse(controller.isSigningInWithToken)
         XCTAssertEqual(controller.errorMessage, FailingViewerGitHubProvider.TestError.failed.localizedDescription)
+        XCTAssertNil(controller.refreshErrorMessage)
         XCTAssertEqual(controller.state.authStatus, .signedOut)
     }
 
@@ -1511,6 +1535,18 @@ private final class DelayedSyncGitHubProvider: GitHubProviding {
 }
 
 @MainActor
+private final class FailingLaunchAtLoginService: LaunchAtLoginServicing {
+    enum TestError: Error { case failed }
+
+    private(set) var isEnabled = false
+    var fails = true
+
+    func setEnabled(_ isEnabled: Bool) throws {
+        if fails { throw TestError.failed }
+        self.isEnabled = isEnabled
+    }
+}
+
 private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
     private(set) var requestedValues: [Bool] = []
     var isEnabled: Bool

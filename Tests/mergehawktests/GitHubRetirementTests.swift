@@ -212,6 +212,43 @@ final class GitHubRetirementTests: XCTestCase {
         }
     }
 
+    func testAbsentPRWithForbiddenNodeRetiresQuietlyAfterOrganizationAccessLoss() async throws {
+        let messages = [
+            "Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization.",
+            "Although you appear to have the correct authorization credentials, the `acme` organization has enabled OAuth App access restrictions."
+        ]
+        for message in messages {
+            let previous = Self.previousState(Self.previousPR())
+            var requestedPaths: [String] = []
+            RetirementURLProtocol.handler = { request in
+                requestedPaths.append(request.url!.path)
+                if request.url?.path == "/repos/acme/app/pulls/1" {
+                    return Self.response(Self.json(["message": message]), request, status: 403)
+                }
+                if request.url?.path == "/user" {
+                    return Self.response(Self.json(["login": "rw"]), request)
+                }
+                let query = Self.graphQLQuery(request)
+                if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+                if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+                if query.contains("CompletePullRequests") {
+                    return Self.response(Self.hydration(
+                        nodes: [NSNull()],
+                        errors: [["message": message, "type": "FORBIDDEN", "path": ["nodes", 0]]]
+                    ), request)
+                }
+                return Self.response(Data(), request, status: 500)
+            }
+
+            let result = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: previous)
+
+            XCTAssertTrue(result.activePullRequests.isEmpty)
+            XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_1"])
+            XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
+        }
+    }
+
     func testOnlyExactNullRootNodeNotFoundCanEnterResourceRetirement() async throws {
         let retryFailures: [(name: String, node: Any, errors: [[String: Any]])] = [
             (
@@ -554,11 +591,11 @@ final class GitHubRetirementTests: XCTestCase {
             patGitHubClientFactory: { _ in GitHubClient(token: "token", session: session) }
         )
         let deadline = Date().addingTimeInterval(1)
-        while controller.errorMessage == nil, Date() < deadline {
+        while controller.refreshErrorMessage == nil, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
-        XCTAssertNotNil(controller.errorMessage)
+        XCTAssertNotNil(controller.refreshErrorMessage)
         XCTAssertEqual(restRequests.value, 2)
         XCTAssertEqual(controller.state, previous.dashboard)
         XCTAssertEqual(preferences.pullRequestSyncState, previous)

@@ -4,15 +4,28 @@ public struct ProcessedPullRequestActivity: Codable, Equatable, Sendable {
     public let pullRequestID: String
     public var commentIDs: Set<String>
     public var submittedReviewIDs: Set<String>
+    /// Activity at or before this time also counts as processed. Only an imported legacy snapshot sets it,
+    /// because that snapshot kept just the most recent comments and reviews.
+    public var processedThrough: Date?
 
     public init(
         pullRequestID: String,
         commentIDs: Set<String> = [],
-        submittedReviewIDs: Set<String> = []
+        submittedReviewIDs: Set<String> = [],
+        processedThrough: Date? = nil
     ) {
         self.pullRequestID = pullRequestID
         self.commentIDs = commentIDs
         self.submittedReviewIDs = submittedReviewIDs
+        self.processedThrough = processedThrough
+    }
+
+    func includesComment(_ comment: PullRequestCommentActivity) -> Bool {
+        commentIDs.contains(comment.id) || processedThrough.map { comment.createdAt <= $0 } == true
+    }
+
+    func includesReview(_ review: PullRequestReview) -> Bool {
+        submittedReviewIDs.contains(review.id) || processedThrough.map { review.submittedAt <= $0 } == true
     }
 }
 

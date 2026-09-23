@@ -181,6 +181,11 @@ final class DashboardController: ObservableObject {
     var state: DashboardState { presentation.dashboard }
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
+    /// Set only by a failed complete PR refresh, so the refresh control never reports unrelated errors.
+    @Published private(set) var refreshErrorMessage: String?
+    /// Set when a local change (such as marking a notification read) could not be saved.
+    @Published private(set) var saveErrorMessage: String?
+    @Published private(set) var launchAtLoginErrorMessage: String?
     @Published var selectedTab: MenuTab = .notifications
     @Published var preferences: NotificationPreferences {
         didSet {
@@ -846,14 +851,18 @@ final class DashboardController: ObservableObject {
     }
 
     func setStartsAtLogin(_ startsAtLogin: Bool) {
-        errorMessage = nil
+        launchAtLoginErrorMessage = nil
         do {
             try launchAtLoginService.setEnabled(startsAtLogin)
             self.startsAtLogin = launchAtLoginService.isEnabled
         } catch {
             self.startsAtLogin = launchAtLoginService.isEnabled
-            errorMessage = error.localizedDescription
+            launchAtLoginErrorMessage = error.localizedDescription
         }
+    }
+
+    func dismissSaveError() {
+        saveErrorMessage = nil
     }
 
     func setOwnerPreferences(owner: String, preferences: OwnerSourcePreferences) {
@@ -1162,6 +1171,8 @@ final class DashboardController: ObservableObject {
         isRefreshingSources = false
         refreshingGeneration = nil
         isRefreshing = false
+        refreshErrorMessage = nil
+        saveErrorMessage = nil
     }
 
     private func makeOAuthAccessTokenProvider() -> @Sendable () async throws -> String {
@@ -1338,7 +1349,6 @@ final class DashboardController: ObservableObject {
         generation: Int,
         appliesMockRefreshDelay: Bool
     ) async {
-        errorMessage = nil
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
@@ -1374,6 +1384,7 @@ final class DashboardController: ObservableObject {
                 presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
                 account = nil
                 automaticRefreshDeferral = nil
+                refreshErrorMessage = nil
                 return
             }
             let nextState = PullRequestSyncState(
@@ -1388,6 +1399,7 @@ final class DashboardController: ObservableObject {
             presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
             account = dashboard.account
             automaticRefreshDeferral = nil
+            refreshErrorMessage = nil
 
             if authMethod == .oauth,
                !launchConfiguration.usesMockData,
@@ -1416,7 +1428,7 @@ final class DashboardController: ObservableObject {
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
-                errorMessage = error.localizedDescription
+                refreshErrorMessage = error.localizedDescription
             }
         }
     }
@@ -1636,8 +1648,9 @@ final class DashboardController: ObservableObject {
             try preferencesStore.storePullRequestSyncState(nextState)
             committedSyncState = nextState
             presentation = nextPresentation
+            saveErrorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            saveErrorMessage = error.localizedDescription
         }
     }
 
@@ -1653,8 +1666,9 @@ final class DashboardController: ObservableObject {
             try preferencesStore.storePullRequestSyncState(nextState)
             committedSyncState = nextState
             presentation = nextPresentation
+            saveErrorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            saveErrorMessage = error.localizedDescription
         }
     }
 

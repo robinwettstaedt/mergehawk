@@ -296,9 +296,12 @@ struct GitHubPullRequestFetcher: Sendable {
         return result.pullRequests
     }
 
+    /// `includesForbiddenNodes` treats a node GitHub refuses to return like a missing one. Use it only for PRs
+    /// that dropped out of search, where lost access (SAML, OAuth App restrictions) is the expected cause.
     func hydrateForReconciliation(
         _ discovered: [DiscoveredPullRequest],
-        login: String
+        login: String,
+        includesForbiddenNodes: Bool = false
     ) async throws -> GitHubHydrationResult {
         var accumulators: [String: HydrationAccumulator] = [:]
         var continuations: [Continuation] = []
@@ -349,7 +352,12 @@ struct GitHubPullRequestFetcher: Sendable {
                     ["ids": .strings([expected.id])]
                 )
                 let retry = try rawHydrationResponse(retryData, expectedCount: 1)
-                if isMissingNodeCandidate(retry.nodes[0], errors: retry.errors, index: 0) {
+                if isMissingNodeCandidate(
+                    retry.nodes[0],
+                    errors: retry.errors,
+                    index: 0,
+                    includesForbiddenNodes: includesForbiddenNodes
+                ) {
                     missingIDs.insert(expected.id)
                     continue
                 }
@@ -457,11 +465,13 @@ struct GitHubPullRequestFetcher: Sendable {
     private func isMissingNodeCandidate(
         _ node: Any,
         errors: [GitHubGraphQLErrorPayload],
-        index: Int
+        index: Int,
+        includesForbiddenNodes: Bool
     ) -> Bool {
         guard node is NSNull, !errors.isEmpty else { return false }
+        let missingTypes: Set<String> = includesForbiddenNodes ? ["NOT_FOUND", "FORBIDDEN"] : ["NOT_FOUND"]
         return errors.allSatisfy { error in
-            error.type?.uppercased() == "NOT_FOUND"
+            missingTypes.contains(error.type?.uppercased() ?? "")
                 && error.path == [.field("nodes"), .index(index)]
         }
     }

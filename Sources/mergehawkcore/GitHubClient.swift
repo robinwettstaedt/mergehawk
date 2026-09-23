@@ -61,7 +61,11 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         let absentIdentities = previousPullRequests
             .filter { !discoveredIDs.contains($0.id) }
             .map(Self.discoveryIdentity(from:))
-        let absentHydration = try await fetcher.hydrateForReconciliation(absentIdentities, login: login)
+        let absentHydration = try await fetcher.hydrateForReconciliation(
+            absentIdentities,
+            login: login,
+            includesForbiddenNodes: true
+        )
 
         var missingIDs = discoveredHydration.missingPullRequestIDs
             .union(absentHydration.missingPullRequestIDs)
@@ -184,8 +188,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             return true
         case 403:
             let message = (try? JSONDecoder().decode(RESTMessage.self, from: data).message) ?? ""
-            guard message.localizedCaseInsensitiveContains("resource not accessible")
-                    || message.localizedCaseInsensitiveContains("access denied") else {
+            guard Self.accessLossMessageFragments.contains(where: message.localizedCaseInsensitiveContains) else {
                 throw GitHubReadError.http(status: 403)
             }
             if !verifiedViewer {
@@ -197,6 +200,14 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             return false
         }
     }
+
+    /// 403 messages meaning the viewer lost access to the repository, as opposed to a temporary refusal.
+    private static let accessLossMessageFragments = [
+        "resource not accessible",
+        "access denied",
+        "saml enforcement",
+        "oauth app access restrictions"
+    ]
 
     private func verifyViewerIdentity(_ expectedLogin: String) async throws {
         var request = URLRequest(url: URL(string: "https://api.github.com/user")!)

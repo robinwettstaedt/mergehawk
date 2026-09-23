@@ -221,6 +221,12 @@ private struct GeneralSettingsView: View {
                 get: { controller.startsAtLogin },
                 set: { controller.setStartsAtLogin($0) }
             ))
+            if let error = controller.launchAtLoginErrorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             LabeledContent("Source", value: controller.sourceLabel)
             LabeledContent("Account", value: controller.accountLabel)
             Picker("Refresh Interval", selection: $controller.refreshIntervalMinutes) {

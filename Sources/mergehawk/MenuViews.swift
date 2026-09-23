@@ -673,6 +673,10 @@ struct MenuRootView: View {
             topBar
                 .zIndex(2)
             Divider()
+            if let error = controller.saveErrorMessage {
+                SaveErrorBanner(message: error, dismiss: controller.dismissSaveError)
+                Divider()
+            }
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { anchors in
@@ -777,7 +781,7 @@ struct MenuRootView: View {
                 indicatorColor: controller.hasAttention ? .red : .green,
                 isRefreshing: controller.isRefreshing,
                 updatedAt: controller.state.syncedAt,
-                errorMessage: controller.errorMessage,
+                errorMessage: controller.refreshErrorMessage,
                 action: {
                     dropdownState.dismiss()
                     controller.refresh()
@@ -1135,6 +1139,30 @@ struct RefreshStatusControl: View {
             help: help,
             accessibilityLabel: accessibilityLabel
         )
+    }
+}
+
+struct SaveErrorBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text("Couldn't save your changes: \(message)")
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Dismiss save error")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }
 

@@ -9,12 +9,58 @@ final class AtomicRefreshTests: XCTestCase {
         let fixture = try makeFixture(provider: AtomicGitHubProvider(result: .failure))
         defer { fixture.cleanup() }
 
-        await waitUntil { fixture.controller.errorMessage != nil }
+        await waitUntil { fixture.controller.refreshErrorMessage != nil }
 
         XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
         XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
         XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
         XCTAssertTrue(fixture.notifications.records.isEmpty)
+    }
+
+    @MainActor
+    func testRefreshFailureIsReportedSeparatelyAndClearedByNextSuccessfulRefresh() async throws {
+        let provider = AtomicGitHubProvider(result: .failure)
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { fixture.controller.refreshErrorMessage != nil }
+
+        XCTAssertEqual(fixture.controller.refreshErrorMessage, "Refresh failed")
+        XCTAssertNil(fixture.controller.errorMessage)
+
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [fixture.pullRequest]))
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+
+        XCTAssertNil(fixture.controller.refreshErrorMessage)
+    }
+
+    @MainActor
+    func testFailedReadSaveIsReportedAsSaveErrorAndKeepsPriorState() async throws {
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(
+            provider: provider,
+            encoder: { _ in throw AtomicTestError.encodingFailed }
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+
+        fixture.controller.markPullRequestNotificationRead(
+            fixture.controller.pullRequestNotificationHistory[0]
+        )
+
+        XCTAssertNotNil(fixture.controller.saveErrorMessage)
+        XCTAssertNil(fixture.controller.refreshErrorMessage)
+        XCTAssertNil(fixture.controller.errorMessage)
+        XCTAssertFalse(fixture.controller.pullRequestNotificationHistory[0].read)
+        fixture.controller.dismissSaveError()
+        XCTAssertNil(fixture.controller.saveErrorMessage)
+
+        fixture.controller.markPullRequestNotificationRead(
+            fixture.controller.pullRequestNotificationHistory[0]
+        )
+        XCTAssertNotNil(fixture.controller.saveErrorMessage)
+        fixture.controller.signOut()
+        XCTAssertNil(fixture.controller.saveErrorMessage)
     }
 
     @MainActor
@@ -28,7 +74,7 @@ final class AtomicRefreshTests: XCTestCase {
         )
         defer { fixture.cleanup() }
 
-        await waitUntil { fixture.controller.errorMessage != nil }
+        await waitUntil { fixture.controller.refreshErrorMessage != nil }
 
         XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
         XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
@@ -301,7 +347,7 @@ final class AtomicRefreshTests: XCTestCase {
             await waitUntil { provider.fetchCount == 1 && !fixture.controller.isRefreshing }
 
             XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard, "status \(status)")
-            XCTAssertNotNil(fixture.controller.errorMessage)
+            XCTAssertNotNil(fixture.controller.refreshErrorMessage)
             XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
         }
     }
@@ -456,7 +502,7 @@ final class AtomicRefreshTests: XCTestCase {
 
         await fixture.controller.signInWithToken("bob-token")
 
-        XCTAssertEqual(fixture.controller.errorMessage, "Refresh failed")
+        XCTAssertEqual(fixture.controller.refreshErrorMessage, "Refresh failed")
         XCTAssertTrue(fixture.controller.state.pullRequests.isEmpty)
         XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.isEmpty)
         XCTAssertNil(fixture.preferences.pullRequestSyncState)
@@ -473,7 +519,7 @@ final class AtomicRefreshTests: XCTestCase {
             automaticRefreshInterval: 0,
             patGitHubClientFactory: { _ in bobProvider }
         )
-        await waitUntil { bobProvider.fetchCount >= 2 && relaunched.errorMessage != nil }
+        await waitUntil { bobProvider.fetchCount >= 2 && relaunched.refreshErrorMessage != nil }
         XCTAssertTrue(relaunched.state.pullRequests.isEmpty)
         XCTAssertTrue(relaunched.pullRequestNotificationHistory.isEmpty)
     }
@@ -497,7 +543,7 @@ final class AtomicRefreshTests: XCTestCase {
         await waitUntil { oldProvider.fetchCount == 1 && !fixture.controller.isRefreshing }
 
         await fixture.controller.signInWithGitHub()
-        await waitUntil { fixture.controller.errorMessage == "Refresh failed" }
+        await waitUntil { fixture.controller.refreshErrorMessage == "Refresh failed" }
 
         XCTAssertEqual(openedDeviceFlowURLs, [URL(string: "https://github.com/login/device")!])
         XCTAssertTrue(fixture.controller.state.pullRequests.isEmpty)

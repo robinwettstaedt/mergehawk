@@ -519,12 +519,12 @@ final class AgentModeXCTests: XCTestCase {
 
         await MainActor.run { controller.refresh() }
         await waitUntil(timeout: 1) {
-            await MainActor.run { controller.errorMessage != nil && !controller.isRefreshing }
+            await MainActor.run { controller.refreshErrorMessage != nil && !controller.isRefreshing }
         }
 
         await MainActor.run {
             XCTAssertEqual(controller.state, baseline)
-            XCTAssertEqual(controller.errorMessage, MockPullRequestError.refreshFailed.localizedDescription)
+            XCTAssertEqual(controller.refreshErrorMessage, MockPullRequestError.refreshFailed.localizedDescription)
         }
         XCTAssertTrue(notifications.records.isEmpty)
     }

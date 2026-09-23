@@ -220,7 +220,7 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
-    func testLegacySnapshotAndHistoryImportDoesNotTrustTruncatedActivityAsProcessed() {
+    func testLegacySnapshotImportTreatsActivityThroughItsFetchTimeAsProcessed() {
         withStore { store, _ in
             let pullRequest = Self.pullRequest()
             let notification = PullRequestNotification(
@@ -239,7 +239,51 @@ final class PreferencesStoreTests: XCTestCase {
 
             XCTAssertEqual(imported?.dashboard.pullRequests, [pullRequest])
             XCTAssertEqual(imported?.notificationHistory, [notification])
-            XCTAssertEqual(imported?.processedActivityByPullRequestID, [:])
+            XCTAssertEqual(imported?.processedActivityByPullRequestID, [
+                pullRequest.id: ProcessedPullRequestActivity(
+                    pullRequestID: pullRequest.id,
+                    commentIDs: Set(pullRequest.recentCommentActivities.map(\.id)),
+                    submittedReviewIDs: Set(pullRequest.recentReviews.map(\.id)),
+                    processedThrough: Date(timeIntervalSince1970: 10)
+                )
+            ])
+        }
+    }
+
+    func testLegacySnapshotWithoutFetchTimeImportsNoProcessedBaseline() {
+        withStore { store, _ in
+            store.pullRequestSnapshotCache = PullRequestSnapshotCache(
+                pullRequests: [Self.pullRequest()],
+                account: GitHubAccount(login: "rw"),
+                fetchedAt: nil,
+                source: .github
+            )
+
+            XCTAssertEqual(store.importedLegacySyncState()?.processedActivityByPullRequestID, [:])
+        }
+    }
+
+    func testStoringSyncStateRetiresLegacySnapshotAndHistory() throws {
+        try withThrowingStore { store, _ in
+            let pullRequest = Self.pullRequest()
+            store.pullRequestSnapshotCache = PullRequestSnapshotCache(
+                pullRequests: [pullRequest],
+                account: GitHubAccount(login: "rw"),
+                fetchedAt: Date(timeIntervalSince1970: 10),
+                source: .github
+            )
+            store.pullRequestNotificationHistory = [PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: pullRequest.id, activityId: "C1"),
+                pullRequest: pullRequest
+            )]
+            let imported = try XCTUnwrap(store.importedLegacySyncState())
+
+            try store.storePullRequestSyncState(imported)
+            store.clearPullRequestSyncState()
+
+            XCTAssertEqual(store.pullRequestSnapshotCache, .empty)
+            XCTAssertTrue(store.pullRequestNotificationHistory.isEmpty)
+            XCTAssertNil(store.importedLegacySyncState())
         }
     }
 

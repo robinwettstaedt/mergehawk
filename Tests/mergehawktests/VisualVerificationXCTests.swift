@@ -93,7 +93,7 @@ final class VisualVerificationXCTests: XCTestCase {
         }
         await MainActor.run { failureController.refresh() }
         try await waitUntil(context: "refresh-failure result") {
-            await MainActor.run { failureController.errorMessage != nil && !failureController.isRefreshing }
+            await MainActor.run { failureController.refreshErrorMessage != nil && !failureController.isRefreshing }
         }
         try await MainActor.run {
             failureController.selectedTab = .myPRs

@@ -16,7 +16,7 @@ public enum PRActivityDetector {
     ) -> [PullRequestEvent] {
         guard let previous else { return [] }
         let newReviews = current.recentReviews
-            .filter { !previous.submittedReviewIDs.contains($0.id) }
+            .filter { !previous.includesReview($0) }
             .filter { !$0.viewerDidAuthor }
             .sorted { $0.submittedAt < $1.submittedAt }
         let reviewEvents = newReviews.map { review in
@@ -31,7 +31,7 @@ public enum PRActivityDetector {
         }
         let representedReviewIDs = Set(newReviews.map(\.id))
         let commentEvents = current.recentCommentActivities
-            .filter { !previous.commentIDs.contains($0.id) }
+            .filter { !previous.includesComment($0) }
             .filter { !$0.viewerDidAuthor }
             .filter { comment in
                 comment.reviewId.map { !representedReviewIDs.contains($0) } ?? true
