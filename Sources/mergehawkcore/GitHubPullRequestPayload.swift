@@ -141,6 +141,33 @@ enum GitHubReadError: Error, Equatable, Sendable {
     case incompleteCoverage(String)
 }
 
+extension GitHubReadError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .authentication:
+            "GitHub rejected the sign-in. Please sign in again."
+        case .accessDenied:
+            "GitHub denied access to a pull request or repository."
+        case .rateLimited:
+            "GitHub rate limit reached. MergeHawk retries automatically."
+        case .http(let status) where status < 0:
+            "GitHub sent an unexpected response."
+        case .http(let status):
+            "GitHub request failed (HTTP \(status))."
+        case .validation(let message):
+            "GitHub rejected the request: \(message)"
+        case .graphQL(let errors):
+            "GitHub returned an error: \(errors.map(\.message).joined(separator: "; "))"
+        case .invalidPayload:
+            "GitHub sent data MergeHawk could not read."
+        case .transport:
+            "Couldn't reach GitHub. Check your connection."
+        case .incompleteCoverage:
+            "GitHub returned incomplete pull request data. Showing the last complete refresh."
+        }
+    }
+}
+
 enum GitHubQueryValue: Encodable, Equatable, Sendable {
     case string(String)
     case strings([String])

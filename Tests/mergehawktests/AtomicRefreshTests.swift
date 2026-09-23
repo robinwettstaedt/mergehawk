@@ -270,6 +270,43 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshAuthenticationFailureKeepsStateForSameAccountSignIn() async throws {
+        let provider = AtomicGitHubProvider(
+            result: .error(GitHubClientError.httpFailure(endpoint: "GitHub GraphQL", status: 401))
+        )
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 && !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.state.authStatus, .signedOut)
+        XCTAssertNotNil(fixture.controller.errorMessage)
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
+
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [fixture.pullRequest]))
+        await fixture.controller.signInWithToken("pat")
+
+        XCTAssertEqual(fixture.controller.state.authStatus, .signedIn)
+        XCTAssertEqual(fixture.controller.state.pullRequests.map(\.id), [fixture.pullRequest.id])
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
+    }
+
+    @MainActor
+    func testTransientTokenRefreshFailuresDoNotSignOut() async throws {
+        for status in [429, 502] {
+            let provider = AtomicGitHubProvider(
+                result: .error(GitHubClientError.authRefreshFailed(status: status, detail: nil))
+            )
+            let fixture = try makeFixture(provider: provider)
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 && !fixture.controller.isRefreshing }
+
+            XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard, "status \(status)")
+            XCTAssertNotNil(fixture.controller.errorMessage)
+            XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
+        }
+    }
+
+    @MainActor
     func testRetryAfterSuppressesAutomaticAttemptsUntilPermitted() async throws {
         let suiteName = "atomic-rate-limit-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -278,9 +315,9 @@ final class AtomicRefreshTests: XCTestCase {
         preferences.authMethod = .pat
         let pullRequest = makePullRequest(id: "PR_RATE", title: "Rate limited")
         try preferences.storePullRequestSyncState(makeSyncState(pullRequest))
-        let retryAt = Date().addingTimeInterval(0.15)
         let provider = RateLimitedGitHubProvider(
-            retryAt: retryAt,
+            retryAt: .distantPast,
+            retryDelay: 1,
             result: CompletePullRequestFetchResult(activePullRequests: [pullRequest])
         )
         let controller = DashboardController(
@@ -295,10 +332,10 @@ final class AtomicRefreshTests: XCTestCase {
         )
 
         await waitUntil { provider.fetchCount == 2 }
-        try? await Task.sleep(for: .milliseconds(60))
+        try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(provider.fetchCount, 2)
-        await waitUntil(timeout: 0.5) { provider.fetchCount >= 3 }
-        XCTAssertGreaterThanOrEqual(provider.requestDates[2], retryAt)
+        await waitUntil(timeout: 3) { provider.fetchCount >= 3 }
+        XCTAssertGreaterThanOrEqual(provider.requestDates[2], try XCTUnwrap(provider.issuedRetryAt))
         _ = controller
     }
 
@@ -793,6 +830,7 @@ private final class AtomicGitHubProvider: GitHubProviding {
     enum ResultMode {
         case success(CompletePullRequestFetchResult)
         case failure
+        case error(Error)
         case suspended
     }
 
@@ -822,6 +860,7 @@ private final class AtomicGitHubProvider: GitHubProviding {
         switch result {
         case .success(let value): return value
         case .failure: throw AtomicTestError.refreshFailed
+        case .error(let error): throw error
         case .suspended:
             return try await withCheckedThrowingContinuation { continuation = $0 }
         }
@@ -863,18 +902,23 @@ private final class RateLimitedGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     private let lock = NSLock()
     private let retryAt: Date
+    private let retryDelay: TimeInterval?
     private let result: CompletePullRequestFetchResult
     private let login: String
     private let emitsRateLimit: Bool
     private var storedRequestDates: [Date] = []
+    private var storedIssuedRetryAt: Date?
 
+    /// `retryDelay` measures the retry window from the rate-limited request itself, independent of scheduling delays.
     init(
         retryAt: Date,
+        retryDelay: TimeInterval? = nil,
         result: CompletePullRequestFetchResult,
         login: String = "rw",
         emitsRateLimit: Bool = true
     ) {
         self.retryAt = retryAt
+        self.retryDelay = retryDelay
         self.result = result
         self.login = login
         self.emitsRateLimit = emitsRateLimit
@@ -882,6 +926,7 @@ private final class RateLimitedGitHubProvider: GitHubProviding {
 
     var fetchCount: Int { lock.withLock { storedRequestDates.count } }
     var requestDates: [Date] { lock.withLock { storedRequestDates } }
+    var issuedRetryAt: Date? { lock.withLock { storedIssuedRetryAt } }
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: login) }
 
@@ -894,7 +939,9 @@ private final class RateLimitedGitHubProvider: GitHubProviding {
             return storedRequestDates.count
         }
         if emitsRateLimit, count == 2 {
-            throw GitHubReadError.rateLimited(retryAt: retryAt)
+            let issued = retryDelay.map { Date().addingTimeInterval($0) } ?? retryAt
+            lock.withLock { storedIssuedRetryAt = issued }
+            throw GitHubReadError.rateLimited(retryAt: issued)
         }
         return result
     }

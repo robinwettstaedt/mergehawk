@@ -116,7 +116,11 @@ final class OAuthAccessTokenCache {
     func accessToken() async throws -> String {
         let tokens = try loadTokensIfNeeded()
         if let refreshTask {
-            return try await refreshTask.value.accessToken
+            let expectedGeneration = generation
+            let refreshedTokens = try await refreshTask.value
+            // Credentials cleared or replaced during the shared refresh make its result invalid for waiters too.
+            guard generation == expectedGeneration else { throw CancellationError() }
+            return refreshedTokens.accessToken
         }
         guard tokens.refreshToken.isEmpty || tokens.expiresAt.map({ $0 <= Date().addingTimeInterval(60) }) == true else {
             return tokens.accessToken

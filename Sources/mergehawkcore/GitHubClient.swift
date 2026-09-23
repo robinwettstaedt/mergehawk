@@ -353,16 +353,26 @@ public enum GitHubClientError: Error, LocalizedError {
     case authRefreshFailed(status: Int, detail: String?)
     case graphQLErrors(String)
 
+    /// GitHub rejects refresh credentials with 200 plus an OAuth error body, 400 or 401;
+    /// other refresh statuses (rate limits, server errors) are transient.
+    public var rejectsCredentials: Bool {
+        switch self {
+        case .httpFailure(_, let status): status == 401
+        case .authRefreshFailed(let status, _): [200, 400, 401].contains(status)
+        case .graphQLErrors: false
+        }
+    }
+
     public var errorDescription: String? {
         switch self {
         case .httpFailure(let endpoint, let status):
             "\(endpoint) request failed with status \(status)."
         case .authRefreshFailed(let status, let detail):
-            if let detail, !detail.isEmpty {
-                "Authentication refresh failed (HTTP \(status)). \(detail) Please sign in again."
-            } else {
-                "Authentication refresh failed (HTTP \(status)). Please sign in again."
-            }
+            [
+                "Authentication refresh failed (HTTP \(status)).",
+                detail.flatMap { $0.isEmpty ? nil : $0 },
+                rejectsCredentials ? "Please sign in again." : "MergeHawk will retry."
+            ].compactMap { $0 }.joined(separator: " ")
         case .graphQLErrors(let message):
             message
         }

@@ -62,20 +62,25 @@ public struct OAuthTokenRefresher {
             )
         }
 
+        let decoded: OAuthRefreshResponse
         do {
-            let decoded = try JSONDecoder().decode(OAuthRefreshResponse.self, from: data)
-            tokens = OAuthTokens(
-                accessToken: decoded.accessToken,
-                refreshToken: decoded.refreshToken ?? tokens.refreshToken,
-                expiresAt: decoded.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
-            )
-            if persist {
-                try tokenStore.storeOAuthTokens(tokens)
-            }
-            return tokens
+            decoded = try JSONDecoder().decode(OAuthRefreshResponse.self, from: data)
         } catch {
+            // GitHub reports a rejected refresh token as 200 with an OAuth error body; anything else is malformed.
+            guard (try? JSONDecoder().decode(OAuthErrorResponse.self, from: data))?.error != nil else {
+                throw GitHubReadError.invalidPayload
+            }
             throw GitHubClientError.authRefreshFailed(status: response.statusCode, detail: Self.refreshErrorDetail(from: data))
         }
+        tokens = OAuthTokens(
+            accessToken: decoded.accessToken,
+            refreshToken: decoded.refreshToken ?? tokens.refreshToken,
+            expiresAt: decoded.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
+        )
+        if persist {
+            try tokenStore.storeOAuthTokens(tokens)
+        }
+        return tokens
     }
 
     private static func formURLEncoded(_ parameters: [String: String]) -> Data? {

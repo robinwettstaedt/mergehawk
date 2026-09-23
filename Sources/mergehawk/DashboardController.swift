@@ -1078,13 +1078,12 @@ final class DashboardController: ObservableObject {
             sourceErrorMessage = nil
         }
         account = verifiedAccount
+        restoreCachedGitHubDashboardIfAvailable()
     }
 
     private func configureSignedOutSource() {
         beginProviderGeneration()
         let retainedHistory = presentation.notificationHistory
-        preferencesStore.clearPullRequestSyncState()
-        committedSyncState = nil
         presentation = PublishedPresentation(dashboard: .empty, notificationHistory: retainedHistory)
         setAuthMethod(.oauth)
         sourceCatalog = .empty
@@ -1469,15 +1468,8 @@ final class DashboardController: ObservableObject {
         if isGitHubReadAuthenticationError(error) {
             return true
         }
-        if let error = error as? GitHubClientError {
-            switch error {
-            case .authRefreshFailed:
-                return true
-            case .httpFailure(_, 401):
-                return true
-            case .httpFailure, .graphQLErrors:
-                break
-            }
+        if let error = error as? GitHubClientError, error.rejectsCredentials {
+            return true
         }
         if let error = error as? GitHubOAuthError {
             switch error {
@@ -1490,14 +1482,13 @@ final class DashboardController: ObservableObject {
         return false
     }
 
+    /// Signs out without discarding the committed state: signing back in as the same account restores it,
+    /// and `acceptVerifiedAccount` clears it if a different account signs in.
     private func handleAuthenticationFailure(_ error: Error) {
         oauthAccessTokenCache.clear()
         try? tokenStore.clearOAuthTokens()
         account = nil
         preferencesStore.pullRequestSnapshotCache = .empty
-        preferencesStore.clearPullRequestSyncState()
-        committedSyncState = nil
-        presentation = .empty
         sourceCatalog = .empty
         sourceErrorMessage = nil
         configureSignedOutSource()

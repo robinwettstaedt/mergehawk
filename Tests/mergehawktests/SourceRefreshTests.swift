@@ -162,8 +162,14 @@ final class SourceRefreshTests: XCTestCase {
         cache.clear()
         loader.finish()
         do {
-            _ = try await (first, second)
-            XCTFail("Expected cleared refresh to be rejected")
+            _ = try await first
+            XCTFail("Expected cleared refresh to be rejected for the caller that started it")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        do {
+            _ = try await second
+            XCTFail("Expected cleared refresh to be rejected for the waiting caller")
         } catch {
             XCTAssertTrue(error is CancellationError)
         }
