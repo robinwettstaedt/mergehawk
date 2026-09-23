@@ -20,6 +20,15 @@ public enum ReviewRequestKind: String, Codable, Equatable, Sendable {
     case team
     case directAndTeam = "direct_and_team"
 
+    public init(direct: Bool, team: Bool) {
+        self = switch (direct, team) {
+        case (true, true): .directAndTeam
+        case (true, false): .direct
+        case (false, true): .team
+        case (false, false): .none
+        }
+    }
+
     public var includesDirect: Bool {
         switch self {
         case .direct, .directAndTeam:
@@ -115,9 +124,9 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let deletions: Int?
     public let commentCount: Int
     public let commentActivityCount: Int
-    public let recentCommentActivities: [PullRequestCommentActivity]
+    public var recentCommentActivities: [PullRequestCommentActivity]
     public let reviewCount: Int
-    public let recentReviews: [PullRequestReview]
+    public var recentReviews: [PullRequestReview]
     public let headRefOid: String
     public var reviewRequestKind: ReviewRequestKind
     public let isAssignedToViewer: Bool
@@ -182,6 +191,13 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.draft = draft
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public var withoutActivityHistory: PullRequest {
+        var copy = self
+        copy.recentCommentActivities = []
+        copy.recentReviews = []
+        return copy
     }
 
     enum CodingKeys: String, CodingKey {

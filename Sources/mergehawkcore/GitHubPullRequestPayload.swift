@@ -48,7 +48,7 @@ struct GitHubPayloadReviewThread: Decodable, Equatable, Sendable {
 
 struct GitHubPayloadRequestedReviewer: Decodable, Equatable, Sendable {
     let typename: String
-    let id: String
+    let id: String?
     let login: String?
     let slug: String?
     let organization: Organization?

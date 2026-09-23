@@ -341,7 +341,7 @@ final class GitHubRetirementTests: XCTestCase {
                     Self.completePR(id: teamTwo.id, number: teamTwo.number, state: "OPEN", author: "author", teamRequest: true)
                 ]), request)
             }
-            if query.contains("RepositoryTeamMembership") {
+            if query.contains("SearchPullRequests") {
                 teamQueries.increment()
                 let queryValue = Self.graphQLVariables(request)["query"] as? String ?? ""
                 let nodes = queryValue.contains("sort:created-asc")
@@ -364,7 +364,7 @@ final class GitHubRetirementTests: XCTestCase {
         XCTAssertEqual(teamQueries.value, 3)
     }
 
-    func testHydratedTeamRequestsRequireSharedRepositoryConfirmationWhenDiscoveryDidNotProveMembership() async throws {
+    func testDiscoveredTeamRequestsTrustTheTeamLaneWithoutRepositoryConfirmation() async throws {
         let keep = Self.discoveryNode(id: "PR_TEAM_KEEP", number: 1, second: 0)
         let unrelated = Self.discoveryNode(id: "PR_TEAM_OTHER", number: 2, second: 1)
         let directAndTeam = Self.discoveryNode(id: "PR_DIRECT_TEAM", number: 3, second: 2)
@@ -375,9 +375,10 @@ final class GitHubRetirementTests: XCTestCase {
                 var data: [String: Any] = [:]
                 for lane in GitHubDiscoveryLane.allCases {
                     let nodes: [[String: Any]] = switch lane {
-                    case .assigned: [keep, unrelated]
+                    case .assigned: [unrelated]
                     case .direct: [directAndTeam]
-                    case .authored, .team: []
+                    case .team: [keep]
+                    case .authored: []
                     }
                     data["\(lane.rawValue)Oldest"] = ["nodes": Array(nodes.prefix(1))]
                     data["\(lane.rawValue)Newest"] = ["nodes": Array(nodes.suffix(1))]
@@ -388,9 +389,10 @@ final class GitHubRetirementTests: XCTestCase {
                 var data: [String: Any] = [:]
                 for lane in GitHubDiscoveryLane.allCases {
                     let nodes: [[String: Any]] = switch lane {
-                    case .assigned: [keep, unrelated]
+                    case .assigned: [unrelated]
                     case .direct: [directAndTeam]
-                    case .authored, .team: []
+                    case .team: [keep]
+                    case .authored: []
                     }
                     data[lane.rawValue] = [
                         "issueCount": nodes.count,
@@ -419,7 +421,7 @@ final class GitHubRetirementTests: XCTestCase {
                     )
                 ]), request)
             }
-            if query.contains("RepositoryTeamMembership") {
+            if query.contains("SearchPullRequests") {
                 teamQueries.increment()
                 let queryValue = Self.graphQLVariables(request)["query"] as? String ?? ""
                 let nodes = queryValue.contains("sort:created-asc")
@@ -442,10 +444,10 @@ final class GitHubRetirementTests: XCTestCase {
         )
         XCTAssertEqual(
             result.activePullRequests.first { $0.id == "PR_DIRECT_TEAM" }?.reviewRequestKind,
-            .directAndTeam
+            .direct
         )
         XCTAssertFalse(result.activePullRequests.contains { $0.id == "PR_TEAM_OTHER" })
-        XCTAssertEqual(teamQueries.value, 3)
+        XCTAssertEqual(teamQueries.value, 0)
     }
 
     func testAmbiguousForbiddenRateLimitAndServerFailureNeverRetireQuietly() async throws {

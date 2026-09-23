@@ -174,7 +174,7 @@ final class GitHubPaginationTests: XCTestCase {
             XCTAssertTrue(query.contains("comments(last:"))
             XCTAssertFalse(query.contains("reviews(last:"))
             return Self.json(["data": [
-                "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C0")])]
+                "c0": ["comments": Self.connection(total: 11, nodes: (0..<11).map { Self.comment("C\($0)") })]
             ]])
         }
 
@@ -183,6 +183,91 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 11)
         XCTAssertEqual(hydrated[0].pullRequest.recentReviews.count, 11)
         XCTAssertEqual(continuations.value, 2)
+    }
+
+    func testRetryAfterDeletedItemRereadsInsteadOfKeepingCachedItems() async throws {
+        let initial = Self.pullRequest(
+            comments: Self.connection(
+                total: 11,
+                nodes: (2..<12).map { Self.comment("C\($0)") },
+                previous: "before"
+            )
+        )
+        let surviving = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11].map { "C\($0)" }
+        let transport = HydrationTransport { query, variables in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            if Self.string(variables["cursor0"]) == "before" {
+                return Self.json(["data": [
+                    "c0": ["comments": Self.connection(total: 10, nodes: [Self.comment("C1")])]
+                ]])
+            }
+            return Self.json(["data": [
+                "c0": ["comments": Self.connection(total: 10, nodes: surviving.map { Self.comment($0) })]
+            ]])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+        XCTAssertEqual(Set(hydrated[0].pullRequest.recentCommentActivities.map(\.id)), Set(surviving))
+        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 2)
+    }
+
+    func testThreadRestartDropsChildCommentResultsFromTheSameBatch() async throws {
+        let survivingComments = (1..<11).map { Self.comment("T1C\($0)") }
+        let otherThreads = (2..<21).map { Self.thread("T\($0)") }
+        let initial = Self.pullRequest(
+            threads: Self.connection(
+                total: 21,
+                nodes: [Self.thread("T1", commentsConnection: Self.connection(
+                    total: 11,
+                    nodes: survivingComments,
+                    previous: "t1-before"
+                ))] + otherThreads,
+                previous: "threads-before"
+            )
+        )
+        let transport = HydrationTransport { query, variables in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            if Self.string(variables["cursor0"]) == "threads-before" {
+                return Self.json(["data": [
+                    "c0": ["reviewThreads": Self.connection(total: 20, nodes: [])],
+                    "c1": ["comments": Self.connection(total: 11, nodes: [Self.comment("T1C0")])]
+                ]])
+            }
+            return Self.json(["data": [
+                "c0": ["reviewThreads": Self.connection(
+                    total: 20,
+                    nodes: [Self.thread("T1", comments: survivingComments)] + otherThreads
+                )]
+            ]])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+        XCTAssertEqual(
+            Set(hydrated[0].pullRequest.recentCommentActivities.map(\.id)),
+            Set(survivingComments.compactMap { $0["id"] as? String })
+        )
+    }
+
+    func testBotRequestedReviewerHydratesWithoutActorFields() async throws {
+        let initial = Self.pullRequest(
+            requests: Self.connection(total: 2, nodes: [
+                Self.request("Q_USER"),
+                ["id": "Q_BOT", "requestedReviewer": ["__typename": "Bot"]]
+            ])
+        )
+        let transport = HydrationTransport { _, _ in
+            Self.json(["data": ["nodes": [initial]]])
+        }
+
+        let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+        XCTAssertEqual(hydrated[0].pullRequest.reviewRequestKind, .direct)
     }
 
     func testLatestOpinionatedPaginationAndTopLevelBoundaryDeduplication() async throws {

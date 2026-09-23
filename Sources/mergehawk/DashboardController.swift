@@ -1095,7 +1095,7 @@ final class DashboardController: ObservableObject {
         let source = EmptyPullRequestSource()
         syncEngine = SyncEngine(
             source: source,
-            loginProvider: { "rw" },
+            loginProvider: { "" },
             accountProvider: { nil }
         )
     }
@@ -1357,18 +1357,26 @@ final class DashboardController: ObservableObject {
                     createdAt: value.event.happenedAt ?? prepared.syncedAt
                 )
             }
-            let retainedHistory = committedSyncState.map {
-                $0.account.login.caseInsensitiveCompare(prepared.account.login) == .orderedSame
-            } == true ? presentation.notificationHistory : []
+            let isSignedOut = prepared.source == .none
+            let retainedHistory = isSignedOut || committedSyncState?.trusted(for: prepared.account.login) != nil
+                ? presentation.notificationHistory
+                : []
             let history = Self.trimPullRequestNotifications(notifications + retainedHistory)
+            // Detection reads processed IDs, so the stored dashboard omits per-PR comment and review lists.
             let dashboard = DashboardState(
-                pullRequests: prepared.activePullRequests,
+                pullRequests: prepared.activePullRequests.map(\.withoutActivityHistory),
                 events: allowed.map(\.event),
                 syncedAt: prepared.syncedAt,
                 source: prepared.source,
-                account: prepared.account,
-                authStatus: prepared.source == .none ? .signedOut : .signedIn
+                account: isSignedOut ? nil : prepared.account,
+                authStatus: isSignedOut ? .signedOut : .signedIn
             )
+            if isSignedOut {
+                presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
+                account = nil
+                automaticRefreshDeferral = nil
+                return
+            }
             let nextState = PullRequestSyncState(
                 account: prepared.account,
                 dashboard: dashboard,

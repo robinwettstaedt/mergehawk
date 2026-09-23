@@ -50,14 +50,12 @@ public enum PRActivityDetector {
         return reviewEvents + commentEvents
     }
 
-    public static func updatedProcessedActivity(
-        previous: ProcessedPullRequestActivity?,
-        current: PullRequest
-    ) -> ProcessedPullRequestActivity {
+    /// Complete fetches return every comment and review, so the current IDs replace the previous record.
+    public static func processedActivity(for current: PullRequest) -> ProcessedPullRequestActivity {
         ProcessedPullRequestActivity(
             pullRequestID: current.id,
-            commentIDs: (previous?.commentIDs ?? []).union(current.recentCommentActivities.map(\.id)),
-            submittedReviewIDs: (previous?.submittedReviewIDs ?? []).union(current.recentReviews.map(\.id))
+            commentIDs: Set(current.recentCommentActivities.map(\.id)),
+            submittedReviewIDs: Set(current.recentReviews.map(\.id))
         )
     }
 

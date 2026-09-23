@@ -38,6 +38,11 @@ public struct PullRequestSyncState: Codable, Equatable, Sendable {
         self.processedActivityByPullRequestID = processedActivityByPullRequestID
         self.notificationHistory = notificationHistory
     }
+
+    /// Returns this state only when it belongs to `login`, so another account's history is never reused.
+    public func trusted(for login: String) -> PullRequestSyncState? {
+        account.login.caseInsensitiveCompare(login) == .orderedSame ? self : nil
+    }
 }
 
 public struct CompletePullRequestFetchResult: Equatable, Sendable {

@@ -131,7 +131,7 @@ final class AtomicRefreshTests: XCTestCase {
         provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [current]))
         await waitUntil { !fixture.controller.isRefreshing }
 
-        XCTAssertEqual(fixture.controller.state.pullRequests.first?.recentCommentActivities.count, 61)
+        XCTAssertEqual(fixture.controller.state.pullRequests.first?.recentCommentActivities, [])
         XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 30)
         let expectedNewest = (
             comments.map { ($0.id, $0.createdAt) }

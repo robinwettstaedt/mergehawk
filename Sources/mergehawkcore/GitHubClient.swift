@@ -51,11 +51,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         }
         let discovery = try await fetcher.discover(login: login)
         let discoveredIDs = Set(discovery.pullRequests.map(\.id))
-        let previousPullRequests = previousState.flatMap { previous in
-            previous.account.login.caseInsensitiveCompare(login) == .orderedSame
-                ? previous.dashboard.pullRequests
-                : nil
-        } ?? []
+        let previousPullRequests = previousState?.trusted(for: login)?.dashboard.pullRequests ?? []
         let previousByID = Dictionary(uniqueKeysWithValues: previousPullRequests.map { ($0.id, $0) })
 
         let discoveredHydration = try await fetcher.hydrateForReconciliation(
@@ -94,30 +90,23 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         var retiring: [PullRequest] = []
         for value in hydrated {
             var pr = value.pullRequest
-            let wasDiscovered = discoveredIDs.contains(pr.id)
-            var teamRelevant = false
-            if value.hasTeamReviewRequest {
-                if wasDiscovered && value.discovery.isTeamRequested {
-                    teamRelevant = true
+            // Discovered PRs already carry the team lane's answer; only rechecked PRs need repository confirmation.
+            let teamRelevant: Bool
+            if value.hasTeamReviewRequest, !discoveredIDs.contains(pr.id) {
+                let ids: Set<String>
+                if let cached = teamMembershipByRepository[pr.repo] {
+                    ids = cached
                 } else {
-                    let ids: Set<String>
-                    if let cached = teamMembershipByRepository[pr.repo] {
-                        ids = cached
-                    } else {
-                        ids = try await fetcher.repositoryTeamRequestedPullRequestIDs(
-                            repository: pr.repo,
-                            login: login
-                        )
-                        teamMembershipByRepository[pr.repo] = ids
-                    }
-                    teamRelevant = ids.contains(pr.id)
+                    ids = try await fetcher.repositoryTeamRequestedPullRequestIDs(
+                        repository: pr.repo,
+                        login: login
+                    )
+                    teamMembershipByRepository[pr.repo] = ids
                 }
-            }
-            pr.reviewRequestKind = switch (pr.reviewRequestKind.includesDirect, teamRelevant) {
-            case (true, true): .directAndTeam
-            case (true, false): .direct
-            case (false, true): .team
-            case (false, false): .none
+                teamRelevant = ids.contains(pr.id)
+                pr.reviewRequestKind = ReviewRequestKind(direct: pr.reviewRequestKind.includesDirect, team: teamRelevant)
+            } else {
+                teamRelevant = pr.reviewRequestKind.includesTeam
             }
             let baseRelevant = pr.isMine || pr.isAssignedToViewer || pr.reviewRequestKind.includesDirect
             if value.providerState == "OPEN", baseRelevant || teamRelevant {

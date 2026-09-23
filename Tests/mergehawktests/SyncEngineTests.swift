@@ -138,7 +138,7 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(Set(prepared.events.map(\.event.type)), [.relationshipAdded, .ciFailed])
         XCTAssertEqual(
             prepared.processedActivityByPullRequestID[current.id]?.commentIDs,
-            ["MISSING_PROVIDER_COMMENT"]
+            []
         )
     }
 

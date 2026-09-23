@@ -1,10 +1,7 @@
 import Foundation
 
 enum GitHubPullRequestQueries {
-    static let initialCommentPageSize = 10
-    static let initialReviewPageSize = 10
-    static let initialRelationshipPageSize = 20
-    static let discoveryPageSize = 100
+    static let continuationPageSize = 100
     static let hydrationBatchSize = 20
     static let continuationBatchSize = 20
 
@@ -136,8 +133,8 @@ enum GitHubPullRequestQueries {
       }
     """
 
-    static let repositoryTeamMembership = """
-      query RepositoryTeamMembership($query: String!, $cursor: String) {
+    static let searchPage = """
+      query SearchPullRequests($query: String!, $cursor: String) {
         search(query: $query, type: ISSUE, first: 100, after: $cursor) {
           issueCount
           pageInfo { startCursor endCursor hasPreviousPage hasNextPage }

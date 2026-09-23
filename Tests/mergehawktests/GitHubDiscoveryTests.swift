@@ -49,6 +49,23 @@ final class GitHubDiscoveryTests: XCTestCase {
         XCTAssertTrue(result.pullRequests[0].isTeamRequested)
     }
 
+    func testLaneEmptyAtBoundsQueryStillReturnsPRsCreatedSince() async throws {
+        let transport = DiscoveryTransport { query, variables in
+            if query.contains("DiscoveryBounds") {
+                return Self.boundsResponse(nonEmptyLanes: [])
+            }
+            XCTAssertFalse(Self.query(for: .direct, variables: variables).contains("created:"))
+            return Self.pageResponse(activeLanes: [.direct], count: 1, nodes: [Self.node(id: "PR_NEW", number: 9, second: 5)])
+        }
+
+        let result = try await Self.fetcher(transport).discover(login: "rw")
+
+        XCTAssertEqual(result.pullRequests.map(\.id), ["PR_NEW"])
+        XCTAssertTrue(result.pullRequests[0].isDirectlyRequested)
+        XCTAssertEqual(result.coveredIntervals[.direct], [5...5])
+        XCTAssertEqual(transport.readCount, 2)
+    }
+
     func testPaginatesBeyondFirstHundredWithAdvancingCursor() async throws {
         let transport = DiscoveryTransport { query, variables in
             if query.contains("DiscoveryBounds") {
@@ -79,7 +96,7 @@ final class GitHubDiscoveryTests: XCTestCase {
                 return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 3)
             }
             let queryValue = Self.query(for: .authored, variables: variables)
-            if queryValue.contains("00:00:00Z..1970-01-01T00:00:03Z") {
+            if queryValue.contains("created:>=1970-01-01T00:00:00Z") {
                 return Self.pageResponse(active: .authored, count: 1_001, nodes: [], hasNext: false)
             }
             if queryValue.contains("00:00:00Z..1970-01-01T00:00:01Z") {
@@ -134,7 +151,7 @@ final class GitHubDiscoveryTests: XCTestCase {
             if query.contains("sort:created-desc") {
                 return Self.repositoryPage(count: 1_001, nodes: [Self.node(id: "NEW", number: 2, second: 3)])
             }
-            if query.contains("00:00:00Z..1970-01-01T00:00:03Z") {
+            if query.contains("created:>=1970-01-01T00:00:00Z") {
                 return Self.repositoryPage(count: 1_001, nodes: [])
             }
             if query.contains("00:00:00Z..1970-01-01T00:00:01Z") {
@@ -157,7 +174,7 @@ final class GitHubDiscoveryTests: XCTestCase {
                 return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 10)
             }
             let bounded = Self.query(for: .authored, variables: variables)
-            XCTAssertTrue(bounded.contains("00:00:00Z..1970-01-01T00:00:10Z"))
+            XCTAssertTrue(bounded.contains("created:>=1970-01-01T00:00:00Z"))
             let cursor = Self.cursor(for: .authored, variables: variables)
             if cursor == nil {
                 return Self.pageResponse(
@@ -210,7 +227,7 @@ final class GitHubDiscoveryTests: XCTestCase {
                 return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 3)
             }
             let queryValue = Self.query(for: .authored, variables: variables)
-            if queryValue.contains("00:00:00Z..1970-01-01T00:00:03Z") {
+            if queryValue.contains("created:>=1970-01-01T00:00:00Z") {
                 let read = fullIntervalReads.increment()
                 if read == 1 {
                     return Self.pageResponse(
@@ -381,7 +398,36 @@ private final class DiscoveryTransport: @unchecked Sendable {
 
     func read(query: String, variables: [String: GitHubQueryValue]) async throws -> Data {
         lock.withLock { storedReadCount += 1 }
-        return try handler(query, variables)
+        guard query.contains("SearchPullRequests"),
+              case .string(let searchQuery) = variables["query"],
+              !searchQuery.contains(" repo:") else {
+            return try handler(query, variables)
+        }
+        return try laneSearch(variables: variables)
+    }
+
+    /// Serves single-lane search pages through the multi-lane handlers, marking inactive lanes as empty.
+    private func laneSearch(variables: [String: GitHubQueryValue]) throws -> Data {
+        guard case .string(let searchQuery) = variables["query"] else { throw GitHubReadError.invalidPayload }
+        let selectors: [GitHubDiscoveryLane: String] = [
+            .authored: "author:", .assigned: "assignee:",
+            .direct: "user-review-requested:", .team: "team-review-requested-user:"
+        ]
+        let lane = GitHubDiscoveryLane.allCases.first { searchQuery.contains(selectors[$0]!) }!
+        var laneVariables: [String: GitHubQueryValue] = [:]
+        for candidate in GitHubDiscoveryLane.allCases {
+            let isActive = candidate == lane
+            laneVariables["\(candidate.rawValue)Query"] = .string(
+                isActive ? searchQuery : "is:open is:pr repo:__mergehawk__/__empty__"
+            )
+            laneVariables["\(candidate.rawValue)Cursor"] = isActive ? variables["cursor"] ?? .null : .null
+        }
+        let data = try handler(GitHubPullRequestQueries.discoveryPage, laneVariables)
+        var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        if let lanes = object["data"] as? [String: Any] {
+            object["data"] = ["search": lanes[lane.rawValue] as Any]
+        }
+        return try JSONSerialization.data(withJSONObject: object)
     }
 }
 

@@ -24,9 +24,7 @@ public final class SyncEngine {
     ) async throws -> PreparedPullRequestRefresh {
         let login = try await loginProvider()
         let account = try await accountProvider() ?? previousState?.account ?? GitHubAccount(login: login)
-        let trustedPrevious = previousState.flatMap { previous in
-            previous.account.login.caseInsensitiveCompare(account.login) == .orderedSame ? previous : nil
-        }
+        let trustedPrevious = previousState?.trusted(for: account.login)
         let previousByID = Dictionary(
             uniqueKeysWithValues: (trustedPrevious?.dashboard.pullRequests ?? []).map { ($0.id, $0) }
         )
@@ -56,10 +54,7 @@ public final class SyncEngine {
             events.append(contentsOf: detected.map {
                 PreparedPullRequestEvent(event: $0, filteringContext: current)
             })
-            processed[current.id] = PRActivityDetector.updatedProcessedActivity(
-                previous: previousRecord,
-                current: current
-            )
+            processed[current.id] = PRActivityDetector.processedActivity(for: current)
         }
 
         for current in fetchResult.retiringPullRequests {

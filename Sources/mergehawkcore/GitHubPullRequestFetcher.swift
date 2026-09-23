@@ -70,7 +70,7 @@ struct GitHubPullRequestFetcher: Sendable {
         let nodes: [GitHubCompletePullRequestPayload?]
     }
 
-    private struct RepositoryTeamData: Decodable {
+    private struct SearchData: Decodable {
         let search: GitHubDiscoverySearchPayload
     }
 
@@ -103,24 +103,17 @@ struct GitHubPullRequestFetcher: Sendable {
         }
     }
 
+    /// A page request for one connection. `before == nil` re-reads the connection from its newest page.
     private struct Continuation: Hashable, Sendable {
         let kind: ConnectionKind
-        let before: String
+        let before: String?
         let expectedTotal: Int?
-        let initialBefore: String
         let attempt: Int
 
-        init(
-            kind: ConnectionKind,
-            before: String,
-            expectedTotal: Int?,
-            initialBefore: String? = nil,
-            attempt: Int = 0
-        ) {
+        init(kind: ConnectionKind, before: String?, expectedTotal: Int?, attempt: Int = 0) {
             self.kind = kind
             self.before = before
             self.expectedTotal = expectedTotal
-            self.initialBefore = initialBefore ?? before
             self.attempt = attempt
         }
     }
@@ -201,28 +194,31 @@ struct GitHubPullRequestFetcher: Sendable {
         guard let initial = initialPayload.data else { throw GitHubReadError.invalidPayload }
 
         for lane in GitHubDiscoveryLane.allCases {
+            let firstPage = initial.payload(for: lane)
+            let leaves: [LeafResult]
             guard let laneBounds = bounds[lane] else {
-                coverage[lane] = []
+                leaves = try await discoverNewlyPopulatedLane(lane, login: login, firstPage: firstPage)
+                coverage[lane] = leaves.map(\.interval)
+                try record(leaves, lane: lane, into: &identities)
                 continue
             }
             let interval = laneBounds.lower...laneBounds.upper
-            let firstPage = initial.payload(for: lane)
-            let leaves: [LeafResult]
             if firstPage.issueCount > 1_000 {
-                leaves = try await discoverLane(lane, login: login, bounds: laneBounds, allowRetry: true)
+                leaves = try await discoverLane(lane, login: login, bounds: laneBounds, splitsInitialInterval: true)
             } else {
                 let result = try await fetchLeaf(
                     lane,
                     login: login,
                     interval: interval,
+                    laneUpper: laneBounds.upper,
                     initialPage: firstPage
                 )
                 if result.exceededCap {
-                    leaves = try await discoverLane(lane, login: login, bounds: laneBounds, allowRetry: true)
+                    leaves = try await discoverLane(lane, login: login, bounds: laneBounds, splitsInitialInterval: true)
                 } else if result.nodes.count < result.finalCount {
-                    let retry = try await fetchLeaf(lane, login: login, interval: interval)
+                    let retry = try await fetchLeaf(lane, login: login, interval: interval, laneUpper: laneBounds.upper)
                     if retry.exceededCap {
-                        leaves = try await discoverLane(lane, login: login, bounds: laneBounds, allowRetry: true)
+                        leaves = try await discoverLane(lane, login: login, bounds: laneBounds, splitsInitialInterval: true)
                     } else if retry.nodes.count >= retry.finalCount {
                         leaves = [LeafResult(interval: interval, nodes: retry.nodes)]
                     } else {
@@ -233,34 +229,62 @@ struct GitHubPullRequestFetcher: Sendable {
                 }
             }
             coverage[lane] = leaves.map(\.interval)
-            for leaf in leaves {
-                for node in leaf.nodes {
-                    let date = try parseDate(node.createdAt)
-                    var value = identities[node.id] ?? DiscoveredPullRequest(
-                        id: node.id,
-                        repository: node.repository.nameWithOwner,
-                        number: node.number,
-                        createdAt: date,
-                        isAuthored: false,
-                        isAssigned: false,
-                        isDirectlyRequested: false,
-                        isTeamRequested: false
-                    )
-                    switch lane {
-                    case .authored: value.isAuthored = true
-                    case .assigned: value.isAssigned = true
-                    case .direct: value.isDirectlyRequested = true
-                    case .team: value.isTeamRequested = true
-                    }
-                    identities[node.id] = value
-                }
-            }
+            try record(leaves, lane: lane, into: &identities)
         }
 
         return GitHubDiscoveryResult(
             pullRequests: identities.values.sorted { $0.id < $1.id },
             coveredIntervals: coverage
         )
+    }
+
+    private func record(
+        _ leaves: [LeafResult],
+        lane: GitHubDiscoveryLane,
+        into identities: inout [String: DiscoveredPullRequest]
+    ) throws {
+        for leaf in leaves {
+            for node in leaf.nodes {
+                let date = try parseDate(node.createdAt)
+                var value = identities[node.id] ?? DiscoveredPullRequest(
+                    id: node.id,
+                    repository: node.repository.nameWithOwner,
+                    number: node.number,
+                    createdAt: date,
+                    isAuthored: false,
+                    isAssigned: false,
+                    isDirectlyRequested: false,
+                    isTeamRequested: false
+                )
+                switch lane {
+                case .authored: value.isAuthored = true
+                case .assigned: value.isAssigned = true
+                case .direct: value.isDirectlyRequested = true
+                case .team: value.isTeamRequested = true
+                }
+                identities[node.id] = value
+            }
+        }
+    }
+
+    /// A lane that was empty at the bounds query is searched without a date range, so PRs created since still count.
+    private func discoverNewlyPopulatedLane(
+        _ lane: GitHubDiscoveryLane,
+        login: String,
+        firstPage: GitHubDiscoverySearchPayload
+    ) async throws -> [LeafResult] {
+        guard firstPage.issueCount > 0 else { return [] }
+        let query = baseQuery(for: lane, login: login)
+        var result = try await fetchSearchLeaf(query: query, initialPage: firstPage)
+        if !result.exceededCap, result.nodes.count < result.finalCount {
+            result = try await fetchSearchLeaf(query: query, initialPage: nil)
+        }
+        guard !result.exceededCap, result.nodes.count >= result.finalCount else {
+            throw GitHubReadError.incompleteCoverage("Incomplete \(lane.rawValue) discovery")
+        }
+        let seconds = try result.nodes.map { Int(try parseDate($0.createdAt).timeIntervalSince1970) }
+        guard let lower = seconds.min(), let upper = seconds.max() else { return [] }
+        return [LeafResult(interval: lower...upper, nodes: result.nodes)]
     }
 
     func hydrate(
@@ -344,7 +368,7 @@ struct GitHubPullRequestFetcher: Sendable {
             }
         }
 
-        var visitedCursors: [ContinuationVisit: Set<String>] = [:]
+        var visitedCursors: [ContinuationVisit: Set<String?>] = [:]
         while !continuations.isEmpty {
             let batch = Array(continuations.prefix(GitHubPullRequestQueries.continuationBatchSize))
             continuations.removeFirst(min(batch.count, continuations.count))
@@ -358,10 +382,22 @@ struct GitHubPullRequestFetcher: Sendable {
             let variables = continuationVariables(batch)
             let data = try await read(query, variables)
             let decoded = try decodeContinuationPages(data, batch: batch, allowsScopedErrors: true)
-            for (index, page) in decoded.pages {
-                try merge(page: page, for: batch[index], into: &accumulators, queue: &continuations)
+            // Thread-comment results for a PR whose thread list restarts in this batch belong to the discarded read.
+            var restartedThreadPRs = Set<String>()
+            func isSuperseded(_ item: Continuation) -> Bool {
+                guard case .threadComments(let prID, _) = item.kind else { return false }
+                return restartedThreadPRs.contains(prID)
             }
-            for index in decoded.failedIndices.sorted() {
+            for (index, page) in decoded.pages.sorted(by: { $0.key < $1.key }) where !isSuperseded(batch[index]) {
+                try merge(
+                    page: page,
+                    for: batch[index],
+                    into: &accumulators,
+                    queue: &continuations,
+                    restartedThreadPRs: &restartedThreadPRs
+                )
+            }
+            for index in decoded.failedIndices.sorted() where !isSuperseded(batch[index]) {
                 let item = batch[index]
                 let retryData = try await read(
                     continuationQuery([item]),
@@ -375,7 +411,13 @@ struct GitHubPullRequestFetcher: Sendable {
                 guard let page = retry.pages[0], retry.failedIndices.isEmpty else {
                     throw GitHubReadError.invalidPayload
                 }
-                try merge(page: page, for: item, into: &accumulators, queue: &continuations)
+                try merge(
+                    page: page,
+                    for: item,
+                    into: &accumulators,
+                    queue: &continuations,
+                    restartedThreadPRs: &restartedThreadPRs
+                )
             }
         }
 
@@ -458,8 +500,8 @@ struct GitHubPullRequestFetcher: Sendable {
         login: String
     ) async throws -> Set<String> {
         let base = "is:open is:pr repo:\(repository) team-review-requested-user:\(login)"
-        let oldestPage = try await fetchRepositoryTeamPage(query: "\(base) sort:created-asc", cursor: nil)
-        let newestPage = try await fetchRepositoryTeamPage(query: "\(base) sort:created-desc", cursor: nil)
+        let oldestPage = try await fetchSearchPage(query: "\(base) sort:created-asc", cursor: nil)
+        let newestPage = try await fetchSearchPage(query: "\(base) sort:created-desc", cursor: nil)
         guard let oldest = try requiredNodes(oldestPage.nodes).first,
               let newest = try requiredNodes(newestPage.nodes).first else {
             return []
@@ -471,7 +513,7 @@ struct GitHubPullRequestFetcher: Sendable {
         var queue = [lower...upper]
         var ids = Set<String>()
         while let interval = queue.popLast() {
-            let result = try await fetchRepositoryTeamLeaf(base: base, interval: interval)
+            let result = try await fetchRepositoryTeamLeaf(base: base, interval: interval, upper: upper)
             if result.exceededCap {
                 guard interval.lowerBound < interval.upperBound else {
                     throw GitHubReadError.incompleteCoverage(
@@ -484,7 +526,7 @@ struct GitHubPullRequestFetcher: Sendable {
                 continue
             }
             if result.nodes.count < result.finalCount {
-                let retry = try await fetchRepositoryTeamLeaf(base: base, interval: interval)
+                let retry = try await fetchRepositoryTeamLeaf(base: base, interval: interval, upper: upper)
                 guard !retry.exceededCap, retry.nodes.count >= retry.finalCount else {
                     throw GitHubReadError.incompleteCoverage("Incomplete repository team search")
                 }
@@ -498,18 +540,35 @@ struct GitHubPullRequestFetcher: Sendable {
 
     private func fetchRepositoryTeamLeaf(
         base: String,
-        interval: ClosedRange<Int>
+        interval: ClosedRange<Int>,
+        upper: Int
     ) async throws -> (nodes: [GitHubDiscoveryNode], finalCount: Int, exceededCap: Bool) {
-        let bounded = "\(base) created:\(formatSecond(interval.lowerBound))..\(formatSecond(interval.upperBound))"
+        try await fetchSearchLeaf(
+            query: "\(base) \(createdQualifier(interval, laneUpper: upper))",
+            initialPage: nil
+        )
+    }
+
+    private func fetchSearchLeaf(
+        query: String,
+        initialPage: GitHubDiscoverySearchPayload?
+    ) async throws -> (nodes: [GitHubDiscoveryNode], finalCount: Int, exceededCap: Bool) {
         var accumulator = LaneAccumulator()
+        var pendingPage = initialPage
         repeat {
-            let page = try await fetchRepositoryTeamPage(query: bounded, cursor: accumulator.cursor)
+            let page: GitHubDiscoverySearchPayload
+            if let firstPage = pendingPage {
+                page = firstPage
+                pendingPage = nil
+            } else {
+                page = try await fetchSearchPage(query: query, cursor: accumulator.cursor)
+            }
             if page.issueCount > 1_000 { return ([], page.issueCount, true) }
             try requiredNodes(page.nodes).forEach { accumulator.nodesByID[$0.id] = $0 }
             accumulator.finalCount = page.issueCount
             if page.pageInfo.hasNextPage {
                 guard let next = page.pageInfo.endCursor, next != accumulator.cursor else {
-                    throw GitHubReadError.incompleteCoverage("Non-advancing repository team cursor")
+                    throw GitHubReadError.incompleteCoverage("Non-advancing search cursor")
                 }
                 accumulator.cursor = next
             }
@@ -518,18 +577,18 @@ struct GitHubPullRequestFetcher: Sendable {
         return (Array(accumulator.nodesByID.values), accumulator.finalCount, false)
     }
 
-    private func fetchRepositoryTeamPage(
+    private func fetchSearchPage(
         query: String,
         cursor: String?
     ) async throws -> GitHubDiscoverySearchPayload {
         let data = try await read(
-            GitHubPullRequestQueries.repositoryTeamMembership,
+            GitHubPullRequestQueries.searchPage,
             [
                 "query": .string(query),
                 "cursor": cursor.map(GitHubQueryValue.string) ?? .null
             ]
         )
-        let envelope = try decoder.decode(GitHubGraphQLPayload<RepositoryTeamData>.self, from: data)
+        let envelope = try decoder.decode(GitHubGraphQLPayload<SearchData>.self, from: data)
         try validate(errors: envelope.errors)
         guard let page = envelope.data?.search else { throw GitHubReadError.invalidPayload }
         return page
@@ -584,16 +643,6 @@ struct GitHubPullRequestFetcher: Sendable {
             case .requests(let value): value.totalCount
             }
         }
-
-        var nodeCount: Int {
-            switch self {
-            case .comments(let value): value.nodes.count
-            case .reviews(let value): value.nodes.count
-            case .threads(let value): value.nodes.count
-            case .users(let value): value.nodes.count
-            case .requests(let value): value.nodes.count
-            }
-        }
     }
 
     private func initialContinuations(for payload: GitHubCompletePullRequestPayload) throws -> [Continuation] {
@@ -629,6 +678,7 @@ struct GitHubPullRequestFetcher: Sendable {
     private func appendContinuation<Node>(
         kind: ConnectionKind,
         connection: GitHubStrictConnection<Node>,
+        attempt: Int = 0,
         to result: inout [Continuation]
     ) throws where Node: Decodable & Equatable & Sendable {
         guard connection.pageInfo.hasPreviousPage else {
@@ -638,12 +688,12 @@ struct GitHubPullRequestFetcher: Sendable {
             return
         }
         guard let cursor = connection.pageInfo.startCursor else { throw GitHubReadError.invalidPayload }
-        result.append(Continuation(kind: kind, before: cursor, expectedTotal: connection.totalCount))
+        result.append(Continuation(kind: kind, before: cursor, expectedTotal: connection.totalCount, attempt: attempt))
     }
 
     private func continuationQuery(_ batch: [Continuation]) -> String {
         let declarations = batch.indices.flatMap { index in
-            ["$id\(index): ID!", "$cursor\(index): String!"]
+            ["$id\(index): ID!", "$cursor\(index): String"]
         }.joined(separator: ", ")
         let selections = batch.enumerated().map { index, continuation in
             "c\(index): node(id: $id\(index)) { \(continuationSelection(for: continuation.kind, cursor: "$cursor\(index)")) }"
@@ -652,16 +702,17 @@ struct GitHubPullRequestFetcher: Sendable {
     }
 
     private func continuationSelection(for kind: ConnectionKind, cursor: String) -> String {
+        let size = GitHubPullRequestQueries.continuationPageSize
         switch kind {
         case .comments:
-            return "... on PullRequest { comments(last: 10, before: \(cursor)) { \(topLevelCommentConnectionFields) } }"
+            return "... on PullRequest { comments(last: \(size), before: \(cursor)) { \(topLevelCommentConnectionFields) } }"
         case .reviews:
-            return "... on PullRequest { reviews(last: 10, before: \(cursor)) { \(reviewConnectionFields) } }"
+            return "... on PullRequest { reviews(last: \(size), before: \(cursor)) { \(reviewConnectionFields) } }"
         case .opinionatedReviews:
-            return "... on PullRequest { latestOpinionatedReviews(last: 20, before: \(cursor)) { \(reviewConnectionFields) } }"
+            return "... on PullRequest { latestOpinionatedReviews(last: \(size), before: \(cursor)) { \(reviewConnectionFields) } }"
         case .threads:
             return """
-            ... on PullRequest { reviewThreads(last: 20, before: \(cursor)) {
+            ... on PullRequest { reviewThreads(last: \(size), before: \(cursor)) {
               totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
               nodes {
                 id isResolved viewerCanResolve
@@ -670,16 +721,16 @@ struct GitHubPullRequestFetcher: Sendable {
             } }
             """
         case .assignees:
-            return "... on PullRequest { assignees(last: 20, before: \(cursor)) { totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id login avatarUrl(size: 64) } } }"
+            return "... on PullRequest { assignees(last: \(size), before: \(cursor)) { totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id login avatarUrl(size: 64) } } }"
         case .reviewRequests:
             return """
-            ... on PullRequest { reviewRequests(last: 20, before: \(cursor)) {
+            ... on PullRequest { reviewRequests(last: \(size), before: \(cursor)) {
               totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
               nodes { id requestedReviewer { __typename ... on User { id login } ... on Team { id slug organization { login } } } }
             } }
             """
         case .threadComments:
-            return "... on PullRequestReviewThread { comments(last: 10, before: \(cursor)) { \(reviewCommentConnectionFields) } }"
+            return "... on PullRequestReviewThread { comments(last: \(size), before: \(cursor)) { \(reviewCommentConnectionFields) } }"
         }
     }
 
@@ -699,7 +750,7 @@ struct GitHubPullRequestFetcher: Sendable {
         var result: [String: GitHubQueryValue] = [:]
         for (index, continuation) in batch.enumerated() {
             result["id\(index)"] = .string(continuation.kind.parentID)
-            result["cursor\(index)"] = .string(continuation.before)
+            result["cursor\(index)"] = continuation.before.map(GitHubQueryValue.string) ?? .null
         }
         return result
     }
@@ -764,7 +815,8 @@ struct GitHubPullRequestFetcher: Sendable {
         page: ContinuationPage,
         for continuation: Continuation,
         into accumulators: inout [String: HydrationAccumulator],
-        queue: inout [Continuation]
+        queue: inout [Continuation],
+        restartedThreadPRs: inout Set<String>
     ) throws {
         let prID: String
         switch continuation.kind {
@@ -778,6 +830,7 @@ struct GitHubPullRequestFetcher: Sendable {
                 continuation,
                 accumulator: &accumulator,
                 queue: &queue,
+                restartedThreadPRs: &restartedThreadPRs,
                 message: "Connection total decreased during traversal"
             )
             accumulators[prID] = accumulator
@@ -799,6 +852,7 @@ struct GitHubPullRequestFetcher: Sendable {
                 try appendContinuation(
                     kind: .threadComments(prID: prID, threadID: thread.id),
                     connection: thread.comments,
+                    attempt: continuation.attempt,
                     to: &queue
                 )
             }
@@ -811,22 +865,24 @@ struct GitHubPullRequestFetcher: Sendable {
         }
         accumulators[prID] = accumulator
 
+        // A fresh re-read takes its expected total from its own newest page.
+        let expectedTotal = continuation.before == nil ? page.totalCount : continuation.expectedTotal
         if page.pageInfo.hasPreviousPage {
             guard let cursor = page.pageInfo.startCursor else { throw GitHubReadError.invalidPayload }
             queue.append(Continuation(
                 kind: continuation.kind,
                 before: cursor,
-                expectedTotal: continuation.expectedTotal,
-                initialBefore: continuation.initialBefore,
+                expectedTotal: expectedTotal,
                 attempt: continuation.attempt
             ))
-        } else if let expected = continuation.expectedTotal {
+        } else if let expected = expectedTotal {
             let actual = accumulatedCount(for: continuation.kind, in: accumulator)
             if actual < expected {
                 try retryIncompleteConnection(
                     continuation,
                     accumulator: &accumulator,
                     queue: &queue,
+                    restartedThreadPRs: &restartedThreadPRs,
                     message: "Connection returned \(actual) of \(expected) items"
                 )
             }
@@ -834,63 +890,36 @@ struct GitHubPullRequestFetcher: Sendable {
         accumulators[prID] = accumulator
     }
 
+    /// Retries a connection once by discarding everything read so far and re-reading it from its newest page,
+    /// so items deleted since the first read cannot survive from cached pages.
     private func retryIncompleteConnection(
         _ continuation: Continuation,
         accumulator: inout HydrationAccumulator,
         queue: inout [Continuation],
+        restartedThreadPRs: inout Set<String>,
         message: String
     ) throws {
         guard continuation.attempt == 0 else {
             throw GitHubReadError.incompleteCoverage(message)
         }
-        resetConnection(continuation.kind, in: &accumulator)
-        queue.append(Continuation(
-            kind: continuation.kind,
-            before: continuation.initialBefore,
-            expectedTotal: continuation.expectedTotal,
-            initialBefore: continuation.initialBefore,
-            attempt: 1
-        ))
-    }
-
-    private func resetConnection(
-        _ kind: ConnectionKind,
-        in accumulator: inout HydrationAccumulator
-    ) {
-        switch kind {
-        case .comments:
-            accumulator.comments = Dictionary(
-                uniqueKeysWithValues: accumulator.payload.comments.nodes.map { ($0.id, $0) }
-            )
-        case .reviews:
-            accumulator.reviews = Dictionary(
-                uniqueKeysWithValues: accumulator.payload.reviews.nodes.map { ($0.id, $0) }
-            )
-        case .opinionatedReviews:
-            accumulator.opinionatedReviews = Dictionary(
-                uniqueKeysWithValues: accumulator.payload.latestOpinionatedReviews.nodes.map { ($0.id, $0) }
-            )
-        case .threads:
-            accumulator.threads = Dictionary(
-                uniqueKeysWithValues: accumulator.payload.reviewThreads.nodes.map { ($0.id, $0) }
-            )
-            accumulator.threadComments = Dictionary(
-                uniqueKeysWithValues: accumulator.payload.reviewThreads.nodes.map { thread in
-                    (thread.id, Dictionary(uniqueKeysWithValues: thread.comments.nodes.map { ($0.id, $0) }))
-                }
-            )
-        case .assignees:
-            accumulator.assignees = Dictionary(
-                uniqueKeysWithValues: accumulator.payload.assignees.nodes.map { ($0.id ?? $0.login, $0) }
-            )
-        case .reviewRequests:
-            accumulator.reviewRequests = Dictionary(
-                uniqueKeysWithValues: accumulator.payload.reviewRequests.nodes.map { ($0.id, $0) }
-            )
-        case .threadComments(_, let threadID):
-            let initial = accumulator.payload.reviewThreads.nodes.first { $0.id == threadID }?.comments.nodes ?? []
-            accumulator.threadComments[threadID] = Dictionary(uniqueKeysWithValues: initial.map { ($0.id, $0) })
+        switch continuation.kind {
+        case .comments: accumulator.comments = [:]
+        case .reviews: accumulator.reviews = [:]
+        case .opinionatedReviews: accumulator.opinionatedReviews = [:]
+        case .assignees: accumulator.assignees = [:]
+        case .reviewRequests: accumulator.reviewRequests = [:]
+        case .threadComments(_, let threadID): accumulator.threadComments[threadID] = [:]
+        case .threads(let prID):
+            // The re-read threads bring their own comments and thread-comment continuations.
+            accumulator.threads = [:]
+            accumulator.threadComments = [:]
+            restartedThreadPRs.insert(prID)
+            queue.removeAll { pending in
+                guard case .threadComments(let pendingPR, _) = pending.kind else { return false }
+                return pendingPR == prID
+            }
         }
+        queue.append(Continuation(kind: continuation.kind, before: nil, expectedTotal: nil, attempt: 1))
     }
 
     private func accumulatedCount(for kind: ConnectionKind, in value: HydrationAccumulator) -> Int {
@@ -916,7 +945,7 @@ struct GitHubPullRequestFetcher: Sendable {
                 source: .pullRequest
             )
         }
-        let threadComments = try value.threadComments.values.flatMap(\.values).map { comment in
+        let threadComments = try value.threads.keys.compactMap { value.threadComments[$0] }.flatMap(\.values).map { comment in
             PullRequestCommentActivity(
                 id: comment.id,
                 author: comment.author?.login,
@@ -1026,12 +1055,7 @@ struct GitHubPullRequestFetcher: Sendable {
         let team = value.discovery.isTeamRequested && value.reviewRequests.values.contains {
             $0.requestedReviewer?.typename == "Team"
         }
-        return switch (direct, team) {
-        case (true, true): .directAndTeam
-        case (true, false): .direct
-        case (false, true): .team
-        case (false, false): .none
-        }
+        return ReviewRequestKind(direct: direct, team: team)
     }
 
     private struct LeafResult {
@@ -1043,26 +1067,26 @@ struct GitHubPullRequestFetcher: Sendable {
         _ lane: GitHubDiscoveryLane,
         login: String,
         bounds: Bounds,
-        allowRetry: Bool
+        splitsInitialInterval: Bool
     ) async throws -> [LeafResult] {
-        var queue = [bounds.lower...bounds.upper]
+        func split(_ interval: ClosedRange<Int>) throws -> [ClosedRange<Int>] {
+            guard interval.lowerBound < interval.upperBound else {
+                throw GitHubReadError.incompleteCoverage("More than 1,000 \(lane.rawValue) PRs share one creation second")
+            }
+            let midpoint = interval.lowerBound + (interval.upperBound - interval.lowerBound) / 2
+            return [(midpoint + 1)...interval.upperBound, interval.lowerBound...midpoint]
+        }
+        let initial = bounds.lower...bounds.upper
+        var queue = splitsInitialInterval ? try split(initial) : [initial]
         var complete: [LeafResult] = []
         while let interval = queue.popLast() {
-            let pageResult = try await fetchLeaf(lane, login: login, interval: interval)
+            let pageResult = try await fetchLeaf(lane, login: login, interval: interval, laneUpper: bounds.upper)
             if pageResult.exceededCap {
-                guard interval.lowerBound < interval.upperBound else {
-                    throw GitHubReadError.incompleteCoverage("More than 1,000 \(lane.rawValue) PRs share one creation second")
-                }
-                let midpoint = interval.lowerBound + (interval.upperBound - interval.lowerBound) / 2
-                queue.append((midpoint + 1)...interval.upperBound)
-                queue.append(interval.lowerBound...midpoint)
+                queue.append(contentsOf: try split(interval))
                 continue
             }
             if pageResult.nodes.count < pageResult.finalCount {
-                guard allowRetry else {
-                    throw GitHubReadError.incompleteCoverage("Incomplete \(lane.rawValue) discovery interval")
-                }
-                let retry = try await fetchLeaf(lane, login: login, interval: interval)
+                let retry = try await fetchLeaf(lane, login: login, interval: interval, laneUpper: bounds.upper)
                 guard !retry.exceededCap, retry.nodes.count >= retry.finalCount else {
                     throw GitHubReadError.incompleteCoverage("Incomplete \(lane.rawValue) discovery interval")
                 }
@@ -1078,43 +1102,21 @@ struct GitHubPullRequestFetcher: Sendable {
         _ lane: GitHubDiscoveryLane,
         login: String,
         interval: ClosedRange<Int>,
+        laneUpper: Int,
         initialPage: GitHubDiscoverySearchPayload? = nil
     ) async throws -> (nodes: [GitHubDiscoveryNode], finalCount: Int, exceededCap: Bool) {
-        var accumulator = LaneAccumulator()
-        var pendingPage = initialPage
-        repeat {
-            let page: GitHubDiscoverySearchPayload
-            if let firstPage = pendingPage {
-                page = firstPage
-                pendingPage = nil
-            } else {
-                let variables = discoveryVariables(
-                    activeLane: lane,
-                    login: login,
-                    interval: interval,
-                    cursor: accumulator.cursor
-                )
-                let data = try await read(GitHubPullRequestQueries.discoveryPage, variables)
-                let payload = try decoder.decode(GitHubGraphQLPayload<DiscoveryData>.self, from: data)
-                try validate(errors: payload.errors)
-                guard let response = payload.data else { throw GitHubReadError.invalidPayload }
-                page = response.payload(for: lane)
-            }
-            if page.issueCount > 1_000 {
-                return ([], page.issueCount, true)
-            }
-            let nodes = try requiredNodes(page.nodes)
-            for node in nodes { accumulator.nodesByID[node.id] = node }
-            accumulator.finalCount = page.issueCount
-            if page.pageInfo.hasNextPage {
-                guard let next = page.pageInfo.endCursor, next != accumulator.cursor else {
-                    throw GitHubReadError.incompleteCoverage("Non-advancing \(lane.rawValue) discovery cursor")
-                }
-                accumulator.cursor = next
-            }
-            accumulator.hasNext = page.pageInfo.hasNextPage
-        } while accumulator.hasNext
-        return (Array(accumulator.nodesByID.values), accumulator.finalCount, false)
+        try await fetchSearchLeaf(
+            query: "\(baseQuery(for: lane, login: login)) \(createdQualifier(interval, laneUpper: laneUpper))",
+            initialPage: initialPage
+        )
+    }
+
+    /// The interval reaching the lane's newest bound stays open-ended so PRs created after the bounds query are included.
+    private func createdQualifier(_ interval: ClosedRange<Int>, laneUpper: Int?) -> String {
+        if let laneUpper, interval.upperBound >= laneUpper {
+            return "created:>=\(formatSecond(interval.lowerBound))"
+        }
+        return "created:\(formatSecond(interval.lowerBound))..\(formatSecond(interval.upperBound))"
     }
 
     private func discoveryVariables(
@@ -1123,34 +1125,15 @@ struct GitHubPullRequestFetcher: Sendable {
     ) -> [String: GitHubQueryValue] {
         var result: [String: GitHubQueryValue] = [:]
         for lane in GitHubDiscoveryLane.allCases {
+            let base = baseQuery(for: lane, login: login)
             if let bounds = bounds[lane] {
                 result["\(lane.rawValue)Query"] = .string(
-                    "\(baseQuery(for: lane, login: login)) created:\(formatSecond(bounds.lower))..\(formatSecond(bounds.upper))"
+                    "\(base) \(createdQualifier(bounds.lower...bounds.upper, laneUpper: bounds.upper))"
                 )
             } else {
-                result["\(lane.rawValue)Query"] = .string("is:open is:pr repo:__mergehawk__/__empty__")
+                result["\(lane.rawValue)Query"] = .string(base)
             }
             result["\(lane.rawValue)Cursor"] = .null
-        }
-        return result
-    }
-
-    private func discoveryVariables(
-        activeLane: GitHubDiscoveryLane,
-        login: String,
-        interval: ClosedRange<Int>,
-        cursor: String?
-    ) -> [String: GitHubQueryValue] {
-        var result: [String: GitHubQueryValue] = [:]
-        for lane in GitHubDiscoveryLane.allCases {
-            let query: String
-            if lane == activeLane {
-                query = "\(baseQuery(for: lane, login: login)) created:\(formatSecond(interval.lowerBound))..\(formatSecond(interval.upperBound))"
-            } else {
-                query = "is:open is:pr repo:__mergehawk__/__empty__"
-            }
-            result["\(lane.rawValue)Query"] = .string(query)
-            result["\(lane.rawValue)Cursor"] = lane == activeLane ? cursor.map(GitHubQueryValue.string) ?? .null : .null
         }
         return result
     }
