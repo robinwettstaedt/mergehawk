@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/release-env.sh
 source "$ROOT_DIR/scripts/lib/release-env.sh"
+# shellcheck source=scripts/lib/release-history.sh
+source "$ROOT_DIR/scripts/lib/release-history.sh"
 RELEASE_ENV_KEYS=(
   RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY DEVELOPER_ID_APPLICATION
   NOTARYTOOL_PROFILE NOTARYTOOL_KEYCHAIN SPARKLE_GENERATE_APPCAST SPARKLE_PRIVATE_KEY SPARKLE_KEY_ACCOUNT
@@ -26,7 +28,7 @@ PHASE=all
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/release-github.sh --version v0.1.0 --build YYYYMMDDHHMMSS [options]
+Usage: scripts/release-github.sh --version v0.1.1 --build YYYYMMDDHHMMSS [options]
 
 Build, sign, notarize, and publish a Sparkle-enabled installer to the public
 RELEASE_REPOSITORY. Tags are VERSION-BUILD; no source commits or tags are pushed.
@@ -168,13 +170,14 @@ if [[ "$PHASE" != publish-only ]]; then
   fi
   [[ -x "$GENERATE_APPCAST" ]] || { echo 'Could not find Sparkle generate_appcast.' >&2; exit 2; }
   codesign --verify --deep --strict "$APP_DIR"
-  python3 - "$APP_DIR/Contents/Info.plist" "$SPARKLE_FEED_URL" "$SPARKLE_PUBLIC_KEY" "$BUILD_NUMBER" <<'PY'
+  python3 - "$APP_DIR/Contents/Info.plist" "$SPARKLE_FEED_URL" "$SPARKLE_PUBLIC_KEY" "$BUILD_NUMBER" "$MARKETING_VERSION" <<'PY'
 import plistlib, sys
 with open(sys.argv[1], 'rb') as handle:
     info = plistlib.load(handle)
 assert info['MergeHawkDistributionChannel'] == 'github'
 assert info['SUFeedURL'] == sys.argv[2] and info['SUPublicEDKey'] == sys.argv[3]
 assert info['CFBundleVersion'] == sys.argv[4]
+assert info['CFBundleShortVersionString'] == sys.argv[5], 'Wrong bundle marketing version'
 assert info['CFBundleIdentifier'] == 'com.mergehawk.app'
 assert 'LSEnvironment' not in info
 PY
@@ -210,9 +213,9 @@ PY
 fi
 
 # Validate the actual feed in both phases before any public release is created.
-python3 - "$APPCAST_PATH" "$DMG_PATH" "$DOWNLOAD_URL_PREFIX$DMG_NAME" "$BUILD_NUMBER" <<'PY'
+python3 - "$APPCAST_PATH" "$DMG_PATH" "$DOWNLOAD_URL_PREFIX$DMG_NAME" "$BUILD_NUMBER" "$MARKETING_VERSION" <<'PY'
 import os, sys, xml.etree.ElementTree as ET
-feed, dmg, url, build = sys.argv[1:]
+feed, dmg, url, build, marketing_version = sys.argv[1:]
 sparkle = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 items = ET.parse(feed).findall('./channel/item')
 assert len(items) == 1, 'Expected exactly one release in the appcast'
@@ -220,6 +223,7 @@ item = items[0]
 enclosure = item.find('enclosure')
 assert enclosure is not None and enclosure.get('url') == url, 'Wrong download URL'
 assert (item.findtext(sparkle + 'version') or enclosure.get(sparkle + 'version')) == build, 'Wrong build'
+assert (item.findtext(sparkle + 'shortVersionString') or enclosure.get(sparkle + 'shortVersionString')) == marketing_version, 'Wrong marketing version'
 assert enclosure.get(sparkle + 'edSignature'), 'Missing Sparkle signature'
 assert int(enclosure.get('length', '0')) == os.path.getsize(dmg) > 0, 'Wrong archive length'
 PY
@@ -236,7 +240,12 @@ fi
 
 # Read all published tags, rather than trusting request time or workflow queue order.
 # This also prevents a delayed local publication from replacing a newer update feed.
-PUBLISHED_TAGS="$(gh api --paginate "repos/$RELEASE_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')"
+PUBLISHED_TAGS="$(list_published_release_tags "$RELEASE_REPOSITORY")"
+EXPECTED_MARKETING_VERSION="$(printf '%s\n' "$PUBLISHED_TAGS" | python3 "$ROOT_DIR/scripts/lib/release-version.py")"
+if [[ "$MARKETING_VERSION" != "$EXPECTED_MARKETING_VERSION" ]]; then
+  echo "Requested marketing version $MARKETING_VERSION; expected $EXPECTED_MARKETING_VERSION from published releases. Prepare again with the next version and a fresh build timestamp." >&2
+  exit 2
+fi
 while IFS= read -r published_tag; do
   [[ -z "$published_tag" ]] && continue
   published_build="${published_tag##*-}"
