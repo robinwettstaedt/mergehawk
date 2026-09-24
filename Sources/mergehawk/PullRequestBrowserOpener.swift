@@ -32,6 +32,38 @@ final class PullRequestBrowserOpener {
     private let backend: PullRequestBrowserBackend
     private let worker = DispatchQueue(label: "com.mergehawk.pr-browser-opener")
 
+    static func live(openNormally: @escaping OpenNormally) -> PullRequestBrowserOpener {
+        let supported: Set<String> = [
+            "com.apple.Safari",
+            "com.google.Chrome",
+            "com.microsoft.edgemac",
+            "com.brave.Browser"
+        ]
+        return PullRequestBrowserOpener(
+            resolveBrowser: { url in
+                guard let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: url),
+                      let bundleIdentifier = Bundle(url: applicationURL)?.bundleIdentifier,
+                      supported.contains(bundleIdentifier),
+                      let application = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+                else { return nil }
+                return BrowserTarget(
+                    bundleIdentifier: bundleIdentifier,
+                    processIdentifier: application.processIdentifier
+                )
+            },
+            backend: BrowserAppleEvents(),
+            yieldActivation: { target in
+                guard let application = NSRunningApplication(processIdentifier: target.processIdentifier) else { return }
+                NSApp.yieldActivation(to: application)
+            },
+            requestActivation: { target in
+                guard let application = NSRunningApplication(processIdentifier: target.processIdentifier) else { return false }
+                return application.activate(from: .current, options: [])
+            },
+            openNormally: openNormally
+        )
+    }
+
     init(
         resolveBrowser: @escaping ResolveBrowser,
         backend: PullRequestBrowserBackend,

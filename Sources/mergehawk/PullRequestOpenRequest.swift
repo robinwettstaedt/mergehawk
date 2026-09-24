@@ -35,7 +35,7 @@ struct PullRequestIdentity: Equatable, Sendable {
 
 enum BrowserWindowLocator: Equatable, Sendable {
     case safari(Int32)
-    case chromium(Int32)
+    case chromium(String)
 }
 
 enum BrowserTabLocator: Equatable, Sendable {
