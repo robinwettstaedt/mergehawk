@@ -7,6 +7,34 @@ enum BrowserAppleEventError: Error, Equatable {
     case replyError(Int32, String?)
     case permissionError(OSStatus)
     case selectedTabChanged
+    case unsupportedBrowser(String)
+}
+
+enum BrowserDialect: Equatable {
+    case safari
+    case chromium
+
+    init?(bundleIdentifier: String) {
+        switch bundleIdentifier {
+        case "com.apple.Safari": self = .safari
+        case "com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser": self = .chromium
+        default: return nil
+        }
+    }
+
+    var tabClass: OSType {
+        switch self {
+        case .safari: BrowserAppleEventCodec.code("bTab")
+        case .chromium: BrowserAppleEventCodec.code("CrTb")
+        }
+    }
+
+    var urlProperty: OSType {
+        switch self {
+        case .safari: BrowserAppleEventCodec.code("pURL")
+        case .chromium: BrowserAppleEventCodec.code("URL ")
+        }
+    }
 }
 
 protocol BrowserAppleEventTransport {
@@ -109,7 +137,9 @@ final class BrowserAppleEvents: PullRequestBrowserBackend, @unchecked Sendable {
 
     func windows(for target: BrowserTarget) throws -> [BrowserWindowSnapshot] {
         assert(!Thread.isMainThread)
-        let dialect = try Dialect(target.bundleIdentifier)
+        guard let dialect = BrowserDialect(bundleIdentifier: target.bundleIdentifier) else {
+            throw BrowserAppleEventError.unsupportedBrowser(target.bundleIdentifier)
+        }
         let allWindows = BrowserAppleEventCodec.all(BrowserAppleEventCodec.code("cwin"), in: .null())
         let ids = try list(get(BrowserAppleEventCodec.property(BrowserAppleEventCodec.code("ID  "), of: allWindows), target: target), "window IDs")
         let indices = try list(get(BrowserAppleEventCodec.property(BrowserAppleEventCodec.code("pidx"), of: allWindows), target: target), "window indices")
@@ -175,7 +205,9 @@ final class BrowserAppleEvents: PullRequestBrowserBackend, @unchecked Sendable {
 
     func apply(_ request: PullRequestOpenRequest, to selection: BrowserTabSelection, in target: BrowserTarget) throws {
         assert(!Thread.isMainThread)
-        let dialect = try Dialect(target.bundleIdentifier)
+        guard let dialect = BrowserDialect(bundleIdentifier: target.bundleIdentifier) else {
+            throw BrowserAppleEventError.unsupportedBrowser(target.bundleIdentifier)
+        }
         let window = BrowserAppleEventCodec.window(selection.window.locator)
         let tab = BrowserAppleEventCodec.tab(selection.tab.locator, in: window)
         let selectedIndex: Int
@@ -267,30 +299,4 @@ final class BrowserAppleEvents: PullRequestBrowserBackend, @unchecked Sendable {
         }
     }
 
-    private enum Dialect {
-        case safari
-        case chromium
-
-        init(_ bundleIdentifier: String) throws {
-            switch bundleIdentifier {
-            case "com.apple.Safari": self = .safari
-            case "com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser": self = .chromium
-            default: throw BrowserAppleEventError.malformedReply("unsupported browser")
-            }
-        }
-
-        var tabClass: OSType {
-            switch self {
-            case .safari: BrowserAppleEventCodec.code("bTab")
-            case .chromium: BrowserAppleEventCodec.code("CrTb")
-            }
-        }
-
-        var urlProperty: OSType {
-            switch self {
-            case .safari: BrowserAppleEventCodec.code("pURL")
-            case .chromium: BrowserAppleEventCodec.code("URL ")
-            }
-        }
-    }
 }

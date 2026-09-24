@@ -8,6 +8,22 @@ final class BrowserAppleEventsTests: XCTestCase {
     private let base = URL(string: "https://github.com/acme/app/pull/12")!
     private let target = BrowserTarget(bundleIdentifier: "com.apple.Safari", processIdentifier: 123)
 
+    func testSharedBrowserEligibilityCoversFourIdentifiersAndRejectsOthers() throws {
+        XCTAssertEqual(BrowserDialect(bundleIdentifier: "com.apple.Safari"), .safari)
+        for bundle in ["com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser"] {
+            XCTAssertEqual(BrowserDialect(bundleIdentifier: bundle), .chromium)
+        }
+        XCTAssertNil(BrowserDialect(bundleIdentifier: "com.apple.SafariTechnologyPreview"))
+
+        let unsupported = BrowserTarget(bundleIdentifier: "com.apple.SafariTechnologyPreview", processIdentifier: 999)
+        let transport = ScriptedBrowserTransport([])
+        let backend = BrowserAppleEvents(transport: transport, permissionChecker: { _ in .approved })
+        XCTAssertThrowsError(try offMain { try backend.windows(for: unsupported) }) { error in
+            XCTAssertEqual(error as? BrowserAppleEventError, .unsupportedBrowser(unsupported.bundleIdentifier))
+        }
+        XCTAssertTrue(transport.events.isEmpty)
+    }
+
     func testSafariDecodesWindowOrderAndSkipsZeroTabUtilityWindow() throws {
         let transport = ScriptedBrowserTransport([
             reply(list([.init(int32: 3), .init(int32: 7)])),
