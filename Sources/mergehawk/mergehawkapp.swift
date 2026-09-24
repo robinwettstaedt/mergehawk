@@ -28,7 +28,11 @@ final class SettingsWindowState: ObservableObject {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let controller = DashboardController(launchConfiguration: .current())
+    private lazy var browserOpener = PullRequestBrowserOpener.live(openNormally: { NSWorkspace.shared.open($0) })
+    lazy var controller = DashboardController(
+        launchConfiguration: .current(),
+        pullRequestOpener: { [weak self] request in self?.browserOpener.open(request) }
+    )
     let settingsWindowState = SettingsWindowState()
     let softwareUpdateController = SoftwareUpdateController.disabled()
     private var statusBarController: StatusBarController?
