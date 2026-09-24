@@ -5,6 +5,7 @@ import XCTest
 final class GitHubPaginationTests: XCTestCase {
     func testHydratesEveryRequiredConnectionWithoutRepeatingDashboardFields() async throws {
         let initial = Self.pullRequest(
+            isArchived: true,
             comments: Self.connection(
                 total: 20,
                 nodes: (10..<20).map { Self.comment("C\($0)") },
@@ -68,6 +69,7 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated[0].pullRequest.commentCount, 1)
         XCTAssertTrue(hydrated[0].pullRequest.isAssignedToViewer)
         XCTAssertEqual(hydrated[0].pullRequest.reviewRequestKind, .direct)
+        XCTAssertEqual(hydrated[0].pullRequest.repositoryIsArchived, true)
         let topLevelComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "C0" })
         XCTAssertEqual(topLevelComment.source, .pullRequest)
         XCTAssertNil(topLevelComment.reviewId)
@@ -399,7 +401,7 @@ final class GitHubPaginationTests: XCTestCase {
         node["title"] = "Ship dashboard"
         node["number"] = 12
         node["url"] = "https://github.com/acme/mergehawk/pull/12"
-        node["repository"] = ["nameWithOwner": "acme/mergehawk"]
+        node["repository"] = ["nameWithOwner": "acme/mergehawk", "isArchived": false]
         node["createdAt"] = "2026-05-01T12:00:00Z"
         node["updatedAt"] = "2026-05-02T12:00:00Z"
         node["headRefName"] = "ship-dashboard"
@@ -425,6 +427,7 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(pullRequest.number, 12)
         XCTAssertEqual(pullRequest.url, URL(string: "https://github.com/acme/mergehawk/pull/12"))
         XCTAssertEqual(pullRequest.repo, "acme/mergehawk")
+        XCTAssertEqual(pullRequest.repositoryIsArchived, false)
         XCTAssertEqual(pullRequest.ciState, .failing)
         XCTAssertEqual(pullRequest.reviewDecision, .approved)
         XCTAssertEqual(pullRequest.additions, 42)
@@ -851,6 +854,7 @@ final class GitHubPaginationTests: XCTestCase {
 
     private static func pullRequest(
         id: String = "PR_1",
+        isArchived: Bool = false,
         comments: [String: Any] = connection(total: 0, nodes: []),
         reviews: [String: Any] = connection(total: 0, nodes: []),
         opinionated: [String: Any] = connection(total: 0, nodes: []),
@@ -865,7 +869,7 @@ final class GitHubPaginationTests: XCTestCase {
             "headRefName": "feature", "headRefOid": "abc", "isDraft": false,
             "mergeable": "MERGEABLE", "additions": 1, "deletions": 2,
             "statusCheckRollup": ["state": "SUCCESS"],
-            "author": user("author"), "repository": ["nameWithOwner": "acme/app"],
+            "author": user("author"), "repository": ["nameWithOwner": "acme/app", "isArchived": isArchived],
             "comments": comments, "reviews": reviews, "latestOpinionatedReviews": opinionated,
             "reviewThreads": threads, "assignees": assignees, "reviewRequests": requests
         ]

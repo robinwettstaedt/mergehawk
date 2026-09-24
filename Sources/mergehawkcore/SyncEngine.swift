@@ -116,6 +116,7 @@ public final class SyncEngine {
             number: current.number,
             url: current.url,
             repo: current.repo,
+            repositoryIsArchived: current.repositoryIsArchived,
             ciState: current.ciState,
             reviewDecision: current.reviewDecision,
             additions: current.additions,

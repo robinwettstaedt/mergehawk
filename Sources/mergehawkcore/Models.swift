@@ -118,6 +118,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let number: Int
     public let url: URL
     public let repo: String
+    public let repositoryIsArchived: Bool?
     public let ciState: CIState
     public let reviewDecision: ReviewDecision
     public let additions: Int?
@@ -145,6 +146,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         number: Int,
         url: URL,
         repo: String,
+        repositoryIsArchived: Bool? = nil,
         ciState: CIState,
         reviewDecision: ReviewDecision,
         additions: Int? = nil,
@@ -171,6 +173,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.number = number
         self.url = url
         self.repo = repo
+        self.repositoryIsArchived = repositoryIsArchived
         self.ciState = ciState
         self.reviewDecision = reviewDecision
         self.additions = additions
@@ -206,6 +209,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case number
         case url
         case repo
+        case repositoryIsArchived
         case ciState
         case reviewDecision
         case additions
@@ -235,6 +239,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.number = try container.decode(Int.self, forKey: .number)
         self.url = try container.decode(URL.self, forKey: .url)
         self.repo = try container.decode(String.self, forKey: .repo)
+        self.repositoryIsArchived = try container.decodeIfPresent(Bool.self, forKey: .repositoryIsArchived)
         self.ciState = try container.decode(CIState.self, forKey: .ciState)
         self.reviewDecision = try container.decode(ReviewDecision.self, forKey: .reviewDecision)
         self.additions = try container.decodeIfPresent(Int.self, forKey: .additions)

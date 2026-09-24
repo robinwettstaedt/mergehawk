@@ -101,6 +101,7 @@ struct GitHubCompletePullRequestPayload: Decodable, Equatable, Sendable {
 
     struct Repository: Decodable, Equatable, Sendable {
         let nameWithOwner: String
+        let isArchived: Bool
     }
 }
 
