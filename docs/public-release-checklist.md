@@ -14,12 +14,15 @@ The work is split into two tracks:
 
 ## Release model (context)
 
-Releases run **only** via manual `workflow_dispatch` of the `GitHub Release`
-workflow from the protected `main` branch. The workflow refuses to run on any
-other event, ref type, unprotected branch, or non-`main` branch, and it creates
-and pushes the `v*` tag itself. There is intentionally **no tag-push trigger**.
-Keeping `main` the single release source also keeps the door open for a future
-Mac App Store pipeline to release from the same branch.
+Releases run after pushes to protected `main` and through manual
+`workflow_dispatch` from `main`. The workflow refuses unprotected or non-`main`
+refs. It selects the next `0.1.x` patch from published stable releases in the
+downloads repository before building; attempts that leave no public release do
+not consume that patch. A published stable baseline is required. GitHub creates the
+`v*` tag on the downloads repository's own default branch when the release is
+created. There is intentionally **no tag-push trigger**. Keeping `main` the
+single release source also keeps the door open for a future Mac App Store
+pipeline to release from the same branch.
 
 ## Inside the repo
 

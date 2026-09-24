@@ -29,7 +29,6 @@ jobs:
     env:
       DEVELOPER_ID_APPLICATION: ${{ vars.DEVELOPER_ID_APPLICATION }}
       NOTARYTOOL_PROFILE: mergehawk-notary
-      MARKETING_VERSION: 0.1.0
 
     steps:
       - name: Require protected main
@@ -46,11 +45,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve build number
+      - name: Resolve release versions
         id: release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "build=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          source scripts/lib/release-env.sh
+          source scripts/lib/release-history.sh
+          load_release_env_file scripts/release-github.env RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY
+          build="$(date -u +%Y%m%d%H%M%S)"
+          published_tags="$(list_published_release_tags "$RELEASE_REPOSITORY")"
+          marketing_version="$(printf '%s\n' "$published_tags" | python3 scripts/lib/release-version.py)"
+          echo "marketing_version=$marketing_version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
       - name: Validate signing configuration
         shell: bash
@@ -113,6 +122,7 @@ jobs:
       - name: Build signed and notarized installer with Sparkle updates
         shell: bash
         env:
+          MARKETING_VERSION: ${{ steps.release.outputs.marketing_version }}
           BUILD_NUMBER: ${{ steps.release.outputs.build }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -135,6 +145,7 @@ jobs:
         env:
           # This credential can write only to mergehawk-downloads; source checkout is read-only.
           GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
+          MARKETING_VERSION: ${{ steps.release.outputs.marketing_version }}
           BUILD_NUMBER: ${{ steps.release.outputs.build }}
           DRAFT: ${{ inputs.draft }}
         run: |
@@ -148,6 +159,7 @@ jobs:
 
       - name: Link release in run summary
         env:
+          MARKETING_VERSION: ${{ steps.release.outputs.marketing_version }}
           BUILD_NUMBER: ${{ steps.release.outputs.build }}
           DRAFT: ${{ inputs.draft }}
         run: |
