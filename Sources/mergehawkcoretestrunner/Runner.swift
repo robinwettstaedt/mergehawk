@@ -176,6 +176,7 @@ struct Runner {
                 count: 1,
                 actorLogin: "frontend-sam",
                 activityId: "COMMENT_NEW_1",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 200)
             ),
             PullRequestEvent(
@@ -184,6 +185,7 @@ struct Runner {
                 count: 1,
                 actorLogin: "docs-lee",
                 activityId: "COMMENT_NEW_2",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 300)
             )
         ])
@@ -228,6 +230,7 @@ struct Runner {
                 count: 1,
                 actorLogin: "docs-lee",
                 activityId: "REVIEW_COMMENTED",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 200)
             )
         ])
@@ -260,6 +263,7 @@ struct Runner {
                 count: 1,
                 actorLogin: "docs-lee",
                 activityId: "REVIEW_COMMENTED",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 200)
             )
         ])
@@ -304,6 +308,7 @@ struct Runner {
                 count: 1,
                 actorLogin: "backend-mateo",
                 activityId: "REVIEW_CHANGES",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 200)
             )
         ])
@@ -355,6 +360,7 @@ struct Runner {
                 count: 1,
                 actorLogin: "backend-mateo",
                 activityId: "REVIEW_CHANGES",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 200)
             ),
             PullRequestEvent(
@@ -363,6 +369,7 @@ struct Runner {
                 count: 1,
                 actorLogin: "frontend-sam",
                 activityId: "UNRELATED_COMMENT",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 300)
             )
         ])
