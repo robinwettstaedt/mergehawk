@@ -54,7 +54,7 @@ jobs:
           set -euo pipefail
           source scripts/lib/release-env.sh
           source scripts/lib/release-history.sh
-          load_release_env_file scripts/release-github.env RELEASE_REPOSITORY
+          load_release_env_file scripts/release-github.env RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY
           build="$(date -u +%Y%m%d%H%M%S)"
           published_tags="$(list_published_release_tags "$RELEASE_REPOSITORY")"
           marketing_version="$(printf '%s\n' "$published_tags" | python3 scripts/lib/release-version.py)"

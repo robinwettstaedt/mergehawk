@@ -102,6 +102,7 @@ elif args[:2] == ['release', 'edit'] and os.environ.get('FAIL_EDIT'):
                         RELEASE_PAGES_FILE=str(self.pages),
                         RELEASE_ENV_FILE=str(scripts / 'release-github.env'),
                         RELEASE_LOCAL_ENV_FILE=str(self.root / 'no-local-env'))
+        self.env.pop('RELEASE_REPOSITORY', None)
 
     def command(self, name, code):
         path = self.bin / name
@@ -178,10 +179,13 @@ with (app / 'Contents/Info.plist').open('wb') as output:
 
     def resolve_candidate(self):
         return subprocess.run(
-            ['bash', '-c', 'set -euo pipefail; source scripts/lib/release-history.sh; '
+            ['bash', '-c', 'set -euo pipefail; source scripts/lib/release-env.sh; '
+             'source scripts/lib/release-history.sh; '
+             'load_release_env_file scripts/release-github.env '
+             'RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY; '
              'published_tags="$(list_published_release_tags "$RELEASE_REPOSITORY")"; '
              'printf "%s\\n" "$published_tags" | python3 scripts/lib/release-version.py'],
-            cwd=self.root, env={**self.env, 'RELEASE_REPOSITORY': REPO},
+            cwd=self.root, env=self.env,
             capture_output=True, text=True)
 
     def test_uploads_only_public_assets_as_draft_before_publishing_latest(self):
@@ -423,6 +427,8 @@ with (app / 'Contents/Info.plist').open('wb') as output:
                         workflow.index('Publish public download assets'))
         self.assertIn('current_main="$(gh api', workflow)
         self.assertIn('source scripts/lib/release-history.sh', workflow)
+        self.assertIn('load_release_env_file scripts/release-github.env '
+                      'RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY', workflow)
         self.assertIn('published_tags="$(list_published_release_tags "$RELEASE_REPOSITORY")"', workflow)
         self.assertIn('marketing_version="$(printf', workflow)
         self.assertIn('echo "marketing_version=$marketing_version" >> "$GITHUB_OUTPUT"', workflow)
