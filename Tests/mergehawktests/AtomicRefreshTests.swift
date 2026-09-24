@@ -354,6 +354,41 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testUnarchiveRefreshRestoresVisibilityAndDeliversNewCommentWithToggleOn() async throws {
+        let baseline = makePullRequest(id: "PR_UNARCHIVED", title: "Unarchived", archived: true)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(pullRequest: baseline, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        XCTAssertTrue(fixture.controller.hideArchivedRepositories)
+        XCTAssertTrue(fixture.controller.sourceFilteredMyPullRequests.isEmpty)
+        XCTAssertTrue(fixture.controller.visiblePullRequestNotifications.isEmpty)
+
+        let comment = PullRequestCommentActivity(
+            id: "COMMENT_AFTER_UNARCHIVE", author: "reviewer",
+            createdAt: Date(timeIntervalSince1970: 30), source: .pullRequest
+        )
+        let unarchived = makePullRequest(
+            id: baseline.id, title: baseline.title, archived: false,
+            comments: baseline.recentCommentActivities + [comment]
+        )
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [unarchived]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertTrue(fixture.controller.hideArchivedRepositories)
+        XCTAssertEqual(fixture.controller.sourceFilteredMyPullRequests.map(\.id), [baseline.id])
+        XCTAssertEqual(fixture.controller.visiblePullRequestNotifications.count, 2)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, fixture.previous.notificationHistory.count + 1)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.filter { $0.activityId == comment.id }.count, 1)
+        XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [baseline.id])
+
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.filter { $0.activityId == comment.id }.count, 1)
+        XCTAssertEqual(fixture.notifications.records.count, 1)
+    }
+
+    @MainActor
     func testLargeCompleteResultPublishesOnlyAfterAllActivityIsPrepared() async throws {
         let provider = AtomicGitHubProvider(result: .suspended)
         let fixture = try makeFixture(provider: provider)
