@@ -145,6 +145,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <true/>
   <key>NSUserNotificationUsageDescription</key>
   <string>MergeHawk sends notifications for pull request comments, reviews, failed CI, and changes requested.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>MergeHawk uses your browser to reuse open pull request tabs and navigate to comments and reviews.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>
@@ -214,11 +216,14 @@ fi
 if [[ -n "$CODE_SIGN_IDENTITY" ]]; then
   if [[ -n "$CODE_SIGN_OPTIONS" ]]; then
     codesign --force --deep --options "$CODE_SIGN_OPTIONS" --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+    codesign --force --options "$CODE_SIGN_OPTIONS" --entitlements "$ROOT_DIR/scripts/mergehawk.entitlements" --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
   else
     codesign --force --deep --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
+    codesign --force --entitlements "$ROOT_DIR/scripts/mergehawk.entitlements" --sign "$CODE_SIGN_IDENTITY" "$APP_DIR"
   fi
 else
   codesign --force --deep --sign - "$APP_DIR"
+  codesign --force --entitlements "$ROOT_DIR/scripts/mergehawk.entitlements" --sign - "$APP_DIR"
 fi
 
 echo "$APP_DIR"
