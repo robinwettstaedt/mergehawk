@@ -821,6 +821,7 @@ private struct SourcesSettingsView: View {
 
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
+                Toggle("Hide PRs from archived repositories", isOn: $controller.hideArchivedRepositories)
                 HStack(spacing: 8) {
                     sourceCount(for: filteredCatalog)
                     CountSearchControl(

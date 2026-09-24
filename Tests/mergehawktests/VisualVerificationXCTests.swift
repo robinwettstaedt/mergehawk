@@ -22,7 +22,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -364,6 +364,97 @@ final class VisualVerificationXCTests: XCTestCase {
             )
         }
 
+        let archivedSuite = "\(suiteName)-archived"
+        let archivedPR = Self.archivedVisualPullRequest(id: "PR_ARCHIVED", repo: "example/archived", archived: true)
+        let activePR = Self.archivedVisualPullRequest(id: "PR_ACTIVE", repo: "example/active", archived: false)
+        let mixedPRs = [archivedPR, activePR]
+        let mixedCatalog = SourceCatalog(
+            repositories: [
+                RepositorySource(owner: "example", name: "archived"),
+                RepositorySource(owner: "example", name: "active")
+            ],
+            accountLogin: "rw"
+        )
+        var archivedNotification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: archivedPR.id, activityId: "ARCHIVED_COMMENT"),
+            pullRequest: archivedPR,
+            createdAt: Date().addingTimeInterval(-1800)
+        )
+        archivedNotification.read = false
+        var activeNotification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: activePR.id, activityId: "ACTIVE_COMMENT"),
+            pullRequest: activePR,
+            createdAt: Date().addingTimeInterval(-3600)
+        )
+        activeNotification.read = true
+        let retainedNotifications = [archivedNotification, activeNotification]
+        let archivedProvider = VisualGitHubProvider(
+            sourceCatalog: mixedCatalog,
+            installations: GitHubAppInstallations(installations: []),
+            pullRequests: mixedPRs
+        )
+        let archivedController = try await MainActor.run { () throws -> DashboardController in
+            var store = PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!)
+            store.authMethod = .pat
+            store.sourceCatalog = mixedCatalog
+            store.sourceCatalogSyncedAt = Date()
+            store.sourceCatalogAccountLogin = "rw"
+            let account = GitHubAccount(login: "rw")
+            try store.storePullRequestSyncState(PullRequestSyncState(
+                account: account,
+                dashboard: DashboardState(
+                    pullRequests: mixedPRs, events: [], syncedAt: Date(timeIntervalSince1970: 10),
+                    source: .github, account: account, authStatus: .signedIn
+                ),
+                processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues: mixedPRs.map {
+                    ($0.id, PRActivityDetector.processedActivity(for: $0))
+                }),
+                notificationHistory: retainedNotifications
+            ))
+            return DashboardController(
+                tokenStore: InMemoryTokenStore(token: "visual-fixture"),
+                preferencesStore: store,
+                launchAtLoginService: InMemoryLaunchAtLoginService(),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                patGitHubClientFactory: { _ in archivedProvider }
+            )
+        }
+        try await waitUntil(context: "archived fixture startup refresh") {
+            await MainActor.run {
+                (archivedController.state.syncedAt ?? .distantPast) > Date(timeIntervalSince1970: 10)
+                    && !archivedController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            for (hideArchived, suffix) in [(true, "on"), (false, "off")] {
+                archivedController.hideArchivedRepositories = hideArchived
+                XCTAssertEqual(PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!).hideArchivedRepositories, hideArchived)
+                let expectedCount = hideArchived ? 1 : 2
+                XCTAssertEqual(archivedController.sortedMyPullRequests.count, expectedCount)
+                XCTAssertEqual(archivedController.visiblePullRequestNotifications.count, expectedCount)
+                XCTAssertEqual(archivedController.sourceCatalog.repositoryCount, 2)
+                try renderSettings(
+                    SettingsRootView(
+                        controller: archivedController,
+                        settingsWindowState: SettingsWindowState(selection: .sources),
+                        softwareUpdateController: SoftwareUpdateController.disabled()
+                    ),
+                    to: outputURL.appendingPathComponent("settings-archived-\(suffix).png")
+                )
+                archivedController.selectedTab = .myPRs
+                try renderMenu(
+                    controller: archivedController,
+                    to: outputURL.appendingPathComponent("menu-archived-prs-\(suffix).png")
+                )
+                archivedController.selectedTab = .notifications
+                try renderMenu(
+                    controller: archivedController,
+                    to: outputURL.appendingPathComponent("menu-archived-notifications-\(suffix).png")
+                )
+            }
+        }
+
         try await MainActor.run {
             try renderSettings(
                 SettingsRootView(
@@ -642,6 +733,19 @@ final class VisualVerificationXCTests: XCTestCase {
         throw VisualCaptureError.timedOut(context: context, seconds: waitTimeout)
     }
 
+    private static func archivedVisualPullRequest(id: String, repo: String, archived: Bool) -> PullRequest {
+        PullRequest(
+            id: id, title: archived ? "Archived repository PR" : "Active repository PR", number: archived ? 68 : 69,
+            url: URL(string: "https://github.com/\(repo)/pull/\(archived ? 68 : 69)")!,
+            repo: repo, repositoryIsArchived: archived,
+            ciState: .passing, reviewDecision: .noReviewYet,
+            commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
+            mergeable: .mergeable, draft: false,
+            createdAt: Date().addingTimeInterval(archived ? -7200 : -86_400),
+            updatedAt: Date().addingTimeInterval(-1800)
+        )
+    }
+
     @MainActor
     private func makeScenarioController(
         _ scenario: MockPullRequestScenario,
@@ -841,6 +945,12 @@ private struct VisualCaptureSelection {
         "menu-repository-access-authored",
         "menu-repository-access-requested",
         "settings-sources-repository-access",
+        "settings-archived-on",
+        "settings-archived-off",
+        "menu-archived-prs-on",
+        "menu-archived-prs-off",
+        "menu-archived-notifications-on",
+        "menu-archived-notifications-off",
         "settings-general",
         "settings-general-updates",
         "settings-notifications",
@@ -1054,10 +1164,12 @@ private final class VisualGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     let sourceCatalog: SourceCatalog
     let installations: GitHubAppInstallations
+    let pullRequests: [PullRequest]
 
-    init(sourceCatalog: SourceCatalog, installations: GitHubAppInstallations) {
+    init(sourceCatalog: SourceCatalog, installations: GitHubAppInstallations, pullRequests: [PullRequest] = []) {
         self.sourceCatalog = sourceCatalog
         self.installations = installations
+        self.pullRequests = pullRequests
     }
 
     func fetchViewer() async throws -> GitHubAccount {
@@ -1068,7 +1180,7 @@ private final class VisualGitHubProvider: GitHubProviding {
         login: String,
         previousState: PullRequestSyncState?
     ) async throws -> CompletePullRequestFetchResult {
-        CompletePullRequestFetchResult(activePullRequests: [])
+        CompletePullRequestFetchResult(activePullRequests: pullRequests)
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
