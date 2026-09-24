@@ -45,7 +45,7 @@ enum BrowserTabLocator: Equatable, Sendable {
 
 struct BrowserTabSnapshot: Equatable, Sendable {
     let locator: BrowserTabLocator
-    let url: URL
+    let url: URL?
 }
 
 struct BrowserWindowSnapshot: Equatable, Sendable {
@@ -72,11 +72,11 @@ enum PullRequestTabSelector {
             if windowOffset == 0, let active = window.activeTabIndex,
                window.tabs.indices.contains(active - 1) {
                 let tab = window.tabs[active - 1]
-                if PullRequestIdentity(tab.url) == identity {
+                if tab.url.flatMap(PullRequestIdentity.init) == identity {
                     return BrowserTabSelection(window: window, tab: tab)
                 }
             }
-            if let tab = window.tabs.first(where: { PullRequestIdentity($0.url) == identity }) {
+            if let tab = window.tabs.first(where: { $0.url.flatMap(PullRequestIdentity.init) == identity }) {
                 return BrowserTabSelection(window: window, tab: tab)
             }
         }

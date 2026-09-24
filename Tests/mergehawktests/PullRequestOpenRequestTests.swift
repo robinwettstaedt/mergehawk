@@ -41,7 +41,7 @@ final class PullRequestOpenRequestTests: XCTestCase {
         let back = window(2, order: 2, active: 1, urls: ["https://github.com/acme/app/pull/12"])
         XCTAssertEqual(PullRequestTabSelector.select(for: request, from: [back, front])?.tab.locator, .safari(index: 3))
 
-        let nonmatchingActive = window(1, order: 1, active: 2, urls: front.tabs.map { $0.url.absoluteString })
+        let nonmatchingActive = window(1, order: 1, active: 2, urls: front.tabs.compactMap(\.url).map(\.absoluteString))
         XCTAssertEqual(PullRequestTabSelector.select(for: request, from: [back, nonmatchingActive])?.tab.locator, .safari(index: 1))
 
         let frontWithoutMatch = window(1, order: 1, active: 2, urls: ["https://github.com/acme/app/issues/12"])
@@ -53,8 +53,10 @@ final class PullRequestOpenRequestTests: XCTestCase {
         let base = URL(string: "https://github.com/acme/app/pull/12")!
         let ordinary = PullRequestOpenRequest(pullRequestURL: base)
         XCTAssertEqual(ordinary.targetURL, base)
-        let precise = PullRequestOpenRequest(pullRequestURL: base, destinationURL: base)
-        XCTAssertEqual(precise.targetURL, base)
+        let comment = URL(string: "https://github.com/acme/app/pull/12?view=discussion#issuecomment-7")!
+        let precise = PullRequestOpenRequest(pullRequestURL: base, destinationURL: comment)
+        XCTAssertEqual(precise.targetURL, comment)
+        XCTAssertNotEqual(precise.targetURL, base)
     }
 
     private func window(_ id: Int32, order: Int, active: Int?, urls: [String]) -> BrowserWindowSnapshot {

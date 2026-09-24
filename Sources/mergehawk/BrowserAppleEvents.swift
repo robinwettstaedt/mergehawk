@@ -178,8 +178,7 @@ final class BrowserAppleEvents: PullRequestBrowserBackend, @unchecked Sendable {
                 case .chromium:
                     locator = .chromium(id: try string(tabIDs[tabOffset], "tab ID"))
                 }
-                let rawURL = try string(urls[tabOffset], "tab URL")
-                guard let url = URL(string: rawURL) else { throw BrowserAppleEventError.malformedReply("tab URL") }
+                let url = urls[tabOffset].stringValue.flatMap { $0.isEmpty ? nil : URL(string: $0) }
                 return BrowserTabSnapshot(locator: locator, url: url)
             }
             let activeIndex: Int

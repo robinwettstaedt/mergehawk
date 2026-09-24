@@ -46,10 +46,41 @@ final class BrowserAppleEventsTests: XCTestCase {
         XCTAssertTrue(windows[0].minimized)
         XCTAssertEqual(windows[0].activeTabIndex, 2)
         XCTAssertEqual(windows[0].tabs.map(\.locator), [.safari(index: 1), .safari(index: 2)])
-        XCTAssertEqual(windows[0].tabs[1].url.absoluteString, "https://github.com/acme/app/pull/12/files")
+        XCTAssertEqual(windows[0].tabs[1].url?.absoluteString, "https://github.com/acme/app/pull/12/files")
         XCTAssertEqual(transport.events.count, 7)
         XCTAssertEqual(transport.events.filter { propertyCode($0) == BrowserAppleEventCodec.code("pURL") }.count, 1)
         XCTAssertEqual(transport.events.filter { $0.eventID == OSType(kAECountElements) }.count, 2)
+    }
+
+    func testBlankAndUnparseableTabsKeepIndicesAndActiveMatchPriority() throws {
+        let prURL = "https://github.com/acme/app/pull/12/files"
+        let transport = ScriptedBrowserTransport([
+            reply(list([.init(int32: 7)])),
+            reply(list([.init(int32: 1)])),
+            reply(list([.init(boolean: false)])),
+            reply(.init(int32: 4)),
+            reply(list([
+                .null(), .init(string: prURL), .init(string: "http://["),
+                .init(string: "https://github.com/acme/app/pull/12#issuecomment-9")
+            ])),
+            reply(.init(int32: 4))
+        ])
+        let backend = BrowserAppleEvents(transport: transport, permissionChecker: { _ in .approved })
+        let windows = try offMain { try backend.windows(for: self.target) }
+        let window = try XCTUnwrap(windows.first)
+        XCTAssertEqual(window.tabs.map(\.locator), [
+            .safari(index: 1), .safari(index: 2), .safari(index: 3), .safari(index: 4)
+        ])
+        XCTAssertNil(window.tabs[0].url)
+        XCTAssertNil(window.tabs[2].url)
+
+        let request = PullRequestOpenRequest(pullRequestURL: base)
+        XCTAssertEqual(PullRequestTabSelector.select(for: request, from: windows)?.tab.locator, .safari(index: 4))
+        let invalidActive = BrowserWindowSnapshot(
+            locator: window.locator, frontToBackIndex: window.frontToBackIndex,
+            minimized: false, activeTabIndex: 3, tabs: window.tabs
+        )
+        XCTAssertEqual(PullRequestTabSelector.select(for: request, from: [invalidActive])?.tab.locator, .safari(index: 2))
     }
 
     func testChromiumPreservesTextIDsAndWritesOneCompleteURLBeforeRaising() throws {
