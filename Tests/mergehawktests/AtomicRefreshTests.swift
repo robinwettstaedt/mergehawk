@@ -145,6 +145,126 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testArchivedActivityIsProcessedWithoutNewHistoryOrDeliveryAndDoesNotReplay() async throws {
+        let baseline = makePullRequest(id: "PR_ARCHIVED", title: "Archived", archived: true)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(pullRequest: baseline, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        let firstComment = PullRequestCommentActivity(
+            id: "COMMENT_ARCHIVED", author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
+            source: .pullRequest
+        )
+        let first = makePullRequest(
+            id: baseline.id, title: baseline.title, archived: true,
+            comments: baseline.recentCommentActivities + [firstComment]
+        )
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [first]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState?.processedActivityByPullRequestID[baseline.id]?.commentIDs.count, 2)
+        XCTAssertEqual(fixture.controller.state.pullRequests.first?.repositoryIsArchived, true)
+
+        fixture.controller.hideArchivedRepositories = false
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+
+        let secondComment = PullRequestCommentActivity(
+            id: "COMMENT_RESTORED", author: "reviewer", createdAt: Date(timeIntervalSince1970: 40),
+            source: .pullRequest
+        )
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [makePullRequest(
+            id: baseline.id, title: baseline.title, archived: true,
+            comments: first.recentCommentActivities + [secondComment]
+        )]))
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 3 && !fixture.controller.isRefreshing }
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.compactMap(\.activityId).filter { $0 == "COMMENT_RESTORED" }, ["COMMENT_RESTORED"])
+        XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [baseline.id])
+    }
+
+    @MainActor
+    func testRetiringPRUsesCurrentArchiveStatusForNotificationSuppression() async throws {
+        let baseline = makePullRequest(id: "PR_RETIRING", title: "Retiring", archived: false)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(pullRequest: baseline, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        let finalComment = PullRequestCommentActivity(
+            id: "COMMENT_FINAL", author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
+            source: .pullRequest
+        )
+        let retired = makePullRequest(
+            id: baseline.id, title: baseline.title, archived: true,
+            comments: baseline.recentCommentActivities + [finalComment]
+        )
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [], retiringPullRequests: [retired]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertTrue(fixture.controller.state.pullRequests.isEmpty)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+    }
+
+    @MainActor
+    func testArchiveToggleChangedDuringSuspendedRefreshIsUsedAtCommit() async throws {
+        let baseline = makePullRequest(id: "PR_ARCHIVED", title: "Archived", archived: true)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(pullRequest: baseline, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        fixture.controller.hideArchivedRepositories = false
+        let comment = PullRequestCommentActivity(
+            id: "COMMENT_DURING_FETCH", author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
+            source: .pullRequest
+        )
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [makePullRequest(
+            id: baseline.id, title: baseline.title, archived: true,
+            comments: baseline.recentCommentActivities + [comment]
+        )]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.contains { $0.activityId == comment.id })
+        XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [baseline.id])
+        XCTAssertFalse(fixture.preferences.hideArchivedRepositories)
+    }
+
+    @MainActor
+    func testSuccessfulArchiveStatusRefreshUpdatesPresentationAndFailedRefreshPreservesIt() async throws {
+        let baseline = makePullRequest(id: "PR_ARCHIVED", title: "Archived", archived: true)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(pullRequest: baseline, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        XCTAssertTrue(fixture.controller.sourceFilteredMyPullRequests.isEmpty)
+        XCTAssertTrue(fixture.controller.visiblePullRequestNotifications.isEmpty)
+
+        let unarchived = makePullRequest(id: baseline.id, title: baseline.title, archived: false)
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [unarchived]))
+        await waitUntil { !fixture.controller.isRefreshing }
+        XCTAssertEqual(fixture.controller.sourceFilteredMyPullRequests.map(\.id), [baseline.id])
+        XCTAssertEqual(fixture.controller.visiblePullRequestNotifications.count, 1)
+
+        provider.failNextFetch()
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+        XCTAssertNotNil(fixture.controller.refreshErrorMessage)
+        XCTAssertEqual(fixture.controller.sourceFilteredMyPullRequests.map(\.id), [baseline.id])
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState?.dashboard.pullRequests.first?.repositoryIsArchived, false)
+
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [baseline]))
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 3 && !fixture.controller.isRefreshing }
+        XCTAssertTrue(fixture.controller.sourceFilteredMyPullRequests.isEmpty)
+        XCTAssertTrue(fixture.controller.visiblePullRequestNotifications.isEmpty)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 1)
+    }
+
+    @MainActor
     func testLargeCompleteResultPublishesOnlyAfterAllActivityIsPrepared() async throws {
         let provider = AtomicGitHubProvider(result: .suspended)
         let fixture = try makeFixture(provider: provider)
@@ -918,6 +1038,8 @@ private final class AtomicGitHubProvider: GitHubProviding {
         continuation = nil
     }
 
+    func failNextFetch() { result = .failure }
+
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
         SourceCatalog(repositories: [], accountLogin: accountLogin)
     }
@@ -1149,6 +1271,7 @@ private struct AtomicFixture {
 private func makePullRequest(
     id: String,
     title: String,
+    archived: Bool? = nil,
     comments: [PullRequestCommentActivity] = [
         PullRequestCommentActivity(
             id: "COMMENT_OLD",
@@ -1165,6 +1288,7 @@ private func makePullRequest(
         number: 42,
         url: URL(string: "https://github.com/acme/app/pull/42")!,
         repo: "acme/app",
+        repositoryIsArchived: archived,
         ciState: .passing,
         reviewDecision: .noReviewYet,
         commentCount: comments.count,

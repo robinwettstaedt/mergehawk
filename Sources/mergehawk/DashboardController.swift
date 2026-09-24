@@ -247,6 +247,11 @@ final class DashboardController: ObservableObject {
             preferencesStore.sourcePreferences = sourcePreferences
         }
     }
+    @Published var hideArchivedRepositories: Bool {
+        didSet {
+            preferencesStore.hideArchivedRepositories = hideArchivedRepositories
+        }
+    }
     @Published var sourceCatalog: SourceCatalog {
         didSet {
             preferencesStore.sourceCatalog = sourceCatalog
@@ -372,6 +377,7 @@ final class DashboardController: ObservableObject {
         self.pinnedPullRequestIds = preferencesStore.pinnedPullRequestIds
         self.hiddenPullRequestIds = preferencesStore.hiddenPullRequestIds
         self.sourcePreferences = preferencesStore.sourcePreferences
+        self.hideArchivedRepositories = preferencesStore.hideArchivedRepositories
         self.sourceCatalog = preferencesStore.sourceCatalog
         self.sourceCatalogSyncedAt = preferencesStore.sourceCatalogSyncedAt
         self.sourceCatalogAccountLogin = preferencesStore.sourceCatalogAccountLogin
@@ -397,9 +403,23 @@ final class DashboardController: ObservableObject {
     }
 
     var visiblePullRequestNotifications: [PullRequestNotification] {
-        pullRequestNotificationHistory
-            .filter { sourcePreferences.allowsNotifications(for: $0.repo) }
+        let preferences = effectiveSourcePreferences
+        return pullRequestNotificationHistory
+            .filter { preferences.allowsNotifications(for: $0.repo) }
             .sorted(by: Self.compareNotifications)
+    }
+
+    private var effectiveSourcePreferences: SourcePreferences {
+        guard hideArchivedRepositories else { return sourcePreferences }
+        var effective = sourcePreferences
+        for repository in Set(state.pullRequests.filter { $0.repositoryIsArchived == true }.map(\.repo)) {
+            effective.repositories[repository] = RepositorySourcePreferences(
+                notifications: .disabled,
+                myPullRequests: .disabled,
+                reviewRequests: .disabled
+            )
+        }
+        return effective
     }
 
     var showsGitHubAppRepositoryAccessPrompt: Bool {
@@ -445,14 +465,16 @@ final class DashboardController: ObservableObject {
     }
 
     var sourceFilteredMyPullRequests: [PullRequest] {
-        state.pullRequests.filter { pr in
-            pr.isMine && sourcePreferences.allowsMyPullRequests(for: pr.repo)
+        let preferences = effectiveSourcePreferences
+        return state.pullRequests.filter { pr in
+            pr.isMine && preferences.allowsMyPullRequests(for: pr.repo)
         }
     }
 
     var sourceFilteredReviewRequests: [PullRequest] {
-        state.pullRequests.filter { pr in
-            sourcePreferences.allowsReviewRequests(for: pr.repo)
+        let preferences = effectiveSourcePreferences
+        return state.pullRequests.filter { pr in
+            preferences.allowsReviewRequests(for: pr.repo)
         }
     }
 
@@ -1358,6 +1380,7 @@ final class DashboardController: ObservableObject {
             let allowed = prepared.events.filter { value in
                 preferences.allows(event: value.event, for: value.filteringContext)
                     && sourcePreferences.allowsNotifications(for: value.filteringContext.repo)
+                    && (!hideArchivedRepositories || value.filteringContext.repositoryIsArchived != true)
             }
             let notifications = allowed.map { value in
                 PullRequestNotification(

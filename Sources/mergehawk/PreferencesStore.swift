@@ -60,6 +60,11 @@ struct PreferencesStore {
         }
     }
 
+    var hideArchivedRepositories: Bool {
+        get { value(for: "sources.hideArchivedRepositories", fallback: true) }
+        set { defaults.set(newValue, forKey: "sources.hideArchivedRepositories") }
+    }
+
     var sourceCatalog: SourceCatalog {
         get {
             decoded(for: "sources.catalog", fallback: .empty)

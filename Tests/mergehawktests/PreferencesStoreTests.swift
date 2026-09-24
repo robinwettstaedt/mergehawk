@@ -124,6 +124,17 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testHideArchivedRepositoriesDefaultsOnAndPersistsExplicitChoices() {
+        withStore { store, defaults in
+            XCTAssertTrue(store.hideArchivedRepositories)
+            XCTAssertNil(defaults.object(forKey: "sources.hideArchivedRepositories"))
+            store.hideArchivedRepositories = false
+            XCTAssertFalse(PreferencesStore(defaults: defaults).hideArchivedRepositories)
+            store.hideArchivedRepositories = true
+            XCTAssertTrue(PreferencesStore(defaults: defaults).hideArchivedRepositories)
+        }
+    }
+
     func testNotificationPreferencesRoundTripThroughSerializedDefaults() {
         withStore { store, defaults in
             let preferences = NotificationPreferences(
