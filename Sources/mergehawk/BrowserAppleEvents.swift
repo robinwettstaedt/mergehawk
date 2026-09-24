@@ -257,7 +257,7 @@ final class BrowserAppleEvents: PullRequestBrowserBackend, @unchecked Sendable {
     private static func nativePermission(_ target: BrowserTarget) throws -> BrowserAutomationPermission {
         let address = NSAppleEventDescriptor(processIdentifier: target.processIdentifier)
         let status = AEDeterminePermissionToAutomateTarget(
-            address.aeDesc!, AEEventClass(kAECoreSuite), AEEventID(kAEGetData), true
+            address.aeDesc!, AEEventClass(typeWildCard), AEEventID(typeWildCard), true
         )
         let denied = OSStatus(errAEEventNotPermitted)
         switch status {
