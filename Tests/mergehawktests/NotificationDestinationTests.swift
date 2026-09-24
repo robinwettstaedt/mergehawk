@@ -84,6 +84,74 @@ final class NotificationDestinationTests: XCTestCase {
         }
     }
 
+    func testSingleMacOSUpdateRoundTripsBaseAndPreciseDestination() {
+        let base = URL(string: "https://github.com/acme/app/pull/1")!
+        let destination = URL(string: "https://github.com/acme/app/pull/1?view=comment#discussion_r7")!
+        let pullRequest = PullRequest(
+            id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
+            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
+        )
+        let event = PullRequestEvent(
+            type: .reviewCommented, prId: pullRequest.id,
+            activityId: "C7", destinationURL: destination
+        )
+        let route = NotificationClickRoute.route(events: [event], pullRequests: [pullRequest])
+        let request = PullRequestOpenRequest(pullRequestURL: base, destinationURL: destination)
+        XCTAssertEqual(route, .openPullRequest(request))
+        XCTAssertEqual(route.userInfo[NotificationClickRoute.pullRequestURLKey], base.absoluteString)
+        XCTAssertEqual(route.userInfo[NotificationClickRoute.destinationURLKey], destination.absoluteString)
+        XCTAssertEqual(NotificationClickRoute(userInfo: route.userInfo), .openPullRequest(request))
+        let record = NotificationContentBuilder.records(events: [event], pullRequests: [pullRequest])[0]
+        XCTAssertEqual(record.clickPullRequestURL, base.absoluteString)
+        XCTAssertEqual(record.clickDestinationURL, destination.absoluteString)
+
+        var malformed = route.userInfo
+        malformed[NotificationClickRoute.destinationURLKey] = "not a URL"
+        XCTAssertEqual(NotificationClickRoute(userInfo: malformed), .openNotifications)
+        XCTAssertEqual(NotificationClickRoute.route(events: [event, event], pullRequests: [pullRequest]), .openNotifications)
+        XCTAssertEqual(NotificationClickRoute.route(events: [event], pullRequests: []), .openNotifications)
+    }
+
+    @MainActor
+    func testControllerRoutesPRAndNotificationRequestsToInjectedCollaborator() async throws {
+        let suite = "mergehawk-typed-open-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let base = URL(string: "https://github.com/acme/app/pull/1")!
+        let destination = URL(string: "https://github.com/acme/app/pull/1#issuecomment-7")!
+        let pullRequest = PullRequest(
+            id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
+            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
+        )
+        let notification = PullRequestNotification(
+            event: PullRequestEvent(
+                type: .newComment, prId: pullRequest.id, activityId: "C7", destinationURL: destination
+            ),
+            pullRequest: pullRequest
+        )
+        var requests: [PullRequestOpenRequest] = []
+        var ordinaryURLs: [URL] = []
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0,
+            urlOpener: { ordinaryURLs.append($0) },
+            pullRequestOpener: { requests.append($0) }
+        )
+        controller.openPullRequest(pullRequest)
+        controller.openPullRequestNotification(notification)
+        controller.open(URL(string: "https://github.com/settings")!)
+
+        XCTAssertEqual(requests, [
+            PullRequestOpenRequest(pullRequestURL: base),
+            PullRequestOpenRequest(pullRequestURL: base, destinationURL: destination)
+        ])
+        XCTAssertEqual(ordinaryURLs, [URL(string: "https://github.com/settings")!])
+    }
+
     private func comment(
         _ id: String, url: URL, source: PullRequestCommentActivity.Source,
         reviewID: String? = nil

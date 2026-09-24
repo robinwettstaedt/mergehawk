@@ -292,6 +292,7 @@ final class DashboardController: ObservableObject {
     private var sourceCatalogProvider: SourceCatalogProviding?
     private var gitHubAppInstallationProvider: GitHubAppInstallationProviding?
     private let openURL: @MainActor (URL) -> Void
+    private let openPullRequestRequest: @MainActor (PullRequestOpenRequest) -> Void
     private let openDeviceFlowURL: @MainActor (URL) -> Void
     private let copyStringToClipboard: @MainActor (String) -> Void
     private let now: @MainActor () -> Date
@@ -326,6 +327,7 @@ final class DashboardController: ObservableObject {
             GitHubClient(tokenProvider: $0)
         },
         urlOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        pullRequestOpener: (@MainActor (PullRequestOpenRequest) -> Void)? = nil,
         deviceFlowURLOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
         clipboardWriter: @escaping @MainActor (String) -> Void = DashboardController.copyToPasteboard,
         now: @escaping @MainActor () -> Date = Date.init
@@ -344,6 +346,7 @@ final class DashboardController: ObservableObject {
         )
         self.launchConfiguration = launchConfiguration
         self.openURL = urlOpener
+        self.openPullRequestRequest = pullRequestOpener ?? { urlOpener($0.targetURL) }
         self.openDeviceFlowURL = deviceFlowURLOpener
         self.copyStringToClipboard = clipboardWriter
         self.now = now
@@ -923,12 +926,19 @@ final class DashboardController: ObservableObject {
 
     func openPullRequest(_ pullRequest: PullRequest) {
         markPullRequestNotificationsRead(for: pullRequest)
-        open(pullRequest.url)
+        openPullRequest(PullRequestOpenRequest(pullRequestURL: pullRequest.url))
     }
 
     func openPullRequestNotification(_ notification: PullRequestNotification) {
         markPullRequestNotificationRead(notification)
-        open(notification.url)
+        openPullRequest(PullRequestOpenRequest(
+            pullRequestURL: notification.url,
+            destinationURL: notification.destinationURL
+        ))
+    }
+
+    func openPullRequest(_ request: PullRequestOpenRequest) {
+        openPullRequestRequest(request)
     }
 
     func markPullRequestNotificationRead(_ notification: PullRequestNotification) {

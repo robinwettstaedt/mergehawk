@@ -64,7 +64,7 @@ final class PullRequestBrowserOpenerTests: XCTestCase {
         await waitUntil { activated.count == 2 }
         XCTAssertEqual(backend.permissionCount, 2)
         XCTAssertEqual(backend.applyCount, 2)
-        XCTAssertEqual(backend.appliedRequests.map(\.navigates), [false, true])
+        XCTAssertEqual(backend.appliedRequests.map(\.targetURL), [base, destination])
         XCTAssertEqual(backend.appliedRequests.last?.targetURL, destination)
         XCTAssertTrue(normal.isEmpty)
     }

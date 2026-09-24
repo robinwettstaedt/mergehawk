@@ -130,7 +130,7 @@ final class AtomicRefreshTests: XCTestCase {
                 comments: fixture.pullRequest.recentCommentActivities + [
                     PullRequestCommentActivity(
                         id: "COMMENT_\(mode)",
-                        url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                        url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                         author: "reviewer",
                         createdAt: Date(timeIntervalSince1970: 30),
                         source: .pullRequest
@@ -154,7 +154,7 @@ final class AtomicRefreshTests: XCTestCase {
         let comments = (0..<61).map { index in
             PullRequestCommentActivity(
                 id: "LARGE_COMMENT_\(index)",
-                url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                 author: "reviewer",
                 createdAt: Date(timeIntervalSince1970: TimeInterval(100 + 2 * index)),
                 source: .pullRequest
@@ -163,7 +163,7 @@ final class AtomicRefreshTests: XCTestCase {
         let reviews = (0..<60).map { index in
             PullRequestReview(
                 id: "LARGE_REVIEW_\(index)",
-                url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
+                url: URL(string: "https://github.com/acme/app/pull/42#pullrequestreview-fixture")!,
                 state: .approved,
                 submittedAt: Date(timeIntervalSince1970: TimeInterval(101 + 2 * index)),
                 author: "reviewer"
@@ -200,7 +200,7 @@ final class AtomicRefreshTests: XCTestCase {
         let comments = (0..<16).map { index in
             PullRequestCommentActivity(
                 id: String(format: "EQUAL_COMMENT_%02d", index),
-                url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                 author: "reviewer",
                 createdAt: timestamp,
                 source: .pullRequest
@@ -209,7 +209,7 @@ final class AtomicRefreshTests: XCTestCase {
         let reviews = (0..<15).map { index in
             PullRequestReview(
                 id: String(format: "EQUAL_REVIEW_%02d", index),
-                url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
+                url: URL(string: "https://github.com/acme/app/pull/42#pullrequestreview-fixture")!,
                 state: .approved,
                 submittedAt: timestamp,
                 author: "reviewer"
@@ -265,7 +265,7 @@ final class AtomicRefreshTests: XCTestCase {
             comments: fixture.pullRequest.recentCommentActivities + [
                 PullRequestCommentActivity(
                     id: "COMMENT_LATE",
-                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                    url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 20),
                     source: .pullRequest
@@ -290,7 +290,7 @@ final class AtomicRefreshTests: XCTestCase {
             comments: baseline.recentCommentActivities + [
                 PullRequestCommentActivity(
                     id: "COMMENT_FINAL",
-                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                    url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_FINAL")!,
                     author: "reviewer",
                     createdAt: Date(timeIntervalSince1970: 20),
                     source: .pullRequest
@@ -319,7 +319,7 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertEqual(fixture.notifications.records.map(\.eventType), ["new_comment"])
 
         fixture.controller.openPullRequestNotification(notification)
-        XCTAssertEqual(openedURLs, [baseline.url])
+        XCTAssertEqual(openedURLs, [notification.destinationURL!])
     }
 
     @MainActor
@@ -766,7 +766,7 @@ final class AtomicRefreshTests: XCTestCase {
                 comments: oldPR.recentCommentActivities + [
                     PullRequestCommentActivity(
                         id: "COMMENT_LATE_OLD_PROVIDER",
-                        url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                        url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                         author: "reviewer",
                         createdAt: Date(timeIntervalSince1970: 40),
                         source: .pullRequest
@@ -1160,7 +1160,7 @@ private func makePullRequest(
     comments: [PullRequestCommentActivity] = [
         PullRequestCommentActivity(
             id: "COMMENT_OLD",
-            url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
             author: "teammate",
             createdAt: Date(timeIntervalSince1970: 5),
             source: .pullRequest

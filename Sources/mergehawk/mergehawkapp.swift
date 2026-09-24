@@ -132,8 +132,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
         let userInfo = response.notification.request.content.userInfo
         switch NotificationClickRoute(userInfo: userInfo) {
-        case .openPullRequest(let url):
-            controller.open(url)
+        case .openPullRequest(let request):
+            controller.openPullRequest(request)
         case .openNotifications:
             statusBarController?.showMenu(selecting: .notifications)
         }

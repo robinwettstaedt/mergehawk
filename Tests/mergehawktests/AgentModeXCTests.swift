@@ -581,7 +581,7 @@ final class AgentModeXCTests: XCTestCase {
             pullRequests: [pullRequest]
         )
 
-        XCTAssertEqual(route, .openPullRequest(pullRequest.url))
+        XCTAssertEqual(route, .openPullRequest(PullRequestOpenRequest(pullRequestURL: pullRequest.url)))
         XCTAssertEqual(route.userInfo[NotificationClickRoute.actionKey], NotificationClickRoute.openPullRequestAction)
         XCTAssertEqual(route.userInfo[NotificationClickRoute.pullRequestURLKey], pullRequest.url.absoluteString)
     }

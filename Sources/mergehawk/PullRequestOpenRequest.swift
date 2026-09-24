@@ -10,7 +10,6 @@ struct PullRequestOpenRequest: Equatable, Sendable {
     }
 
     var targetURL: URL { destinationURL ?? pullRequestURL }
-    var navigates: Bool { destinationURL != nil }
 }
 
 struct PullRequestIdentity: Equatable, Sendable {

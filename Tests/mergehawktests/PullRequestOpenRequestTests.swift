@@ -49,14 +49,12 @@ final class PullRequestOpenRequestTests: XCTestCase {
         XCTAssertNil(PullRequestTabSelector.select(for: request, from: [frontWithoutMatch]))
     }
 
-    func testRequestUsesExplicitDestinationForNavigationEvenWhenURLsAreEqual() {
+    func testRequestUsesTheBaseOrExactDestinationURL() {
         let base = URL(string: "https://github.com/acme/app/pull/12")!
-        let preserve = PullRequestOpenRequest(pullRequestURL: base)
-        XCTAssertEqual(preserve.targetURL, base)
-        XCTAssertFalse(preserve.navigates)
+        let ordinary = PullRequestOpenRequest(pullRequestURL: base)
+        XCTAssertEqual(ordinary.targetURL, base)
         let precise = PullRequestOpenRequest(pullRequestURL: base, destinationURL: base)
         XCTAssertEqual(precise.targetURL, base)
-        XCTAssertTrue(precise.navigates)
     }
 
     private func window(_ id: Int32, order: Int, active: Int?, urls: [String]) -> BrowserWindowSnapshot {
