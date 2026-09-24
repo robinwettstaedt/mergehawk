@@ -41,6 +41,8 @@ final class GitHubPaginationTests: XCTestCase {
             XCTAssertFalse(query.contains("statusCheckRollup"))
             XCTAssertFalse(query.contains("author { id"))
             XCTAssertTrue(query.contains("author { login }"))
+            XCTAssertTrue(query.contains("nodes { id url createdAt"))
+            XCTAssertTrue(query.contains("nodes { id url state submittedAt"))
             XCTAssertTrue(query.contains("assignees(last:"))
             XCTAssertTrue(query.contains("nodes { id login avatarUrl(size: 64) }"))
             XCTAssertTrue(query.contains("... on User { id login }"))
@@ -64,15 +66,18 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated.count, 1)
         XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 21)
         XCTAssertEqual(hydrated[0].pullRequest.recentReviews.count, 11)
+        XCTAssertEqual(hydrated[0].pullRequest.recentReviews.first { $0.id == "R0" }?.url.absoluteString, "https://github.com/acme/app/pull/1#pullrequestreview-R0")
         XCTAssertEqual(hydrated[0].pullRequest.reviewDecision, .approved)
         XCTAssertEqual(hydrated[0].pullRequest.commentCount, 1)
         XCTAssertTrue(hydrated[0].pullRequest.isAssignedToViewer)
         XCTAssertEqual(hydrated[0].pullRequest.reviewRequestKind, .direct)
         let topLevelComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "C0" })
         XCTAssertEqual(topLevelComment.source, .pullRequest)
+        XCTAssertEqual(topLevelComment.url.absoluteString, "https://github.com/acme/app/pull/1#issuecomment-C0")
         XCTAssertNil(topLevelComment.reviewId)
         let threadComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "THREAD_COMMENT" })
         XCTAssertEqual(threadComment.source, .reviewThread)
+        XCTAssertEqual(threadComment.url.absoluteString, "https://github.com/acme/app/pull/1#issuecomment-THREAD_COMMENT")
         XCTAssertEqual(threadComment.reviewId, "THREAD_REVIEW")
         XCTAssertEqual(transport.queries.filter { $0.contains("CompletePullRequests") }.count, 1)
         XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 1)
@@ -98,6 +103,7 @@ final class GitHubPaginationTests: XCTestCase {
             XCTAssertFalse(query.contains("author { id"))
             XCTAssertTrue(query.contains("author { login }"))
             XCTAssertTrue(query.contains("pullRequestReview { id }"))
+            XCTAssertTrue(query.contains("nodes { id url createdAt"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 11, nodes: [
                     Self.comment("TC1", viewerDidAuthor: true),
@@ -112,6 +118,7 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated[0].pullRequest.commentCount, 1)
         let continuedComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "TC0" })
         XCTAssertEqual(continuedComment.source, .reviewThread)
+        XCTAssertEqual(continuedComment.url.absoluteString, "https://github.com/acme/app/pull/1#issuecomment-TC0")
         XCTAssertEqual(continuedComment.reviewId, "THREAD_REVIEW")
     }
 
@@ -289,6 +296,7 @@ final class GitHubPaginationTests: XCTestCase {
             }
             XCTAssertFalse(query.contains("author { id"))
             XCTAssertTrue(query.contains("latestOpinionatedReviews(last:"))
+            XCTAssertTrue(query.contains("nodes { id url state submittedAt"))
             XCTAssertTrue(query.contains("author { login }"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C1"), Self.comment("C0")])],
@@ -312,8 +320,10 @@ final class GitHubPaginationTests: XCTestCase {
         ]
         var comment = Self.comment("COMMENT_WITH_ACTOR")
         comment["author"] = ["login": "comment-author"]
+        comment["url"] = "https://github.com/acme/app/pull/1?view=discussion#issuecomment-C1"
         var review = Self.review("REVIEW_WITH_ACTOR", state: "APPROVED")
         review["author"] = ["login": "review-author"]
+        review["url"] = "https://github.com/acme/app/pull/1?view=review#pullrequestreview-R1"
         var node = Self.pullRequest(
             comments: Self.connection(total: 1, nodes: [comment]),
             reviews: Self.connection(total: 1, nodes: [review]),
@@ -331,7 +341,9 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(pullRequest.author, "pr-author")
         XCTAssertEqual(pullRequest.authorAvatarURL, URL(string: "https://avatars.example/pr-author.png"))
         XCTAssertEqual(pullRequest.recentCommentActivities.first?.author, "comment-author")
+        XCTAssertEqual(pullRequest.recentCommentActivities.first?.url.absoluteString, "https://github.com/acme/app/pull/1?view=discussion#issuecomment-C1")
         XCTAssertEqual(pullRequest.recentReviews.first?.author, "review-author")
+        XCTAssertEqual(pullRequest.recentReviews.first?.url.absoluteString, "https://github.com/acme/app/pull/1?view=review#pullrequestreview-R1")
         XCTAssertEqual(pullRequest.reviewDecision, .approved)
     }
 
@@ -899,6 +911,7 @@ final class GitHubPaginationTests: XCTestCase {
     ) -> [String: Any] {
         var result: [String: Any] = [
             "id": id, "createdAt": createdAt,
+            "url": "https://github.com/acme/app/pull/1#issuecomment-\(id)",
             "viewerDidAuthor": viewerDidAuthor,
             "author": user(author ?? (viewerDidAuthor ? "rw" : "reviewer"))
         ]
@@ -924,6 +937,7 @@ final class GitHubPaginationTests: XCTestCase {
     ) -> [String: Any] {
         [
             "id": id, "state": state, "submittedAt": submittedAt,
+            "url": "https://github.com/acme/app/pull/1#pullrequestreview-\(id)",
             "viewerDidAuthor": viewerDidAuthor, "author": user(author)
         ]
     }

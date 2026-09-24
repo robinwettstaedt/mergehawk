@@ -62,6 +62,7 @@ public enum PullRequestReviewState: String, Codable, Equatable, Sendable {
 
 public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
     public let id: String
+    public let url: URL
     public let state: PullRequestReviewState
     public let submittedAt: Date
     public let author: String?
@@ -69,12 +70,14 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
 
     public init(
         id: String,
+        url: URL,
         state: PullRequestReviewState,
         submittedAt: Date,
         author: String? = nil,
         viewerDidAuthor: Bool = false
     ) {
         self.id = id
+        self.url = url
         self.state = state
         self.submittedAt = submittedAt
         self.author = author
@@ -89,6 +92,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     }
 
     public let id: String
+    public let url: URL
     public let author: String?
     public let viewerDidAuthor: Bool
     public let createdAt: Date
@@ -97,6 +101,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
 
     public init(
         id: String,
+        url: URL,
         author: String? = nil,
         viewerDidAuthor: Bool = false,
         createdAt: Date,
@@ -104,6 +109,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
         reviewId: String? = nil
     ) {
         self.id = id
+        self.url = url
         self.author = author
         self.viewerDidAuthor = viewerDidAuthor
         self.createdAt = createdAt

@@ -59,6 +59,7 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_APPROVED",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .approved,
                     submittedAt: Date(timeIntervalSince1970: 200),
                     author: "teammate"
@@ -81,6 +82,7 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_OLD",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .approved,
                     submittedAt: Date(timeIntervalSince1970: 100),
                     author: "teammate"
@@ -97,12 +99,14 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_OLD",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .approved,
                     submittedAt: Date(timeIntervalSince1970: 100),
                     author: "teammate"
                 ),
                 PullRequestReview(
                     id: "REVIEW_CHANGES",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .changesRequested,
                     submittedAt: Date(timeIntervalSince1970: 300),
                     author: "backend-mateo"
@@ -124,6 +128,7 @@ struct Runner {
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "COMMENT_OLD",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 100),
                     source: .pullRequest
@@ -138,18 +143,21 @@ struct Runner {
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "COMMENT_OLD",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 100),
                     source: .pullRequest
                 ),
                 PullRequestCommentActivity(
                     id: "COMMENT_NEW_1",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "frontend-sam",
                     createdAt: Date(timeIntervalSince1970: 200),
                     source: .pullRequest
                 ),
                 PullRequestCommentActivity(
                     id: "COMMENT_NEW_2",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "docs-lee",
                     createdAt: Date(timeIntervalSince1970: 300),
                     source: .reviewThread
@@ -190,6 +198,7 @@ struct Runner {
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "INLINE_COMMENT",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "docs-lee",
                     createdAt: Date(timeIntervalSince1970: 200),
                     source: .reviewThread,
@@ -200,6 +209,7 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_COMMENTED",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .commented,
                     submittedAt: Date(timeIntervalSince1970: 200),
                     author: "docs-lee"
@@ -231,6 +241,7 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_COMMENTED",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .commented,
                     submittedAt: Date(timeIntervalSince1970: 200),
                     author: "docs-lee"
@@ -263,6 +274,7 @@ struct Runner {
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "INLINE_COMMENT",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "backend-mateo",
                     createdAt: Date(timeIntervalSince1970: 200),
                     source: .reviewThread,
@@ -273,6 +285,7 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_CHANGES",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .changesRequested,
                     submittedAt: Date(timeIntervalSince1970: 200),
                     author: "backend-mateo"
@@ -305,6 +318,7 @@ struct Runner {
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "INLINE_COMMENT",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "backend-mateo",
                     createdAt: Date(timeIntervalSince1970: 200),
                     source: .reviewThread,
@@ -312,6 +326,7 @@ struct Runner {
                 ),
                 PullRequestCommentActivity(
                     id: "UNRELATED_COMMENT",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "frontend-sam",
                     createdAt: Date(timeIntervalSince1970: 300),
                     source: .pullRequest
@@ -321,6 +336,7 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_CHANGES",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .changesRequested,
                     submittedAt: Date(timeIntervalSince1970: 200),
                     author: "backend-mateo"
@@ -360,6 +376,7 @@ struct Runner {
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "COMMENT_SELF",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "rw",
                     viewerDidAuthor: true,
                     createdAt: Date(timeIntervalSince1970: 200),
@@ -370,6 +387,7 @@ struct Runner {
             recentReviews: [
                 PullRequestReview(
                     id: "REVIEW_SELF",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .approved,
                     submittedAt: Date(timeIntervalSince1970: 300),
                     author: "rw",
@@ -629,6 +647,7 @@ struct Runner {
             recentCommentActivities: [
                 PullRequestCommentActivity(
                     id: "BASELINE",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 1),
                     source: .pullRequest
@@ -658,6 +677,7 @@ struct Runner {
             recentCommentActivities: baselinePR.recentCommentActivities + [
                 PullRequestCommentActivity(
                     id: "NEW",
+                    url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 2),
                     source: .pullRequest

@@ -228,6 +228,7 @@ public final class MockPullRequestSource {
                     recentCommentActivities: [
                         PullRequestCommentActivity(
                             id: "PR_1_COMMENT_NEW",
+                            url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14#issuecomment-PR_1_COMMENT_NEW")!,
                             author: "frontend-sam",
                             createdAt: Date(timeIntervalSince1970: 1_777_815_000),
                             source: .pullRequest
@@ -415,6 +416,7 @@ public final class MockPullRequestSource {
         recentCommentActivities: [
             PullRequestCommentActivity(
                 id: "PR_SCENARIO_FINAL_COMMENT",
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/88#issuecomment-PR_SCENARIO_FINAL_COMMENT")!,
                 author: "frontend-sam",
                 createdAt: Date(timeIntervalSince1970: 1_777_810_000),
                 source: .pullRequest
@@ -424,6 +426,7 @@ public final class MockPullRequestSource {
         recentReviews: [
             PullRequestReview(
                 id: "PR_SCENARIO_FINAL_REVIEW",
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/88#pullrequestreview-PR_SCENARIO_FINAL_REVIEW")!,
                 state: .approved,
                 submittedAt: Date(timeIntervalSince1970: 1_777_811_000),
                 author: "platform-nora"
