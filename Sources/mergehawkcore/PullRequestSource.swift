@@ -468,7 +468,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureCommentPullRequest.id,
                     count: 1,
                     actorLogin: "frontend-sam",
-                    activityId: "PR_NOTIFICATION_COMMENT_ACTIVITY"
+                    activityId: "PR_NOTIFICATION_COMMENT_ACTIVITY",
+                    destinationURL: URL(string: "https://github.com/example/mergehawk/pull/41#issuecomment-PR_NOTIFICATION_COMMENT_ACTIVITY")!
                 ),
                 pullRequest: notificationFixtureCommentPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_809_600)
@@ -479,7 +480,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureApprovalPullRequest.id,
                     count: 1,
                     actorLogin: "platform-nora",
-                    activityId: "PR_NOTIFICATION_APPROVAL_REVIEW"
+                    activityId: "PR_NOTIFICATION_APPROVAL_REVIEW",
+                    destinationURL: URL(string: "https://github.com/example/app/pull/42#pullrequestreview-PR_NOTIFICATION_APPROVAL_REVIEW")!
                 ),
                 pullRequest: notificationFixtureApprovalPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_806_000)
@@ -490,7 +492,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureReviewCommentPullRequest.id,
                     count: 1,
                     actorLogin: "docs-lee",
-                    activityId: "PR_NOTIFICATION_REVIEW_COMMENT"
+                    activityId: "PR_NOTIFICATION_REVIEW_COMMENT",
+                    destinationURL: URL(string: "https://github.com/example/docs/pull/43#discussion_rPR_NOTIFICATION_REVIEW_COMMENT")!
                 ),
                 pullRequest: notificationFixtureReviewCommentPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_802_400)
@@ -501,7 +504,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureChangesRequestedPullRequest.id,
                     count: 1,
                     actorLogin: "billing-ivy",
-                    activityId: "PR_NOTIFICATION_CHANGES_REVIEW"
+                    activityId: "PR_NOTIFICATION_CHANGES_REVIEW",
+                    destinationURL: URL(string: "https://github.com/example/web/pull/44#pullrequestreview-PR_NOTIFICATION_CHANGES_REVIEW")!
                 ),
                 pullRequest: notificationFixtureChangesRequestedPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_798_800)

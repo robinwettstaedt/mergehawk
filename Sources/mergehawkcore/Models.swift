@@ -546,6 +546,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public let count: Int?
     public let actorLogin: String?
     public let activityId: String?
+    public let destinationURL: URL?
     public let happenedAt: Date?
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
 
@@ -555,6 +556,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         count: Int? = nil,
         actorLogin: String? = nil,
         activityId: String? = nil,
+        destinationURL: URL? = nil,
         happenedAt: Date? = nil,
         relationshipChanges: Set<PullRequestNotificationRelationship> = []
     ) {
@@ -563,6 +565,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         self.count = count
         self.actorLogin = actorLogin
         self.activityId = activityId
+        self.destinationURL = destinationURL
         self.happenedAt = happenedAt
         self.relationshipChanges = relationshipChanges
     }
@@ -577,6 +580,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let prNumber: Int
     public let repo: String
     public let url: URL
+    public let destinationURL: URL?
     public let actorLogin: String?
     public let activityId: String?
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
@@ -593,6 +597,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         case prNumber
         case repo
         case url
+        case destinationURL
         case actorLogin
         case activityId
         case relationshipChanges
@@ -616,6 +621,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.prNumber = pullRequest.number
         self.repo = pullRequest.repo
         self.url = pullRequest.url
+        self.destinationURL = event.destinationURL
         self.actorLogin = event.actorLogin
         self.activityId = event.activityId
         self.relationshipChanges = event.relationshipChanges
@@ -634,6 +640,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.prNumber = try container.decode(Int.self, forKey: .prNumber)
         self.repo = try container.decode(String.self, forKey: .repo)
         self.url = try container.decode(URL.self, forKey: .url)
+        self.destinationURL = try container.decodeIfPresent(URL.self, forKey: .destinationURL)
         self.actorLogin = try container.decodeIfPresent(String.self, forKey: .actorLogin)
         self.activityId = try container.decodeIfPresent(String.self, forKey: .activityId)
         self.relationshipChanges = try container.decodeIfPresent(
