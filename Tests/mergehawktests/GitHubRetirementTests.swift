@@ -704,7 +704,7 @@ final class GitHubRetirementTests: XCTestCase {
             "mergeable": "MERGEABLE", "additions": 1, "deletions": 1,
             "statusCheckRollup": ["state": "SUCCESS"],
             "author": ["id": "U_\(author)", "login": author],
-            "repository": ["nameWithOwner": "acme/app"],
+            "repository": ["nameWithOwner": "acme/app", "isArchived": false],
             "comments": connection(comments), "reviews": connection(reviews),
             "latestOpinionatedReviews": connection([]), "reviewThreads": connection([]),
             "assignees": connection(assignees.map { ["id": "U_\($0)", "login": $0] }),

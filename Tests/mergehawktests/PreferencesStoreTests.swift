@@ -124,6 +124,17 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testHideArchivedRepositoriesDefaultsOnAndPersistsExplicitChoices() {
+        withStore { store, defaults in
+            XCTAssertTrue(store.hideArchivedRepositories)
+            XCTAssertNil(defaults.object(forKey: "sources.hideArchivedRepositories"))
+            store.hideArchivedRepositories = false
+            XCTAssertFalse(PreferencesStore(defaults: defaults).hideArchivedRepositories)
+            store.hideArchivedRepositories = true
+            XCTAssertTrue(PreferencesStore(defaults: defaults).hideArchivedRepositories)
+        }
+    }
+
     func testNotificationPreferencesRoundTripThroughSerializedDefaults() {
         withStore { store, defaults in
             let preferences = NotificationPreferences(
@@ -220,6 +231,34 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testArchiveMetadataRoundTripsSyncStateAndLegacyPRsRemainReadable() throws {
+        try withThrowingStore { store, defaults in
+            for archived in [true, false] {
+                let pullRequest = Self.pullRequest(repositoryIsArchived: archived)
+                let state = PullRequestSyncState(
+                    account: GitHubAccount(login: "rw"),
+                    dashboard: DashboardState(
+                        pullRequests: [pullRequest], events: [], syncedAt: Date(timeIntervalSince1970: 10),
+                        source: .github, account: GitHubAccount(login: "rw"), authStatus: .signedIn
+                    ),
+                    processedActivityByPullRequestID: [:]
+                )
+                try store.storePullRequestSyncState(state)
+                XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState?.dashboard.pullRequests.first?.repositoryIsArchived, archived)
+            }
+
+            let unknown = Self.pullRequest()
+            XCTAssertNil(unknown.repositoryIsArchived)
+            let encoded = try JSONEncoder().encode(unknown)
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+            object.removeValue(forKey: "repositoryIsArchived")
+            let legacy = try JSONDecoder().decode(PullRequest.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertNil(legacy.repositoryIsArchived)
+            XCTAssertNil(try JSONDecoder().decode(PullRequest.self, from: JSONEncoder().encode(unknown)).repositoryIsArchived)
+            XCTAssertEqual(Self.pullRequest(repositoryIsArchived: true).withoutActivityHistory.repositoryIsArchived, true)
+        }
+    }
+
     func testLegacySnapshotImportTreatsActivityThroughItsFetchTimeAsProcessed() {
         withStore { store, _ in
             let pullRequest = Self.pullRequest()
@@ -307,13 +346,14 @@ final class PreferencesStoreTests: XCTestCase {
         try body(&store, defaults)
     }
 
-    private static func pullRequest() -> PullRequest {
+    private static func pullRequest(repositoryIsArchived: Bool? = nil) -> PullRequest {
         PullRequest(
             id: "PR_1",
             title: "Persist refresh state",
             number: 1,
             url: URL(string: "https://github.com/example/app/pull/1")!,
             repo: "example/app",
+            repositoryIsArchived: repositoryIsArchived,
             ciState: .passing,
             reviewDecision: .approved,
             commentCount: 0,

@@ -12,6 +12,9 @@ final class GitHubRequestTests: XCTestCase {
         let decoder = JSONDecoder()
         XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: payload(removing: "comments")))
         XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: payload(pageInfo: false)))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: payload()) as? [String: Any])
+        object["repository"] = ["nameWithOwner": "acme/app"]
+        XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: Self.json(object)))
     }
 
     func testOptionalAuthorAndNoChecksDecodeSuccessfully() throws {
@@ -86,6 +89,7 @@ final class GitHubRequestTests: XCTestCase {
     func testQueryUsesDirectCIAndNoCommitHistory() {
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("statusCheckRollup"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("headRefOid"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("repository { nameWithOwner isArchived }"))
         XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("commits("))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("pageInfo"))
         XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("author { id"))
@@ -155,7 +159,7 @@ final class GitHubRequestTests: XCTestCase {
             "headRefName": "feature", "headRefOid": "abc", "isDraft": false,
             "mergeable": "MERGEABLE", "additions": 1, "deletions": 2,
             "statusCheckRollup": NSNull(), "author": NSNull(),
-            "repository": ["nameWithOwner": "acme/app"]
+            "repository": ["nameWithOwner": "acme/app", "isArchived": false]
         ]
         let connection: [String: Any] = [
             "totalCount": 1,
