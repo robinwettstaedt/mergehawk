@@ -1377,10 +1377,15 @@ final class DashboardController: ObservableObject {
             let prepared = try await syncEngine.prepare(previousState: committedSyncState)
             guard !Task.isCancelled, providerGeneration == generation else { return }
 
+            let archivedRepositories = Set(
+                (prepared.activePullRequests + prepared.retiringPullRequests)
+                    .filter { $0.repositoryIsArchived == true }
+                    .map(\.repo)
+            )
             let allowed = prepared.events.filter { value in
                 preferences.allows(event: value.event, for: value.filteringContext)
                     && sourcePreferences.allowsNotifications(for: value.filteringContext.repo)
-                    && (!hideArchivedRepositories || value.filteringContext.repositoryIsArchived != true)
+                    && (!hideArchivedRepositories || !archivedRepositories.contains(value.filteringContext.repo))
             }
             let notifications = allowed.map { value in
                 PullRequestNotification(

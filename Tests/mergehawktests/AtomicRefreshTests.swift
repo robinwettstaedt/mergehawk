@@ -234,6 +234,95 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testArchivedSiblingSuppressesNonArchivedPRActivityAcrossSameRepositoryUntilToggleOff() async throws {
+        let primary = makePullRequest(id: "PR_PRIMARY", title: "Primary", archived: false)
+        let sibling = makePullRequest(id: "PR_SIBLING", title: "Sibling", archived: false)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(
+            pullRequest: primary, additionalPullRequests: [sibling], provider: provider
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+
+        let firstComment = PullRequestCommentActivity(
+            id: "COMMENT_MIXED_SUPPRESSED", author: "reviewer",
+            createdAt: Date(timeIntervalSince1970: 30), source: .pullRequest
+        )
+        let currentPrimary = makePullRequest(
+            id: primary.id, title: primary.title, archived: false,
+            comments: primary.recentCommentActivities + [firstComment]
+        )
+        let currentSibling = makePullRequest(id: sibling.id, title: sibling.title, archived: true)
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [currentPrimary, currentSibling]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState?.processedActivityByPullRequestID[primary.id]?.commentIDs.count, 2)
+        XCTAssertEqual(fixture.controller.state.pullRequests.count, 2)
+
+        fixture.controller.hideArchivedRepositories = false
+        let secondComment = PullRequestCommentActivity(
+            id: "COMMENT_MIXED_ALLOWED", author: "reviewer",
+            createdAt: Date(timeIntervalSince1970: 40), source: .pullRequest
+        )
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [
+            makePullRequest(
+                id: primary.id, title: primary.title, archived: false,
+                comments: currentPrimary.recentCommentActivities + [secondComment]
+            ),
+            currentSibling
+        ]))
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(
+            fixture.controller.pullRequestNotificationHistory.compactMap(\.activityId).filter { $0 == secondComment.id },
+            [secondComment.id]
+        )
+        XCTAssertFalse(fixture.controller.pullRequestNotificationHistory.contains { $0.activityId == firstComment.id })
+        XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [primary.id])
+    }
+
+    @MainActor
+    func testArchivedRetiringSiblingSuppressesActiveAndFinalActivityFromSameRepository() async throws {
+        let primary = makePullRequest(id: "PR_PRIMARY", title: "Primary", archived: false)
+        let sibling = makePullRequest(id: "PR_RETIRING_SIBLING", title: "Retiring sibling", archived: false)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(
+            pullRequest: primary, additionalPullRequests: [sibling], provider: provider
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+
+        let activeComment = PullRequestCommentActivity(
+            id: "COMMENT_ACTIVE_MIXED", author: "reviewer",
+            createdAt: Date(timeIntervalSince1970: 30), source: .pullRequest
+        )
+        let finalComment = PullRequestCommentActivity(
+            id: "COMMENT_RETIRED_MIXED", author: "reviewer",
+            createdAt: Date(timeIntervalSince1970: 40), source: .pullRequest
+        )
+        let currentPrimary = makePullRequest(
+            id: primary.id, title: primary.title, archived: false,
+            comments: primary.recentCommentActivities + [activeComment]
+        )
+        let retiringSibling = makePullRequest(
+            id: sibling.id, title: sibling.title, archived: true,
+            comments: sibling.recentCommentActivities + [finalComment]
+        )
+        provider.finish(with: CompletePullRequestFetchResult(
+            activePullRequests: [currentPrimary], retiringPullRequests: [retiringSibling]
+        ))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.state.pullRequests.map(\.id), [primary.id])
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory, fixture.previous.notificationHistory)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState?.processedActivityByPullRequestID[primary.id]?.commentIDs.count, 2)
+    }
+
+    @MainActor
     func testSuccessfulArchiveStatusRefreshUpdatesPresentationAndFailedRefreshPreservesIt() async throws {
         let baseline = makePullRequest(id: "PR_ARCHIVED", title: "Archived", archived: true)
         let provider = AtomicGitHubProvider(result: .suspended)
@@ -896,6 +985,7 @@ final class AtomicRefreshTests: XCTestCase {
     @MainActor
     private func makeFixture(
         pullRequest: PullRequest = makePullRequest(id: "PR_BASELINE", title: "Baseline"),
+        additionalPullRequests: [PullRequest] = [],
         provider: AtomicGitHubProvider,
         encoder: @escaping (PullRequestSyncState) throws -> Data = { try JSONEncoder().encode($0) },
         urlOpener: @escaping @MainActor (URL) -> Void = { _ in },
@@ -922,19 +1012,21 @@ final class AtomicRefreshTests: XCTestCase {
         let previous = PullRequestSyncState(
             account: GitHubAccount(login: "rw"),
             dashboard: DashboardState(
-                pullRequests: [pullRequest],
+                pullRequests: [pullRequest] + additionalPullRequests,
                 events: [],
                 syncedAt: Date(timeIntervalSince1970: 10),
                 source: .github,
                 account: GitHubAccount(login: "rw"),
                 authStatus: .signedIn
             ),
-            processedActivityByPullRequestID: [
-                pullRequest.id: ProcessedPullRequestActivity(
-                    pullRequestID: pullRequest.id,
-                    commentIDs: Set(pullRequest.recentCommentActivities.map(\.id))
-                )
-            ],
+            processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues:
+                ([pullRequest] + additionalPullRequests).map { pr in
+                    (pr.id, ProcessedPullRequestActivity(
+                        pullRequestID: pr.id,
+                        commentIDs: Set(pr.recentCommentActivities.map(\.id))
+                    ))
+                }
+            ),
             notificationHistory: [notification]
         )
         try seedPreferences.storePullRequestSyncState(previous)
