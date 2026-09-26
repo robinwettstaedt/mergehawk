@@ -115,6 +115,44 @@ enum PullRequestNotificationTitlePresentation {
     }
 }
 
+enum PullRequestNotificationIconPresentation {
+    static func symbolName(for eventType: PullRequestEventType) -> String {
+        switch eventType {
+        case .newComment:
+            "text.bubble"
+        case .reviewApproved:
+            "checkmark.seal"
+        case .reviewCommented:
+            "quote.bubble"
+        case .newReview:
+            "checkmark.seal"
+        case .ciFailed:
+            "xmark.octagon"
+        case .changesRequested:
+            "exclamationmark.triangle"
+        case .relationshipAdded:
+            "person.badge.plus"
+        case .otherCommitAdded:
+            "arrow.trianglehead.branch"
+        }
+    }
+
+    static func color(for eventType: PullRequestEventType) -> Color {
+        switch eventType {
+        case .reviewApproved:
+            .green
+        case .changesRequested, .ciFailed:
+            .red
+        case .newComment, .reviewCommented, .newReview:
+            .blue
+        case .relationshipAdded:
+            .purple
+        case .otherCommitAdded:
+            .orange
+        }
+    }
+}
+
 struct ExpandableSearchState: Equatable {
     var isExpanded = false
     var query = ""
@@ -2127,9 +2165,9 @@ private struct PullRequestNotificationRow: View {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .center, spacing: 6) {
-                            Image(systemName: iconName)
+                            Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
                                 .frame(width: 15)
                             Text(title)
                                 .font(.subheadline.weight(.semibold))
@@ -2187,27 +2225,6 @@ private struct PullRequestNotificationRow: View {
 
     private var title: String {
         PullRequestNotificationTitlePresentation.title(for: notification)
-    }
-
-    private var iconName: String {
-        switch notification.eventType {
-        case .newComment:
-            "text.bubble"
-        case .reviewApproved:
-            "checkmark.seal"
-        case .reviewCommented:
-            "quote.bubble"
-        case .newReview:
-            "checkmark.seal"
-        case .ciFailed:
-            "xmark.octagon"
-        case .changesRequested:
-            "exclamationmark.triangle"
-        case .relationshipAdded:
-            "person.badge.plus"
-        case .otherCommitAdded:
-            "arrow.trianglehead.branch"
-        }
     }
 
 }
