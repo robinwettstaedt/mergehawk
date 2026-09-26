@@ -68,6 +68,12 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
     public let author: String?
     public let authorIsBot: Bool?
     public let viewerDidAuthor: Bool
+    /// The last edit of the review summary; the submission time when the summary was never edited.
+    public let updatedAt: Date
+    /// Whether the review summary has any non-whitespace text.
+    public let hasSummaryText: Bool
+    /// Whether a comment-only review summary directly mentions the viewer. Decisions never carry a mention.
+    public let mentionsViewer: Bool
 
     public init(
         id: String,
@@ -76,7 +82,10 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
         submittedAt: Date,
         author: String? = nil,
         authorIsBot: Bool? = nil,
-        viewerDidAuthor: Bool = false
+        viewerDidAuthor: Bool = false,
+        updatedAt: Date? = nil,
+        hasSummaryText: Bool = false,
+        mentionsViewer: Bool = false
     ) {
         self.id = id
         self.url = url
@@ -85,6 +94,29 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
         self.author = author
         self.authorIsBot = authorIsBot
         self.viewerDidAuthor = viewerDidAuthor
+        self.updatedAt = updatedAt ?? submittedAt
+        self.hasSummaryText = hasSummaryText
+        self.mentionsViewer = mentionsViewer
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, url, state, submittedAt, author, authorIsBot, viewerDidAuthor, updatedAt, hasSummaryText, mentionsViewer
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            url: try container.decode(URL.self, forKey: .url),
+            state: try container.decode(PullRequestReviewState.self, forKey: .state),
+            submittedAt: try container.decode(Date.self, forKey: .submittedAt),
+            author: try container.decodeIfPresent(String.self, forKey: .author),
+            authorIsBot: try container.decodeIfPresent(Bool.self, forKey: .authorIsBot),
+            viewerDidAuthor: try container.decode(Bool.self, forKey: .viewerDidAuthor),
+            updatedAt: try container.decodeIfPresent(Date.self, forKey: .updatedAt),
+            hasSummaryText: try container.decodeIfPresent(Bool.self, forKey: .hasSummaryText) ?? false,
+            mentionsViewer: try container.decodeIfPresent(Bool.self, forKey: .mentionsViewer) ?? false
+        )
     }
 }
 
@@ -102,7 +134,15 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     public let createdAt: Date
     public let source: Source
     public let reviewId: String?
+    /// When the comment became visible to others; nil while it is part of a pending review.
+    public let publishedAt: Date?
+    /// The last edit of the comment body; the publication time when the comment was never edited.
+    public let updatedAt: Date
+    /// The provider review thread holding an inline comment.
+    public let threadId: String?
+    public let mentionsViewer: Bool
 
+    /// A nil `publishedAt` means publication at `createdAt` unless `isPublished` is false.
     public init(
         id: String,
         url: URL,
@@ -111,7 +151,12 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
         viewerDidAuthor: Bool = false,
         createdAt: Date,
         source: Source,
-        reviewId: String? = nil
+        reviewId: String? = nil,
+        publishedAt: Date? = nil,
+        isPublished: Bool = true,
+        updatedAt: Date? = nil,
+        threadId: String? = nil,
+        mentionsViewer: Bool = false
     ) {
         self.id = id
         self.url = url
@@ -121,6 +166,54 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
         self.createdAt = createdAt
         self.source = source
         self.reviewId = reviewId
+        let published = isPublished ? (publishedAt ?? createdAt) : nil
+        self.publishedAt = published
+        self.updatedAt = updatedAt ?? published ?? createdAt
+        self.threadId = threadId
+        self.mentionsViewer = mentionsViewer
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, url, author, authorIsBot, viewerDidAuthor, createdAt, source, reviewId
+        case publishedAt, updatedAt, threadId, mentionsViewer
+    }
+
+    /// Activity stored before publication metadata existed decodes as published at its creation time.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let isPublished = try !container.contains(.publishedAt) || !container.decodeNil(forKey: .publishedAt)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            url: try container.decode(URL.self, forKey: .url),
+            author: try container.decodeIfPresent(String.self, forKey: .author),
+            authorIsBot: try container.decodeIfPresent(Bool.self, forKey: .authorIsBot),
+            viewerDidAuthor: try container.decode(Bool.self, forKey: .viewerDidAuthor),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            source: try container.decode(Source.self, forKey: .source),
+            reviewId: try container.decodeIfPresent(String.self, forKey: .reviewId),
+            publishedAt: try container.decodeIfPresent(Date.self, forKey: .publishedAt),
+            isPublished: isPublished,
+            updatedAt: try container.decodeIfPresent(Date.self, forKey: .updatedAt),
+            threadId: try container.decodeIfPresent(String.self, forKey: .threadId),
+            mentionsViewer: try container.decodeIfPresent(Bool.self, forKey: .mentionsViewer) ?? false
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(url, forKey: .url)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encodeIfPresent(authorIsBot, forKey: .authorIsBot)
+        try container.encode(viewerDidAuthor, forKey: .viewerDidAuthor)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(source, forKey: .source)
+        try container.encodeIfPresent(reviewId, forKey: .reviewId)
+        // An explicit null keeps a pending comment distinct from activity stored before publication existed.
+        try container.encode(publishedAt, forKey: .publishedAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(threadId, forKey: .threadId)
+        try container.encode(mentionsViewer, forKey: .mentionsViewer)
     }
 }
 
@@ -550,6 +643,13 @@ public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, 
     case teamReviewRequest = "team_review_request"
 }
 
+/// Why a comment update is relevant to the viewer. Nil on retained history recorded before reasons existed.
+public enum PullRequestCommentReason: String, Codable, Equatable, Sendable {
+    case mention
+    case threadParticipation = "thread_participation"
+    case general
+}
+
 public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public var id: String { activityId ?? "\(type.rawValue)-\(prId)-\(count ?? 0)" }
     public let type: PullRequestEventType
@@ -561,6 +661,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public let destinationURL: URL?
     public let happenedAt: Date?
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
+    public let commentReason: PullRequestCommentReason?
 
     public init(
         type: PullRequestEventType,
@@ -571,7 +672,8 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         activityId: String? = nil,
         destinationURL: URL? = nil,
         happenedAt: Date? = nil,
-        relationshipChanges: Set<PullRequestNotificationRelationship> = []
+        relationshipChanges: Set<PullRequestNotificationRelationship> = [],
+        commentReason: PullRequestCommentReason? = nil
     ) {
         self.type = type
         self.prId = prId
@@ -582,6 +684,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         self.destinationURL = destinationURL
         self.happenedAt = happenedAt
         self.relationshipChanges = relationshipChanges
+        self.commentReason = commentReason
     }
 }
 
@@ -598,6 +701,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let actorLogin: String?
     public let activityId: String?
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
+    public let commentReason: PullRequestCommentReason?
     public let createdAt: Date
     public let prUpdatedAt: Date
     public var read: Bool
@@ -615,6 +719,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         case actorLogin
         case activityId
         case relationshipChanges
+        case commentReason
         case createdAt
         case prUpdatedAt
         case read
@@ -639,6 +744,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.actorLogin = event.actorLogin
         self.activityId = event.activityId
         self.relationshipChanges = event.relationshipChanges
+        self.commentReason = event.commentReason
         self.createdAt = createdAt
         self.prUpdatedAt = pullRequest.updatedAt
         self.read = read
@@ -661,26 +767,28 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
             Set<PullRequestNotificationRelationship>.self,
             forKey: .relationshipChanges
         ) ?? []
+        self.commentReason = try container.decodeIfPresent(PullRequestCommentReason.self, forKey: .commentReason)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.prUpdatedAt = try container.decode(Date.self, forKey: .prUpdatedAt)
         self.read = try container.decode(Bool.self, forKey: .read)
     }
 }
 
+/// The upper matrix categories. Comment updates are governed by the comment modes instead.
 public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
-    case comments
     case reviewActivity = "review_activity"
     case ciFailures = "ci_failures"
     case relationshipChanges = "relationship_changes"
     case otherCommits = "other_commits"
 
-    public static let allCases: [Self] = [.comments, .reviewActivity, .ciFailures, .relationshipChanges]
+    public static let allCases: [Self] = [.reviewActivity, .ciFailures, .relationshipChanges]
 
-    public init(eventType: PullRequestEventType) {
+    /// Nil for comment updates, which follow the comment modes.
+    public init?(eventType: PullRequestEventType) {
         switch eventType {
-        case .newComment:
-            self = .comments
-        case .reviewApproved, .reviewCommented, .newReview, .changesRequested:
+        case .newComment, .reviewCommented:
+            return nil
+        case .reviewApproved, .newReview, .changesRequested:
             self = .reviewActivity
         case .ciFailed:
             self = .ciFailures
@@ -693,50 +801,42 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
 }
 
 public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Sendable {
-    public var comments: Bool
     public var reviewActivity: Bool
     public var ciFailures: Bool
     public var relationshipChanges: Bool
 
     public static let authoredDefaults = PullRequestNotificationActivityPreferences(
-        comments: true,
         reviewActivity: true,
         ciFailures: true,
         relationshipChanges: false
     )
     public static let enabled = PullRequestNotificationActivityPreferences(
-        comments: true,
         reviewActivity: true,
         ciFailures: true,
         relationshipChanges: true
     )
     public static let disabled = PullRequestNotificationActivityPreferences(
-        comments: false,
         reviewActivity: false,
         ciFailures: false,
         relationshipChanges: false
     )
     public static let relationshipChangesOnly = PullRequestNotificationActivityPreferences(
-        comments: false,
         reviewActivity: false,
         ciFailures: false,
         relationshipChanges: true
     )
 
     enum CodingKeys: String, CodingKey {
-        case comments
         case reviewActivity
         case ciFailures
         case relationshipChanges
     }
 
     public init(
-        comments: Bool,
         reviewActivity: Bool,
         ciFailures: Bool,
         relationshipChanges: Bool = false
     ) {
-        self.comments = comments
         self.reviewActivity = reviewActivity
         self.ciFailures = ciFailures
         self.relationshipChanges = relationshipChanges
@@ -744,7 +844,6 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.comments = try container.decode(Bool.self, forKey: .comments)
         self.reviewActivity = try container.decode(Bool.self, forKey: .reviewActivity)
         self.ciFailures = try container.decode(Bool.self, forKey: .ciFailures)
         self.relationshipChanges = try container.decodeIfPresent(Bool.self, forKey: .relationshipChanges) ?? false
@@ -752,8 +851,6 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
 
     public func allows(_ activity: PullRequestNotificationActivity) -> Bool {
         switch activity {
-        case .comments:
-            comments
         case .reviewActivity:
             reviewActivity
         case .ciFailures:
@@ -766,11 +863,84 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
     }
 }
 
+public enum CommentNotificationMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case all
+    case mentionsAndThreads = "mentions_and_threads"
+    case off
+}
+
+extension CommentNotificationMode {
+    /// A nil reason is retained or legacy activity and counts as a general comment.
+    public func allows(_ reason: PullRequestCommentReason?) -> Bool {
+        switch self {
+        case .all:
+            true
+        case .mentionsAndThreads:
+            reason == .mention || reason == .threadParticipation
+        case .off:
+            false
+        }
+    }
+}
+
+public struct CommentNotificationPreferences: Codable, Equatable, Sendable {
+    public var authored: CommentNotificationMode
+    public var assigned: CommentNotificationMode
+    public var directReviewRequests: CommentNotificationMode
+    public var teamReviewRequests: CommentNotificationMode
+
+    public static let defaults = CommentNotificationPreferences(
+        authored: .all,
+        assigned: .all,
+        directReviewRequests: .mentionsAndThreads,
+        teamReviewRequests: .mentionsAndThreads
+    )
+
+    public init(
+        authored: CommentNotificationMode,
+        assigned: CommentNotificationMode,
+        directReviewRequests: CommentNotificationMode,
+        teamReviewRequests: CommentNotificationMode
+    ) {
+        self.authored = authored
+        self.assigned = assigned
+        self.directReviewRequests = directReviewRequests
+        self.teamReviewRequests = teamReviewRequests
+    }
+
+    public func mode(for relationship: PullRequestNotificationRelationship) -> CommentNotificationMode {
+        switch relationship {
+        case .authored:
+            authored
+        case .assigned:
+            assigned
+        case .directReviewRequest:
+            directReviewRequests
+        case .teamReviewRequest:
+            teamReviewRequests
+        }
+    }
+
+    public mutating func set(_ mode: CommentNotificationMode, for relationship: PullRequestNotificationRelationship) {
+        switch relationship {
+        case .authored:
+            authored = mode
+        case .assigned:
+            assigned = mode
+        case .directReviewRequest:
+            directReviewRequests = mode
+        case .teamReviewRequest:
+            teamReviewRequests = mode
+        }
+    }
+}
+
 public struct NotificationPreferences: Codable, Equatable, Sendable {
     public var authored: PullRequestNotificationActivityPreferences
     public var assigned: PullRequestNotificationActivityPreferences
     public var directReviewRequests: PullRequestNotificationActivityPreferences
     public var teamReviewRequests: PullRequestNotificationActivityPreferences
+    public var commentModes: CommentNotificationPreferences
 
     public static let defaults = NotificationPreferences(
         authored: .authoredDefaults,
@@ -779,16 +949,45 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         teamReviewRequests: .relationshipChangesOnly
     )
 
+    enum CodingKeys: String, CodingKey {
+        case authored
+        case assigned
+        case directReviewRequests
+        case teamReviewRequests
+        case commentModes
+    }
+
     public init(
         authored: PullRequestNotificationActivityPreferences,
         assigned: PullRequestNotificationActivityPreferences,
         directReviewRequests: PullRequestNotificationActivityPreferences,
-        teamReviewRequests: PullRequestNotificationActivityPreferences
+        teamReviewRequests: PullRequestNotificationActivityPreferences,
+        commentModes: CommentNotificationPreferences = .defaults
     ) {
         self.authored = authored
         self.assigned = assigned
         self.directReviewRequests = directReviewRequests
         self.teamReviewRequests = teamReviewRequests
+        self.commentModes = commentModes
+    }
+
+    /// Comment modes are independent of the upper matrix, so a value saved before they existed gets their defaults.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.authored = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .authored)
+        self.assigned = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .assigned)
+        self.directReviewRequests = try container.decode(
+            PullRequestNotificationActivityPreferences.self,
+            forKey: .directReviewRequests
+        )
+        self.teamReviewRequests = try container.decode(
+            PullRequestNotificationActivityPreferences.self,
+            forKey: .teamReviewRequests
+        )
+        self.commentModes = try container.decodeIfPresent(
+            CommentNotificationPreferences.self,
+            forKey: .commentModes
+        ) ?? .defaults
     }
 
     public func preferences(for relationship: PullRequestNotificationRelationship) -> PullRequestNotificationActivityPreferences {
@@ -820,13 +1019,21 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         }
     }
 
+    /// Any matching relationship that allows the update is enough; comment updates use the comment modes.
     public func allows(event: PullRequestEvent, for pullRequest: PullRequest) -> Bool {
-        let activity = PullRequestNotificationActivity(eventType: event.type)
         let relationships = event.relationshipChanges.isEmpty
             ? Set(Self.relationships(matching: pullRequest))
             : event.relationshipChanges
-        return relationships.contains { relationship in
-            preferences(for: relationship).allows(activity)
+        switch event.type {
+        case .newComment, .reviewCommented:
+            return relationships.contains { relationship in
+                commentModes.mode(for: relationship).allows(event.commentReason)
+            }
+        default:
+            guard let activity = PullRequestNotificationActivity(eventType: event.type) else { return false }
+            return relationships.contains { relationship in
+                preferences(for: relationship).allows(activity)
+            }
         }
     }
 

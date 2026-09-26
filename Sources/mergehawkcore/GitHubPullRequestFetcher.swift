@@ -715,19 +715,16 @@ struct GitHubPullRequestFetcher: Sendable {
         let size = GitHubPullRequestQueries.continuationPageSize
         switch kind {
         case .comments:
-            return "... on PullRequest { comments(last: \(size), before: \(cursor)) { \(topLevelCommentConnectionFields) } }"
+            return "... on PullRequest { comments(last: \(size), before: \(cursor)) { \(GitHubPullRequestQueries.conversationCommentConnectionFields) } }"
         case .reviews:
-            return "... on PullRequest { reviews(last: \(size), before: \(cursor)) { \(reviewConnectionFields) } }"
+            return "... on PullRequest { reviews(last: \(size), before: \(cursor)) { \(GitHubPullRequestQueries.fullReviewConnectionFields) } }"
         case .opinionatedReviews:
-            return "... on PullRequest { latestOpinionatedReviews(last: \(size), before: \(cursor)) { \(reviewConnectionFields) } }"
+            return "... on PullRequest { latestOpinionatedReviews(last: \(size), before: \(cursor)) { \(GitHubPullRequestQueries.opinionatedReviewConnectionFields) } }"
         case .threads:
             return """
             ... on PullRequest { reviewThreads(last: \(size), before: \(cursor)) {
-              totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-              nodes {
-                id isResolved viewerCanResolve
-                comments(last: 10) { \(reviewCommentConnectionFields) }
-              }
+              totalCount \(GitHubPullRequestQueries.pageInfoFields)
+              nodes { \(GitHubPullRequestQueries.reviewThreadNodeFields) }
             } }
             """
         case .assignees:
@@ -740,20 +737,8 @@ struct GitHubPullRequestFetcher: Sendable {
             } }
             """
         case .threadComments:
-            return "... on PullRequestReviewThread { comments(last: \(size), before: \(cursor)) { \(reviewCommentConnectionFields) } }"
+            return "... on PullRequestReviewThread { comments(last: \(size), before: \(cursor)) { \(GitHubPullRequestQueries.inlineCommentConnectionFields) } }"
         }
-    }
-
-    private var topLevelCommentConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id url createdAt viewerDidAuthor author { login __typename } }"
-    }
-
-    private var reviewCommentConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id url createdAt viewerDidAuthor author { login __typename } pullRequestReview { id } }"
-    }
-
-    private var reviewConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id url state submittedAt viewerDidAuthor author { login __typename } }"
     }
 
     private func continuationVariables(_ batch: [Continuation]) -> [String: GitHubQueryValue] {
@@ -947,28 +932,15 @@ struct GitHubPullRequestFetcher: Sendable {
     private func normalize(_ value: HydrationAccumulator, login: String) throws -> PullRequest {
         let payload = value.payload
         let topLevelComments = try value.comments.values.map { comment in
-            PullRequestCommentActivity(
-                id: comment.id,
-                url: comment.url,
-                author: comment.author?.login,
-                authorIsBot: comment.author?.isBot,
-                viewerDidAuthor: comment.viewerDidAuthor,
-                createdAt: try parseDate(comment.createdAt),
-                source: .pullRequest
-            )
+            try normalizeComment(comment, source: .pullRequest, threadID: nil, login: login)
         }
-        let threadComments = try value.threads.keys.compactMap { value.threadComments[$0] }.flatMap(\.values).map { comment in
-            PullRequestCommentActivity(
-                id: comment.id,
-                url: comment.url,
-                author: comment.author?.login,
-                authorIsBot: comment.author?.isBot,
-                viewerDidAuthor: comment.viewerDidAuthor,
-                createdAt: try parseDate(comment.createdAt),
-                source: .reviewThread,
-                reviewId: comment.pullRequestReview?.id
-            )
-        }
+        let threadComments = try value.threadComments
+            .filter { value.threads[$0.key] != nil }
+            .flatMap { threadID, comments in
+                try comments.values.map { comment in
+                    try normalizeComment(comment, source: .reviewThread, threadID: threadID, login: login)
+                }
+            }
         let allComments = (topLevelComments + threadComments).reduce(into: [String: PullRequestCommentActivity]()) {
             $0[$1.id] = $1
         }.values.sorted { $0.createdAt < $1.createdAt }
@@ -981,6 +953,9 @@ struct GitHubPullRequestFetcher: Sendable {
             default: state = nil
             }
             guard let submittedAt = review.submittedAt, let state else { return nil }
+            guard let bodyHTML = review.bodyHTML, let bodyText = review.bodyText, let updatedAt = review.updatedAt else {
+                throw GitHubReadError.invalidPayload
+            }
             return PullRequestReview(
                 id: review.id,
                 url: review.url,
@@ -988,7 +963,11 @@ struct GitHubPullRequestFetcher: Sendable {
                 submittedAt: try parseDate(submittedAt),
                 author: review.author?.login,
                 authorIsBot: review.author?.isBot,
-                viewerDidAuthor: review.viewerDidAuthor
+                viewerDidAuthor: review.viewerDidAuthor,
+                updatedAt: try parseDate(updatedAt),
+                hasSummaryText: !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                // A decision's summary belongs to the decision, so only comment-only summaries are classified.
+                mentionsViewer: try state == .commented && mentions(login, in: bodyHTML)
             )
         }.sorted { $0.submittedAt < $1.submittedAt }
         let actionableThreads = value.threads.values.filter { thread in
@@ -1038,6 +1017,57 @@ struct GitHubPullRequestFetcher: Sendable {
             createdAt: try parseDate(payload.createdAt),
             updatedAt: try parseDate(payload.updatedAt)
         )
+    }
+
+    /// An inline comment's state decides publication: a pending comment is unpublished whatever timestamp the
+    /// provider sends. A published comment without a publication time counts as published at creation.
+    private func normalizeComment(
+        _ comment: GitHubPayloadComment,
+        source: PullRequestCommentActivity.Source,
+        threadID: String?,
+        login: String
+    ) throws -> PullRequestCommentActivity {
+        guard let bodyHTML = comment.bodyHTML, let updatedAt = comment.updatedAt else {
+            throw GitHubReadError.invalidPayload
+        }
+        let isPublished: Bool
+        switch source {
+        case .pullRequest:
+            isPublished = true
+        case .reviewThread:
+            switch comment.state?.uppercased() {
+            case "PENDING":
+                isPublished = false
+            case "SUBMITTED":
+                isPublished = true
+            default:
+                throw GitHubReadError.invalidPayload
+            }
+        }
+        let createdAt = try parseDate(comment.createdAt)
+        return PullRequestCommentActivity(
+            id: comment.id,
+            url: comment.url,
+            author: comment.author?.login,
+            authorIsBot: comment.author?.isBot,
+            viewerDidAuthor: comment.viewerDidAuthor,
+            createdAt: createdAt,
+            source: source,
+            reviewId: source == .reviewThread ? comment.pullRequestReview?.id : nil,
+            publishedAt: isPublished ? try comment.publishedAt.map(parseDate) ?? createdAt : nil,
+            isPublished: isPublished,
+            updatedAt: try parseDate(updatedAt),
+            threadId: threadID,
+            mentionsViewer: try mentions(login, in: bodyHTML)
+        )
+    }
+
+    private func mentions(_ login: String, in bodyHTML: String) throws -> Bool {
+        do {
+            return try GitHubMentionParser.mentionsUser(login, inRenderedHTML: bodyHTML)
+        } catch {
+            throw GitHubReadError.invalidPayload
+        }
     }
 
     private func normalizeReviewDecision(

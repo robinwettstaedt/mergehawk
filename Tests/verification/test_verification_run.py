@@ -19,6 +19,18 @@ verification_run = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(verification_run)
 
 
+
+def copy_signed_sleep(path: Path) -> None:
+    """Copies /bin/sleep and ad-hoc signs it, since macOS kills an unsigned copy as soon as it runs."""
+    shutil.copyfile("/bin/sleep", path)
+    path.chmod(0o755)
+    subprocess.run(
+        ["codesign", "--force", "-s", "-", str(path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
 class VerificationRunTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory(prefix="mergehawk verification tests ")
@@ -298,11 +310,9 @@ class VerificationRunTests(unittest.TestCase):
         runtime_app = Path(slot_record["app"]["runtime_path"])
         executable = runtime_app / "Contents" / "MacOS" / slot_record["app"]["executable_name"]
         executable.parent.mkdir(parents=True)
-        shutil.copyfile("/bin/sleep", executable)
-        executable.chmod(0o755)
+        copy_signed_sleep(executable)
         control_executable = alias_runtime / "control-sleep"
-        shutil.copyfile("/bin/sleep", control_executable)
-        control_executable.chmod(0o755)
+        copy_signed_sleep(control_executable)
         processes = [
             subprocess.Popen([str(executable), "60"]),
             subprocess.Popen([str(executable), "60"]),

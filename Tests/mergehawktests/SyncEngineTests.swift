@@ -56,7 +56,7 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(prepared.events.first?.event.activityId, "PENDING_BECAME_SUBMITTED")
     }
 
-    func testSelfAuthoredAndRepresentedReviewChildCommentsStaySuppressed() async throws {
+    func testSelfAuthoredActivityStaysSuppressedWhileDecisionKeepsChildComments() async throws {
         let current = Self.pullRequest(
             comments: [
                 Self.comment("CHILD", reviewID: "REVIEW"),
@@ -78,7 +78,8 @@ final class SyncEngineTests: XCTestCase {
             fetchResult: CompletePullRequestFetchResult(activePullRequests: [current])
         )
 
-        XCTAssertEqual(prepared.events.map(\.event.activityId), ["REVIEW", "UNRELATED"])
+        XCTAssertEqual(prepared.events.first?.event.activityId, "REVIEW")
+        XCTAssertEqual(Set(prepared.events.dropFirst().compactMap(\.event.activityId)), ["CHILD", "UNRELATED"])
     }
 
     func testRetiringPRUsesPriorRelationshipsAndEmitsOnlyFinalPeopleActivity() async throws {

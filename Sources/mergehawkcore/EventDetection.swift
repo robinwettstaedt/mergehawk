@@ -10,48 +10,83 @@ public enum PRActivityDetector {
         return events
     }
 
+    /// Emits review decisions and comment updates that the previous processed record has not seen yet.
+    ///
+    /// Comment updates are newly published comments, newly submitted comment-only review summaries with text,
+    /// and previously processed ones that newly mention the viewer. Decision summaries never become comment
+    /// updates, and a review never hides its inline comments.
     public static func detectProcessedPeopleActivity(
         previous: ProcessedPullRequestActivity?,
         current: PullRequest
     ) -> [PullRequestEvent] {
         guard let previous else { return [] }
-        let newReviews = current.recentReviews
-            .filter { !previous.includesReview($0) }
-            .filter { !$0.viewerDidAuthor }
+        let decisionEvents = current.recentReviews
+            .filter { $0.state != .commented && !previous.includesReview($0) && !$0.viewerDidAuthor }
             .sorted { $0.submittedAt < $1.submittedAt }
-        let reviewEvents = newReviews.map { review in
-            PullRequestEvent(
-                type: reviewEventType(for: review.state),
+            .map { review in
+                PullRequestEvent(
+                    type: review.state == .approved ? .reviewApproved : .changesRequested,
+                    prId: current.id,
+                    count: 1,
+                    actorLogin: review.author,
+                    actorIsBot: review.authorIsBot,
+                    activityId: review.id,
+                    destinationURL: review.url,
+                    happenedAt: review.submittedAt
+                )
+            }
+
+        let participationStarts = threadParticipationStarts(in: current)
+        let priorMentions = previous.mentioningActivityIDs
+        func newlyMentions(_ id: String) -> Bool {
+            priorMentions.map { !$0.contains(id) } ?? false
+        }
+        var commentEvents: [PullRequestEvent] = []
+        for review in current.recentReviews where isCommentSummary(review) && !review.viewerDidAuthor {
+            let isNew = !previous.includesReview(review)
+            guard isNew || (review.mentionsViewer && newlyMentions(review.id)) else { continue }
+            commentEvents.append(PullRequestEvent(
+                type: .reviewCommented,
                 prId: current.id,
                 count: 1,
                 actorLogin: review.author,
                 actorIsBot: review.authorIsBot,
                 activityId: review.id,
                 destinationURL: review.url,
-                happenedAt: review.submittedAt
-            )
+                happenedAt: isNew ? review.submittedAt : review.updatedAt,
+                commentReason: review.mentionsViewer ? .mention : .general
+            ))
         }
-        let representedReviewIDs = Set(newReviews.map(\.id))
-        let commentEvents = current.recentCommentActivities
-            .filter { !previous.includesComment($0) }
-            .filter { !$0.viewerDidAuthor }
-            .filter { comment in
-                comment.reviewId.map { !representedReviewIDs.contains($0) } ?? true
+        for comment in current.recentCommentActivities where !comment.viewerDidAuthor {
+            let isNew = !previous.includesComment(comment)
+            let reason: PullRequestCommentReason
+            let happenedAt: Date
+            if isNew {
+                reason = comment.mentionsViewer ? .mention
+                    : participates(comment, starts: participationStarts) ? .threadParticipation
+                    : .general
+                happenedAt = comment.publishedAt ?? comment.createdAt
+            } else if comment.publishedAt != nil, comment.mentionsViewer, newlyMentions(comment.id) {
+                reason = .mention
+                happenedAt = comment.updatedAt
+            } else {
+                continue
             }
-            .sorted { $0.createdAt < $1.createdAt }
-            .map { comment in
-                PullRequestEvent(
-                    type: commentEventType(for: comment.source),
-                    prId: current.id,
-                    count: 1,
-                    actorLogin: comment.author,
-                    actorIsBot: comment.authorIsBot,
-                    activityId: comment.id,
-                    destinationURL: comment.url,
-                    happenedAt: comment.createdAt
-                )
-            }
-        return reviewEvents + commentEvents
+            commentEvents.append(PullRequestEvent(
+                type: commentEventType(for: comment.source),
+                prId: current.id,
+                count: 1,
+                actorLogin: comment.author,
+                actorIsBot: comment.authorIsBot,
+                activityId: comment.id,
+                destinationURL: comment.url,
+                happenedAt: happenedAt,
+                commentReason: reason
+            ))
+        }
+        return decisionEvents + commentEvents.enumerated()
+            .sorted { ($0.element.happenedAt ?? .distantPast, $0.offset) < ($1.element.happenedAt ?? .distantPast, $1.offset) }
+            .map(\.element)
     }
 
     /// Complete fetches return every comment and review, so the current IDs replace the previous record.
@@ -59,8 +94,40 @@ public enum PRActivityDetector {
         ProcessedPullRequestActivity(
             pullRequestID: current.id,
             commentIDs: Set(current.recentCommentActivities.map(\.id)),
-            submittedReviewIDs: Set(current.recentReviews.map(\.id))
+            submittedReviewIDs: Set(current.recentReviews.map(\.id)),
+            mentioningActivityIDs: Set(
+                current.recentCommentActivities
+                    .filter { $0.publishedAt != nil && $0.mentionsViewer }
+                    .map(\.id)
+                + current.recentReviews
+                    .filter { isCommentSummary($0) && $0.mentionsViewer }
+                    .map(\.id)
+            )
         )
+    }
+
+    /// A comment-only review contributes a comment update only when its summary has text.
+    private static func isCommentSummary(_ review: PullRequestReview) -> Bool {
+        review.state == .commented && review.hasSummaryText
+    }
+
+    /// The earliest publication of a viewer comment still present in each review thread. Unpublished drafts
+    /// and deleted comments establish nothing.
+    private static func threadParticipationStarts(in pullRequest: PullRequest) -> [String: Date] {
+        pullRequest.recentCommentActivities.reduce(into: [:]) { starts, comment in
+            guard comment.viewerDidAuthor, let threadId = comment.threadId, let publishedAt = comment.publishedAt else {
+                return
+            }
+            starts[threadId] = min(starts[threadId] ?? publishedAt, publishedAt)
+        }
+    }
+
+    /// Joining a thread covers comments published at or after the viewer's first comment there, never earlier ones.
+    private static func participates(_ comment: PullRequestCommentActivity, starts: [String: Date]) -> Bool {
+        guard let threadId = comment.threadId, let start = starts[threadId], let publishedAt = comment.publishedAt else {
+            return false
+        }
+        return publishedAt >= start
     }
 
     private static func relationshipAddedEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {
@@ -90,17 +157,6 @@ public enum PRActivityDetector {
                 relationshipChanges: changes
             )
         ]
-    }
-
-    private static func reviewEventType(for state: PullRequestReviewState) -> PullRequestEventType {
-        switch state {
-        case .approved:
-            .reviewApproved
-        case .changesRequested:
-            .changesRequested
-        case .commented:
-            .reviewCommented
-        }
     }
 
     private static func commentEventType(for source: PullRequestCommentActivity.Source) -> PullRequestEventType {

@@ -72,7 +72,13 @@ enum GitHubAppRepositoryAccessCopy {
 
 enum PullRequestNotificationTitlePresentation {
     static func title(for notification: PullRequestNotification) -> String {
-        switch notification.eventType {
+        if let reasonTitle = CommentNotificationTitlePresentation.title(
+            reason: notification.commentReason,
+            actorLogin: notification.actorLogin
+        ) {
+            return reasonTitle
+        }
+        return switch notification.eventType {
         case .newComment:
             actorText(for: notification).map { "New comment from \($0)" }
                 ?? "\(notification.count ?? 1) new comment\(notification.count == 1 ? "" : "s")"

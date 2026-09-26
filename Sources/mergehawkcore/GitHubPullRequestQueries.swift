@@ -5,6 +5,24 @@ enum GitHubPullRequestQueries {
     static let hydrationBatchSize = 20
     static let continuationBatchSize = 20
 
+    static let pageInfoFields = "pageInfo { startCursor endCursor hasPreviousPage hasNextPage }"
+
+    /// Node selections shared by hydration and every continuation of the same connection.
+    static let conversationCommentFields =
+        "id url createdAt publishedAt updatedAt bodyHTML viewerDidAuthor author { login __typename }"
+    static let inlineCommentFields =
+        "id url createdAt publishedAt updatedAt bodyHTML state viewerDidAuthor author { login __typename } pullRequestReview { id }"
+    static let fullReviewFields =
+        "id url state submittedAt updatedAt bodyHTML bodyText viewerDidAuthor author { login __typename }"
+    /// Latest opinionated reviews only feed the review decision, so they carry no summary content.
+    static let opinionatedReviewFields = "id url state submittedAt viewerDidAuthor author { login __typename }"
+
+    static let conversationCommentConnectionFields = "totalCount \(pageInfoFields) nodes { \(conversationCommentFields) }"
+    static let inlineCommentConnectionFields = "totalCount \(pageInfoFields) nodes { \(inlineCommentFields) }"
+    static let fullReviewConnectionFields = "totalCount \(pageInfoFields) nodes { \(fullReviewFields) }"
+    static let opinionatedReviewConnectionFields = "totalCount \(pageInfoFields) nodes { \(opinionatedReviewFields) }"
+    static let reviewThreadNodeFields = "id isResolved viewerCanResolve comments(last: 10) { \(inlineCommentConnectionFields) }"
+
     static let completeNodeFields = """
       id
       title
@@ -22,38 +40,10 @@ enum GitHubPullRequestQueries {
       statusCheckRollup { state }
       author { login avatarUrl(size: 64) }
       repository { nameWithOwner isArchived }
-      comments(last: 10) {
-        totalCount
-        pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id url createdAt viewerDidAuthor author { login __typename } }
-      }
-      reviews(last: 10) {
-        totalCount
-        pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id url state submittedAt viewerDidAuthor author { login __typename } }
-      }
-      latestOpinionatedReviews(last: 20) {
-        totalCount
-        pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id url state submittedAt viewerDidAuthor author { login __typename } }
-      }
-      reviewThreads(last: 20) {
-        totalCount
-        pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes {
-          id
-          isResolved
-          viewerCanResolve
-          comments(last: 10) {
-            totalCount
-            pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-            nodes {
-              id url createdAt viewerDidAuthor author { login __typename }
-              pullRequestReview { id }
-            }
-          }
-        }
-      }
+      comments(last: 10) { \(conversationCommentConnectionFields) }
+      reviews(last: 10) { \(fullReviewConnectionFields) }
+      latestOpinionatedReviews(last: 20) { \(opinionatedReviewConnectionFields) }
+      reviewThreads(last: 20) { totalCount \(pageInfoFields) nodes { \(reviewThreadNodeFields) } }
       assignees(last: 20) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }

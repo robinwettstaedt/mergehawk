@@ -27,10 +27,17 @@ struct GitHubPayloadUser: Decodable, Equatable, Sendable {
     }
 }
 
+/// A conversation comment or an inline review comment. Content and publication fields are requested for both;
+/// normalization rejects a node that lacks them instead of guessing.
 struct GitHubPayloadComment: Decodable, Equatable, Sendable {
     let id: String
     let url: URL
     let createdAt: String
+    let publishedAt: String?
+    let updatedAt: String?
+    let bodyHTML: String?
+    /// Only inline review comments have a state (PENDING or SUBMITTED).
+    let state: String?
     let viewerDidAuthor: Bool
     let author: GitHubPayloadUser?
     let pullRequestReview: ReviewIdentity?
@@ -40,11 +47,15 @@ struct GitHubPayloadComment: Decodable, Equatable, Sendable {
     }
 }
 
+/// A full review or a lean opinionated review; only full reviews request the summary content fields.
 struct GitHubPayloadReview: Decodable, Equatable, Sendable {
     let id: String
     let url: URL
     let state: String
     let submittedAt: String?
+    let updatedAt: String?
+    let bodyHTML: String?
+    let bodyText: String?
     let viewerDidAuthor: Bool
     let author: GitHubPayloadUser?
 }

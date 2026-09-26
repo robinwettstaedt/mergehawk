@@ -7,21 +7,28 @@ public struct ProcessedPullRequestActivity: Codable, Equatable, Sendable {
     /// Activity at or before this time also counts as processed. Only an imported legacy snapshot sets it,
     /// because that snapshot kept just the most recent comments and reviews.
     public var processedThrough: Date?
+    /// Published comments and comment-only review summaries that mentioned the viewer at the last refresh.
+    /// Nil means the record predates mention observation, so current mentions become a quiet baseline.
+    public var mentioningActivityIDs: Set<String>?
 
     public init(
         pullRequestID: String,
         commentIDs: Set<String> = [],
         submittedReviewIDs: Set<String> = [],
-        processedThrough: Date? = nil
+        processedThrough: Date? = nil,
+        mentioningActivityIDs: Set<String>? = nil
     ) {
         self.pullRequestID = pullRequestID
         self.commentIDs = commentIDs
         self.submittedReviewIDs = submittedReviewIDs
         self.processedThrough = processedThrough
+        self.mentioningActivityIDs = mentioningActivityIDs
     }
 
+    /// The legacy cutoff compares publication time, so a comment drafted before it but published after stays new.
     func includesComment(_ comment: PullRequestCommentActivity) -> Bool {
-        commentIDs.contains(comment.id) || processedThrough.map { comment.createdAt <= $0 } == true
+        commentIDs.contains(comment.id)
+            || processedThrough.map { cutoff in comment.publishedAt.map { $0 <= cutoff } == true } == true
     }
 
     func includesReview(_ review: PullRequestReview) -> Bool {

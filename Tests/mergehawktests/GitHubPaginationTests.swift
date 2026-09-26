@@ -127,6 +127,10 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(continuedComment.source, .reviewThread)
         XCTAssertEqual(continuedComment.url.absoluteString, "https://github.com/acme/app/pull/1#issuecomment-TC0")
         XCTAssertEqual(continuedComment.reviewId, "THREAD_REVIEW")
+        XCTAssertEqual(
+            Set(hydrated[0].pullRequest.recentCommentActivities.filter { $0.id.hasPrefix("TC") }.map(\.threadId)),
+            ["T_OLD"]
+        )
     }
 
     func testIncompleteContinuationCoverageFailsInsteadOfPublishingPartialData() async throws {
@@ -266,6 +270,7 @@ final class GitHubPaginationTests: XCTestCase {
             Set(hydrated[0].pullRequest.recentCommentActivities.map(\.id)),
             Set(survivingComments.compactMap { $0["id"] as? String })
         )
+        XCTAssertTrue(hydrated[0].pullRequest.recentCommentActivities.allSatisfy { $0.threadId == "T1" })
     }
 
     func testBotRequestedReviewerHydratesWithoutActorFields() async throws {
@@ -872,6 +877,230 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testEveryActivityReadCarriesCommentContextWhileOpinionsStayLean() async throws {
+        let hydration = GitHubPullRequestQueries.hydration
+        XCTAssertTrue(hydration.contains("comments(last: 10) { \(GitHubPullRequestQueries.conversationCommentConnectionFields) }"))
+        XCTAssertTrue(hydration.contains("reviews(last: 10) { \(GitHubPullRequestQueries.fullReviewConnectionFields) }"))
+        XCTAssertTrue(hydration.contains("latestOpinionatedReviews(last: 20) { \(GitHubPullRequestQueries.opinionatedReviewConnectionFields) }"))
+        XCTAssertTrue(hydration.contains("comments(last: 10) { \(GitHubPullRequestQueries.inlineCommentConnectionFields) }"))
+        let opinions = try XCTUnwrap(Self.selection(in: hydration, from: "latestOpinionatedReviews", to: "reviewThreads"))
+        XCTAssertFalse(opinions.contains("bodyHTML"))
+        XCTAssertFalse(opinions.contains("bodyText"))
+
+        let oldThread = Self.thread(
+            "T_OLD",
+            commentsConnection: Self.connection(
+                total: 2,
+                nodes: [Self.comment("T_OLD_NEW", reviewID: "R_NEW")],
+                previous: "old-thread-before"
+            )
+        )
+        let initial = Self.pullRequest(
+            comments: Self.connection(total: 2, nodes: [Self.comment("C_NEW")], previous: "comments-before"),
+            reviews: Self.connection(total: 2, nodes: [Self.review("R_NEW", state: "COMMENTED")], previous: "reviews-before"),
+            opinionated: Self.connection(total: 2, nodes: [Self.leanReview("O_NEW")], previous: "opinions-before"),
+            threads: Self.connection(total: 2, nodes: [oldThread], previous: "threads-before")
+        )
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            let fields = [
+                ("c0:", "c1:", GitHubPullRequestQueries.conversationCommentConnectionFields),
+                ("c1:", "c2:", GitHubPullRequestQueries.fullReviewConnectionFields),
+                ("c2:", "c3:", GitHubPullRequestQueries.opinionatedReviewConnectionFields),
+                ("c3:", "c4:", GitHubPullRequestQueries.reviewThreadNodeFields),
+                ("c4:", "}\n}", GitHubPullRequestQueries.inlineCommentConnectionFields),
+            ]
+            for (start, end, expected) in fields {
+                let selection = try XCTUnwrap(Self.selection(in: query, from: start, to: end))
+                XCTAssertTrue(selection.contains(expected), "\(start) \(selection)")
+            }
+            let continuedOpinions = try XCTUnwrap(Self.selection(in: query, from: "c2:", to: "c3:"))
+            XCTAssertFalse(continuedOpinions.contains("bodyHTML"))
+            return Self.json(["data": [
+                "c0": ["comments": Self.connection(total: 2, nodes: [Self.comment("C_OLD", createdAt: "2025-12-01T00:00:00Z")])],
+                "c1": ["reviews": Self.connection(total: 2, nodes: [Self.review("R_OLD", state: "COMMENTED")])],
+                "c2": ["latestOpinionatedReviews": Self.connection(total: 2, nodes: [Self.leanReview("O_OLD")])],
+                "c3": ["reviewThreads": Self.connection(total: 2, nodes: [
+                    Self.thread("T_CONTINUED", comments: [Self.comment("T_CONTINUED_ROOT", reviewID: "R_OLD")])
+                ])],
+                "c4": ["comments": Self.connection(total: 2, nodes: [
+                    Self.comment("T_OLD_ROOT", createdAt: "2025-12-01T00:00:00Z", reviewID: "R_OLD")
+                ])]
+            ]])
+        }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        let comments = Dictionary(uniqueKeysWithValues: pullRequest.recentCommentActivities.map { ($0.id, $0) })
+        XCTAssertEqual(Set(comments.keys), ["C_NEW", "C_OLD", "T_OLD_NEW", "T_OLD_ROOT", "T_CONTINUED_ROOT"])
+        for id in ["C_OLD", "T_OLD_ROOT"] {
+            let comment = try XCTUnwrap(comments[id])
+            XCTAssertEqual(comment.publishedAt, Self.date("2025-12-01T00:00:00Z"))
+            XCTAssertEqual(comment.updatedAt, Self.date("2025-12-01T00:00:00Z"))
+            XCTAssertEqual(comment.url.absoluteString, "https://github.com/acme/app/pull/1#issuecomment-\(id)")
+            XCTAssertEqual(comment.authorIsBot, false)
+        }
+        XCTAssertNil(comments["C_NEW"]?.threadId)
+        XCTAssertNil(comments["C_OLD"]?.threadId)
+        XCTAssertEqual(comments["T_OLD_NEW"]?.threadId, "T_OLD")
+        XCTAssertEqual(comments["T_OLD_ROOT"]?.threadId, "T_OLD")
+        XCTAssertEqual(comments["T_CONTINUED_ROOT"]?.threadId, "T_CONTINUED")
+        XCTAssertEqual(comments["T_CONTINUED_ROOT"]?.reviewId, "R_OLD")
+        XCTAssertEqual(Set(pullRequest.recentReviews.map(\.id)), ["R_NEW", "R_OLD"])
+        XCTAssertEqual(pullRequest.reviewDecision, .approved)
+        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 1)
+    }
+
+    func testPendingInlineCommentIsUnpublishedAndItsPublishedFormKeepsPublicationTime() async throws {
+        var pending = Self.comment("DRAFT", viewerDidAuthor: true, createdAt: "2026-09-26T10:00:10Z")
+        pending["state"] = "PENDING"
+        pending["publishedAt"] = "2026-09-26T10:00:10Z"
+        var published = pending
+        published["state"] = "SUBMITTED"
+        published["publishedAt"] = "2026-09-26T10:00:17Z"
+        published["updatedAt"] = "2026-09-26T10:00:17Z"
+
+        for (payload, expected) in [(pending, nil), (published, Self.date("2026-09-26T10:00:17Z"))] as [([String: Any], Date?)] {
+            let node = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [payload])]))
+            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+            let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            let comment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first)
+
+            XCTAssertEqual(comment.publishedAt, expected)
+            XCTAssertEqual(comment.createdAt, Self.date("2026-09-26T10:00:10Z"))
+            XCTAssertEqual(comment.threadId, "T")
+        }
+    }
+
+    func testCommentOnlySummaryKeepsTextAndMentionWhileDecisionSummariesDoNot() async throws {
+        let mention = #"<p><a class="user-mention notranslate" data-hovercard-type="user" href="https://github.com/RW">@RW</a> please look</p>"#
+        func review(_ id: String, state: String, html: String, text: String) -> [String: Any] {
+            var value = Self.review(id, state: state)
+            value["bodyHTML"] = html
+            value["bodyText"] = text
+            value["updatedAt"] = "2026-01-03T00:00:00Z"
+            return value
+        }
+        var mentioningComment = Self.comment("MENTION")
+        mentioningComment["bodyHTML"] = mention
+        var quotedComment = Self.comment("QUOTED")
+        quotedComment["bodyHTML"] = "<blockquote>\(mention)</blockquote>"
+        let node = Self.pullRequest(
+            comments: Self.connection(total: 2, nodes: [mentioningComment, quotedComment]),
+            reviews: Self.connection(total: 4, nodes: [
+                review("SUMMARY", state: "COMMENTED", html: mention, text: "@RW please look"),
+                review("EMPTY", state: "COMMENTED", html: "", text: " \n "),
+                review("APPROVAL", state: "APPROVED", html: mention, text: "@RW please look"),
+                review("CHANGES", state: "CHANGES_REQUESTED", html: "<p>Fix it</p>", text: "Fix it"),
+            ]),
+            opinionated: Self.connection(total: 1, nodes: [Self.leanReview("APPROVAL")])
+        )
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        let reviews = Dictionary(uniqueKeysWithValues: pullRequest.recentReviews.map { ($0.id, $0) })
+        XCTAssertEqual(reviews["SUMMARY"]?.hasSummaryText, true)
+        XCTAssertEqual(reviews["SUMMARY"]?.mentionsViewer, true)
+        XCTAssertEqual(reviews["SUMMARY"]?.updatedAt, Self.date("2026-01-03T00:00:00Z"))
+        XCTAssertEqual(reviews["EMPTY"]?.hasSummaryText, false)
+        XCTAssertEqual(reviews["EMPTY"]?.mentionsViewer, false)
+        XCTAssertEqual(reviews["APPROVAL"]?.hasSummaryText, true)
+        XCTAssertEqual(reviews["APPROVAL"]?.mentionsViewer, false)
+        XCTAssertEqual(reviews["CHANGES"]?.hasSummaryText, true)
+        XCTAssertEqual(pullRequest.reviewDecision, .approved)
+        XCTAssertEqual(pullRequest.recentCommentActivities.first { $0.id == "MENTION" }?.mentionsViewer, true)
+        XCTAssertEqual(pullRequest.recentCommentActivities.first { $0.id == "QUOTED" }?.mentionsViewer, false)
+    }
+
+    func testNullPublicationOnPublishedCommentsFallsBackToCreation() async throws {
+        var conversation = Self.comment("CONVERSATION", createdAt: "2026-03-01T00:00:00Z")
+        conversation.removeValue(forKey: "state")
+        conversation["publishedAt"] = NSNull()
+        var submitted = Self.comment("SUBMITTED", createdAt: "2026-03-02T00:00:00Z")
+        submitted["publishedAt"] = NSNull()
+        var pending = Self.comment("PENDING", viewerDidAuthor: true, createdAt: "2026-03-03T00:00:00Z")
+        pending["state"] = "PENDING"
+        pending["publishedAt"] = NSNull()
+        let node = Self.pullRequest(
+            comments: Self.connection(total: 1, nodes: [conversation]),
+            threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [submitted, pending])])
+        )
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let comments = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0]
+            .pullRequest.recentCommentActivities
+
+        XCTAssertEqual(comments.first { $0.id == "CONVERSATION" }?.publishedAt, Self.date("2026-03-01T00:00:00Z"))
+        XCTAssertEqual(comments.first { $0.id == "SUBMITTED" }?.publishedAt, Self.date("2026-03-02T00:00:00Z"))
+        let pendingComment = try XCTUnwrap(comments.first { $0.id == "PENDING" })
+        XCTAssertNil(pendingComment.publishedAt)
+    }
+
+    func testMissingContentOrInvalidActivityDatesFailTheCompleteFetch() async throws {
+        func conversation(_ edit: (inout [String: Any]) -> Void) -> [String: Any] {
+            var value = Self.comment("C")
+            value.removeValue(forKey: "state")
+            edit(&value)
+            return Self.pullRequest(comments: Self.connection(total: 1, nodes: [value]))
+        }
+        func inline(_ edit: (inout [String: Any]) -> Void) -> [String: Any] {
+            var value = Self.comment("T_C")
+            edit(&value)
+            return Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [value])]))
+        }
+        func fullReview(_ edit: (inout [String: Any]) -> Void) -> [String: Any] {
+            var value = Self.review("R", state: "COMMENTED")
+            edit(&value)
+            return Self.pullRequest(reviews: Self.connection(total: 1, nodes: [value]))
+        }
+        let invalidNodes: [(String, [String: Any])] = [
+            ("conversation body", conversation { $0.removeValue(forKey: "bodyHTML") }),
+            ("conversation null body", conversation { $0["bodyHTML"] = NSNull() }),
+            ("conversation invalid publication", conversation { $0["publishedAt"] = "earlier" }),
+            ("conversation update", conversation { $0.removeValue(forKey: "updatedAt") }),
+            ("conversation invalid update", conversation { $0["updatedAt"] = "yesterday" }),
+            ("inline missing state", inline { $0.removeValue(forKey: "state") }),
+            ("inline unknown state", inline { $0["state"] = "DRAFTED" }),
+            ("inline invalid publication", inline { $0["publishedAt"] = "later" }),
+            ("inline body", inline { $0.removeValue(forKey: "bodyHTML") }),
+            ("review text", fullReview { $0.removeValue(forKey: "bodyText") }),
+            ("review body", fullReview { $0.removeValue(forKey: "bodyHTML") }),
+            ("review update", fullReview { $0.removeValue(forKey: "updatedAt") }),
+            ("review invalid update", fullReview { $0["updatedAt"] = "soon" }),
+        ]
+        for (label, node) in invalidNodes {
+            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+            do {
+                _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+                XCTFail("Expected \(label) to fail the fetch")
+            } catch {
+                XCTAssertEqual(error as? GitHubReadError, .invalidPayload, label)
+            }
+        }
+
+        var olderComment = Self.comment("C_OLD")
+        olderComment.removeValue(forKey: "bodyHTML")
+        let initial = Self.pullRequest(
+            comments: Self.connection(total: 2, nodes: [Self.comment("C_NEW")], previous: "before")
+        )
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            return Self.json(["data": ["c0": ["comments": Self.connection(total: 2, nodes: [olderComment])]]])
+        }
+        do {
+            _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            XCTFail("Expected a continuation page without content to fail the fetch")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
+        }
+    }
+
     private static func fetcher(_ transport: HydrationTransport) -> GitHubPullRequestFetcher {
         GitHubPullRequestFetcher { query, variables in
             try await transport.read(query: query, variables: variables)
@@ -946,7 +1175,8 @@ final class GitHubPaginationTests: XCTestCase {
         typename: String = "User"
     ) -> [String: Any] {
         var result: [String: Any] = [
-            "id": id, "createdAt": createdAt,
+            "id": id, "createdAt": createdAt, "publishedAt": createdAt, "updatedAt": createdAt,
+            "bodyHTML": "<p>Comment \(id)</p>", "state": "SUBMITTED",
             "url": "https://github.com/acme/app/pull/1#issuecomment-\(id)",
             "viewerDidAuthor": viewerDidAuthor,
             "author": user(author ?? (viewerDidAuthor ? "rw" : "reviewer"), typename: typename)
@@ -974,9 +1204,17 @@ final class GitHubPaginationTests: XCTestCase {
     ) -> [String: Any] {
         [
             "id": id, "state": state, "submittedAt": submittedAt,
+            "updatedAt": submittedAt, "bodyHTML": "", "bodyText": "",
             "url": "https://github.com/acme/app/pull/1#pullrequestreview-\(id)",
             "viewerDidAuthor": viewerDidAuthor, "author": user(author, typename: typename)
         ]
+    }
+
+    /// A latest-opinionated review node, which never carries summary content.
+    private static func leanReview(_ id: String, state: String = "APPROVED") -> [String: Any] {
+        var value = review(id, state: state)
+        ["updatedAt", "bodyHTML", "bodyText"].forEach { value.removeValue(forKey: $0) }
+        return value
     }
 
     private static func thread(

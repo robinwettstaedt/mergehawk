@@ -373,7 +373,7 @@ final class DashboardController: ObservableObject {
         }
         self.automaticRefreshIntervalOverride = automaticRefreshInterval
         self.muteBotNotifications = preferencesStore.muteBotNotifications
-        self.preferences = preferencesStore.notificationPreferences
+        self.preferences = preferencesStore.loadAndPersistNotificationPreferences()
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestSortDirection = preferencesStore.pullRequestSortDirection
@@ -1636,10 +1636,12 @@ final class DashboardController: ObservableObject {
         return lhs.number > rhs.number
     }
 
+    static let pullRequestNotificationHistoryLimit = 100
+
     private static func trimPullRequestNotifications(
         _ notifications: [PullRequestNotification]
     ) -> [PullRequestNotification] {
-        Array(notifications.sorted(by: compareNotifications).prefix(30))
+        Array(notifications.sorted(by: compareNotifications).prefix(pullRequestNotificationHistoryLimit))
     }
 
     private static func compareNotifications(

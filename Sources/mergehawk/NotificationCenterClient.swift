@@ -44,7 +44,13 @@ enum NotificationContentBuilder {
     }
 
     private static func title(for event: PullRequestEvent) -> String {
-        switch event.type {
+        if let reasonTitle = CommentNotificationTitlePresentation.title(
+            reason: event.commentReason,
+            actorLogin: event.actorLogin
+        ) {
+            return reasonTitle
+        }
+        return switch event.type {
         case .newComment:
             actorText(for: event).map { "New comment from \($0)" }
                 ?? (event.count == 1 ? "New PR comment" : "\(event.count ?? 0) new PR comments")
@@ -103,6 +109,21 @@ enum NotificationContentBuilder {
         }
         let capped = actors.prefix(3).map { "@\($0)" }.joined(separator: ", ")
         return actors.count > 3 ? "\(capped), ..." : capped
+    }
+}
+
+/// Titles naming why a comment is relevant, shared by in-app rows and single-update macOS notifications.
+enum CommentNotificationTitlePresentation {
+    /// Returns nil for general and historical comments, which keep each surface's generic title.
+    static func title(reason: PullRequestCommentReason?, actorLogin: String?) -> String? {
+        switch reason {
+        case .mention:
+            actorLogin.map { "@\($0) mentioned you" } ?? "Someone mentioned you"
+        case .threadParticipation:
+            actorLogin.map { "@\($0) commented in a thread you joined" } ?? "New comment in a thread you joined"
+        case .general, nil:
+            nil
+        }
     }
 }
 

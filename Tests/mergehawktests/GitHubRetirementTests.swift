@@ -747,6 +747,8 @@ final class GitHubRetirementTests: XCTestCase {
     private static func comment(_ id: String) -> [String: Any] {
         [
             "id": id, "createdAt": "2026-01-01T00:00:00Z", "viewerDidAuthor": false,
+            "publishedAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
+            "bodyHTML": "<p>Final comment</p>",
             "url": "https://github.com/acme/app/pull/1#issuecomment-\(id)",
             "author": ["id": "U_REVIEWER", "login": "reviewer"], "pullRequestReview": NSNull()
         ]
@@ -755,6 +757,7 @@ final class GitHubRetirementTests: XCTestCase {
     private static func review(_ id: String) -> [String: Any] {
         [
             "id": id, "state": "APPROVED", "submittedAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z", "bodyHTML": "", "bodyText": "",
             "url": "https://github.com/acme/app/pull/1#pullrequestreview-\(id)",
             "viewerDidAuthor": false, "author": ["id": "U_REVIEWER", "login": "reviewer"]
         ]

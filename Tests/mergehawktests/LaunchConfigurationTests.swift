@@ -1,4 +1,5 @@
 @testable import mergehawk
+import mergehawkcore
 import XCTest
 
 final class LaunchConfigurationTests: XCTestCase {
@@ -80,6 +81,25 @@ final class LaunchConfigurationTests: XCTestCase {
         XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock", "--mock-scenario", "bot-notifications"], environment: [:]).mockPullRequestScenario, .botNotifications)
         XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk"], environment: ["MERGEHAWK_MOCK_MODE": "1", "MERGEHAWK_MOCK_SCENARIO": "bot-notifications"]).mockPullRequestScenario, .botNotifications)
         XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock-scenario", "bot-notifications"], environment: [:]).mockPullRequestScenario, .standard)
+    }
+
+    func testCommentNotificationScenarioUsesExistingMockArgumentsAndEnvironment() {
+        XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock", "--mock-scenario", "comment-notifications"], environment: [:]).mockPullRequestScenario, .commentNotifications)
+        XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk"], environment: ["MERGEHAWK_MOCK_MODE": "1", "MERGEHAWK_MOCK_SCENARIO": "comment-notifications"]).mockPullRequestScenario, .commentNotifications)
+        XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock-scenario", "comment-notifications"], environment: [:]).mockPullRequestScenario, .standard)
+    }
+
+    func testRunAgentAppScriptAcceptsEveryMockScenario() throws {
+        let script = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("scripts/run-agent-app.sh"),
+            encoding: .utf8
+        )
+        let allowList = try XCTUnwrap(script.split(separator: "\n").first { $0.contains("standard|delayed-refresh") })
+        for scenario in MockPullRequestScenario.allCases {
+            XCTAssertTrue(allowList.contains(scenario.rawValue), scenario.rawValue)
+        }
     }
 
     func testMockScenariosParseFromArgumentsAndEnvironment() {

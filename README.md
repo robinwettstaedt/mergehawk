@@ -12,8 +12,9 @@ Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
 - Compact menu tabs for `Notifications`, `My PRs`, and `Requested`.
 - SwiftUI Settings window with General, GitHub, Notifications, and Sources panes.
 - First-sync silent baseline behavior.
-- Event detection for new comments, new reviews, failed CI, and changes requested.
-- Notification preferences for in-menu and macOS notifications.
+- Event detection for new comments, review decisions, failed CI, and newly added mentions.
+- Notification preferences for in-menu and macOS notifications, including per-relationship
+  comment modes.
 - GitHub App sign-in through the GitHub device flow.
 - Complete GitHub PR discovery and paginated activity fetching through GraphQL.
 - GitHub App user token storage in macOS Keychain.
@@ -220,6 +221,26 @@ notification history directly, including final activity from a PR that was just 
 or closed. Repository catalog and GitHub App installation checks belong to `Sources`;
 they refresh separately and cannot delay PR publication.
 
+## Notification settings
+
+The Notifications pane has two matrices for the PRs MergeHawk already tracks: PRs you
+authored, PRs assigned to you, and PRs where your review is requested directly or
+through a team. Comment settings never add PRs to that set.
+
+- **Pull request notifications** covers review decisions (approvals and changes
+  requested), failed CI, and becoming assigned or requested.
+- **Comment notifications** chooses one mode per relationship: **All comments**,
+  **Mentions & threads you joined**, or **Off**. Authored and assigned PRs default to
+  All comments; direct and team review requests default to Mentions & threads you joined.
+
+Comment modes cover conversation comments, inline review comments and replies, and
+the summary text of comment-only reviews. The summary of an approval or a changes
+request belongs to its review decision and never creates a separate comment update.
+Mentions & threads you joined keeps comments that mention you directly and new comments
+in review threads where your published comments are still present. A mention added by
+editing an already seen comment notifies once when a refresh observes it. The in-app
+history keeps the newest 100 notifications.
+
 ## Advanced Personal Access Token Fallback
 
 1. Create a GitHub fine-grained or classic personal access token for PR data.
@@ -260,6 +281,7 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario refresh-failure --u
 scripts/run-agent-app.sh --slot local --mock --mock-scenario merged-final-activity --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario quiet-access-loss --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario comment-notifications --ui menu --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
@@ -269,6 +291,11 @@ human updates. In a fresh fixture, enable “Mute bot comment and review
 notifications” in Settings before the update refresh to see only the two human
 in-app rows and notification payloads. Enabling it after the refresh preserves
 already retained notification history.
+The `comment-notifications` scenario covers all four relationships with the default
+comment modes: the first refresh adds eight eligible updates (general comments,
+individual inline comments beside an approval, a joined-thread reply, and mentions),
+the second adds a mention to an already seen comment, and later refreshes change
+nothing.
 
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL

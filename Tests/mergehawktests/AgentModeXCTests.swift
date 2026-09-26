@@ -29,6 +29,69 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertEqual(repeated.processedActivityByPullRequestID, state.processedActivityByPullRequestID)
     }
 
+    func testCommentScenarioProducesExactUpdatesAcrossBaselineUpdatesEditAndRepeat() async throws {
+        let engine = SyncEngine(source: MockPullRequestSource(scenario: .commentNotifications), loginProvider: { "agent-fixture" })
+        var state: PullRequestSyncState?
+        var allowedByStage: [[String]] = []
+        var emittedByStage: [Set<String>] = []
+        for _ in 0..<4 {
+            let prepared = try await engine.prepare(previousState: state)
+            emittedByStage.append(Set(prepared.events.compactMap(\.event.activityId)))
+            allowedByStage.append(prepared.events
+                .filter { NotificationPreferences.defaults.allows(event: $0.event, for: $0.filteringContext) }
+                .compactMap(\.event.activityId))
+            state = PullRequestSyncState(
+                account: prepared.account,
+                dashboard: DashboardState(pullRequests: prepared.activePullRequests.map(\.withoutActivityHistory), events: [], syncedAt: prepared.syncedAt, source: .mock, account: prepared.account, authStatus: .signedIn),
+                processedActivityByPullRequestID: prepared.processedActivityByPullRequestID
+            )
+        }
+
+        XCTAssertEqual(emittedByStage[0], [])
+        XCTAssertEqual(emittedByStage[1], [
+            "COMMENT_AUTHORED_NEW", "REVIEW_AUTHORED_APPROVAL", "INLINE_AUTHORED_1", "INLINE_AUTHORED_2",
+            "COMMENT_ASSIGNED_NEW", "REPLY_DIRECT_JOINED", "COMMENT_DIRECT_UNRELATED", "INLINE_DIRECT_MENTION",
+            "COMMENT_TEAM_UNRELATED", "REVIEW_TEAM_SUMMARY_MENTION",
+        ])
+        XCTAssertEqual(Set(allowedByStage[1]), [
+            "COMMENT_AUTHORED_NEW", "REVIEW_AUTHORED_APPROVAL", "INLINE_AUTHORED_1", "INLINE_AUTHORED_2",
+            "COMMENT_ASSIGNED_NEW", "REPLY_DIRECT_JOINED", "INLINE_DIRECT_MENTION", "REVIEW_TEAM_SUMMARY_MENTION",
+        ])
+        XCTAssertEqual(allowedByStage[1].count, 8)
+        XCTAssertEqual(allowedByStage[2], ["COMMENT_TEAM_EDITED"])
+        XCTAssertEqual(emittedByStage[2], ["COMMENT_TEAM_EDITED"])
+        XCTAssertEqual(emittedByStage[3], [])
+    }
+
+    @MainActor
+    func testCommentScenarioRecordsReasonRowsAndPayloadsInTheMockApp() async {
+        let suite = "comment-scenario-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let notifications = RecordingNotificationClient()
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), preferencesStore: PreferencesStore(defaults: defaults), launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .commentNotifications), notificationClient: notifications, automaticRefreshInterval: 0)
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing } }
+        XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+        for expected in [8, 9, 9] {
+            controller.refresh()
+            await waitUntil(timeout: 1) { await MainActor.run { controller.pullRequestNotificationHistory.count == expected && !controller.isRefreshing } }
+        }
+        XCTAssertEqual(controller.pullRequestNotificationHistory.count, 9)
+        let reasons = Dictionary(uniqueKeysWithValues: controller.pullRequestNotificationHistory.compactMap { row in
+            row.activityId.map { ($0, row.commentReason) }
+        })
+        XCTAssertEqual(reasons["REPLY_DIRECT_JOINED"], .threadParticipation)
+        XCTAssertEqual(reasons["INLINE_DIRECT_MENTION"], .mention)
+        XCTAssertEqual(reasons["REVIEW_TEAM_SUMMARY_MENTION"], .mention)
+        XCTAssertEqual(reasons["COMMENT_TEAM_EDITED"], .mention)
+        XCTAssertEqual(reasons["COMMENT_ASSIGNED_NEW"], .general)
+        XCTAssertEqual(reasons["REVIEW_AUTHORED_APPROVAL"], .some(nil))
+        XCTAssertEqual(notifications.records.count, 9)
+        XCTAssertEqual(notifications.records.last?.title, "@docs-lee mentioned you")
+        XCTAssertEqual(notifications.records.last?.clickDestinationURL, "https://github.com/mergehawk-labs/mergehawk/pull/83#issuecomment-COMMENT_TEAM_EDITED")
+        XCTAssertTrue(notifications.records.contains { $0.title == "@backend-mateo commented in a thread you joined" })
+    }
+
     @MainActor
     func testFreshBotScenarioRunsRespectMuteAndRecordedPayloads() async {
         for muted in [false, true] {
@@ -270,7 +333,10 @@ final class AgentModeXCTests: XCTestCase {
             authored: .disabled,
             assigned: .disabled,
             directReviewRequests: .disabled,
-            teamReviewRequests: .disabled
+            teamReviewRequests: .disabled,
+            commentModes: CommentNotificationPreferences(
+                authored: .off, assigned: .off, directReviewRequests: .off, teamReviewRequests: .off
+            )
         )
         let preferencesStore = mutablePreferencesStore
 
