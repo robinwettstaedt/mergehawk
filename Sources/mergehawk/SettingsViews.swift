@@ -784,8 +784,7 @@ private struct NotificationMatrixHeader: View {
     }
 }
 
-/// One radio choice per comment mode; assistive technologies see the choices as one radio group named after
-/// the relationship, next to the row's visible title.
+/// A relationship's comment mode as a row of native radio buttons under the matrix columns.
 private struct CommentModeRow: View {
     let relationship: PullRequestNotificationRelationship
     @Binding var selection: CommentNotificationMode
@@ -794,29 +793,72 @@ private struct CommentModeRow: View {
         HStack(spacing: NotificationMatrixLayout.columnSpacing) {
             Text(relationship.title)
                 .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
-            HStack(spacing: NotificationMatrixLayout.columnSpacing) {
-                ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
-                    Button {
-                        selection = mode
-                    } label: {
-                        Image(systemName: selection == mode ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(selection == mode ? Color.accentColor : Color.secondary)
-                            .frame(width: NotificationMatrixLayout.commentModeColumnWidth(for: mode), height: 18)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("\(relationship.title): \(mode.title)")
-                }
-            }
-            .accessibilityRepresentation {
-                // The hidden picker label names the radio group without adding a second visible row title.
-                Picker(NotificationMatrixLayout.commentModeAccessibilityLabel(for: relationship), selection: $selection) {
-                    ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
+            CommentModeRadioGroup(relationship: relationship, selection: $selection)
+                .frame(width: NotificationMatrixLayout.commentModeColumnsWidth, height: 18)
+        }
+    }
+}
+
+/// AppKit radio buttons sharing one superview and action, so they select exclusively, move with the arrow keys
+/// under keyboard navigation, and read as one labeled radio group to assistive technologies.
+private struct CommentModeRadioGroup: NSViewRepresentable {
+    let relationship: PullRequestNotificationRelationship
+    @Binding var selection: CommentNotificationMode
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    func makeNSView(context: Context) -> RadioGroupView {
+        let group = RadioGroupView()
+        group.setAccessibilityLabel(NotificationMatrixLayout.commentModeAccessibilityLabel(for: relationship))
+        for (index, mode) in CommentNotificationMode.allCases.enumerated() {
+            let button = NSButton(radioButtonWithTitle: "", target: context.coordinator, action: #selector(Coordinator.select(_:)))
+            button.tag = index
+            button.setAccessibilityLabel(mode.title)
+            button.toolTip = "\(relationship.title): \(mode.title)"
+            group.addSubview(button)
+        }
+        return group
+    }
+
+    func updateNSView(_ group: RadioGroupView, context: Context) {
+        context.coordinator.selection = $selection
+        for case let button as NSButton in group.subviews {
+            button.state = CommentNotificationMode.allCases[button.tag] == selection ? .on : .off
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<CommentNotificationMode>
+
+        init(selection: Binding<CommentNotificationMode>) {
+            self.selection = selection
+        }
+
+        @objc func select(_ sender: NSButton) {
+            selection.wrappedValue = CommentNotificationMode.allCases[sender.tag]
+        }
+    }
+
+    /// Centers each radio button in its matrix column.
+    final class RadioGroupView: NSView {
+        override func accessibilityRole() -> NSAccessibility.Role? { .radioGroup }
+        override func isAccessibilityElement() -> Bool { true }
+
+        override func layout() {
+            super.layout()
+            var columnStart: CGFloat = 0
+            for case let button as NSButton in subviews {
+                let width = NotificationMatrixLayout.commentModeColumnWidth(for: CommentNotificationMode.allCases[button.tag])
+                let size = button.fittingSize
+                button.frame = CGRect(
+                    x: (columnStart + (width - size.width) / 2).rounded(),
+                    y: ((bounds.height - size.height) / 2).rounded(),
+                    width: size.width,
+                    height: size.height
+                )
+                columnStart += width + NotificationMatrixLayout.columnSpacing
             }
         }
     }
@@ -850,6 +892,12 @@ enum NotificationMatrixLayout {
         case .relationshipChanges, .otherCommits:
             88
         }
+    }
+
+    /// The comment-mode columns and the spacing between them.
+    static var commentModeColumnsWidth: CGFloat {
+        let widths = CommentNotificationMode.allCases.map(commentModeColumnWidth(for:))
+        return widths.reduce(0, +) + columnSpacing * CGFloat(widths.count - 1)
     }
 
     /// Names a row's comment-mode radio group, like the upper matrix's "<relationship> <activity>" checkboxes.
