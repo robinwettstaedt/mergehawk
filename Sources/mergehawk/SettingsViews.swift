@@ -658,8 +658,9 @@ private struct NotificationSettingsView: View {
                 Text("Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain.")
             }
             Section("Pull request notifications") {
-                Grid(horizontalSpacing: NotificationMatrixLayout.columnSpacing, verticalSpacing: 8) {
-                    GridRow {
+                // Laid out like the comment matrix below so both relationship columns start at the same x.
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .bottom, spacing: NotificationMatrixLayout.columnSpacing) {
                         Text("Notify me for")
                             .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
                         ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
@@ -673,10 +674,9 @@ private struct NotificationSettingsView: View {
                     .foregroundStyle(.secondary)
 
                     Divider()
-                        .gridCellColumns(PullRequestNotificationActivity.allCases.count + 1)
 
                     ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
-                        GridRow {
+                        HStack(spacing: NotificationMatrixLayout.columnSpacing) {
                             Text(relationship.title)
                                 .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
                             ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
@@ -688,12 +688,13 @@ private struct NotificationSettingsView: View {
                                         .accessibilityLabel("\(relationship.title) \(activity.accessibilityTitle)")
                                 } else {
                                     Color.clear
-                                        .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity))
+                                        .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity), height: 1)
                                 }
                             }
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             }
             Section {
@@ -720,6 +721,7 @@ private struct NotificationSettingsView: View {
                         )
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             } header: {
                 Text("Comment notifications")
@@ -782,7 +784,8 @@ private struct NotificationMatrixHeader: View {
     }
 }
 
-/// One radio choice per comment mode; assistive technologies see the row as a single labeled picker.
+/// One radio choice per comment mode; assistive technologies see the choices as one radio group named after
+/// the relationship, next to the row's visible title.
 private struct CommentModeRow: View {
     let relationship: PullRequestNotificationRelationship
     @Binding var selection: CommentNotificationMode
@@ -806,12 +809,14 @@ private struct CommentModeRow: View {
                 }
             }
             .accessibilityRepresentation {
-                Picker(relationship.title, selection: $selection) {
+                // The hidden picker label names the radio group without adding a second visible row title.
+                Picker(NotificationMatrixLayout.commentModeAccessibilityLabel(for: relationship), selection: $selection) {
                     ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
                 .pickerStyle(.radioGroup)
+                .labelsHidden()
             }
         }
     }
@@ -847,6 +852,11 @@ enum NotificationMatrixLayout {
         }
     }
 
+    /// Names a row's comment-mode radio group, like the upper matrix's "<relationship> <activity>" checkboxes.
+    static func commentModeAccessibilityLabel(for relationship: PullRequestNotificationRelationship) -> String {
+        "\(relationship.title) comment notifications"
+    }
+
     static func commentModeColumnWidth(for mode: CommentNotificationMode) -> CGFloat {
         switch mode {
         case .all:
@@ -859,7 +869,7 @@ enum NotificationMatrixLayout {
     }
 }
 
-private extension PullRequestNotificationRelationship {
+extension PullRequestNotificationRelationship {
     var title: String {
         switch self {
         case .authored:

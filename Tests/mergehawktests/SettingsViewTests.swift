@@ -50,6 +50,15 @@ final class SettingsViewTests: XCTestCase {
             XCTAssertTrue(NotificationMatrixLayout.showsToggle(relationship: relationship, activity: .reviewActivity))
             XCTAssertTrue(NotificationMatrixLayout.showsToggle(relationship: relationship, activity: .ciFailures))
         }
+        XCTAssertEqual(
+            PullRequestNotificationRelationship.allCases.map(NotificationMatrixLayout.commentModeAccessibilityLabel(for:)),
+            [
+                "Authored PRs comment notifications",
+                "Assigned PRs comment notifications",
+                "Direct review requests comment notifications",
+                "Team review requests comment notifications",
+            ]
+        )
         XCTAssertEqual(PullRequestNotificationActivity.allCases.map(NotificationMatrixLayout.activityColumnWidth(for:)), [86, 60, 88])
         XCTAssertEqual(CommentNotificationMode.allCases.map(NotificationMatrixLayout.commentModeColumnWidth(for:)), [78, 110, 40])
         func rowWidth(_ columns: [CGFloat]) -> CGFloat {
