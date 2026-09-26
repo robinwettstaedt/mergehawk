@@ -1016,6 +1016,30 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(pullRequest.recentCommentActivities.first { $0.id == "QUOTED" }?.mentionsViewer, false)
     }
 
+    func testNullPublicationOnPublishedCommentsFallsBackToCreation() async throws {
+        var conversation = Self.comment("CONVERSATION", createdAt: "2026-03-01T00:00:00Z")
+        conversation.removeValue(forKey: "state")
+        conversation["publishedAt"] = NSNull()
+        var submitted = Self.comment("SUBMITTED", createdAt: "2026-03-02T00:00:00Z")
+        submitted["publishedAt"] = NSNull()
+        var pending = Self.comment("PENDING", viewerDidAuthor: true, createdAt: "2026-03-03T00:00:00Z")
+        pending["state"] = "PENDING"
+        pending["publishedAt"] = NSNull()
+        let node = Self.pullRequest(
+            comments: Self.connection(total: 1, nodes: [conversation]),
+            threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [submitted, pending])])
+        )
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let comments = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0]
+            .pullRequest.recentCommentActivities
+
+        XCTAssertEqual(comments.first { $0.id == "CONVERSATION" }?.publishedAt, Self.date("2026-03-01T00:00:00Z"))
+        XCTAssertEqual(comments.first { $0.id == "SUBMITTED" }?.publishedAt, Self.date("2026-03-02T00:00:00Z"))
+        let pendingComment = try XCTUnwrap(comments.first { $0.id == "PENDING" })
+        XCTAssertNil(pendingComment.publishedAt)
+    }
+
     func testMissingContentOrInvalidActivityDatesFailTheCompleteFetch() async throws {
         func conversation(_ edit: (inout [String: Any]) -> Void) -> [String: Any] {
             var value = Self.comment("C")
@@ -1036,12 +1060,11 @@ final class GitHubPaginationTests: XCTestCase {
         let invalidNodes: [(String, [String: Any])] = [
             ("conversation body", conversation { $0.removeValue(forKey: "bodyHTML") }),
             ("conversation null body", conversation { $0["bodyHTML"] = NSNull() }),
-            ("conversation publication", conversation { $0.removeValue(forKey: "publishedAt") }),
+            ("conversation invalid publication", conversation { $0["publishedAt"] = "earlier" }),
             ("conversation update", conversation { $0.removeValue(forKey: "updatedAt") }),
             ("conversation invalid update", conversation { $0["updatedAt"] = "yesterday" }),
             ("inline missing state", inline { $0.removeValue(forKey: "state") }),
             ("inline unknown state", inline { $0["state"] = "DRAFTED" }),
-            ("inline submitted without publication", inline { $0["publishedAt"] = NSNull() }),
             ("inline invalid publication", inline { $0["publishedAt"] = "later" }),
             ("inline body", inline { $0.removeValue(forKey: "bodyHTML") }),
             ("review text", fullReview { $0.removeValue(forKey: "bodyText") }),

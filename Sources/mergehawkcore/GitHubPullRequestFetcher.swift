@@ -1020,7 +1020,7 @@ struct GitHubPullRequestFetcher: Sendable {
     }
 
     /// An inline comment's state decides publication: a pending comment is unpublished whatever timestamp the
-    /// provider sends, and a submitted one must carry its publication time.
+    /// provider sends. A published comment without a publication time counts as published at creation.
     private func normalizeComment(
         _ comment: GitHubPayloadComment,
         source: PullRequestCommentActivity.Source,
@@ -1030,33 +1030,32 @@ struct GitHubPullRequestFetcher: Sendable {
         guard let bodyHTML = comment.bodyHTML, let updatedAt = comment.updatedAt else {
             throw GitHubReadError.invalidPayload
         }
-        let publishedAt: String?
+        let isPublished: Bool
         switch source {
         case .pullRequest:
-            publishedAt = comment.publishedAt
-            guard publishedAt != nil else { throw GitHubReadError.invalidPayload }
+            isPublished = true
         case .reviewThread:
             switch comment.state?.uppercased() {
             case "PENDING":
-                publishedAt = nil
+                isPublished = false
             case "SUBMITTED":
-                publishedAt = comment.publishedAt
-                guard publishedAt != nil else { throw GitHubReadError.invalidPayload }
+                isPublished = true
             default:
                 throw GitHubReadError.invalidPayload
             }
         }
+        let createdAt = try parseDate(comment.createdAt)
         return PullRequestCommentActivity(
             id: comment.id,
             url: comment.url,
             author: comment.author?.login,
             authorIsBot: comment.author?.isBot,
             viewerDidAuthor: comment.viewerDidAuthor,
-            createdAt: try parseDate(comment.createdAt),
+            createdAt: createdAt,
             source: source,
             reviewId: source == .reviewThread ? comment.pullRequestReview?.id : nil,
-            publishedAt: try publishedAt.map(parseDate),
-            isPublished: publishedAt != nil,
+            publishedAt: isPublished ? try comment.publishedAt.map(parseDate) ?? createdAt : nil,
+            isPublished: isPublished,
             updatedAt: try parseDate(updatedAt),
             threadId: threadID,
             mentionsViewer: try mentions(login, in: bodyHTML)
