@@ -2234,6 +2234,10 @@ enum PullRequestColumnLayout {
     static let rowSpacing: CGFloat = 7
     static let headerHeight: CGFloat = 32
     static let horizontalInset: CGFloat = 10
+    static let verticalInset: CGFloat = 8
+    static let avatarSize: CGFloat = 22
+    static let identitySpacing: CGFloat = 7
+    static let identityLineSpacing: CGFloat = 4
     static let commentsWidth: CGFloat = 30
     static let statusWidth: CGFloat = 30
     static let changesWidth: CGFloat = 49
@@ -2412,7 +2416,7 @@ struct PullRequestRow: View {
         HStack(spacing: PullRequestColumnLayout.spacing) {
             Button(action: action) {
                 HStack(spacing: PullRequestColumnLayout.spacing) {
-                    HStack(spacing: 7) {
+                    HStack(spacing: PullRequestColumnLayout.identitySpacing) {
                         PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
                         identity
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2466,7 +2470,7 @@ struct PullRequestRow: View {
             .frame(width: PullRequestColumnLayout.actionsWidth)
         }
         .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .padding(.vertical, 8)
+        .padding(.vertical, PullRequestColumnLayout.verticalInset)
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
     }
@@ -2481,7 +2485,7 @@ struct PullRequestRow: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
             HStack(spacing: 4) {
                 if pullRequest.draft { DraftPullRequestIndicator() }
                 Text(pullRequest.title)
@@ -2539,7 +2543,7 @@ private struct PullRequestAuthorAvatar: View {
                 placeholder
             }
         }
-        .frame(width: 22, height: 22)
+        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
         .clipShape(Circle())
         .help("Author: \(author)")
         .accessibilityLabel("Author: \(author)")
