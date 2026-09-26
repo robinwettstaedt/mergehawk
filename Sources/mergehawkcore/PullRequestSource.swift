@@ -229,6 +229,7 @@ public final class MockPullRequestSource {
                     recentCommentActivities: [
                         PullRequestCommentActivity(
                             id: "PR_1_COMMENT_NEW",
+                            url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/14#issuecomment-PR_1_COMMENT_NEW")!,
                             author: "frontend-sam",
                             createdAt: Date(timeIntervalSince1970: 1_777_815_000),
                             source: .pullRequest
@@ -380,19 +381,20 @@ public final class MockPullRequestSource {
         let date = Date(timeIntervalSince1970: 1_777_810_000)
         return [false, true].map { mixed in
             let id = mixed ? "PR_BOT_NOTIFICATIONS_MIXED" : "PR_BOT_NOTIFICATIONS_ONLY"
+            let url = URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(mixed ? 73 : 72)")!
             var comments: [PullRequestCommentActivity] = []
             var reviews: [PullRequestReview] = []
             if includesUpdates {
                 comments = [
-                    PullRequestCommentActivity(id: "\(id)_BOT_COMMENT", author: "mergehawk-helper", authorIsBot: true, createdAt: date, source: .pullRequest),
-                    PullRequestCommentActivity(id: "\(id)_BOT_THREAD", author: "mergehawk-helper", authorIsBot: true, createdAt: date.addingTimeInterval(1), source: .reviewThread)
+                    PullRequestCommentActivity(id: "\(id)_BOT_COMMENT", url: URL(string: "\(url.absoluteString)#issuecomment-\(id)_BOT_COMMENT")!, author: "mergehawk-helper", authorIsBot: true, createdAt: date, source: .pullRequest),
+                    PullRequestCommentActivity(id: "\(id)_BOT_THREAD", url: URL(string: "\(url.absoluteString)#discussion_r\(id)_BOT_THREAD")!, author: "mergehawk-helper", authorIsBot: true, createdAt: date.addingTimeInterval(1), source: .reviewThread)
                 ]
                 reviews = [PullRequestReviewState.commented, .changesRequested, .approved].enumerated().map { index, state in
-                    PullRequestReview(id: "\(id)_BOT_REVIEW_\(index)", state: state, submittedAt: date.addingTimeInterval(Double(index + 2)), author: "mergehawk-helper", authorIsBot: true)
+                    PullRequestReview(id: "\(id)_BOT_REVIEW_\(index)", url: URL(string: "\(url.absoluteString)#pullrequestreview-\(id)_BOT_REVIEW_\(index)")!, state: state, submittedAt: date.addingTimeInterval(Double(index + 2)), author: "mergehawk-helper", authorIsBot: true)
                 }
                 if mixed {
-                    comments.append(PullRequestCommentActivity(id: "\(id)_HUMAN_COMMENT", author: "frontend-sam", authorIsBot: false, createdAt: date.addingTimeInterval(5), source: .pullRequest))
-                    reviews.append(PullRequestReview(id: "\(id)_HUMAN_REVIEW", state: .approved, submittedAt: date.addingTimeInterval(6), author: "platform-nora", authorIsBot: false))
+                    comments.append(PullRequestCommentActivity(id: "\(id)_HUMAN_COMMENT", url: URL(string: "\(url.absoluteString)#issuecomment-\(id)_HUMAN_COMMENT")!, author: "frontend-sam", authorIsBot: false, createdAt: date.addingTimeInterval(5), source: .pullRequest))
+                    reviews.append(PullRequestReview(id: "\(id)_HUMAN_REVIEW", url: URL(string: "\(url.absoluteString)#pullrequestreview-\(id)_HUMAN_REVIEW")!, state: .approved, submittedAt: date.addingTimeInterval(6), author: "platform-nora", authorIsBot: false))
                 }
             }
             return PullRequest(
@@ -450,6 +452,7 @@ public final class MockPullRequestSource {
         recentCommentActivities: [
             PullRequestCommentActivity(
                 id: "PR_SCENARIO_FINAL_COMMENT",
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/88#issuecomment-PR_SCENARIO_FINAL_COMMENT")!,
                 author: "frontend-sam",
                 createdAt: Date(timeIntervalSince1970: 1_777_810_000),
                 source: .pullRequest
@@ -459,6 +462,7 @@ public final class MockPullRequestSource {
         recentReviews: [
             PullRequestReview(
                 id: "PR_SCENARIO_FINAL_REVIEW",
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/88#pullrequestreview-PR_SCENARIO_FINAL_REVIEW")!,
                 state: .approved,
                 submittedAt: Date(timeIntervalSince1970: 1_777_811_000),
                 author: "platform-nora"
@@ -500,7 +504,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureCommentPullRequest.id,
                     count: 1,
                     actorLogin: "frontend-sam",
-                    activityId: "PR_NOTIFICATION_COMMENT_ACTIVITY"
+                    activityId: "PR_NOTIFICATION_COMMENT_ACTIVITY",
+                    destinationURL: URL(string: "https://github.com/example/mergehawk/pull/41#issuecomment-PR_NOTIFICATION_COMMENT_ACTIVITY")!
                 ),
                 pullRequest: notificationFixtureCommentPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_809_600)
@@ -511,7 +516,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureApprovalPullRequest.id,
                     count: 1,
                     actorLogin: "platform-nora",
-                    activityId: "PR_NOTIFICATION_APPROVAL_REVIEW"
+                    activityId: "PR_NOTIFICATION_APPROVAL_REVIEW",
+                    destinationURL: URL(string: "https://github.com/example/app/pull/42#pullrequestreview-PR_NOTIFICATION_APPROVAL_REVIEW")!
                 ),
                 pullRequest: notificationFixtureApprovalPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_806_000)
@@ -522,7 +528,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureReviewCommentPullRequest.id,
                     count: 1,
                     actorLogin: "docs-lee",
-                    activityId: "PR_NOTIFICATION_REVIEW_COMMENT"
+                    activityId: "PR_NOTIFICATION_REVIEW_COMMENT",
+                    destinationURL: URL(string: "https://github.com/example/docs/pull/43#discussion_rPR_NOTIFICATION_REVIEW_COMMENT")!
                 ),
                 pullRequest: notificationFixtureReviewCommentPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_802_400)
@@ -533,7 +540,8 @@ public final class MockPullRequestSource {
                     prId: notificationFixtureChangesRequestedPullRequest.id,
                     count: 1,
                     actorLogin: "billing-ivy",
-                    activityId: "PR_NOTIFICATION_CHANGES_REVIEW"
+                    activityId: "PR_NOTIFICATION_CHANGES_REVIEW",
+                    destinationURL: URL(string: "https://github.com/example/web/pull/44#pullrequestreview-PR_NOTIFICATION_CHANGES_REVIEW")!
                 ),
                 pullRequest: notificationFixtureChangesRequestedPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_798_800)

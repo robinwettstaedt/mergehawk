@@ -28,7 +28,8 @@ enum NotificationContentBuilder {
                 actorLogin: event.actorLogin,
                 relationshipChanges: event.relationshipChanges.map(\.rawValue).sorted(),
                 clickAction: clickRoute.action,
-                clickPullRequestURL: clickRoute.pullRequestURLString
+                clickPullRequestURL: clickRoute.pullRequestURLString,
+                clickDestinationURL: clickRoute.destinationURLString
             )
         }
     }
@@ -120,10 +121,11 @@ enum RelationshipChangeTitlePresentation {
 enum NotificationClickRoute: Equatable {
     static let actionKey = "mergehawk.notificationClickAction"
     static let pullRequestURLKey = "mergehawk.pullRequestURL"
+    static let destinationURLKey = "mergehawk.destinationURL"
     static let openPullRequestAction = "open_pull_request"
     static let openNotificationsAction = "open_notifications"
 
-    case openPullRequest(URL)
+    case openPullRequest(PullRequestOpenRequest)
     case openNotifications
 
     var action: String {
@@ -137,8 +139,17 @@ enum NotificationClickRoute: Equatable {
 
     var pullRequestURLString: String? {
         switch self {
-        case .openPullRequest(let url):
-            url.absoluteString
+        case .openPullRequest(let request):
+            request.pullRequestURL.absoluteString
+        case .openNotifications:
+            nil
+        }
+    }
+
+    var destinationURLString: String? {
+        switch self {
+        case .openPullRequest(let request):
+            request.destinationURL?.absoluteString
         case .openNotifications:
             nil
         }
@@ -148,6 +159,9 @@ enum NotificationClickRoute: Equatable {
         var userInfo = [Self.actionKey: action]
         if let pullRequestURLString {
             userInfo[Self.pullRequestURLKey] = pullRequestURLString
+        }
+        if let destinationURLString {
+            userInfo[Self.destinationURLKey] = destinationURLString
         }
         return userInfo
     }
@@ -159,7 +173,10 @@ enum NotificationClickRoute: Equatable {
         else {
             return .openNotifications
         }
-        return .openPullRequest(pullRequest.url)
+        return .openPullRequest(PullRequestOpenRequest(
+            pullRequestURL: pullRequest.url,
+            destinationURL: event.destinationURL
+        ))
     }
 
     init(userInfo: [AnyHashable: Any]) {
@@ -174,7 +191,22 @@ enum NotificationClickRoute: Equatable {
                let url = URL(string: urlString),
                url.scheme != nil,
                url.host != nil {
-                self = .openPullRequest(url)
+                let destinationURL: URL?
+                if let raw = userInfo[Self.destinationURLKey] {
+                    guard let string = raw as? String,
+                          let destination = URL(string: string),
+                          destination.scheme != nil, destination.host != nil else {
+                        self = .openNotifications
+                        return
+                    }
+                    destinationURL = destination
+                } else {
+                    destinationURL = nil
+                }
+                self = .openPullRequest(PullRequestOpenRequest(
+                    pullRequestURL: url,
+                    destinationURL: destinationURL
+                ))
             } else {
                 self = .openNotifications
             }
@@ -198,6 +230,7 @@ struct NotificationRecord: Codable, Equatable {
     let relationshipChanges: [String]
     let clickAction: String
     let clickPullRequestURL: String?
+    let clickDestinationURL: String?
 }
 
 final class NotificationCenterClient: NotificationPosting {

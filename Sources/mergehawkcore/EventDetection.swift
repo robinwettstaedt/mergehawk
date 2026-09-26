@@ -27,6 +27,7 @@ public enum PRActivityDetector {
                 actorLogin: review.author,
                 actorIsBot: review.authorIsBot,
                 activityId: review.id,
+                destinationURL: review.url,
                 happenedAt: review.submittedAt
             )
         }
@@ -46,6 +47,7 @@ public enum PRActivityDetector {
                     actorLogin: comment.author,
                     actorIsBot: comment.authorIsBot,
                     activityId: comment.id,
+                    destinationURL: comment.url,
                     happenedAt: comment.createdAt
                 )
             }

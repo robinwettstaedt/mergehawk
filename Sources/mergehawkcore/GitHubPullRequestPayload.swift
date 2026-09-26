@@ -29,6 +29,7 @@ struct GitHubPayloadUser: Decodable, Equatable, Sendable {
 
 struct GitHubPayloadComment: Decodable, Equatable, Sendable {
     let id: String
+    let url: URL
     let createdAt: String
     let viewerDidAuthor: Bool
     let author: GitHubPayloadUser?
@@ -41,6 +42,7 @@ struct GitHubPayloadComment: Decodable, Equatable, Sendable {
 
 struct GitHubPayloadReview: Decodable, Equatable, Sendable {
     let id: String
+    let url: URL
     let state: String
     let submittedAt: String?
     let viewerDidAuthor: Bool

@@ -25,17 +25,17 @@ enum GitHubPullRequestQueries {
       comments(last: 10) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id createdAt viewerDidAuthor author { login __typename } }
+        nodes { id url createdAt viewerDidAuthor author { login __typename } }
       }
       reviews(last: 10) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id state submittedAt viewerDidAuthor author { login __typename } }
+        nodes { id url state submittedAt viewerDidAuthor author { login __typename } }
       }
       latestOpinionatedReviews(last: 20) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
-        nodes { id state submittedAt viewerDidAuthor author { login __typename } }
+        nodes { id url state submittedAt viewerDidAuthor author { login __typename } }
       }
       reviewThreads(last: 20) {
         totalCount
@@ -48,7 +48,7 @@ enum GitHubPullRequestQueries {
             totalCount
             pageInfo { startCursor endCursor hasPreviousPage hasNextPage }
             nodes {
-              id createdAt viewerDidAuthor author { login __typename }
+              id url createdAt viewerDidAuthor author { login __typename }
               pullRequestReview { id }
             }
           }

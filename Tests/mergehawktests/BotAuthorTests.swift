@@ -15,15 +15,15 @@ final class BotAuthorTests: XCTestCase {
     func testDetectionCarriesClassificationAndPreservesSelfAndReviewChildSuppression() {
         let date = Date(timeIntervalSince1970: 10)
         let comments = [
-            PullRequestCommentActivity(id: "bot-comment", authorIsBot: true, createdAt: date, source: .pullRequest),
-            PullRequestCommentActivity(id: "human-thread", authorIsBot: false, createdAt: date, source: .reviewThread),
-            PullRequestCommentActivity(id: "self", authorIsBot: true, viewerDidAuthor: true, createdAt: date, source: .pullRequest),
-            PullRequestCommentActivity(id: "child", authorIsBot: true, createdAt: date, source: .reviewThread, reviewId: "bot-review")
+            PullRequestCommentActivity(id: "bot-comment", url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-bot-comment")!, authorIsBot: true, createdAt: date, source: .pullRequest),
+            PullRequestCommentActivity(id: "human-thread", url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-human-thread")!, authorIsBot: false, createdAt: date, source: .reviewThread),
+            PullRequestCommentActivity(id: "self", url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-self")!, authorIsBot: true, viewerDidAuthor: true, createdAt: date, source: .pullRequest),
+            PullRequestCommentActivity(id: "child", url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-child")!, authorIsBot: true, createdAt: date, source: .reviewThread, reviewId: "bot-review")
         ]
         let reviews = [
-            PullRequestReview(id: "bot-review", state: .commented, submittedAt: date, authorIsBot: true),
-            PullRequestReview(id: "human-review", state: .approved, submittedAt: date, authorIsBot: false),
-            PullRequestReview(id: "self-review", state: .changesRequested, submittedAt: date, authorIsBot: true, viewerDidAuthor: true)
+            PullRequestReview(id: "bot-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-bot-review")!, state: .commented, submittedAt: date, authorIsBot: true),
+            PullRequestReview(id: "human-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-human-review")!, state: .approved, submittedAt: date, authorIsBot: false),
+            PullRequestReview(id: "self-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-self-review")!, state: .changesRequested, submittedAt: date, authorIsBot: true, viewerDidAuthor: true)
         ]
         let pr = PullRequest(id: "PR", title: "PR", number: 1, url: URL(string: "https://example.com")!, repo: "acme/app", ciState: .passing, reviewDecision: .approved, commentCount: 1, recentCommentActivities: comments, reviewCount: 3, recentReviews: reviews, isMine: true, author: "rw", mergeable: .mergeable, draft: false)
         let events = PRActivityDetector.detectProcessedPeopleActivity(previous: ProcessedPullRequestActivity(pullRequestID: pr.id), current: pr)
@@ -31,6 +31,11 @@ final class BotAuthorTests: XCTestCase {
         XCTAssertEqual(events.first { $0.activityId == "bot-comment" }?.actorIsBot, true)
         XCTAssertEqual(events.first { $0.activityId == "human-thread" }?.actorIsBot, false)
         XCTAssertEqual(events.first { $0.activityId == "bot-review" }?.actorIsBot, true)
+        for event in events {
+            let activityURL = comments.first { $0.id == event.activityId }?.url
+                ?? reviews.first { $0.id == event.activityId }?.url
+            XCTAssertEqual(event.destinationURL, activityURL)
+        }
         let processed = PRActivityDetector.processedActivity(for: pr)
         XCTAssertEqual(processed.commentIDs, Set(comments.map(\.id)))
         XCTAssertEqual(processed.submittedReviewIDs, Set(reviews.map(\.id)))
@@ -39,8 +44,8 @@ final class BotAuthorTests: XCTestCase {
     func testOptionalMetadataDecodesOldModelsAndRoundTripsKnownValues() throws {
         let date = Date(timeIntervalSince1970: 10)
         for classification in [true, false] {
-            try check(PullRequestCommentActivity(id: "C", authorIsBot: classification, createdAt: date, source: .pullRequest), key: "authorIsBot") { XCTAssertNil($0.authorIsBot) }
-            try check(PullRequestReview(id: "R", state: .approved, submittedAt: date, authorIsBot: classification), key: "authorIsBot") { XCTAssertNil($0.authorIsBot) }
+            try check(PullRequestCommentActivity(id: "C", url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-C")!, authorIsBot: classification, createdAt: date, source: .pullRequest), key: "authorIsBot") { XCTAssertNil($0.authorIsBot) }
+            try check(PullRequestReview(id: "R", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-R")!, state: .approved, submittedAt: date, authorIsBot: classification), key: "authorIsBot") { XCTAssertNil($0.authorIsBot) }
             try check(PullRequestEvent(type: .newComment, prId: "PR", actorIsBot: classification), key: "actorIsBot") { XCTAssertNil($0.actorIsBot) }
         }
     }

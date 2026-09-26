@@ -130,6 +130,7 @@ final class AtomicRefreshTests: XCTestCase {
                 comments: fixture.pullRequest.recentCommentActivities + [
                     PullRequestCommentActivity(
                         id: "COMMENT_\(mode)",
+                        url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                         author: "reviewer",
                         createdAt: Date(timeIntervalSince1970: 30),
                         source: .pullRequest
@@ -152,7 +153,9 @@ final class AtomicRefreshTests: XCTestCase {
         defer { fixture.cleanup() }
         await waitUntil { provider.fetchCount == 1 }
         let firstComment = PullRequestCommentActivity(
-            id: "COMMENT_ARCHIVED", author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
+            id: "COMMENT_ARCHIVED",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_ARCHIVED")!,
+            author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
             source: .pullRequest
         )
         let first = makePullRequest(
@@ -174,7 +177,9 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertTrue(fixture.notifications.records.isEmpty)
 
         let secondComment = PullRequestCommentActivity(
-            id: "COMMENT_RESTORED", author: "reviewer", createdAt: Date(timeIntervalSince1970: 40),
+            id: "COMMENT_RESTORED",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_RESTORED")!,
+            author: "reviewer", createdAt: Date(timeIntervalSince1970: 40),
             source: .pullRequest
         )
         provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [makePullRequest(
@@ -195,7 +200,9 @@ final class AtomicRefreshTests: XCTestCase {
         defer { fixture.cleanup() }
         await waitUntil { provider.fetchCount == 1 }
         let finalComment = PullRequestCommentActivity(
-            id: "COMMENT_FINAL", author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
+            id: "COMMENT_FINAL",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_FINAL")!,
+            author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
             source: .pullRequest
         )
         let retired = makePullRequest(
@@ -219,7 +226,9 @@ final class AtomicRefreshTests: XCTestCase {
         await waitUntil { provider.fetchCount == 1 }
         fixture.controller.hideArchivedRepositories = false
         let comment = PullRequestCommentActivity(
-            id: "COMMENT_DURING_FETCH", author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
+            id: "COMMENT_DURING_FETCH",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_DURING_FETCH")!,
+            author: "reviewer", createdAt: Date(timeIntervalSince1970: 30),
             source: .pullRequest
         )
         provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [makePullRequest(
@@ -245,7 +254,9 @@ final class AtomicRefreshTests: XCTestCase {
         await waitUntil { provider.fetchCount == 1 }
 
         let firstComment = PullRequestCommentActivity(
-            id: "COMMENT_MIXED_SUPPRESSED", author: "reviewer",
+            id: "COMMENT_MIXED_SUPPRESSED",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_MIXED_SUPPRESSED")!,
+            author: "reviewer",
             createdAt: Date(timeIntervalSince1970: 30), source: .pullRequest
         )
         let currentPrimary = makePullRequest(
@@ -263,7 +274,9 @@ final class AtomicRefreshTests: XCTestCase {
 
         fixture.controller.hideArchivedRepositories = false
         let secondComment = PullRequestCommentActivity(
-            id: "COMMENT_MIXED_ALLOWED", author: "reviewer",
+            id: "COMMENT_MIXED_ALLOWED",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_MIXED_ALLOWED")!,
+            author: "reviewer",
             createdAt: Date(timeIntervalSince1970: 40), source: .pullRequest
         )
         provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [
@@ -296,11 +309,15 @@ final class AtomicRefreshTests: XCTestCase {
         await waitUntil { provider.fetchCount == 1 }
 
         let activeComment = PullRequestCommentActivity(
-            id: "COMMENT_ACTIVE_MIXED", author: "reviewer",
+            id: "COMMENT_ACTIVE_MIXED",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_ACTIVE_MIXED")!,
+            author: "reviewer",
             createdAt: Date(timeIntervalSince1970: 30), source: .pullRequest
         )
         let finalComment = PullRequestCommentActivity(
-            id: "COMMENT_RETIRED_MIXED", author: "reviewer",
+            id: "COMMENT_RETIRED_MIXED",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_RETIRED_MIXED")!,
+            author: "reviewer",
             createdAt: Date(timeIntervalSince1970: 40), source: .pullRequest
         )
         let currentPrimary = makePullRequest(
@@ -365,7 +382,9 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertTrue(fixture.controller.visiblePullRequestNotifications.isEmpty)
 
         let comment = PullRequestCommentActivity(
-            id: "COMMENT_AFTER_UNARCHIVE", author: "reviewer",
+            id: "COMMENT_AFTER_UNARCHIVE",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_AFTER_UNARCHIVE")!,
+            author: "reviewer",
             createdAt: Date(timeIntervalSince1970: 30), source: .pullRequest
         )
         let unarchived = makePullRequest(
@@ -397,6 +416,7 @@ final class AtomicRefreshTests: XCTestCase {
         let comments = (0..<61).map { index in
             PullRequestCommentActivity(
                 id: "LARGE_COMMENT_\(index)",
+                url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                 author: "reviewer",
                 createdAt: Date(timeIntervalSince1970: TimeInterval(100 + 2 * index)),
                 source: .pullRequest
@@ -405,6 +425,7 @@ final class AtomicRefreshTests: XCTestCase {
         let reviews = (0..<60).map { index in
             PullRequestReview(
                 id: "LARGE_REVIEW_\(index)",
+                url: URL(string: "https://github.com/acme/app/pull/42#pullrequestreview-fixture")!,
                 state: .approved,
                 submittedAt: Date(timeIntervalSince1970: TimeInterval(101 + 2 * index)),
                 author: "reviewer"
@@ -441,6 +462,7 @@ final class AtomicRefreshTests: XCTestCase {
         let comments = (0..<16).map { index in
             PullRequestCommentActivity(
                 id: String(format: "EQUAL_COMMENT_%02d", index),
+                url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                 author: "reviewer",
                 createdAt: timestamp,
                 source: .pullRequest
@@ -449,6 +471,7 @@ final class AtomicRefreshTests: XCTestCase {
         let reviews = (0..<15).map { index in
             PullRequestReview(
                 id: String(format: "EQUAL_REVIEW_%02d", index),
+                url: URL(string: "https://github.com/acme/app/pull/42#pullrequestreview-fixture")!,
                 state: .approved,
                 submittedAt: timestamp,
                 author: "reviewer"
@@ -504,6 +527,7 @@ final class AtomicRefreshTests: XCTestCase {
             comments: fixture.pullRequest.recentCommentActivities + [
                 PullRequestCommentActivity(
                     id: "COMMENT_LATE",
+                    url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                     author: "teammate",
                     createdAt: Date(timeIntervalSince1970: 20),
                     source: .pullRequest
@@ -528,6 +552,7 @@ final class AtomicRefreshTests: XCTestCase {
             comments: baseline.recentCommentActivities + [
                 PullRequestCommentActivity(
                     id: "COMMENT_FINAL",
+                    url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_FINAL")!,
                     author: "reviewer",
                     createdAt: Date(timeIntervalSince1970: 20),
                     source: .pullRequest
@@ -556,7 +581,7 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertEqual(fixture.notifications.records.map(\.eventType), ["new_comment"])
 
         fixture.controller.openPullRequestNotification(notification)
-        XCTAssertEqual(openedURLs, [baseline.url])
+        XCTAssertEqual(openedURLs, [notification.destinationURL!])
     }
 
     @MainActor
@@ -1003,6 +1028,7 @@ final class AtomicRefreshTests: XCTestCase {
                 comments: oldPR.recentCommentActivities + [
                     PullRequestCommentActivity(
                         id: "COMMENT_LATE_OLD_PROVIDER",
+                        url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
                         author: "reviewer",
                         createdAt: Date(timeIntervalSince1970: 40),
                         source: .pullRequest
@@ -1402,6 +1428,7 @@ private func makePullRequest(
     comments: [PullRequestCommentActivity] = [
         PullRequestCommentActivity(
             id: "COMMENT_OLD",
+            url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
             author: "teammate",
             createdAt: Date(timeIntervalSince1970: 5),
             source: .pullRequest

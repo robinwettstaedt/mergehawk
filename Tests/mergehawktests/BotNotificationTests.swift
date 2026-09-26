@@ -25,6 +25,30 @@ final class BotNotificationTests: XCTestCase {
         }
     }
 
+    func testMutingBotsPreservesExactDestinationForTheRemainingHumanMacOSUpdate() async throws {
+        let fixture = try BotFixture(muted: true)
+        defer { fixture.cleanup() }
+        await fixture.started()
+        var current = botPR(classifications: [true, false])
+        current.recentCommentActivities = current.recentCommentActivities.filter {
+            $0.authorIsBot == true || $0.source == .pullRequest
+        }
+        current.recentReviews = current.recentReviews.filter { $0.authorIsBot == true }
+        let humanComment = try XCTUnwrap(current.recentCommentActivities.first { $0.authorIsBot == false })
+        fixture.provider.finish(CompletePullRequestFetchResult(activePullRequests: [current]))
+        await fixture.finished()
+
+        let notification = try XCTUnwrap(fixture.controller.pullRequestNotificationHistory.first)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 1)
+        XCTAssertEqual(notification.url, current.url)
+        XCTAssertEqual(notification.destinationURL, humanComment.url)
+        let payload = try XCTUnwrap(fixture.notifications.records.first)
+        XCTAssertEqual(fixture.notifications.records.count, 1)
+        XCTAssertEqual(payload.clickPullRequestURL, current.url.absoluteString)
+        XCTAssertEqual(payload.clickDestinationURL, humanComment.url.absoluteString)
+        XCTAssertEqual(payload.actorLogin, "human")
+    }
+
     func testBotOnlyUpdatesLeaveAttentionEmptyAndNormalMembershipIntact() async throws {
         let fixture = try BotFixture(muted: true)
         defer { fixture.cleanup() }
@@ -105,7 +129,7 @@ final class BotNotificationTests: XCTestCase {
         XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 5)
         XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.allSatisfy { $0.actorLogin == "human" })
         fixture.controller.openPullRequestNotification(fixture.controller.pullRequestNotificationHistory[0])
-        XCTAssertEqual(opened.values, [botPR().url])
+        XCTAssertEqual(opened.values, [try XCTUnwrap(fixture.controller.pullRequestNotificationHistory[0].destinationURL)])
         XCTAssertTrue(fixture.notifications.records.allSatisfy { !$0.body.contains("@bot") })
     }
 
@@ -203,10 +227,10 @@ private func botPR(classifications: [Bool?] = [], suffix: String = "", mine: Boo
     for (index, isBot) in classifications.enumerated() {
         let author = isBot == true ? "bot" : isBot == false ? "human" : "unknown"
         for (sourceIndex, source) in [PullRequestCommentActivity.Source.pullRequest, .reviewThread].enumerated() {
-            comments.append(PullRequestCommentActivity(id: "C-\(index)-\(sourceIndex)\(suffix)", author: author, authorIsBot: isBot, createdAt: date, source: source))
+            comments.append(PullRequestCommentActivity(id: "C-\(index)-\(sourceIndex)\(suffix)", url: URL(string: "https://github.com/acme/app/pull/72#issuecomment-C-\(index)-\(sourceIndex)\(suffix)")!, author: author, authorIsBot: isBot, createdAt: date, source: source))
         }
         for (stateIndex, state) in [PullRequestReviewState.commented, .approved, .changesRequested].enumerated() {
-            reviews.append(PullRequestReview(id: "R-\(index)-\(stateIndex)\(suffix)", state: state, submittedAt: date, author: author, authorIsBot: isBot))
+            reviews.append(PullRequestReview(id: "R-\(index)-\(stateIndex)\(suffix)", url: URL(string: "https://github.com/acme/app/pull/72#pullrequestreview-R-\(index)-\(stateIndex)\(suffix)")!, state: state, submittedAt: date, author: author, authorIsBot: isBot))
         }
     }
     return PullRequest(id: "PR_BOT_TEST", title: "Bot notification test", number: 72, url: URL(string: "https://github.com/acme/app/pull/72")!, repo: "acme/app", ciState: ci, reviewDecision: .changesRequested, commentCount: 2, recentCommentActivities: comments, reviewCount: reviews.count, recentReviews: reviews, isAssignedToViewer: assigned, isMine: mine, author: mine ? "rw" : "teammate", mergeable: .mergeable, draft: false)
