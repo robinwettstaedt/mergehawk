@@ -2223,11 +2223,23 @@ private struct PullRequestNotificationRow: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 4) {
                 Text(notification.repo)
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(verbatim: "#\(notification.prNumber)")
+                    .fixedSize(horizontal: true, vertical: false)
+                Text("·")
+                    .fixedSize()
+                Text(verbatim: notification.prTitle)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            HStack(spacing: 4) {
+                Text(notification.repo)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                 Text(verbatim: "#\(notification.prNumber)")
                     .fixedSize(horizontal: true, vertical: false)
-                Text(verbatim: "· \(notification.prTitle)")
+                Text("·")
+                    .fixedSize()
+                Text(verbatim: notification.prTitle)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(
