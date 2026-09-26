@@ -2162,38 +2162,30 @@ private struct PullRequestNotificationRow: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Button(action: action) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .center, spacing: 6) {
-                            Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
-                                .frame(width: 15)
+                HStack(alignment: .center, spacing: PullRequestColumnLayout.identitySpacing) {
+                    Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
+                        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
+                    VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(title)
                                 .font(.subheadline.weight(.semibold))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
+                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("\(notification.repo)#\(notification.prNumber)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Text(notification.prTitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        pullRequestLine
                     }
-                    Spacer(minLength: 8)
-                    Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(10)
+                .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+                .padding(.vertical, PullRequestColumnLayout.verticalInset)
                 .transparentCardStyle(
                     accentColor: notification.read ? nil : .accentColor,
                     isHovered: isHovered
@@ -2227,6 +2219,51 @@ private struct PullRequestNotificationRow: View {
         PullRequestNotificationTitlePresentation.title(for: notification)
     }
 
+    private var pullRequestLine: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                Text(notification.repo)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(verbatim: "#\(notification.prNumber)")
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(verbatim: "· \(notification.prTitle)")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(
+                        minWidth: Self.minimumPRTitleWidth,
+                        idealWidth: Self.minimumPRTitleWidth,
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+            }
+            HStack(spacing: 4) {
+                Text(notification.repo)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                Text(verbatim: "#\(notification.prNumber)")
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
+            }
+        }
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(pullRequestHelp)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(pullRequestAccessibilityLabel)
+    }
+
+    private var pullRequestHelp: String {
+        "\(notification.repo)#\(notification.prNumber) · \(notification.prTitle)"
+    }
+
+    private var pullRequestAccessibilityLabel: String {
+        "\(notification.repo)#\(notification.prNumber), \(notification.prTitle)"
+    }
+
+    private static let minimumPRTitleWidth: CGFloat = 40
 }
 
 enum PullRequestColumnLayout {
