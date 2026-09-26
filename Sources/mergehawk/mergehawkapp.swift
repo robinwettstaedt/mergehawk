@@ -39,6 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var verificationMenuWindow: NSWindow?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // AppKit's default tooltip delay is about 2 seconds; value is in milliseconds.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         softwareUpdateController.enableSparkleIfConfigured()

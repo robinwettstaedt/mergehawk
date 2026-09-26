@@ -647,15 +647,25 @@ private struct PATSignInProgressView: View {
 }
 
 private struct NotificationSettingsView: View {
+    private static let muteBotNotificationsHelp = "Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain."
+
     @ObservedObject var controller: DashboardController
 
     var body: some View {
         Form {
             Toggle("macOS local notifications", isOn: $controller.macOSLocalNotificationsEnabled)
-            Section {
+            // The info icon stays outside the Toggle label: its tooltip never showed from inside the label.
+            HStack(spacing: 4) {
+                Text("Mute bot comment and review notifications")
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                    .help(Self.muteBotNotificationsHelp)
+                    .accessibilityHidden(true)
+                Spacer()
                 Toggle("Mute bot comment and review notifications", isOn: $controller.muteBotNotifications)
-            } footer: {
-                Text("Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain.")
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityHint(Self.muteBotNotificationsHelp)
             }
             Section("Pull request notifications") {
                 // Laid out like the comment matrix below so both relationship columns start at the same x.
