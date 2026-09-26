@@ -647,16 +647,23 @@ private struct PATSignInProgressView: View {
 }
 
 private struct NotificationSettingsView: View {
+    private static let muteBotNotificationsHelp = "Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain."
+
     @ObservedObject var controller: DashboardController
 
     var body: some View {
         Form {
             Toggle("macOS local notifications", isOn: $controller.macOSLocalNotificationsEnabled)
-            Section {
-                Toggle("Mute bot comment and review notifications", isOn: $controller.muteBotNotifications)
-            } footer: {
-                Text("Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain.")
+            Toggle(isOn: $controller.muteBotNotifications) {
+                HStack(spacing: 4) {
+                    Text("Mute bot comment and review notifications")
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .help(Self.muteBotNotificationsHelp)
+                        .accessibilityHidden(true)
+                }
             }
+            .accessibilityHint(Self.muteBotNotificationsHelp)
             Section("Pull request notifications") {
                 // Laid out like the comment matrix below so both relationship columns start at the same x.
                 VStack(alignment: .leading, spacing: 8) {
