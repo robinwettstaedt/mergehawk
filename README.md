@@ -259,10 +259,16 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario delayed-refresh --u
 scripts/run-agent-app.sh --slot local --mock --mock-scenario refresh-failure --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario merged-final-activity --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario quiet-access-loss --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications --ui menu --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
-the selected delay, failure, final merged activity, or quiet retirement.
+the selected delay, failure, final merged activity, quiet retirement, or update batch.
+The `bot-notifications` scenario has a quiet baseline followed by 10 bot and two
+human updates. In a fresh fixture, enable “Mute bot comment and review
+notifications” in Settings before the update refresh to see only the two human
+in-app rows and notification payloads. Enabling it after the refresh preserves
+already retained notification history.
 
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL
