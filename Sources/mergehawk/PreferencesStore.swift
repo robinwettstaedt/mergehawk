@@ -27,6 +27,11 @@ struct PreferencesStore {
         }
     }
 
+    var muteBotNotifications: Bool {
+        get { value(for: "notifications.muteBotNotifications", fallback: false) }
+        set { defaults.set(newValue, forKey: "notifications.muteBotNotifications") }
+    }
+
     var macOSLocalNotificationsEnabled: Bool {
         get {
             value(for: "notifications.macOSLocalNotificationsEnabled", fallback: true)
