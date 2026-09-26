@@ -1010,6 +1010,7 @@ struct GitHubPullRequestFetcher: Sendable {
             number: payload.number,
             url: URL(string: payload.url)!,
             repo: payload.repository.nameWithOwner,
+            repositoryIsArchived: payload.repository.isArchived,
             ciState: ciState,
             reviewDecision: normalizeReviewDecision(
                 Array(value.opinionatedReviews.values),

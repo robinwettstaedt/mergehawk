@@ -21,7 +21,7 @@ enum GitHubPullRequestQueries {
       deletions
       statusCheckRollup { state }
       author { login avatarUrl(size: 64) }
-      repository { nameWithOwner }
+      repository { nameWithOwner isArchived }
       comments(last: 10) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }

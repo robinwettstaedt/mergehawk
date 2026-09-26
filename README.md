@@ -102,16 +102,23 @@ The workflow serializes publications and does not cancel an active release.
 Before publishing, it rejects builds whose source commit is no longer current
 `main`, including reruns of old workflow runs.
 
-Each build uses a UTC `YYYYMMDDHHMMSS` bundle version, preserving ordering with
-previous private installers. The marketing version remains `0.1.0`; change
-`MARKETING_VERSION` in the workflow when needed. Release tags include both,
-for example `v0.1.0-20260920123456`. GitHub creates these tags on the downloads
+Before building, the workflow reads published stable releases in the downloads
+repository and selects the next `0.1.x` patch. For example, published `0.1.0`
+releases select `0.1.1`; after `0.1.1` becomes public, the next run selects
+`0.1.2`. Pushes to `main`, manual runs, and reruns all use the same rule.
+Failures, superseded builds, and unpublished drafts leave that patch available
+for a fresh run. The workflow stops before building if no published stable
+`0.1.x` baseline exists or release history cannot be read.
+
+Each build still uses a UTC `YYYYMMDDHHMMSS` bundle version, preserving
+ordering with previous private installers. Release tags include both versions,
+for example `v0.1.1-20260920123456`. GitHub creates these tags on the downloads
 repository's own default branch. A release starts as a draft with its DMG and
-appcast uploaded, then becomes public and latest. Failed uploads never advance
-the public feed. Publishing a build older than an existing published build is
-rejected. Keep publication through this serialized workflow; concurrent local
-publishing is not supported. Drafts do not offer software updates; to publish
-one later, run a fresh non-draft workflow so version ordering is checked.
+appcast uploaded, then becomes public and latest. Publishing a build older
+than an existing published build is rejected. Keep publication through this
+serialized workflow; concurrent local publishing is not supported. Drafts do
+not offer software updates; to publish one later, run a fresh non-draft
+workflow so version and build ordering are checked.
 
 To create a draft manually:
 
@@ -121,12 +128,15 @@ gh workflow run "GitHub Release" --ref main -f draft=true
 
 ### Local release tooling
 
-The workflow and local releases share `scripts/release-github.sh`:
+The workflow and local releases share `scripts/release-github.sh`. Local callers
+provide an explicit version; publication requires it to be exactly the next
+`0.1.x` patch after the published stable releases. For example, if `0.1.0` is
+the highest published patch, use:
 
 ```sh
 DEVELOPER_ID_APPLICATION="Developer ID Application: Example (TEAMID)" \
 NOTARYTOOL_PROFILE="mergehawk-notary" \
-scripts/release-github.sh --version v0.1.0 --build "$(date -u +%Y%m%d%H%M%S)" --draft
+scripts/release-github.sh --version v0.1.1 --build "$(date -u +%Y%m%d%H%M%S)" --draft
 ```
 
 Run from a clean worktree on an Apple Silicon Mac with Xcode, signing credentials,
@@ -136,8 +146,10 @@ select the notarization Keychain. Sparkle uses the local Keychain signing key
 `--prepare-only` builds and verifies assets without GitHub authentication;
 `--publish-only` publishes those same assets without rebuilding. Prepared files
 are under `.build/releases/<tag>/`; only the DMG and appcast are uploaded.
-Use a new timestamp to retry a failed preparation. `--dry-run --allow-dirty`
-prints the plan without building or publishing.
+Use a new timestamp to retry a failed preparation. An attempt that leaves no
+public release keeps the patch available; prepare again with a fresh timestamp
+before another attempt. `--dry-run --allow-dirty` prints the plan without
+building or publishing.
 
 The gitignored `scripts/release-github.local.env` can hold both local release
 settings and the credential fields consumed by
@@ -157,12 +169,12 @@ requested local installer with updates disabled; it is no longer run by CI.
 
 ### When the source repository becomes public
 
-Make a clean cut: change `RELEASE_REPOSITORY` and `SPARKLE_FEED_URL` to the main
-repository, configure publishing credentials for that destination, and publish
-the first public version there. Manually install that version once; its later
-updates will come from the main repository. After the sole initial user has
-switched, archive or delete `mergehawk-downloads`. No feed migration or bridge
-release is needed. Preserve the app identity and signing keys.
+Moving releases to the main repository requires a separate baseline migration
+plan: the release workflow cannot select a version from an empty destination.
+At cutover, update `RELEASE_REPOSITORY` and `SPARKLE_FEED_URL`, configure
+publishing credentials for that destination, and preserve the app identity and
+signing keys. Plan how existing installations will move to the new feed before
+archiving `mergehawk-downloads`.
 
 ## GitHub App Setup
 

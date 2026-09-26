@@ -3,7 +3,133 @@ import Foundation
 import mergehawkcore
 import XCTest
 
+private func archiveFixturePR(
+    _ id: String,
+    repo: String,
+    archived: Bool? = nil,
+    isMine: Bool = false,
+    assigned: Bool = false,
+    request: ReviewRequestKind = .none
+) -> PullRequest {
+    PullRequest(
+        id: id, title: id, number: 1,
+        url: URL(string: "https://github.com/\(repo)/pull/1")!, repo: repo,
+        repositoryIsArchived: archived, ciState: .passing, reviewDecision: .noReviewYet,
+        commentCount: 0, reviewCount: 0, reviewRequestKind: request,
+        isAssignedToViewer: assigned, isMine: isMine, author: isMine ? "rw" : "teammate",
+        mergeable: .mergeable, draft: false
+    )
+}
+
+private final class ArchiveFixtureGitHubProvider: GitHubProviding {
+    let sourceKind: DashboardSource = .github
+    let pullRequests: [PullRequest]
+    private(set) var fetchCount = 0
+
+    init(pullRequests: [PullRequest]) { self.pullRequests = pullRequests }
+
+    func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
+
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+        fetchCount += 1
+        return CompletePullRequestFetchResult(activePullRequests: pullRequests)
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: accountLogin)
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+}
+
 final class DashboardControllerXCTests: XCTestCase {
+    @MainActor
+    func testArchivedRepositoriesFilterCachedListsHistoryAndCountsWithoutChangingSavedState() throws {
+        let suiteName = "archived-filter-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var store = PreferencesStore(defaults: defaults)
+        store.authMethod = .pat
+        let archivedRepo = "archive/app"
+        let authored = archiveFixturePR("A", repo: archivedRepo, archived: true, isMine: true)
+        let assigned = archiveFixturePR("R1", repo: archivedRepo, archived: true, assigned: true)
+        let direct = archiveFixturePR("R2", repo: archivedRepo, archived: true, request: .direct)
+        let team = archiveFixturePR("R3", repo: archivedRepo, archived: true, request: .team)
+        let active = archiveFixturePR("B", repo: "active/app", archived: false, isMine: true)
+        let unknown = archiveFixturePR("U", repo: "unknown/app", request: .direct)
+        let pullRequests = [authored, assigned, direct, team, active, unknown]
+        let preferences = SourcePreferences(
+            owners: ["archive": OwnerSourcePreferences(notifications: false, myPullRequests: false, reviewRequests: false)],
+            repositories: [archivedRepo: RepositorySourcePreferences(
+                notifications: .enabled, myPullRequests: .enabled, reviewRequests: .enabled
+            )]
+        )
+        store.sourcePreferences = preferences
+        var archivedHistory = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: authored.id, activityId: "ARCHIVED"),
+            pullRequest: authored
+        )
+        archivedHistory.read = false
+        var activeHistory = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: active.id, activityId: "ACTIVE"),
+            pullRequest: active
+        )
+        activeHistory.read = true
+        let orphan = archiveFixturePR("OLD", repo: "old/app", archived: true)
+        let orphanHistory = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: orphan.id, activityId: "OLD"),
+            pullRequest: orphan
+        )
+        let account = GitHubAccount(login: "rw")
+        let state = PullRequestSyncState(
+            account: account,
+            dashboard: DashboardState(
+                pullRequests: pullRequests, events: [], syncedAt: Date(timeIntervalSince1970: 10),
+                source: .github, account: account, authStatus: .signedIn
+            ),
+            processedActivityByPullRequestID: [:],
+            notificationHistory: [archivedHistory, activeHistory, orphanHistory]
+        )
+        try store.storePullRequestSyncState(state)
+        let provider = ArchiveFixtureGitHubProvider(pullRequests: pullRequests)
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider }
+        )
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        controller.pinnedPullRequestIds = [authored.id]
+        controller.hiddenPullRequestIds = [direct.id]
+
+        XCTAssertTrue(controller.hideArchivedRepositories)
+        XCTAssertEqual(controller.sourceFilteredMyPullRequests.map(\.id), [active.id])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0])
+        XCTAssertTrue(controller.hiddenReviewRequests.isEmpty)
+        XCTAssertEqual(Set(controller.visiblePullRequestNotifications.map(\.activityId)), ["ACTIVE", "OLD"])
+        XCTAssertEqual(controller.attentionCount, 1)
+        XCTAssertEqual(controller.pullRequestNotificationHistory.count, 3)
+
+        let committed = try XCTUnwrap(store.pullRequestSyncState)
+        controller.hideArchivedRepositories = false
+        XCTAssertEqual(Set(controller.sourceFilteredMyPullRequests.map(\.id)), [authored.id, active.id])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 1])
+        XCTAssertEqual(controller.hiddenReviewRequests.map(\.id), [direct.id])
+        XCTAssertEqual(Set(controller.visiblePullRequestNotifications.map(\.activityId)), ["ARCHIVED", "ACTIVE", "OLD"])
+        XCTAssertEqual(controller.attentionCount, 2)
+        XCTAssertEqual(controller.sortedMyPullRequests.first?.id, authored.id)
+        XCTAssertEqual(PreferencesStore(defaults: defaults).sourcePreferences, preferences)
+        XCTAssertEqual(store.pullRequestSyncState, committed)
+        XCTAssertEqual(provider.fetchCount, 1)
+
+        controller.hideArchivedRepositories = true
+        XCTAssertEqual(controller.sourceFilteredMyPullRequests.map(\.id), [active.id])
+        XCTAssertEqual(store.pullRequestSyncState, committed)
+        XCTAssertEqual(provider.fetchCount, 1)
+    }
     @MainActor
     func testChangeSizeSortUsesTotalCountsAndTreatsUnknownAsZeroWithinPins() {
         func pullRequest(

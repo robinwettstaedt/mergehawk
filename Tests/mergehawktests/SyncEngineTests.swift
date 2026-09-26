@@ -97,6 +97,7 @@ final class SyncEngineTests: XCTestCase {
         )
         let retired = Self.pullRequest(
             ci: .failing,
+            repositoryIsArchived: true,
             comments: [Self.comment("FINAL_COMMENT")],
             reviews: [Self.review("FINAL_REVIEW")],
             reviewRequestKind: .none,
@@ -112,6 +113,7 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(Set(prepared.events.map(\.event.type)), [.newComment, .reviewApproved])
         XCTAssertTrue(prepared.events.allSatisfy { $0.filteringContext.reviewRequestKind == .direct })
         XCTAssertTrue(prepared.events.allSatisfy { $0.filteringContext.isAssignedToViewer })
+        XCTAssertTrue(prepared.events.allSatisfy { $0.filteringContext.repositoryIsArchived == true })
         XCTAssertNil(prepared.processedActivityByPullRequestID[retired.id])
     }
 
@@ -243,6 +245,7 @@ final class SyncEngineTests: XCTestCase {
 
     private static func pullRequest(
         ci: CIState = .passing,
+        repositoryIsArchived: Bool? = nil,
         commentCount: Int? = nil,
         comments: [PullRequestCommentActivity] = [],
         reviewCount: Int? = nil,
@@ -257,6 +260,7 @@ final class SyncEngineTests: XCTestCase {
             number: 1,
             url: URL(string: "https://github.com/acme/app/pull/1")!,
             repo: "acme/app",
+            repositoryIsArchived: repositoryIsArchived,
             ciState: ci,
             reviewDecision: .noReviewYet,
             commentCount: commentCount ?? comments.count,

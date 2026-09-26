@@ -193,7 +193,7 @@ final class FetchPipelineTests: XCTestCase {
             "headRefName": "feature", "headRefOid": "abc", "isDraft": false,
             "mergeable": "MERGEABLE", "additions": 1, "deletions": 2,
             "statusCheckRollup": ["state": "SUCCESS"],
-            "author": user("rw"), "repository": ["nameWithOwner": "acme/app"],
+            "author": user("rw"), "repository": ["nameWithOwner": "acme/app", "isArchived": false],
             "comments": comments,
             "reviews": connection(total: 0, nodes: []),
             "latestOpinionatedReviews": connection(total: 0, nodes: []),
