@@ -94,7 +94,7 @@ final class GitHubRequestTests: XCTestCase {
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("pageInfo"))
         XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("author { id"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("author { login avatarUrl(size: 64) }"))
-        XCTAssertEqual(GitHubPullRequestQueries.hydration.components(separatedBy: "author { login }").count - 1, 4)
+        XCTAssertEqual(GitHubPullRequestQueries.hydration.components(separatedBy: "author { login __typename }").count - 1, 4)
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("assignees(last: 20)"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("nodes { id login avatarUrl(size: 64) }"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("... on User { id login }"))

@@ -65,6 +65,7 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
     public let state: PullRequestReviewState
     public let submittedAt: Date
     public let author: String?
+    public let authorIsBot: Bool?
     public let viewerDidAuthor: Bool
 
     public init(
@@ -72,12 +73,14 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
         state: PullRequestReviewState,
         submittedAt: Date,
         author: String? = nil,
+        authorIsBot: Bool? = nil,
         viewerDidAuthor: Bool = false
     ) {
         self.id = id
         self.state = state
         self.submittedAt = submittedAt
         self.author = author
+        self.authorIsBot = authorIsBot
         self.viewerDidAuthor = viewerDidAuthor
     }
 }
@@ -90,6 +93,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
 
     public let id: String
     public let author: String?
+    public let authorIsBot: Bool?
     public let viewerDidAuthor: Bool
     public let createdAt: Date
     public let source: Source
@@ -98,6 +102,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     public init(
         id: String,
         author: String? = nil,
+        authorIsBot: Bool? = nil,
         viewerDidAuthor: Bool = false,
         createdAt: Date,
         source: Source,
@@ -105,6 +110,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     ) {
         self.id = id
         self.author = author
+        self.authorIsBot = authorIsBot
         self.viewerDidAuthor = viewerDidAuthor
         self.createdAt = createdAt
         self.source = source
@@ -544,6 +550,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public let prId: String
     public let count: Int?
     public let actorLogin: String?
+    public let actorIsBot: Bool?
     public let activityId: String?
     public let happenedAt: Date?
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
@@ -553,6 +560,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         prId: String,
         count: Int? = nil,
         actorLogin: String? = nil,
+        actorIsBot: Bool? = nil,
         activityId: String? = nil,
         happenedAt: Date? = nil,
         relationshipChanges: Set<PullRequestNotificationRelationship> = []
@@ -561,6 +569,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         self.prId = prId
         self.count = count
         self.actorLogin = actorLogin
+        self.actorIsBot = actorIsBot
         self.activityId = activityId
         self.happenedAt = happenedAt
         self.relationshipChanges = relationshipChanges

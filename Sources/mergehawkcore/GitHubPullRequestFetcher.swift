@@ -745,15 +745,15 @@ struct GitHubPullRequestFetcher: Sendable {
     }
 
     private var topLevelCommentConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { login } }"
+        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { login __typename } }"
     }
 
     private var reviewCommentConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { login } pullRequestReview { id } }"
+        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id createdAt viewerDidAuthor author { login __typename } pullRequestReview { id } }"
     }
 
     private var reviewConnectionFields: String {
-        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id state submittedAt viewerDidAuthor author { login } }"
+        "totalCount pageInfo { startCursor endCursor hasPreviousPage hasNextPage } nodes { id state submittedAt viewerDidAuthor author { login __typename } }"
     }
 
     private func continuationVariables(_ batch: [Continuation]) -> [String: GitHubQueryValue] {
@@ -950,6 +950,7 @@ struct GitHubPullRequestFetcher: Sendable {
             PullRequestCommentActivity(
                 id: comment.id,
                 author: comment.author?.login,
+                authorIsBot: comment.author?.isBot,
                 viewerDidAuthor: comment.viewerDidAuthor,
                 createdAt: try parseDate(comment.createdAt),
                 source: .pullRequest
@@ -959,6 +960,7 @@ struct GitHubPullRequestFetcher: Sendable {
             PullRequestCommentActivity(
                 id: comment.id,
                 author: comment.author?.login,
+                authorIsBot: comment.author?.isBot,
                 viewerDidAuthor: comment.viewerDidAuthor,
                 createdAt: try parseDate(comment.createdAt),
                 source: .reviewThread,
@@ -982,6 +984,7 @@ struct GitHubPullRequestFetcher: Sendable {
                 state: state,
                 submittedAt: try parseDate(submittedAt),
                 author: review.author?.login,
+                authorIsBot: review.author?.isBot,
                 viewerDidAuthor: review.viewerDidAuthor
             )
         }.sorted { $0.submittedAt < $1.submittedAt }

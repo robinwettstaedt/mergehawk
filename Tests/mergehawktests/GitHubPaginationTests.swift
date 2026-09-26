@@ -41,7 +41,7 @@ final class GitHubPaginationTests: XCTestCase {
             XCTAssertFalse(query.contains("headRefOid"))
             XCTAssertFalse(query.contains("statusCheckRollup"))
             XCTAssertFalse(query.contains("author { id"))
-            XCTAssertTrue(query.contains("author { login }"))
+            XCTAssertTrue(query.contains("author { login __typename }"))
             XCTAssertTrue(query.contains("assignees(last:"))
             XCTAssertTrue(query.contains("nodes { id login avatarUrl(size: 64) }"))
             XCTAssertTrue(query.contains("... on User { id login }"))
@@ -51,9 +51,9 @@ final class GitHubPaginationTests: XCTestCase {
             let reviewThreads = try XCTUnwrap(Self.selection(in: query, from: "c2:", to: "c3:"))
             XCTAssertTrue(reviewThreads.contains("pullRequestReview { id }"))
             return Self.json(["data": [
-                "c0": ["comments": Self.connection(total: 20, nodes: (0..<10).map { Self.comment("C\($0)") })],
-                "c1": ["reviews": Self.connection(total: 11, nodes: [Self.review("R0", state: "APPROVED")])],
-                "c2": ["reviewThreads": Self.connection(total: 21, nodes: [Self.thread("T0", comments: [Self.comment("THREAD_COMMENT", reviewID: "THREAD_REVIEW")])])],
+                "c0": ["comments": Self.connection(total: 20, nodes: (0..<10).map { Self.comment("C\($0)", typename: $0 == 0 ? "Bot" : "User") })],
+                "c1": ["reviews": Self.connection(total: 11, nodes: [Self.review("R0", state: "APPROVED", typename: "Bot")])],
+                "c2": ["reviewThreads": Self.connection(total: 21, nodes: [Self.thread("T0", comments: [Self.comment("THREAD_COMMENT", reviewID: "THREAD_REVIEW", typename: "Bot")])])],
                 "c3": ["assignees": Self.connection(total: 21, nodes: [Self.user("rw")])],
                 "c4": ["reviewRequests": Self.connection(total: 21, nodes: [Self.request("Q0")])]
             ]])
@@ -71,9 +71,13 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated[0].pullRequest.reviewRequestKind, .direct)
         XCTAssertEqual(hydrated[0].pullRequest.repositoryIsArchived, true)
         let topLevelComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "C0" })
+        XCTAssertEqual(topLevelComment.authorIsBot, true)
+        XCTAssertEqual(hydrated[0].pullRequest.recentReviews.first { $0.id == "R0" }?.authorIsBot, true)
+        XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "C10" }?.authorIsBot, false)
         XCTAssertEqual(topLevelComment.source, .pullRequest)
         XCTAssertNil(topLevelComment.reviewId)
         let threadComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "THREAD_COMMENT" })
+        XCTAssertEqual(threadComment.authorIsBot, true)
         XCTAssertEqual(threadComment.source, .reviewThread)
         XCTAssertEqual(threadComment.reviewId, "THREAD_REVIEW")
         XCTAssertEqual(transport.queries.filter { $0.contains("CompletePullRequests") }.count, 1)
@@ -98,12 +102,12 @@ final class GitHubPaginationTests: XCTestCase {
             }
             XCTAssertEqual(Self.string(variables["id0"]), "T_OLD")
             XCTAssertFalse(query.contains("author { id"))
-            XCTAssertTrue(query.contains("author { login }"))
+            XCTAssertTrue(query.contains("author { login __typename }"))
             XCTAssertTrue(query.contains("pullRequestReview { id }"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 11, nodes: [
                     Self.comment("TC1", viewerDidAuthor: true),
-                    Self.comment("TC0", viewerDidAuthor: false, reviewID: "THREAD_REVIEW")
+                    Self.comment("TC0", viewerDidAuthor: false, reviewID: "THREAD_REVIEW", typename: "Bot")
                 ])]
             ]])
         }
@@ -113,6 +117,7 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.count, 11)
         XCTAssertEqual(hydrated[0].pullRequest.commentCount, 1)
         let continuedComment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first { $0.id == "TC0" })
+        XCTAssertEqual(continuedComment.authorIsBot, true)
         XCTAssertEqual(continuedComment.source, .reviewThread)
         XCTAssertEqual(continuedComment.reviewId, "THREAD_REVIEW")
     }
@@ -291,9 +296,9 @@ final class GitHubPaginationTests: XCTestCase {
             }
             XCTAssertFalse(query.contains("author { id"))
             XCTAssertTrue(query.contains("latestOpinionatedReviews(last:"))
-            XCTAssertTrue(query.contains("author { login }"))
+            XCTAssertTrue(query.contains("author { login __typename }"))
             return Self.json(["data": [
-                "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C1"), Self.comment("C0")])],
+                "c0": ["comments": Self.connection(total: 11, nodes: [Self.comment("C1"), Self.comment("C0", typename: "Bot")])],
                 "c1": ["latestOpinionatedReviews": Self.connection(
                     total: 21,
                     nodes: [Self.review("O0", state: "CHANGES_REQUESTED")]
@@ -829,6 +834,32 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testBotAndNonBotAuthorsNormalizeWithoutChangingReviewOrThreadState() async throws {
+        let types: [String?] = ["Bot", "User", "Organization", nil]
+        for typename in types {
+            var comment = Self.comment("C", author: "unfamiliar[bot]")
+            comment["author"] = typename.map { ["login": "unfamiliar[bot]", "__typename": $0] as Any } ?? NSNull()
+            let reviews = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"].enumerated().map { index, state in
+                var review = Self.review("R\(index)", state: state)
+                review["author"] = comment["author"]
+                return review
+            }
+            let node = Self.pullRequest(
+                comments: Self.connection(total: 1, nodes: [comment]),
+                reviews: Self.connection(total: 3, nodes: reviews),
+                opinionated: Self.connection(total: 1, nodes: [reviews[0]]),
+                threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [comment])])
+            )
+            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+            let pr = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+            let expected = typename.map { $0 == "Bot" }
+            XCTAssertTrue(pr.recentCommentActivities.allSatisfy { $0.authorIsBot == expected })
+            XCTAssertEqual(pr.recentReviews.map(\.authorIsBot), [expected, expected, expected])
+            XCTAssertEqual(pr.reviewDecision, typename == nil ? .unknown : .approved)
+            XCTAssertEqual(pr.commentCount, 1)
+        }
+    }
+
     private static func fetcher(_ transport: HydrationTransport) -> GitHubPullRequestFetcher {
         GitHubPullRequestFetcher { query, variables in
             try await transport.read(query: query, variables: variables)
@@ -890,8 +921,8 @@ final class GitHubPaginationTests: XCTestCase {
         ]
     }
 
-    private static func user(_ login: String) -> [String: Any] {
-        ["id": "USER_\(login)", "login": login]
+    private static func user(_ login: String, typename: String = "User") -> [String: Any] {
+        ["id": "USER_\(login)", "login": login, "__typename": typename]
     }
 
     private static func comment(
@@ -899,12 +930,13 @@ final class GitHubPaginationTests: XCTestCase {
         viewerDidAuthor: Bool = false,
         author: String? = nil,
         createdAt: String = "2026-01-01T00:00:00Z",
-        reviewID: String? = nil
+        reviewID: String? = nil,
+        typename: String = "User"
     ) -> [String: Any] {
         var result: [String: Any] = [
             "id": id, "createdAt": createdAt,
             "viewerDidAuthor": viewerDidAuthor,
-            "author": user(author ?? (viewerDidAuthor ? "rw" : "reviewer"))
+            "author": user(author ?? (viewerDidAuthor ? "rw" : "reviewer"), typename: typename)
         ]
         if let reviewID {
             result["pullRequestReview"] = ["id": reviewID]
@@ -924,11 +956,12 @@ final class GitHubPaginationTests: XCTestCase {
         state: String,
         author: String = "reviewer",
         submittedAt: String = "2026-01-01T00:00:00Z",
-        viewerDidAuthor: Bool = false
+        viewerDidAuthor: Bool = false,
+        typename: String = "User"
     ) -> [String: Any] {
         [
             "id": id, "state": state, "submittedAt": submittedAt,
-            "viewerDidAuthor": viewerDidAuthor, "author": user(author)
+            "viewerDidAuthor": viewerDidAuthor, "author": user(author, typename: typename)
         ]
     }
 
