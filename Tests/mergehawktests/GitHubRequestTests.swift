@@ -13,6 +13,21 @@ final class GitHubRequestTests: XCTestCase {
         XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: payload(removing: "comments")))
         XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: payload(pageInfo: false)))
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: payload()) as? [String: Any])
+        var comments = try XCTUnwrap(object["comments"] as? [String: Any])
+        var nodes = try XCTUnwrap(comments["nodes"] as? [[String: Any]])
+        nodes[0].removeValue(forKey: "url")
+        comments["nodes"] = nodes
+        object["comments"] = comments
+        XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: Self.json(object)))
+
+        object = try XCTUnwrap(JSONSerialization.jsonObject(with: payload()) as? [String: Any])
+        let review = ["id": "R1", "state": "APPROVED", "submittedAt": "2026-01-01T00:00:00Z", "viewerDidAuthor": false, "author": NSNull()] as [String: Any]
+        var reviews = try XCTUnwrap(object["reviews"] as? [String: Any])
+        reviews["nodes"] = [review]
+        object["reviews"] = reviews
+        XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: Self.json(object)))
+
+        object = try XCTUnwrap(JSONSerialization.jsonObject(with: payload()) as? [String: Any])
         object["repository"] = ["nameWithOwner": "acme/app"]
         XCTAssertThrowsError(try decoder.decode(GitHubCompletePullRequestPayload.self, from: Self.json(object)))
     }
@@ -99,6 +114,8 @@ final class GitHubRequestTests: XCTestCase {
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("nodes { id login avatarUrl(size: 64) }"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("... on User { id login }"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("... on Team { id slug"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("nodes { id url createdAt"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("nodes { id url state submittedAt"))
     }
 
     func testHTTP200GraphQLRateLimitPreservesResetHeader() async throws {
@@ -165,6 +182,7 @@ final class GitHubRequestTests: XCTestCase {
             "totalCount": 1,
             "nodes": [[
                 "id": "C1", "createdAt": "2026-01-01T00:00:00Z",
+                "url": "https://github.com/acme/app/pull/1#issuecomment-C1",
                 "viewerDidAuthor": false, "author": NSNull(), "pullRequestReview": NSNull()
             ]],
             "pageInfo": ["startCursor": "s", "endCursor": "e", "hasPreviousPage": false, "hasNextPage": false]

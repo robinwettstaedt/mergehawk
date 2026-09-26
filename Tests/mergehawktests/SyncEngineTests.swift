@@ -180,6 +180,7 @@ final class SyncEngineTests: XCTestCase {
         func comment(_ id: String, at seconds: TimeInterval) -> PullRequestCommentActivity {
             PullRequestCommentActivity(
                 id: id,
+                url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
                 author: "reviewer",
                 viewerDidAuthor: false,
                 createdAt: Date(timeIntervalSince1970: seconds),
@@ -188,6 +189,7 @@ final class SyncEngineTests: XCTestCase {
         }
         let olderReview = PullRequestReview(
             id: "R_OLD",
+            url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
             state: .approved,
             submittedAt: Date(timeIntervalSince1970: 900),
             author: "reviewer"
@@ -282,6 +284,7 @@ final class SyncEngineTests: XCTestCase {
     ) -> PullRequestCommentActivity {
         PullRequestCommentActivity(
             id: id,
+            url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
             author: viewerDidAuthor ? "rw" : "reviewer",
             viewerDidAuthor: viewerDidAuthor,
             createdAt: Date(timeIntervalSince1970: TimeInterval(abs(id.hashValue % 10_000))),
@@ -293,6 +296,7 @@ final class SyncEngineTests: XCTestCase {
     private static func review(_ id: String) -> PullRequestReview {
         PullRequestReview(
             id: id,
+            url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
             state: .approved,
             submittedAt: Date(timeIntervalSince1970: TimeInterval(abs(id.hashValue % 10_000))),
             author: "reviewer"
