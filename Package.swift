@@ -13,10 +13,16 @@ let package = Package(
         .executable(name: "mergehawkcoretestrunner", targets: ["mergehawkcoretestrunner"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2"),
+        .package(url: "https://github.com/scinfu/SwiftSoup", from: "2.13.9"),
     ],
     targets: [
-        .target(name: "mergehawkcore"),
+        .target(
+            name: "mergehawkcore",
+            dependencies: [
+                .product(name: "SwiftSoup", package: "SwiftSoup"),
+            ]
+        ),
         .executableTarget(
             name: "mergehawk",
             dependencies: [
