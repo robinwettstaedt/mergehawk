@@ -37,6 +37,7 @@ public final class EmptyPullRequestSource {
 
 public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case standard
+    case botNotifications = "bot-notifications"
     case delayedRefresh = "delayed-refresh"
     case refreshFailure = "refresh-failure"
     case mergedFinalActivity = "merged-final-activity"
@@ -376,6 +377,41 @@ public final class MockPullRequestSource {
         return snapshot
     }
 
+    private static func botNotificationPullRequests(includesUpdates: Bool) -> [PullRequest] {
+        let date = Date(timeIntervalSince1970: 1_777_810_000)
+        return [false, true].map { mixed in
+            let id = mixed ? "PR_BOT_NOTIFICATIONS_MIXED" : "PR_BOT_NOTIFICATIONS_ONLY"
+            let url = URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(mixed ? 73 : 72)")!
+            var comments: [PullRequestCommentActivity] = []
+            var reviews: [PullRequestReview] = []
+            if includesUpdates {
+                comments = [
+                    PullRequestCommentActivity(id: "\(id)_BOT_COMMENT", url: URL(string: "\(url.absoluteString)#issuecomment-\(id)_BOT_COMMENT")!, author: "mergehawk-helper", authorIsBot: true, createdAt: date, source: .pullRequest),
+                    PullRequestCommentActivity(id: "\(id)_BOT_THREAD", url: URL(string: "\(url.absoluteString)#discussion_r\(id)_BOT_THREAD")!, author: "mergehawk-helper", authorIsBot: true, createdAt: date.addingTimeInterval(1), source: .reviewThread)
+                ]
+                reviews = [PullRequestReviewState.commented, .changesRequested, .approved].enumerated().map { index, state in
+                    PullRequestReview(id: "\(id)_BOT_REVIEW_\(index)", url: URL(string: "\(url.absoluteString)#pullrequestreview-\(id)_BOT_REVIEW_\(index)")!, state: state, submittedAt: date.addingTimeInterval(Double(index + 2)), author: "mergehawk-helper", authorIsBot: true)
+                }
+                if mixed {
+                    comments.append(PullRequestCommentActivity(id: "\(id)_HUMAN_COMMENT", url: URL(string: "\(url.absoluteString)#issuecomment-\(id)_HUMAN_COMMENT")!, author: "frontend-sam", authorIsBot: false, createdAt: date.addingTimeInterval(5), source: .pullRequest))
+                    reviews.append(PullRequestReview(id: "\(id)_HUMAN_REVIEW", url: URL(string: "\(url.absoluteString)#pullrequestreview-\(id)_HUMAN_REVIEW")!, state: .approved, submittedAt: date.addingTimeInterval(6), author: "platform-nora", authorIsBot: false))
+                }
+            }
+            return PullRequest(
+                id: id, title: mixed ? "Review updates from bots and teammates" : "Review updates from bots",
+                number: mixed ? 73 : 72,
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(mixed ? 73 : 72)")!,
+                repo: "mergehawk-labs/mergehawk", ciState: .passing, reviewDecision: .approved,
+                additions: 72, deletions: 12, commentCount: mixed ? 2 : 1,
+                commentActivityCount: comments.count, recentCommentActivities: comments,
+                reviewCount: mixed ? 4 : 3, recentReviews: reviews,
+                headRefOid: "bot-notification-fixture", isMine: true, author: "agent-fixture",
+                headRefName: "MER-72-bot-notifications", mergeable: .mergeable, draft: false,
+                createdAt: date.addingTimeInterval(-86_400), updatedAt: date.addingTimeInterval(6)
+            )
+        }
+    }
+
     private static let scenarioBaselinePullRequest = PullRequest(
         id: "PR_SCENARIO",
         title: "Preserve final pull request activity",
@@ -683,6 +719,13 @@ extension MockPullRequestSource: CompletePullRequestFetching {
         previousState: PullRequestSyncState?
     ) async throws -> CompletePullRequestFetchResult {
         switch scenario {
+        case .botNotifications:
+            let hasBaseline = Self.botNotificationPullRequests(includesUpdates: false).contains {
+                previousState?.processedActivityByPullRequestID[$0.id] != nil
+            }
+            return CompletePullRequestFetchResult(
+                activePullRequests: Self.botNotificationPullRequests(includesUpdates: hasBaseline)
+            )
         case .standard, .delayedRefresh:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:

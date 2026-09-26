@@ -22,7 +22,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -212,6 +212,42 @@ final class VisualVerificationXCTests: XCTestCase {
                 patLoadingController.isSigningInWithToken
             } && patLoadingClient.isWaitingForViewer
         }
+        for muted in [false, true] {
+            let suffix = muted ? "on" : "off"
+            let notifications = RecordingNotificationClient()
+            let botController = await MainActor.run {
+                var preferences = PreferencesStore(defaults: UserDefaults(suiteName: "\(suiteName)-bots-\(suffix)")!)
+                preferences.muteBotNotifications = muted
+                return DashboardController(
+                    tokenStore: InMemoryTokenStore(), preferencesStore: preferences,
+                    launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .botNotifications),
+                    notificationClient: notifications, automaticRefreshInterval: 0
+                )
+            }
+            try await waitUntil(context: "bot-notification \(suffix) baseline") {
+                await MainActor.run { botController.state.syncedAt != nil && !botController.isRefreshing }
+            }
+            await MainActor.run {
+                XCTAssertTrue(botController.pullRequestNotificationHistory.isEmpty)
+                botController.refresh()
+            }
+            try await waitUntil(context: "bot-notification \(suffix) updates") {
+                await MainActor.run { botController.pullRequestNotificationHistory.count == (muted ? 2 : 12) && !botController.isRefreshing }
+            }
+            try await MainActor.run {
+                XCTAssertEqual(botController.attentionCount, muted ? 2 : 12)
+                XCTAssertEqual(Set(notifications.records.map(\.pullRequestId)), muted ? ["PR_BOT_NOTIFICATIONS_MIXED"] : ["PR_BOT_NOTIFICATIONS_MIXED", "PR_BOT_NOTIFICATIONS_ONLY"])
+                if muted { XCTAssertTrue(notifications.records.allSatisfy { !$0.body.contains("mergehawk-helper") && !$0.title.contains("mergehawk-helper") }) }
+                XCTAssertEqual(botController.isUnreadPullRequest(try XCTUnwrap(botController.state.pullRequests.first { $0.id == "PR_BOT_NOTIFICATIONS_ONLY" })), !muted)
+                try renderSettings(
+                    SettingsRootView(controller: botController, settingsWindowState: SettingsWindowState(selection: .notifications), softwareUpdateController: SoftwareUpdateController.disabled()),
+                    to: outputURL.appendingPathComponent("settings-bot-notifications-\(suffix).png")
+                )
+                botController.selectedTab = .notifications
+                try renderMenu(controller: botController, to: outputURL.appendingPathComponent("menu-bot-notifications-\(suffix).png"))
+            }
+        }
+
         try await MainActor.run {
             try renderSettings(
                 SettingsRootView(
@@ -954,6 +990,10 @@ private struct VisualCaptureSelection {
         "settings-general",
         "settings-general-updates",
         "settings-notifications",
+        "settings-bot-notifications-off",
+        "settings-bot-notifications-on",
+        "menu-bot-notifications-off",
+        "menu-bot-notifications-on",
         "settings-about",
         "menu-notifications",
         "menu-refresh-loading",

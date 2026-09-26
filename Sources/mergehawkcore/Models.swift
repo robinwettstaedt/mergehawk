@@ -66,6 +66,7 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
     public let state: PullRequestReviewState
     public let submittedAt: Date
     public let author: String?
+    public let authorIsBot: Bool?
     public let viewerDidAuthor: Bool
 
     public init(
@@ -74,6 +75,7 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
         state: PullRequestReviewState,
         submittedAt: Date,
         author: String? = nil,
+        authorIsBot: Bool? = nil,
         viewerDidAuthor: Bool = false
     ) {
         self.id = id
@@ -81,6 +83,7 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
         self.state = state
         self.submittedAt = submittedAt
         self.author = author
+        self.authorIsBot = authorIsBot
         self.viewerDidAuthor = viewerDidAuthor
     }
 }
@@ -94,6 +97,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     public let id: String
     public let url: URL
     public let author: String?
+    public let authorIsBot: Bool?
     public let viewerDidAuthor: Bool
     public let createdAt: Date
     public let source: Source
@@ -103,6 +107,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
         id: String,
         url: URL,
         author: String? = nil,
+        authorIsBot: Bool? = nil,
         viewerDidAuthor: Bool = false,
         createdAt: Date,
         source: Source,
@@ -111,6 +116,7 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
         self.id = id
         self.url = url
         self.author = author
+        self.authorIsBot = authorIsBot
         self.viewerDidAuthor = viewerDidAuthor
         self.createdAt = createdAt
         self.source = source
@@ -550,6 +556,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public let prId: String
     public let count: Int?
     public let actorLogin: String?
+    public let actorIsBot: Bool?
     public let activityId: String?
     public let destinationURL: URL?
     public let happenedAt: Date?
@@ -560,6 +567,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         prId: String,
         count: Int? = nil,
         actorLogin: String? = nil,
+        actorIsBot: Bool? = nil,
         activityId: String? = nil,
         destinationURL: URL? = nil,
         happenedAt: Date? = nil,
@@ -569,6 +577,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         self.prId = prId
         self.count = count
         self.actorLogin = actorLogin
+        self.actorIsBot = actorIsBot
         self.activityId = activityId
         self.destinationURL = destinationURL
         self.happenedAt = happenedAt

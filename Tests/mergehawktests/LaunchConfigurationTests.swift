@@ -76,6 +76,12 @@ final class LaunchConfigurationTests: XCTestCase {
         )
     }
 
+    func testBotNotificationScenarioUsesExistingMockArgumentsAndEnvironment() {
+        XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock", "--mock-scenario", "bot-notifications"], environment: [:]).mockPullRequestScenario, .botNotifications)
+        XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk"], environment: ["MERGEHAWK_MOCK_MODE": "1", "MERGEHAWK_MOCK_SCENARIO": "bot-notifications"]).mockPullRequestScenario, .botNotifications)
+        XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock-scenario", "bot-notifications"], environment: [:]).mockPullRequestScenario, .standard)
+    }
+
     func testMockScenariosParseFromArgumentsAndEnvironment() {
         XCTAssertEqual(
             LaunchConfiguration.current(

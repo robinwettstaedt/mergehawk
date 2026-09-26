@@ -4,6 +4,20 @@ import mergehawkcore
 import XCTest
 
 final class PreferencesStoreTests: XCTestCase {
+    func testBotNotificationPreferenceDefaultsOffAndPersistsSeparatelyFromMatrix() {
+        withStore { store, defaults in
+            XCTAssertFalse(store.muteBotNotifications)
+            let matrix = NotificationPreferences(authored: .disabled, assigned: .enabled, directReviewRequests: .enabled, teamReviewRequests: .disabled)
+            store.notificationPreferences = matrix
+            for enabled in [true, false] {
+                store.muteBotNotifications = enabled
+                let reopened = PreferencesStore(defaults: defaults)
+                XCTAssertEqual(reopened.muteBotNotifications, enabled)
+                XCTAssertEqual(reopened.notificationPreferences, matrix)
+            }
+        }
+    }
+
     func testScalarPreferencesPersistAndInvalidValuesFallBack() {
         withStore { store, defaults in
             XCTAssertEqual(store.refreshIntervalMinutes, 2)

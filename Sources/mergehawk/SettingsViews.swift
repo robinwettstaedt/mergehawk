@@ -652,6 +652,11 @@ private struct NotificationSettingsView: View {
     var body: some View {
         Form {
             Toggle("macOS local notifications", isOn: $controller.macOSLocalNotificationsEnabled)
+            Section {
+                Toggle("Mute bot comment and review notifications", isOn: $controller.muteBotNotifications)
+            } footer: {
+                Text("Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain.")
+            }
             Section("Pull request notifications") {
                 Grid(horizontalSpacing: NotificationMatrixLayout.columnSpacing, verticalSpacing: 8) {
                     GridRow {

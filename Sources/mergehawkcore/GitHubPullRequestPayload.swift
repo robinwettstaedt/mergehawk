@@ -17,6 +17,14 @@ struct GitHubPayloadUser: Decodable, Equatable, Sendable {
     let id: String?
     let login: String
     let avatarUrl: URL?
+    let typename: String?
+
+    var isBot: Bool? { typename.map { $0 == "Bot" } }
+
+    enum CodingKeys: String, CodingKey {
+        case id, login, avatarUrl
+        case typename = "__typename"
+    }
 }
 
 struct GitHubPayloadComment: Decodable, Equatable, Sendable {

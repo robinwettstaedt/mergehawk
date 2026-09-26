@@ -192,6 +192,9 @@ final class DashboardController: ObservableObject {
             preferencesStore.notificationPreferences = preferences
         }
     }
+    @Published var muteBotNotifications: Bool {
+        didSet { preferencesStore.muteBotNotifications = muteBotNotifications }
+    }
     @Published var refreshIntervalMinutes: Int {
         didSet {
             guard oldValue != refreshIntervalMinutes else {
@@ -369,6 +372,7 @@ final class DashboardController: ObservableObject {
             self.notificationClient = NotificationCenterClient()
         }
         self.automaticRefreshIntervalOverride = automaticRefreshInterval
+        self.muteBotNotifications = preferencesStore.muteBotNotifications
         self.preferences = preferencesStore.notificationPreferences
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
@@ -1393,7 +1397,8 @@ final class DashboardController: ObservableObject {
                     .map(\.repo)
             )
             let allowed = prepared.events.filter { value in
-                preferences.allows(event: value.event, for: value.filteringContext)
+                let mutedBotActivity = muteBotNotifications && value.event.actorIsBot == true
+                return !mutedBotActivity && preferences.allows(event: value.event, for: value.filteringContext)
                     && sourcePreferences.allowsNotifications(for: value.filteringContext.repo)
                     && (!hideArchivedRepositories || !archivedRepositories.contains(value.filteringContext.repo))
             }
