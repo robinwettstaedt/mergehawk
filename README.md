@@ -282,6 +282,7 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario merged-final-activi
 scripts/run-agent-app.sh --slot local --mock --mock-scenario quiet-access-loss --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario comment-notifications --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario long-lists --ui menu --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
@@ -296,6 +297,9 @@ comment modes: the first refresh adds eight eligible updates (general comments,
 individual inline comments beside an approval, a joined-thread reply, and mentions),
 the second adds a mention to an already seen comment, and later refreshes change
 nothing.
+The `long-lists` scenario has 20 authored and 20 review-request pull requests so the
+Authored and Requested lists overflow the menu; the first refresh adds a comment to
+each, which fills the Notifications list past its visible height.
 
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL

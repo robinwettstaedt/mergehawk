@@ -377,6 +377,47 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
+    func testEveryMenuListShowsTheNativeVerticalScrollIndicator() throws {
+        let suite = "menu-list-scrollbars-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true,
+                suppressesMacOSNotifications: true,
+                mockPullRequestScenario: .longLists
+            ),
+            notificationClient: RecordingNotificationClient(),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
+        controller.refresh()
+        waitUntil(timeout: 1.0) { !controller.visiblePullRequestNotifications.isEmpty && !controller.isRefreshing }
+
+        for tab in DashboardController.MenuTab.allCases {
+            controller.selectedTab = tab
+            let size = CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
+            let hostingView = NSHostingView(rootView: MenuRootView(controller: controller, footerModel: MenuFooterModel()))
+            hostingView.frame = CGRect(origin: .zero, size: size)
+            let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.contentView = hostingView
+            hostingView.layoutSubtreeIfNeeded()
+
+            let scrollViews = scrollViews(in: hostingView)
+            XCTAssertFalse(scrollViews.isEmpty, tab.rawValue)
+            XCTAssertTrue(scrollViews.allSatisfy(\.hasVerticalScroller), tab.rawValue)
+            window.contentView = nil
+        }
+    }
+
+    private func scrollViews(in view: NSView) -> [NSScrollView] {
+        let own = (view as? NSScrollView).map { [$0] } ?? []
+        return own + view.subviews.flatMap { scrollViews(in: $0) }
+    }
+
+    @MainActor
     func testMenuFooterClickFeedbackSuppressesSelectionAndIgnoresRepeatedClicks() async {
         let feedback = MenuFooterClickFeedback()
         var actionCount = 0

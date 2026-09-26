@@ -92,6 +92,33 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertTrue(notifications.records.contains { $0.title == "@backend-mateo commented in a thread you joined" })
     }
 
+    func testLongListsScenarioReturnsOverflowingListsThenNewCommentActivity() async throws {
+        let source = MockPullRequestSource(scenario: .longLists)
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil).activePullRequests
+        XCTAssertEqual(first.filter(\.isMine).count, 20)
+        let requested = first.filter { !$0.isMine }
+        XCTAssertEqual(requested.count, 20)
+        XCTAssertGreaterThan(Set(requested.compactMap(DashboardController.RequestedSection.section(for:))).count, 1)
+        XCTAssertTrue(first.allSatisfy { $0.recentCommentActivities.isEmpty })
+
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil).activePullRequests
+        XCTAssertEqual(second.map(\.id), first.map(\.id))
+        XCTAssertTrue(second.allSatisfy { $0.recentCommentActivities.count == 1 })
+    }
+
+    @MainActor
+    func testLongListsScenarioFillsNotificationHistoryAfterOneRefresh() async {
+        let suite = "long-lists-scenario-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), preferencesStore: PreferencesStore(defaults: defaults), launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .longLists), notificationClient: RecordingNotificationClient(), automaticRefreshInterval: 0)
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing } }
+        XCTAssertTrue(controller.visiblePullRequestNotifications.isEmpty)
+        controller.refresh()
+        await waitUntil(timeout: 1) { await MainActor.run { controller.visiblePullRequestNotifications.count > 8 && !controller.isRefreshing } }
+        XCTAssertGreaterThan(controller.visiblePullRequestNotifications.count, 8)
+    }
+
     @MainActor
     func testFreshBotScenarioRunsRespectMuteAndRecordedPayloads() async {
         for muted in [false, true] {

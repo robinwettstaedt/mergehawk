@@ -43,6 +43,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case refreshFailure = "refresh-failure"
     case mergedFinalActivity = "merged-final-activity"
     case quietAccessLoss = "quiet-access-loss"
+    case longLists = "long-lists"
 }
 
 public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
@@ -505,6 +506,46 @@ public final class MockPullRequestSource {
         ]
     }
 
+    /// Stage 0 is a quiet baseline of 20 authored and 20 review-request pull requests; stage 1 adds one new human
+    /// comment to each. Later refreshes repeat stage 1 unchanged.
+    private static func longListPullRequests(stage: Int) -> [PullRequest] {
+        let base = Date(timeIntervalSince1970: 1_777_900_000)
+        func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
+        let hasUpdates = stage >= 1
+        func pullRequest(_ ordinal: Int, mine: Bool) -> PullRequest {
+            let number = (mine ? 100 : 200) + ordinal
+            let id = "PR_LONG_LIST_\(mine ? "AUTHORED" : "REQUESTED")_\(ordinal)"
+            let url = URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(number)")!
+            let comments = hasUpdates ? [
+                PullRequestCommentActivity(
+                    id: "\(id)_COMMENT",
+                    url: URL(string: "\(url.absoluteString)#issuecomment-\(id)_COMMENT")!,
+                    author: "frontend-sam",
+                    authorIsBot: false,
+                    createdAt: at(TimeInterval(1_000 + number)),
+                    source: .pullRequest
+                ),
+            ] : []
+            let request: ReviewRequestKind = mine ? .none : [.none, .direct, .team][ordinal % 3]
+            return PullRequest(
+                id: id,
+                title: mine ? "Refine long list layout step \(ordinal + 1)" : "Review long list layout step \(ordinal + 1)",
+                number: number, url: url, repo: "mergehawk-labs/mergehawk",
+                ciState: .passing, reviewDecision: .noReviewYet,
+                additions: 20 + ordinal, deletions: ordinal, commentCount: 0,
+                commentActivityCount: comments.count, recentCommentActivities: comments,
+                reviewCount: 0, recentReviews: [],
+                headRefOid: "long-list-fixture", reviewRequestKind: request,
+                isAssignedToViewer: !mine && ordinal % 3 == 0,
+                isMine: mine, author: mine ? "agent-fixture" : "platform-nora",
+                headRefName: "MER-76-long-list-\(number)", mergeable: .mergeable, draft: false,
+                createdAt: at(TimeInterval(-86_400 - number * 60)),
+                updatedAt: at(hasUpdates ? TimeInterval(1_000 + number) : TimeInterval(-number * 60))
+            )
+        }
+        return (0..<20).map { pullRequest($0, mine: true) } + (0..<20).map { pullRequest($0, mine: false) }
+    }
+
     private static let scenarioBaselinePullRequest = PullRequest(
         id: "PR_SCENARIO",
         title: "Preserve final pull request activity",
@@ -879,6 +920,10 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             let stage = min(index, 2)
             index += 1
             return CompletePullRequestFetchResult(activePullRequests: Self.commentNotificationPullRequests(stage: stage))
+        case .longLists:
+            let stage = min(index, 1)
+            index += 1
+            return CompletePullRequestFetchResult(activePullRequests: Self.longListPullRequests(stage: stage))
         case .standard, .delayedRefresh:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:
