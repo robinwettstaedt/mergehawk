@@ -182,6 +182,8 @@ final class GitHubRequestTests: XCTestCase {
             "totalCount": 1,
             "nodes": [[
                 "id": "C1", "createdAt": "2026-01-01T00:00:00Z",
+                "publishedAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
+                "bodyHTML": "<p>Comment</p>",
                 "url": "https://github.com/acme/app/pull/1#issuecomment-C1",
                 "viewerDidAuthor": false, "author": NSNull(), "pullRequestReview": NSNull()
             ]],

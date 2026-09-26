@@ -68,6 +68,12 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
     public let author: String?
     public let authorIsBot: Bool?
     public let viewerDidAuthor: Bool
+    /// The last edit of the review summary; the submission time when the summary was never edited.
+    public let updatedAt: Date
+    /// Whether the review summary has any non-whitespace text.
+    public let hasSummaryText: Bool
+    /// Whether a comment-only review summary directly mentions the viewer. Decisions never carry a mention.
+    public let mentionsViewer: Bool
 
     public init(
         id: String,
@@ -76,7 +82,10 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
         submittedAt: Date,
         author: String? = nil,
         authorIsBot: Bool? = nil,
-        viewerDidAuthor: Bool = false
+        viewerDidAuthor: Bool = false,
+        updatedAt: Date? = nil,
+        hasSummaryText: Bool = false,
+        mentionsViewer: Bool = false
     ) {
         self.id = id
         self.url = url
@@ -85,6 +94,29 @@ public struct PullRequestReview: Identifiable, Codable, Equatable, Sendable {
         self.author = author
         self.authorIsBot = authorIsBot
         self.viewerDidAuthor = viewerDidAuthor
+        self.updatedAt = updatedAt ?? submittedAt
+        self.hasSummaryText = hasSummaryText
+        self.mentionsViewer = mentionsViewer
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, url, state, submittedAt, author, authorIsBot, viewerDidAuthor, updatedAt, hasSummaryText, mentionsViewer
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            url: try container.decode(URL.self, forKey: .url),
+            state: try container.decode(PullRequestReviewState.self, forKey: .state),
+            submittedAt: try container.decode(Date.self, forKey: .submittedAt),
+            author: try container.decodeIfPresent(String.self, forKey: .author),
+            authorIsBot: try container.decodeIfPresent(Bool.self, forKey: .authorIsBot),
+            viewerDidAuthor: try container.decode(Bool.self, forKey: .viewerDidAuthor),
+            updatedAt: try container.decodeIfPresent(Date.self, forKey: .updatedAt),
+            hasSummaryText: try container.decodeIfPresent(Bool.self, forKey: .hasSummaryText) ?? false,
+            mentionsViewer: try container.decodeIfPresent(Bool.self, forKey: .mentionsViewer) ?? false
+        )
     }
 }
 
@@ -102,7 +134,15 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
     public let createdAt: Date
     public let source: Source
     public let reviewId: String?
+    /// When the comment became visible to others; nil while it is part of a pending review.
+    public let publishedAt: Date?
+    /// The last edit of the comment body; the publication time when the comment was never edited.
+    public let updatedAt: Date
+    /// The provider review thread holding an inline comment.
+    public let threadId: String?
+    public let mentionsViewer: Bool
 
+    /// A nil `publishedAt` means publication at `createdAt` unless `isPublished` is false.
     public init(
         id: String,
         url: URL,
@@ -111,7 +151,12 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
         viewerDidAuthor: Bool = false,
         createdAt: Date,
         source: Source,
-        reviewId: String? = nil
+        reviewId: String? = nil,
+        publishedAt: Date? = nil,
+        isPublished: Bool = true,
+        updatedAt: Date? = nil,
+        threadId: String? = nil,
+        mentionsViewer: Bool = false
     ) {
         self.id = id
         self.url = url
@@ -121,6 +166,54 @@ public struct PullRequestCommentActivity: Identifiable, Codable, Equatable, Send
         self.createdAt = createdAt
         self.source = source
         self.reviewId = reviewId
+        let published = isPublished ? (publishedAt ?? createdAt) : nil
+        self.publishedAt = published
+        self.updatedAt = updatedAt ?? published ?? createdAt
+        self.threadId = threadId
+        self.mentionsViewer = mentionsViewer
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, url, author, authorIsBot, viewerDidAuthor, createdAt, source, reviewId
+        case publishedAt, updatedAt, threadId, mentionsViewer
+    }
+
+    /// Activity stored before publication metadata existed decodes as published at its creation time.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let isPublished = try !container.contains(.publishedAt) || !container.decodeNil(forKey: .publishedAt)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            url: try container.decode(URL.self, forKey: .url),
+            author: try container.decodeIfPresent(String.self, forKey: .author),
+            authorIsBot: try container.decodeIfPresent(Bool.self, forKey: .authorIsBot),
+            viewerDidAuthor: try container.decode(Bool.self, forKey: .viewerDidAuthor),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            source: try container.decode(Source.self, forKey: .source),
+            reviewId: try container.decodeIfPresent(String.self, forKey: .reviewId),
+            publishedAt: try container.decodeIfPresent(Date.self, forKey: .publishedAt),
+            isPublished: isPublished,
+            updatedAt: try container.decodeIfPresent(Date.self, forKey: .updatedAt),
+            threadId: try container.decodeIfPresent(String.self, forKey: .threadId),
+            mentionsViewer: try container.decodeIfPresent(Bool.self, forKey: .mentionsViewer) ?? false
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(url, forKey: .url)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encodeIfPresent(authorIsBot, forKey: .authorIsBot)
+        try container.encode(viewerDidAuthor, forKey: .viewerDidAuthor)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(source, forKey: .source)
+        try container.encodeIfPresent(reviewId, forKey: .reviewId)
+        // An explicit null keeps a pending comment distinct from activity stored before publication existed.
+        try container.encode(publishedAt, forKey: .publishedAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(threadId, forKey: .threadId)
+        try container.encode(mentionsViewer, forKey: .mentionsViewer)
     }
 }
 

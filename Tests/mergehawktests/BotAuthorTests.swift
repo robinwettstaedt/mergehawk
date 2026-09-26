@@ -50,6 +50,34 @@ final class BotAuthorTests: XCTestCase {
         }
     }
 
+    func testCommentPublicationMetadataRoundTripsAndOldActivityCountsAsPublishedAtCreation() throws {
+        let created = Date(timeIntervalSince1970: 10)
+        let url = URL(string: "https://github.com/acme/app/pull/1#discussion_r1")!
+        let pending = PullRequestCommentActivity(id: "P", url: url, createdAt: created, source: .reviewThread, isPublished: false, threadId: "T")
+        let published = PullRequestCommentActivity(id: "S", url: url, createdAt: created, source: .reviewThread, publishedAt: Date(timeIntervalSince1970: 20), updatedAt: Date(timeIntervalSince1970: 30), threadId: "T", mentionsViewer: true)
+        for value in [pending, published] {
+            XCTAssertEqual(try JSONDecoder().decode(PullRequestCommentActivity.self, from: JSONEncoder().encode(value)), value)
+        }
+        XCTAssertNil(pending.publishedAt)
+
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(published)) as? [String: Any])
+        ["publishedAt", "updatedAt", "threadId", "mentionsViewer"].forEach { object.removeValue(forKey: $0) }
+        let old = try JSONDecoder().decode(PullRequestCommentActivity.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(old.publishedAt, created)
+        XCTAssertEqual(old.updatedAt, created)
+        XCTAssertNil(old.threadId)
+        XCTAssertFalse(old.mentionsViewer)
+
+        let review = PullRequestReview(id: "R", url: url, state: .commented, submittedAt: created, updatedAt: Date(timeIntervalSince1970: 40), hasSummaryText: true, mentionsViewer: true)
+        XCTAssertEqual(try JSONDecoder().decode(PullRequestReview.self, from: JSONEncoder().encode(review)), review)
+        var reviewObject = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(review)) as? [String: Any])
+        ["updatedAt", "hasSummaryText", "mentionsViewer"].forEach { reviewObject.removeValue(forKey: $0) }
+        let oldReview = try JSONDecoder().decode(PullRequestReview.self, from: JSONSerialization.data(withJSONObject: reviewObject))
+        XCTAssertEqual(oldReview.updatedAt, created)
+        XCTAssertFalse(oldReview.hasSummaryText)
+        XCTAssertFalse(oldReview.mentionsViewer)
+    }
+
     private func check<T: Codable & Equatable>(_ value: T, key: String, old: (T) -> Void) throws {
         let data = try JSONEncoder().encode(value)
         XCTAssertEqual(try JSONDecoder().decode(T.self, from: data), value)
