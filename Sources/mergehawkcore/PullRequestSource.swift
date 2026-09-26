@@ -643,6 +643,26 @@ public final class MockPullRequestSource {
                 event: PullRequestEvent(type: .ciFailed, prId: notificationFixtureCIPullRequest.id),
                 pullRequest: notificationFixtureCIPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_795_200)
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(
+                    type: .newReview,
+                    prId: notificationFixtureLegacyReviewPullRequest.id,
+                    count: 1,
+                    actorLogin: "qa-rin"
+                ),
+                pullRequest: notificationFixtureLegacyReviewPullRequest,
+                createdAt: Date(timeIntervalSince1970: 1_777_791_600)
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(
+                    type: .otherCommitAdded,
+                    prId: notificationFixtureOtherCommitPullRequest.id,
+                    count: 1,
+                    actorLogin: "teammate-kai"
+                ),
+                pullRequest: notificationFixtureOtherCommitPullRequest,
+                createdAt: Date(timeIntervalSince1970: 1_777_788_000)
             )
         ]
     }
@@ -774,6 +794,42 @@ public final class MockPullRequestSource {
         mergeable: .mergeable,
         draft: false,
         updatedAt: Date(timeIntervalSince1970: 1_777_798_800)
+    )
+
+    private static let notificationFixtureLegacyReviewPullRequest = PullRequest(
+        id: "PR_NOTIFICATION_LEGACY_REVIEW",
+        title: "Harden rate limit headers",
+        number: 46,
+        url: URL(string: "https://github.com/example/api/pull/46")!,
+        repo: "example/api",
+        ciState: .passing,
+        reviewDecision: .noReviewYet,
+        commentCount: 0,
+        reviewCount: 1,
+        isMine: true,
+        author: "agent-fixture",
+        headRefName: "rate-limit-headers",
+        mergeable: .mergeable,
+        draft: false,
+        updatedAt: Date(timeIntervalSince1970: 1_777_791_600)
+    )
+
+    private static let notificationFixtureOtherCommitPullRequest = PullRequest(
+        id: "PR_NOTIFICATION_OTHER_COMMIT",
+        title: "Refresh onboarding checklist",
+        number: 47,
+        url: URL(string: "https://github.com/example/app/pull/47")!,
+        repo: "example/app",
+        ciState: .pending,
+        reviewDecision: .noReviewYet,
+        commentCount: 0,
+        reviewCount: 0,
+        isMine: true,
+        author: "agent-fixture",
+        headRefName: "onboarding-checklist",
+        mergeable: .mergeable,
+        draft: false,
+        updatedAt: Date(timeIntervalSince1970: 1_777_788_000)
     )
 }
 
