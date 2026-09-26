@@ -96,9 +96,9 @@ if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
   exit 2
 fi
 case "$MOCK_SCENARIO" in
-  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications) ;;
+  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications|long-lists) ;;
   *)
-    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications or comment-notifications" >&2
+    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications, comment-notifications or long-lists" >&2
     exit 2
     ;;
 esac
