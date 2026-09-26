@@ -12,7 +12,7 @@ final class BotAuthorTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(GitHubPayloadUser.self, from: Data(#"{"login":"unknown"}"#.utf8)).isBot)
     }
 
-    func testDetectionCarriesClassificationAndPreservesSelfAndReviewChildSuppression() {
+    func testDetectionCarriesClassificationSuppressesSelfAndKeepsReviewChildComments() {
         let date = Date(timeIntervalSince1970: 10)
         let comments = [
             PullRequestCommentActivity(id: "bot-comment", url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-bot-comment")!, authorIsBot: true, createdAt: date, source: .pullRequest),
@@ -21,13 +21,14 @@ final class BotAuthorTests: XCTestCase {
             PullRequestCommentActivity(id: "child", url: URL(string: "https://github.com/acme/app/pull/1#issuecomment-child")!, authorIsBot: true, createdAt: date, source: .reviewThread, reviewId: "bot-review")
         ]
         let reviews = [
-            PullRequestReview(id: "bot-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-bot-review")!, state: .commented, submittedAt: date, authorIsBot: true),
+            PullRequestReview(id: "bot-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-bot-review")!, state: .commented, submittedAt: date, authorIsBot: true, hasSummaryText: true),
             PullRequestReview(id: "human-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-human-review")!, state: .approved, submittedAt: date, authorIsBot: false),
             PullRequestReview(id: "self-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-self-review")!, state: .changesRequested, submittedAt: date, authorIsBot: true, viewerDidAuthor: true)
         ]
         let pr = PullRequest(id: "PR", title: "PR", number: 1, url: URL(string: "https://example.com")!, repo: "acme/app", ciState: .passing, reviewDecision: .approved, commentCount: 1, recentCommentActivities: comments, reviewCount: 3, recentReviews: reviews, isMine: true, author: "rw", mergeable: .mergeable, draft: false)
         let events = PRActivityDetector.detectProcessedPeopleActivity(previous: ProcessedPullRequestActivity(pullRequestID: pr.id), current: pr)
-        XCTAssertEqual(Set(events.compactMap(\.activityId)), ["bot-comment", "human-thread", "bot-review", "human-review"])
+        XCTAssertEqual(Set(events.compactMap(\.activityId)), ["bot-comment", "human-thread", "child", "bot-review", "human-review"])
+        XCTAssertEqual(events.first { $0.activityId == "child" }?.actorIsBot, true)
         XCTAssertEqual(events.first { $0.activityId == "bot-comment" }?.actorIsBot, true)
         XCTAssertEqual(events.first { $0.activityId == "human-thread" }?.actorIsBot, false)
         XCTAssertEqual(events.first { $0.activityId == "bot-review" }?.actorIsBot, true)
@@ -36,6 +37,10 @@ final class BotAuthorTests: XCTestCase {
                 ?? reviews.first { $0.id == event.activityId }?.url
             XCTAssertEqual(event.destinationURL, activityURL)
         }
+        var emptySummary = pr
+        emptySummary.recentReviews = [PullRequestReview(id: "empty-review", url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-empty-review")!, state: .commented, submittedAt: date, authorIsBot: true)]
+        emptySummary.recentCommentActivities = []
+        XCTAssertTrue(PRActivityDetector.detectProcessedPeopleActivity(previous: ProcessedPullRequestActivity(pullRequestID: pr.id), current: emptySummary).isEmpty)
         let processed = PRActivityDetector.processedActivity(for: pr)
         XCTAssertEqual(processed.commentIDs, Set(comments.map(\.id)))
         XCTAssertEqual(processed.submittedReviewIDs, Set(reviews.map(\.id)))
