@@ -22,7 +22,7 @@ Starts a fresh verification run when --run-dir is omitted.
 
 Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
-  scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario merged-final-activity --ui menu --open
+  scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario bot-notifications --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --mock --open
 USAGE
@@ -94,9 +94,9 @@ if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
   exit 2
 fi
 case "$MOCK_SCENARIO" in
-  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss) ;;
+  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications) ;;
   *)
-    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity or quiet-access-loss" >&2
+    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss or bot-notifications" >&2
     exit 2
     ;;
 esac

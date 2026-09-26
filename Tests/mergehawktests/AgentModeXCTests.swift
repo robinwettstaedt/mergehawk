@@ -4,6 +4,52 @@ import mergehawkcore
 import XCTest
 
 final class AgentModeXCTests: XCTestCase {
+    func testBotScenarioUsesCommittedBaselineAndDoesNotReplayAfterSourceRestart() async throws {
+        let source = MockPullRequestSource(scenario: .botNotifications)
+        let engine = SyncEngine(source: source, loginProvider: { "agent-fixture" })
+        let baseline = try await engine.prepare(previousState: nil)
+        XCTAssertTrue(baseline.events.isEmpty)
+        XCTAssertEqual(baseline.activePullRequests.count, 2)
+        XCTAssertTrue(baseline.activePullRequests.allSatisfy { $0.recentCommentActivities.isEmpty && $0.recentReviews.isEmpty })
+        func committed(_ prepared: PreparedPullRequestRefresh) -> PullRequestSyncState {
+            PullRequestSyncState(account: prepared.account, dashboard: DashboardState(pullRequests: prepared.activePullRequests.map(\.withoutActivityHistory), events: [], syncedAt: prepared.syncedAt, source: .mock, account: prepared.account, authStatus: .signedIn), processedActivityByPullRequestID: prepared.processedActivityByPullRequestID)
+        }
+        let batch = try await engine.prepare(previousState: committed(baseline))
+        XCTAssertEqual(batch.events.count, 12)
+        XCTAssertEqual(batch.events.filter { $0.event.actorIsBot == true }.count, 10)
+        XCTAssertEqual(batch.events.filter { $0.event.actorIsBot == false }.count, 2)
+        XCTAssertEqual(batch.activePullRequests.map(\.reviewDecision), baseline.activePullRequests.map(\.reviewDecision))
+        XCTAssertEqual(batch.activePullRequests.map(\.commentCount), baseline.activePullRequests.map(\.commentCount))
+        let state = committed(batch)
+        let repeatedBatch = try await engine.prepare(previousState: state)
+        XCTAssertTrue(repeatedBatch.events.isEmpty)
+        let restarted = SyncEngine(source: MockPullRequestSource(scenario: .botNotifications), loginProvider: { "agent-fixture" })
+        let repeated = try await restarted.prepare(previousState: state)
+        XCTAssertTrue(repeated.events.isEmpty)
+        XCTAssertEqual(repeated.processedActivityByPullRequestID, state.processedActivityByPullRequestID)
+    }
+
+    @MainActor
+    func testFreshBotScenarioRunsRespectMuteAndRecordedPayloads() async {
+        for muted in [false, true] {
+            let suite = "bot-scenario-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            var preferences = PreferencesStore(defaults: defaults)
+            preferences.muteBotNotifications = muted
+            let notifications = RecordingNotificationClient()
+            let controller = DashboardController(tokenStore: InMemoryTokenStore(), preferencesStore: preferences, launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .botNotifications), notificationClient: notifications, automaticRefreshInterval: 0)
+            await waitUntil(timeout: 1) { await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing } }
+            XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+            controller.refresh()
+            await waitUntil(timeout: 1) { await MainActor.run { controller.pullRequestNotificationHistory.count == (muted ? 2 : 12) && !controller.isRefreshing } }
+            XCTAssertEqual(controller.attentionCount, muted ? 2 : 12)
+            XCTAssertEqual(controller.isUnreadPullRequest(controller.state.pullRequests.first { $0.id == "PR_BOT_NOTIFICATIONS_ONLY" }!), !muted)
+            XCTAssertEqual(Set(notifications.records.map(\.pullRequestId)), muted ? ["PR_BOT_NOTIFICATIONS_MIXED"] : ["PR_BOT_NOTIFICATIONS_MIXED", "PR_BOT_NOTIFICATIONS_ONLY"])
+            if muted { XCTAssertTrue(notifications.records.allSatisfy { !$0.body.contains("mergehawk-helper") && !$0.title.contains("mergehawk-helper") }) }
+        }
+    }
+
     func testMockPullRequestDatesUseOneStableReferenceAcrossRefreshes() async throws {
         let referenceDate = Date(timeIntervalSince1970: 2_000_000_000)
         let source = MockPullRequestSource(referenceDate: referenceDate)
