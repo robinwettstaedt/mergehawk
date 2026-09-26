@@ -654,16 +654,19 @@ private struct NotificationSettingsView: View {
     var body: some View {
         Form {
             Toggle("macOS local notifications", isOn: $controller.macOSLocalNotificationsEnabled)
-            Toggle(isOn: $controller.muteBotNotifications) {
-                HStack(spacing: 4) {
-                    Text("Mute bot comment and review notifications")
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                        .help(Self.muteBotNotificationsHelp)
-                        .accessibilityHidden(true)
-                }
+            // The info icon stays outside the Toggle label: its tooltip never showed from inside the label.
+            HStack(spacing: 4) {
+                Text("Mute bot comment and review notifications")
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                    .help(Self.muteBotNotificationsHelp)
+                    .accessibilityHidden(true)
+                Spacer()
+                Toggle("Mute bot comment and review notifications", isOn: $controller.muteBotNotifications)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityHint(Self.muteBotNotificationsHelp)
             }
-            .accessibilityHint(Self.muteBotNotificationsHelp)
             Section("Pull request notifications") {
                 // Laid out like the comment matrix below so both relationship columns start at the same x.
                 VStack(alignment: .leading, spacing: 8) {
