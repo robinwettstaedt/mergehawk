@@ -230,7 +230,7 @@ private func botPR(classifications: [Bool?] = [], suffix: String = "", mine: Boo
             comments.append(PullRequestCommentActivity(id: "C-\(index)-\(sourceIndex)\(suffix)", url: URL(string: "https://github.com/acme/app/pull/72#issuecomment-C-\(index)-\(sourceIndex)\(suffix)")!, author: author, authorIsBot: isBot, createdAt: date, source: source))
         }
         for (stateIndex, state) in [PullRequestReviewState.commented, .approved, .changesRequested].enumerated() {
-            reviews.append(PullRequestReview(id: "R-\(index)-\(stateIndex)\(suffix)", url: URL(string: "https://github.com/acme/app/pull/72#pullrequestreview-R-\(index)-\(stateIndex)\(suffix)")!, state: state, submittedAt: date, author: author, authorIsBot: isBot))
+            reviews.append(PullRequestReview(id: "R-\(index)-\(stateIndex)\(suffix)", url: URL(string: "https://github.com/acme/app/pull/72#pullrequestreview-R-\(index)-\(stateIndex)\(suffix)")!, state: state, submittedAt: date, author: author, authorIsBot: isBot, hasSummaryText: true))
         }
     }
     return PullRequest(id: "PR_BOT_TEST", title: "Bot notification test", number: 72, url: URL(string: "https://github.com/acme/app/pull/72")!, repo: "acme/app", ciState: ci, reviewDecision: .changesRequested, commentCount: 2, recentCommentActivities: comments, reviewCount: reviews.count, recentReviews: reviews, isAssignedToViewer: assigned, isMine: mine, author: mine ? "rw" : "teammate", mergeable: .mergeable, draft: false)

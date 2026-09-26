@@ -270,7 +270,10 @@ final class AgentModeXCTests: XCTestCase {
             authored: .disabled,
             assigned: .disabled,
             directReviewRequests: .disabled,
-            teamReviewRequests: .disabled
+            teamReviewRequests: .disabled,
+            commentModes: CommentNotificationPreferences(
+                authored: .off, assigned: .off, directReviewRequests: .off, teamReviewRequests: .off
+            )
         )
         let preferencesStore = mutablePreferencesStore
 

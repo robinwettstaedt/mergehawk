@@ -112,7 +112,10 @@ final class AtomicRefreshTests: XCTestCase {
                     authored: .disabled,
                     assigned: .disabled,
                     directReviewRequests: .disabled,
-                    teamReviewRequests: .disabled
+                    teamReviewRequests: .disabled,
+                    commentModes: CommentNotificationPreferences(
+                        authored: .off, assigned: .off, directReviewRequests: .off, teamReviewRequests: .off
+                    )
                 )
             } else {
                 fixture.controller.setRepositoryPreferences(

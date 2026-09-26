@@ -643,6 +643,13 @@ public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, 
     case teamReviewRequest = "team_review_request"
 }
 
+/// Why a comment update is relevant to the viewer. Nil on retained history recorded before reasons existed.
+public enum PullRequestCommentReason: String, Codable, Equatable, Sendable {
+    case mention
+    case threadParticipation = "thread_participation"
+    case general
+}
+
 public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public var id: String { activityId ?? "\(type.rawValue)-\(prId)-\(count ?? 0)" }
     public let type: PullRequestEventType
@@ -654,6 +661,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
     public let destinationURL: URL?
     public let happenedAt: Date?
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
+    public let commentReason: PullRequestCommentReason?
 
     public init(
         type: PullRequestEventType,
@@ -664,7 +672,8 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         activityId: String? = nil,
         destinationURL: URL? = nil,
         happenedAt: Date? = nil,
-        relationshipChanges: Set<PullRequestNotificationRelationship> = []
+        relationshipChanges: Set<PullRequestNotificationRelationship> = [],
+        commentReason: PullRequestCommentReason? = nil
     ) {
         self.type = type
         self.prId = prId
@@ -675,6 +684,7 @@ public struct PullRequestEvent: Identifiable, Codable, Equatable, Sendable {
         self.destinationURL = destinationURL
         self.happenedAt = happenedAt
         self.relationshipChanges = relationshipChanges
+        self.commentReason = commentReason
     }
 }
 
@@ -691,6 +701,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let actorLogin: String?
     public let activityId: String?
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
+    public let commentReason: PullRequestCommentReason?
     public let createdAt: Date
     public let prUpdatedAt: Date
     public var read: Bool
@@ -708,6 +719,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         case actorLogin
         case activityId
         case relationshipChanges
+        case commentReason
         case createdAt
         case prUpdatedAt
         case read
@@ -732,6 +744,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.actorLogin = event.actorLogin
         self.activityId = event.activityId
         self.relationshipChanges = event.relationshipChanges
+        self.commentReason = event.commentReason
         self.createdAt = createdAt
         self.prUpdatedAt = pullRequest.updatedAt
         self.read = read
@@ -754,6 +767,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
             Set<PullRequestNotificationRelationship>.self,
             forKey: .relationshipChanges
         ) ?? []
+        self.commentReason = try container.decodeIfPresent(PullRequestCommentReason.self, forKey: .commentReason)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.prUpdatedAt = try container.decode(Date.self, forKey: .prUpdatedAt)
         self.read = try container.decode(Bool.self, forKey: .read)
@@ -771,9 +785,9 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
 
     public init(eventType: PullRequestEventType) {
         switch eventType {
-        case .newComment:
+        case .newComment, .reviewCommented:
             self = .comments
-        case .reviewApproved, .reviewCommented, .newReview, .changesRequested:
+        case .reviewApproved, .newReview, .changesRequested:
             self = .reviewActivity
         case .ciFailed:
             self = .ciFailures
@@ -863,6 +877,20 @@ public enum CommentNotificationMode: String, Codable, CaseIterable, Equatable, S
     case all
     case mentionsAndThreads = "mentions_and_threads"
     case off
+}
+
+extension CommentNotificationMode {
+    /// A nil reason is retained or legacy activity and counts as a general comment.
+    public func allows(_ reason: PullRequestCommentReason?) -> Bool {
+        switch self {
+        case .all:
+            true
+        case .mentionsAndThreads:
+            reason == .mention || reason == .threadParticipation
+        case .off:
+            false
+        }
+    }
 }
 
 public struct CommentNotificationPreferences: Codable, Equatable, Sendable {
@@ -1001,13 +1029,21 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         }
     }
 
+    /// Any matching relationship that allows the update is enough; comment updates use the comment modes.
     public func allows(event: PullRequestEvent, for pullRequest: PullRequest) -> Bool {
-        let activity = PullRequestNotificationActivity(eventType: event.type)
         let relationships = event.relationshipChanges.isEmpty
             ? Set(Self.relationships(matching: pullRequest))
             : event.relationshipChanges
-        return relationships.contains { relationship in
-            preferences(for: relationship).allows(activity)
+        switch event.type {
+        case .newComment, .reviewCommented:
+            return relationships.contains { relationship in
+                commentModes.mode(for: relationship).allows(event.commentReason)
+            }
+        default:
+            let activity = PullRequestNotificationActivity(eventType: event.type)
+            return relationships.contains { relationship in
+                preferences(for: relationship).allows(activity)
+            }
         }
     }
 

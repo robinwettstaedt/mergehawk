@@ -4,7 +4,7 @@ import Foundation
 import XCTest
 
 final class NotificationDestinationTests: XCTestCase {
-    func testPeopleActivityCarriesProviderDestinationsAndSuppressesRepresentedReviewComments() throws {
+    func testPeopleActivityCarriesProviderDestinationsIncludingReviewChildComments() throws {
         let base = URL(string: "https://github.com/acme/app/pull/1")!
         let discussion = URL(string: "https://github.com/acme/app/pull/1?tab=conversation#issuecomment-1")!
         let inline = URL(string: "https://github.com/acme/app/pull/1/files#discussion_r2")!
@@ -29,10 +29,10 @@ final class NotificationDestinationTests: XCTestCase {
             previous: ProcessedPullRequestActivity(pullRequestID: "PR_1"),
             current: pullRequest
         )
-        XCTAssertEqual(events.count, 5)
+        XCTAssertEqual(events.count, 6)
         XCTAssertEqual(events.first { $0.activityId == "C1" }?.destinationURL, discussion)
         XCTAssertEqual(events.first { $0.activityId == "C2" }?.destinationURL, inline)
-        XCTAssertNil(events.first { $0.activityId == "C3" })
+        XCTAssertEqual(events.first { $0.activityId == "C3" }?.destinationURL, child)
         for review in reviews {
             XCTAssertEqual(events.first { $0.activityId == review.id }?.destinationURL, review.url)
         }
@@ -165,7 +165,8 @@ final class NotificationDestinationTests: XCTestCase {
     private func review(_ id: String, state: PullRequestReviewState) -> PullRequestReview {
         PullRequestReview(
             id: id, url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-\(id)")!,
-            state: state, submittedAt: Date(timeIntervalSince1970: 2), author: "reviewer"
+            state: state, submittedAt: Date(timeIntervalSince1970: 2), author: "reviewer",
+            hasSummaryText: true
         )
     }
 }

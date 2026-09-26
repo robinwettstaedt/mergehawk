@@ -303,6 +303,72 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testPreFeatureRawSnapshotImportsAndQuietlyBaselinesMentionMembership() throws {
+        try withThrowingStore { store, defaults in
+            let date = Date(timeIntervalSince1970: 5)
+            var pullRequest = Self.pullRequest()
+            pullRequest.recentCommentActivities = [
+                PullRequestCommentActivity(
+                    id: "C1", url: URL(string: "https://github.com/example/app/pull/1#issuecomment-C1")!,
+                    author: "teammate", createdAt: date, source: .reviewThread, reviewId: "R1"
+                )
+            ]
+            pullRequest.recentReviews = [
+                PullRequestReview(
+                    id: "R1", url: URL(string: "https://github.com/example/app/pull/1#pullrequestreview-R1")!,
+                    state: .commented, submittedAt: date, author: "teammate"
+                )
+            ]
+            let notification = PullRequestNotification(
+                event: PullRequestEvent(type: .reviewCommented, prId: pullRequest.id, activityId: "R1"),
+                pullRequest: pullRequest,
+                createdAt: date
+            )
+            let newKeys: Set<String> = [
+                "publishedAt", "updatedAt", "threadId", "mentionsViewer", "hasSummaryText", "commentReason"
+            ]
+            // Only activity and history objects gained keys; a pull request's own updatedAt predates the feature.
+            func stripped(_ value: Any) -> Any {
+                if let object = value as? [String: Any] {
+                    let isActivity = object["viewerDidAuthor"] != nil || object["eventType"] != nil
+                    return object.filter { !isActivity || !newKeys.contains($0.key) }.mapValues(stripped)
+                }
+                if let array = value as? [Any] { return array.map(stripped) }
+                return value
+            }
+            func rawData<T: Encodable>(_ value: T) throws -> Data {
+                try JSONSerialization.data(withJSONObject: stripped(JSONSerialization.jsonObject(with: JSONEncoder().encode(value))))
+            }
+            defaults.set(try rawData(PullRequestSnapshotCache(
+                pullRequests: [pullRequest], account: GitHubAccount(login: "rw"),
+                fetchedAt: Date(timeIntervalSince1970: 10), source: .github
+            )), forKey: "pullRequests.snapshotCache")
+            defaults.set(try rawData([notification]), forKey: "notifications.prHistory")
+
+            let imported = try XCTUnwrap(store.importedLegacySyncState())
+
+            XCTAssertEqual(imported.notificationHistory, [notification])
+            XCTAssertNil(imported.notificationHistory[0].commentReason)
+            let comment = try XCTUnwrap(imported.dashboard.pullRequests.first?.recentCommentActivities.first)
+            XCTAssertEqual(comment.publishedAt, date)
+            XCTAssertNil(comment.threadId)
+            XCTAssertFalse(comment.mentionsViewer)
+            XCTAssertEqual(imported.dashboard.pullRequests.first?.recentReviews.first?.hasSummaryText, false)
+            let processed = try XCTUnwrap(imported.processedActivityByPullRequestID[pullRequest.id])
+            XCTAssertNil(processed.mentioningActivityIDs)
+
+            var mentioned = pullRequest
+            mentioned.recentCommentActivities = [
+                PullRequestCommentActivity(
+                    id: "C1", url: comment.url, author: "teammate", createdAt: date, source: .reviewThread,
+                    reviewId: "R1", updatedAt: Date(timeIntervalSince1970: 20), threadId: "T1", mentionsViewer: true
+                )
+            ]
+            XCTAssertTrue(PRActivityDetector.detectProcessedPeopleActivity(previous: processed, current: mentioned).isEmpty)
+            XCTAssertEqual(PRActivityDetector.processedActivity(for: mentioned).mentioningActivityIDs, ["C1"])
+        }
+    }
+
     func testLegacySnapshotWithoutFetchTimeImportsNoProcessedBaseline() {
         withStore { store, _ in
             store.pullRequestSnapshotCache = PullRequestSnapshotCache(

@@ -7,18 +7,18 @@ struct Runner {
         try testFirstSyncBaselinesWithoutEvents()
         try testDetectsNewActivityAndAuthoredPRStateTransitions()
         try testDetectsNewCommentActivitiesWithActors()
-        try testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents()
+        try testCommentOnlyReviewEmitsSummaryAndInlineCommentsIndividually()
         try testTopLevelCommentedReviewEmitsReviewCommentedEvent()
-        try testOutcomeReviewSuppressesChildReviewThreadCommentEvents()
+        try testDecisionReviewKeepsItsInlineCommentEvents()
         try testOutcomeReviewKeepsUnrelatedCommentActivity()
         try testIgnoresSelfAuthoredPeopleActivity()
         try testDetectsCIFailuresForIncomingPRs()
         try testDetectsIncomingRelationshipAddedTransitions()
         try testRelationshipAddedFilteringUsesChangedRelationships()
-        try testNotificationPreferencesDefaultToAuthoredOnly()
+        try testNotificationPreferencesDefaultCommentModes()
         try testPreferencesFilterEvents()
         try testNotificationPreferencesAllowEachRelationshipAndActivity()
-        try testNotificationPreferencesTreatReviewEventsAsReviewActivity()
+        try testNotificationPreferencesSeparateDecisionsFromComments()
         try testNotificationPreferencesAllowOverlappingRelationshipOnce()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
         try await testPreparedRefreshUsesDurableProcessedActivity()
@@ -177,7 +177,8 @@ struct Runner {
                 actorLogin: "frontend-sam",
                 activityId: "COMMENT_NEW_1",
                 destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
-                happenedAt: Date(timeIntervalSince1970: 200)
+                happenedAt: Date(timeIntervalSince1970: 200),
+                commentReason: .general
             ),
             PullRequestEvent(
                 type: .reviewCommented,
@@ -186,12 +187,13 @@ struct Runner {
                 actorLogin: "docs-lee",
                 activityId: "COMMENT_NEW_2",
                 destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
-                happenedAt: Date(timeIntervalSince1970: 300)
+                happenedAt: Date(timeIntervalSince1970: 300),
+                commentReason: .general
             )
         ])
     }
 
-    private static func testReviewThreadCommentsDoNotDuplicateCommentedReviewEvents() throws {
+    private static func testCommentOnlyReviewEmitsSummaryAndInlineCommentsIndividually() throws {
         let previous = PullRequest.fixture(id: "PR_REVIEW_COMMENT", commentActivityCount: 0, isMine: true)
         let current = PullRequest.fixture(
             id: "PR_REVIEW_COMMENT",
@@ -214,7 +216,8 @@ struct Runner {
                     url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .commented,
                     submittedAt: Date(timeIntervalSince1970: 200),
-                    author: "docs-lee"
+                    author: "docs-lee",
+                    hasSummaryText: true
                 )
             ],
             isMine: true
@@ -231,7 +234,18 @@ struct Runner {
                 actorLogin: "docs-lee",
                 activityId: "REVIEW_COMMENTED",
                 destinationURL: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
-                happenedAt: Date(timeIntervalSince1970: 200)
+                happenedAt: Date(timeIntervalSince1970: 200),
+                commentReason: .general
+            ),
+            PullRequestEvent(
+                type: .reviewCommented,
+                prId: "PR_REVIEW_COMMENT",
+                count: 1,
+                actorLogin: "docs-lee",
+                activityId: "INLINE_COMMENT",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                happenedAt: Date(timeIntervalSince1970: 200),
+                commentReason: .general
             )
         ])
     }
@@ -247,6 +261,14 @@ struct Runner {
                     url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                     state: .commented,
                     submittedAt: Date(timeIntervalSince1970: 200),
+                    author: "docs-lee",
+                    hasSummaryText: true
+                ),
+                PullRequestReview(
+                    id: "REVIEW_EMPTY",
+                    url: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-empty")!,
+                    state: .commented,
+                    submittedAt: Date(timeIntervalSince1970: 210),
                     author: "docs-lee"
                 )
             ],
@@ -264,12 +286,13 @@ struct Runner {
                 actorLogin: "docs-lee",
                 activityId: "REVIEW_COMMENTED",
                 destinationURL: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
-                happenedAt: Date(timeIntervalSince1970: 200)
+                happenedAt: Date(timeIntervalSince1970: 200),
+                commentReason: .general
             )
         ])
     }
 
-    private static func testOutcomeReviewSuppressesChildReviewThreadCommentEvents() throws {
+    private static func testDecisionReviewKeepsItsInlineCommentEvents() throws {
         let previous = PullRequest.fixture(id: "PR_CHANGES_COMMENT", commentActivityCount: 0, isMine: true)
         let current = PullRequest.fixture(
             id: "PR_CHANGES_COMMENT",
@@ -310,6 +333,16 @@ struct Runner {
                 activityId: "REVIEW_CHANGES",
                 destinationURL: URL(string: "https://github.com/acme/app/pull/1#pullrequestreview-fixture")!,
                 happenedAt: Date(timeIntervalSince1970: 200)
+            ),
+            PullRequestEvent(
+                type: .reviewCommented,
+                prId: "PR_CHANGES_COMMENT",
+                count: 1,
+                actorLogin: "backend-mateo",
+                activityId: "INLINE_COMMENT",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                happenedAt: Date(timeIntervalSince1970: 200),
+                commentReason: .general
             )
         ])
     }
@@ -364,13 +397,24 @@ struct Runner {
                 happenedAt: Date(timeIntervalSince1970: 200)
             ),
             PullRequestEvent(
+                type: .reviewCommented,
+                prId: "PR_CHANGES_WITH_COMMENT",
+                count: 1,
+                actorLogin: "backend-mateo",
+                activityId: "INLINE_COMMENT",
+                destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
+                happenedAt: Date(timeIntervalSince1970: 200),
+                commentReason: .general
+            ),
+            PullRequestEvent(
                 type: .newComment,
                 prId: "PR_CHANGES_WITH_COMMENT",
                 count: 1,
                 actorLogin: "frontend-sam",
                 activityId: "UNRELATED_COMMENT",
                 destinationURL: URL(string: "https://github.com/acme/app/pull/1#issuecomment-fixture")!,
-                happenedAt: Date(timeIntervalSince1970: 300)
+                happenedAt: Date(timeIntervalSince1970: 300),
+                commentReason: .general
             )
         ])
     }
@@ -488,13 +532,24 @@ struct Runner {
         )
     }
 
-    private static func testNotificationPreferencesDefaultToAuthoredOnly() throws {
+    private static func testNotificationPreferencesDefaultCommentModes() throws {
         let authored = PullRequest.fixture(id: "PR_AUTHORED", isMine: true)
         let assigned = PullRequest.fixture(id: "PR_ASSIGNED", isAssignedToViewer: true, isMine: false)
-        let event = PullRequestEvent(type: .newComment, prId: "PR_AUTHORED")
+        let direct = PullRequest.fixture(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false)
+        let team = PullRequest.fixture(id: "PR_TEAM", reviewRequestKind: .team, isMine: false)
+        let general = PullRequestEvent(type: .newComment, prId: "PR_AUTHORED", commentReason: .general)
+        let mention = PullRequestEvent(type: .reviewCommented, prId: "PR_AUTHORED", commentReason: .mention)
 
-        try expect(NotificationPreferences.defaults.allows(event: event, for: authored))
-        try expect(!NotificationPreferences.defaults.allows(event: event, for: assigned))
+        try expect(NotificationPreferences.defaults.allows(event: general, for: authored))
+        try expect(NotificationPreferences.defaults.allows(event: general, for: assigned))
+        try expect(!NotificationPreferences.defaults.allows(event: general, for: direct))
+        try expect(!NotificationPreferences.defaults.allows(event: general, for: team))
+        try expect(NotificationPreferences.defaults.allows(event: mention, for: direct))
+        try expect(NotificationPreferences.defaults.allows(event: mention, for: team))
+        try expect(!NotificationPreferences.defaults.allows(
+            event: PullRequestEvent(type: .reviewApproved, prId: assigned.id),
+            for: assigned
+        ))
         try expect(NotificationPreferences.defaults.allows(
             event: PullRequestEvent(
                 type: .relationshipAdded,
@@ -528,18 +583,22 @@ struct Runner {
         try expect(
             PRActivityDetector
                 .filter(events, preferences: preferences, pullRequest: pullRequest)
-                .map(\.type) == [.newComment, .ciFailed]
+                .map(\.type) == [.newComment, .reviewCommented, .ciFailed]
         )
     }
 
     private static func testNotificationPreferencesAllowEachRelationshipAndActivity() throws {
+        let decisionActivities = PullRequestNotificationActivity.allCases.filter { $0 != .comments }
         for relationship in PullRequestNotificationRelationship.allCases {
-            for activity in PullRequestNotificationActivity.allCases {
+            for activity in decisionActivities {
                 var preferences = NotificationPreferences(
                     authored: .disabled,
                     assigned: .disabled,
                     directReviewRequests: .disabled,
-                    teamReviewRequests: .disabled
+                    teamReviewRequests: .disabled,
+                    commentModes: CommentNotificationPreferences(
+                        authored: .off, assigned: .off, directReviewRequests: .off, teamReviewRequests: .off
+                    )
                 )
                 preferences.set(activityPreferences(enabling: activity), for: relationship)
                 let pullRequest = pullRequest(matching: relationship)
@@ -548,6 +607,7 @@ struct Runner {
                 try expect(preferences.allows(event: allowedEvent, for: pullRequest))
 
                 for disabledActivity in PullRequestNotificationActivity.allCases where disabledActivity != activity {
+                    // Comment updates follow the comment modes, which are all off here.
                     let disabledEvent = PullRequestEvent(type: eventType(for: disabledActivity), prId: pullRequest.id)
                     try expect(!preferences.allows(event: disabledEvent, for: pullRequest))
                 }
@@ -555,22 +615,24 @@ struct Runner {
         }
     }
 
-    private static func testNotificationPreferencesTreatReviewEventsAsReviewActivity() throws {
+    private static func testNotificationPreferencesSeparateDecisionsFromComments() throws {
         let pullRequest = PullRequest.fixture(id: "PR_REVIEWS", isMine: true)
         let preferences = NotificationPreferences(
             authored: PullRequestNotificationActivityPreferences(
-                comments: false,
+                comments: true,
                 reviewActivity: true,
                 ciFailures: false
             ),
             assigned: .disabled,
             directReviewRequests: .disabled,
-            teamReviewRequests: .disabled
+            teamReviewRequests: .disabled,
+            commentModes: CommentNotificationPreferences(
+                authored: .off, assigned: .all, directReviewRequests: .all, teamReviewRequests: .all
+            )
         )
 
         for eventType in [
             PullRequestEventType.reviewApproved,
-            .reviewCommented,
             .changesRequested,
             .newReview
         ] {
@@ -581,7 +643,12 @@ struct Runner {
                 )
             )
         }
-        try expect(!preferences.allows(event: PullRequestEvent(type: .newComment, prId: pullRequest.id), for: pullRequest))
+        for eventType in [PullRequestEventType.newComment, .reviewCommented] {
+            try expect(!preferences.allows(
+                event: PullRequestEvent(type: eventType, prId: pullRequest.id, commentReason: .mention),
+                for: pullRequest
+            ))
+        }
         try expect(!preferences.allows(event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id), for: pullRequest))
     }
 
@@ -598,7 +665,10 @@ struct Runner {
                 reviewActivity: false,
                 ciFailures: false
             ),
-            teamReviewRequests: .disabled
+            teamReviewRequests: .disabled,
+            commentModes: CommentNotificationPreferences(
+                authored: .all, assigned: .off, directReviewRequests: .mentionsAndThreads, teamReviewRequests: .off
+            )
         )
         let pullRequest = PullRequest.fixture(
             id: "PR_OVERLAP",
@@ -606,7 +676,7 @@ struct Runner {
             isAssignedToViewer: true,
             isMine: false
         )
-        let events = [PullRequestEvent(type: .newComment, prId: pullRequest.id)]
+        let events = [PullRequestEvent(type: .newComment, prId: pullRequest.id, commentReason: .threadParticipation)]
 
         try expect(
             PRActivityDetector.filter(events, preferences: preferences, pullRequest: pullRequest) == events

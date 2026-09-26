@@ -390,7 +390,7 @@ public final class MockPullRequestSource {
                     PullRequestCommentActivity(id: "\(id)_BOT_THREAD", url: URL(string: "\(url.absoluteString)#discussion_r\(id)_BOT_THREAD")!, author: "mergehawk-helper", authorIsBot: true, createdAt: date.addingTimeInterval(1), source: .reviewThread)
                 ]
                 reviews = [PullRequestReviewState.commented, .changesRequested, .approved].enumerated().map { index, state in
-                    PullRequestReview(id: "\(id)_BOT_REVIEW_\(index)", url: URL(string: "\(url.absoluteString)#pullrequestreview-\(id)_BOT_REVIEW_\(index)")!, state: state, submittedAt: date.addingTimeInterval(Double(index + 2)), author: "mergehawk-helper", authorIsBot: true)
+                    PullRequestReview(id: "\(id)_BOT_REVIEW_\(index)", url: URL(string: "\(url.absoluteString)#pullrequestreview-\(id)_BOT_REVIEW_\(index)")!, state: state, submittedAt: date.addingTimeInterval(Double(index + 2)), author: "mergehawk-helper", authorIsBot: true, hasSummaryText: true)
                 }
                 if mixed {
                     comments.append(PullRequestCommentActivity(id: "\(id)_HUMAN_COMMENT", url: URL(string: "\(url.absoluteString)#issuecomment-\(id)_HUMAN_COMMENT")!, author: "frontend-sam", authorIsBot: false, createdAt: date.addingTimeInterval(5), source: .pullRequest))
