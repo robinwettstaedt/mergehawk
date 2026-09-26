@@ -1423,7 +1423,7 @@ private struct NotificationListView: View {
             } else if controller.visiblePullRequestNotifications.isEmpty {
                 EmptyMenuState(text: "No PR notifications.")
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
+                ScrollView(.vertical) {
                     LazyVStack(spacing: 8) {
                         ForEach(controller.visiblePullRequestNotifications) { notification in
                             PullRequestNotificationRow(notification: notification) {
@@ -1751,7 +1751,7 @@ struct PullRequestListView: View {
         } else if matchingPullRequestCount == 0 {
             EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
         } else {
-            ScrollView(.vertical, showsIndicators: false) {
+            ScrollView(.vertical) {
                 LazyVStack(spacing: PullRequestColumnLayout.rowSpacing) {
                     PullRequestColumnHeader()
 
@@ -1779,7 +1779,7 @@ struct PullRequestListView: View {
     }
 
     private var requestedContent: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        ScrollView(.vertical) {
             LazyVStack(spacing: 20) {
                 ForEach(controller.requestedSections, id: \.section) { content in
                     requestedSection(content)
