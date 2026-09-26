@@ -2,6 +2,7 @@
 import AppKit
 import Foundation
 import mergehawkcore
+import SwiftUI
 import XCTest
 
 final class MenuViewTests: XCTestCase {
@@ -399,6 +400,28 @@ final class MenuViewTests: XCTestCase {
         XCTAssertFalse(feedback.isActive)
         XCTAssertEqual(actionCount, 1)
         XCTAssertEqual(selectionWasSuppressedWhenActionRan, false)
+    }
+
+    func testNotificationIconSymbolNamesMatchUpdateTypes() {
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .newComment), "text.bubble")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .reviewApproved), "checkmark.seal")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .reviewCommented), "quote.bubble")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .newReview), "checkmark.seal")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .ciFailed), "xmark.octagon")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .changesRequested), "exclamationmark.triangle")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .relationshipAdded), "person.badge.plus")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .otherCommitAdded), "arrow.trianglehead.branch")
+    }
+
+    func testNotificationIconColorsMatchUpdateTypes() {
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .reviewApproved), .green)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .changesRequested), .red)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .ciFailed), .red)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .newComment), .blue)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .reviewCommented), .blue)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .newReview), .blue)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .relationshipAdded), .purple)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .otherCommitAdded), .orange)
     }
 }
 

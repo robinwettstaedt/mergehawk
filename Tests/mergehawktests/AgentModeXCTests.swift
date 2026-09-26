@@ -520,10 +520,12 @@ final class AgentModeXCTests: XCTestCase {
                     .reviewApproved,
                     .reviewCommented,
                     .ciFailed,
-                    .changesRequested
+                    .changesRequested,
+                    .newReview,
+                    .otherCommitAdded
                 ]
             )
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 7)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 9)
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
@@ -538,6 +540,16 @@ final class AgentModeXCTests: XCTestCase {
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
                     .contains("Assigned to you")
+            )
+            XCTAssertTrue(
+                controller.visiblePullRequestNotifications
+                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
+                    .contains("New review from @qa-rin")
+            )
+            XCTAssertTrue(
+                controller.visiblePullRequestNotifications
+                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
+                    .contains("New commit by @teammate-kai")
             )
         }
     }

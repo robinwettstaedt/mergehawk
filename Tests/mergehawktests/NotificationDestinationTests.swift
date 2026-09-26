@@ -72,7 +72,7 @@ final class NotificationDestinationTests: XCTestCase {
 
     func testMockNotificationTypesUsePreciseDestinationsOnlyForPeopleActivity() {
         let notifications = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
-        XCTAssertEqual(notifications.count, 7)
+        XCTAssertEqual(notifications.count, 9)
         for notification in notifications {
             switch notification.eventType {
             case .newComment, .reviewApproved, .reviewCommented, .changesRequested:
