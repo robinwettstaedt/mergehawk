@@ -196,6 +196,7 @@ if distribution_channel == "github":
     plist["SUFeedURL"] = sparkle_feed_url
     plist["SUPublicEDKey"] = sparkle_public_key
     plist["SUEnableAutomaticChecks"] = True
+    plist["SUScheduledCheckInterval"] = 6 * 60 * 60
 
 environment = {}
 for assignment in shlex.split(launch_environment):
