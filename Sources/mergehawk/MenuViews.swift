@@ -1437,6 +1437,7 @@ private struct NotificationListView: View {
                     .padding(.top, 5)
                     .padding(.bottom, 12)
                 }
+                .scrollIndicatorsFlash(onAppear: true)
             }
         }
     }
@@ -1775,6 +1776,7 @@ struct PullRequestListView: View {
                 .padding(.top, 5)
                 .padding(.bottom, 12)
             }
+            .scrollIndicatorsFlash(onAppear: true)
         }
     }
 
@@ -1789,6 +1791,7 @@ struct PullRequestListView: View {
             .padding(.top, 5)
             .padding(.bottom, 12)
         }
+        .scrollIndicatorsFlash(onAppear: true)
     }
 
     private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
