@@ -1636,10 +1636,12 @@ final class DashboardController: ObservableObject {
         return lhs.number > rhs.number
     }
 
+    static let pullRequestNotificationHistoryLimit = 100
+
     private static func trimPullRequestNotifications(
         _ notifications: [PullRequestNotification]
     ) -> [PullRequestNotification] {
-        Array(notifications.sorted(by: compareNotifications).prefix(30))
+        Array(notifications.sorted(by: compareNotifications).prefix(pullRequestNotificationHistoryLimit))
     }
 
     private static func compareNotifications(

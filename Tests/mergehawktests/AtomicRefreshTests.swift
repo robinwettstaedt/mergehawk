@@ -446,11 +446,11 @@ final class AtomicRefreshTests: XCTestCase {
         await waitUntil { !fixture.controller.isRefreshing }
 
         XCTAssertEqual(fixture.controller.state.pullRequests.first?.recentCommentActivities, [])
-        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 30)
+        XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.count, 100)
         let expectedNewest = (
             comments.map { ($0.id, $0.createdAt) }
                 + reviews.map { ($0.id, $0.submittedAt) }
-        ).sorted { $0.1 > $1.1 }.prefix(30).map(\.0)
+        ).sorted { $0.1 > $1.1 }.prefix(100).map(\.0)
         XCTAssertEqual(fixture.controller.pullRequestNotificationHistory.compactMap(\.activityId), expectedNewest)
         XCTAssertEqual(fixture.notifications.records.count, 121)
     }
@@ -462,7 +462,7 @@ final class AtomicRefreshTests: XCTestCase {
         defer { fixture.cleanup() }
         await waitUntil { provider.fetchCount == 1 }
         let timestamp = Date(timeIntervalSince1970: 200)
-        let comments = (0..<16).map { index in
+        let comments = (0..<56).map { index in
             PullRequestCommentActivity(
                 id: String(format: "EQUAL_COMMENT_%02d", index),
                 url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-fixture")!,
@@ -471,7 +471,7 @@ final class AtomicRefreshTests: XCTestCase {
                 source: .pullRequest
             )
         }
-        let reviews = (0..<15).map { index in
+        let reviews = (0..<55).map { index in
             PullRequestReview(
                 id: String(format: "EQUAL_REVIEW_%02d", index),
                 url: URL(string: "https://github.com/acme/app/pull/42#pullrequestreview-fixture")!,
@@ -490,12 +490,12 @@ final class AtomicRefreshTests: XCTestCase {
         provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [current]))
         await waitUntil { !fixture.controller.isRefreshing }
 
-        let expected = (comments.map(\.id) + reviews.map(\.id)).sorted(by: >).prefix(30)
+        let expected = (comments.map(\.id) + reviews.map(\.id)).sorted(by: >).prefix(100)
         XCTAssertEqual(
             fixture.controller.pullRequestNotificationHistory.compactMap(\.activityId),
             Array(expected)
         )
-        XCTAssertEqual(fixture.notifications.records.count, 31)
+        XCTAssertEqual(fixture.notifications.records.count, 111)
     }
 
     @MainActor
