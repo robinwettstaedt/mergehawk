@@ -373,7 +373,7 @@ final class DashboardController: ObservableObject {
         }
         self.automaticRefreshIntervalOverride = automaticRefreshInterval
         self.muteBotNotifications = preferencesStore.muteBotNotifications
-        self.preferences = preferencesStore.notificationPreferences
+        self.preferences = preferencesStore.loadAndPersistNotificationPreferences()
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestSortDirection = preferencesStore.pullRequestSortDirection

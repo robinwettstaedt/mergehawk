@@ -766,11 +766,70 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
     }
 }
 
+public enum CommentNotificationMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case all
+    case mentionsAndThreads = "mentions_and_threads"
+    case off
+}
+
+public struct CommentNotificationPreferences: Codable, Equatable, Sendable {
+    public var authored: CommentNotificationMode
+    public var assigned: CommentNotificationMode
+    public var directReviewRequests: CommentNotificationMode
+    public var teamReviewRequests: CommentNotificationMode
+
+    public static let defaults = CommentNotificationPreferences(
+        authored: .all,
+        assigned: .all,
+        directReviewRequests: .mentionsAndThreads,
+        teamReviewRequests: .mentionsAndThreads
+    )
+
+    public init(
+        authored: CommentNotificationMode,
+        assigned: CommentNotificationMode,
+        directReviewRequests: CommentNotificationMode,
+        teamReviewRequests: CommentNotificationMode
+    ) {
+        self.authored = authored
+        self.assigned = assigned
+        self.directReviewRequests = directReviewRequests
+        self.teamReviewRequests = teamReviewRequests
+    }
+
+    public func mode(for relationship: PullRequestNotificationRelationship) -> CommentNotificationMode {
+        switch relationship {
+        case .authored:
+            authored
+        case .assigned:
+            assigned
+        case .directReviewRequest:
+            directReviewRequests
+        case .teamReviewRequest:
+            teamReviewRequests
+        }
+    }
+
+    public mutating func set(_ mode: CommentNotificationMode, for relationship: PullRequestNotificationRelationship) {
+        switch relationship {
+        case .authored:
+            authored = mode
+        case .assigned:
+            assigned = mode
+        case .directReviewRequest:
+            directReviewRequests = mode
+        case .teamReviewRequest:
+            teamReviewRequests = mode
+        }
+    }
+}
+
 public struct NotificationPreferences: Codable, Equatable, Sendable {
     public var authored: PullRequestNotificationActivityPreferences
     public var assigned: PullRequestNotificationActivityPreferences
     public var directReviewRequests: PullRequestNotificationActivityPreferences
     public var teamReviewRequests: PullRequestNotificationActivityPreferences
+    public var commentModes: CommentNotificationPreferences
 
     public static let defaults = NotificationPreferences(
         authored: .authoredDefaults,
@@ -779,16 +838,45 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         teamReviewRequests: .relationshipChangesOnly
     )
 
+    enum CodingKeys: String, CodingKey {
+        case authored
+        case assigned
+        case directReviewRequests
+        case teamReviewRequests
+        case commentModes
+    }
+
     public init(
         authored: PullRequestNotificationActivityPreferences,
         assigned: PullRequestNotificationActivityPreferences,
         directReviewRequests: PullRequestNotificationActivityPreferences,
-        teamReviewRequests: PullRequestNotificationActivityPreferences
+        teamReviewRequests: PullRequestNotificationActivityPreferences,
+        commentModes: CommentNotificationPreferences = .defaults
     ) {
         self.authored = authored
         self.assigned = assigned
         self.directReviewRequests = directReviewRequests
         self.teamReviewRequests = teamReviewRequests
+        self.commentModes = commentModes
+    }
+
+    /// Comment modes are independent of the upper matrix, so a value saved before they existed gets their defaults.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.authored = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .authored)
+        self.assigned = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .assigned)
+        self.directReviewRequests = try container.decode(
+            PullRequestNotificationActivityPreferences.self,
+            forKey: .directReviewRequests
+        )
+        self.teamReviewRequests = try container.decode(
+            PullRequestNotificationActivityPreferences.self,
+            forKey: .teamReviewRequests
+        )
+        self.commentModes = try container.decodeIfPresent(
+            CommentNotificationPreferences.self,
+            forKey: .commentModes
+        ) ?? .defaults
     }
 
     public func preferences(for relationship: PullRequestNotificationRelationship) -> PullRequestNotificationActivityPreferences {

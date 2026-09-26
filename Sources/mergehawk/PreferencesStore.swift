@@ -27,6 +27,24 @@ struct PreferencesStore {
         }
     }
 
+    /// Loads the notification matrix and stores it with any newly introduced defaults materialized, so those
+    /// defaults persist without a UI edit. An unreadable stored value is left untouched.
+    func loadAndPersistNotificationPreferences() -> NotificationPreferences {
+        let key = "notifications.prMatrix"
+        guard defaults.object(forKey: key) != nil else {
+            encode(NotificationPreferences.defaults, for: key)
+            return .defaults
+        }
+        guard
+            let data = defaults.data(forKey: key),
+            let value = try? JSONDecoder().decode(NotificationPreferences.self, from: data)
+        else {
+            return .defaults
+        }
+        encode(value, for: key)
+        return value
+    }
+
     var muteBotNotifications: Bool {
         get { value(for: "notifications.muteBotNotifications", fallback: false) }
         set { defaults.set(newValue, forKey: "notifications.muteBotNotifications") }
