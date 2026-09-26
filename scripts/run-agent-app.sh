@@ -22,6 +22,7 @@ Starts a fresh verification run when --run-dir is omitted.
 
 Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
+  scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario merged-final-activity --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario bot-notifications --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --mock --open

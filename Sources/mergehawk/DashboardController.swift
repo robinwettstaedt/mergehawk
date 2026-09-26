@@ -1397,9 +1397,7 @@ final class DashboardController: ObservableObject {
                     .map(\.repo)
             )
             let allowed = prepared.events.filter { value in
-                let activity = PullRequestNotificationActivity(eventType: value.event.type)
                 let mutedBotActivity = muteBotNotifications && value.event.actorIsBot == true
-                    && (activity == .comments || activity == .reviewActivity)
                 return !mutedBotActivity && preferences.allows(event: value.event, for: value.filteringContext)
                     && sourcePreferences.allowsNotifications(for: value.filteringContext.repo)
                     && (!hideArchivedRepositories || !archivedRepositories.contains(value.filteringContext.repo))
