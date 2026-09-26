@@ -663,11 +663,10 @@ private struct NotificationSettingsView: View {
                         Text("Notify me for")
                             .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
                         ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
-                            Text(activity.columnTitle)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity))
+                            NotificationMatrixHeader(
+                                title: activity.columnTitle,
+                                width: NotificationMatrixLayout.activityColumnWidth(for: activity)
+                            )
                         }
                     }
                     .font(.caption.weight(.semibold))
@@ -681,7 +680,7 @@ private struct NotificationSettingsView: View {
                             Text(relationship.title)
                                 .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
                             ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
-                                if showsMatrixToggle(relationship: relationship, activity: activity) {
+                                if NotificationMatrixLayout.showsToggle(relationship: relationship, activity: activity) {
                                     Toggle("", isOn: matrixBinding(relationship: relationship, activity: activity))
                                         .labelsHidden()
                                         .toggleStyle(.checkbox)
@@ -697,8 +696,49 @@ private struct NotificationSettingsView: View {
                 }
                 .padding(.vertical, 4)
             }
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .bottom, spacing: NotificationMatrixLayout.columnSpacing) {
+                        Text("Notify me for")
+                            .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
+                        ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
+                            NotificationMatrixHeader(
+                                title: mode.title,
+                                width: NotificationMatrixLayout.commentModeColumnWidth(for: mode)
+                            )
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+
+                    ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
+                        CommentModeRow(
+                            relationship: relationship,
+                            selection: commentModeBinding(for: relationship)
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Comment notifications")
+            } footer: {
+                Text("Mentions & threads you joined covers direct mentions of you and new comments in review threads where your published comments are still present.")
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func commentModeBinding(for relationship: PullRequestNotificationRelationship) -> Binding<CommentNotificationMode> {
+        Binding(
+            get: { controller.preferences.commentModes.mode(for: relationship) },
+            set: { mode in
+                var preferences = controller.preferences
+                preferences.commentModes.set(mode, for: relationship)
+                controller.preferences = preferences
+            }
+        )
     }
 
     private func matrixBinding(
@@ -713,8 +753,6 @@ private struct NotificationSettingsView: View {
                 var preferences = controller.preferences
                 var activityPreferences = preferences.preferences(for: relationship)
                 switch activity {
-                case .comments:
-                    activityPreferences.comments = isEnabled
                 case .reviewActivity:
                     activityPreferences.reviewActivity = isEnabled
                 case .ciFailures:
@@ -729,8 +767,62 @@ private struct NotificationSettingsView: View {
             }
         )
     }
+}
 
-    private func showsMatrixToggle(
+private struct NotificationMatrixHeader: View {
+    let title: String
+    let width: CGFloat
+
+    var body: some View {
+        Text(title)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: width)
+    }
+}
+
+/// One radio choice per comment mode; assistive technologies see the row as a single labeled picker.
+private struct CommentModeRow: View {
+    let relationship: PullRequestNotificationRelationship
+    @Binding var selection: CommentNotificationMode
+
+    var body: some View {
+        HStack(spacing: NotificationMatrixLayout.columnSpacing) {
+            Text(relationship.title)
+                .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
+            HStack(spacing: NotificationMatrixLayout.columnSpacing) {
+                ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
+                    Button {
+                        selection = mode
+                    } label: {
+                        Image(systemName: selection == mode ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(selection == mode ? Color.accentColor : Color.secondary)
+                            .frame(width: NotificationMatrixLayout.commentModeColumnWidth(for: mode), height: 18)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("\(relationship.title): \(mode.title)")
+                }
+            }
+            .accessibilityRepresentation {
+                Picker(relationship.title, selection: $selection) {
+                    ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+            }
+        }
+    }
+}
+
+enum NotificationMatrixLayout {
+    static let relationshipColumnWidth: CGFloat = 150
+    static let columnSpacing: CGFloat = 10
+
+    /// Authored PRs have no Assigned/Requested cell, and other commits have no upper-matrix column.
+    static func showsToggle(
         relationship: PullRequestNotificationRelationship,
         activity: PullRequestNotificationActivity
     ) -> Bool {
@@ -739,22 +831,30 @@ private struct NotificationSettingsView: View {
             relationship != .authored
         case .otherCommits:
             relationship == .authored
-        case .comments, .reviewActivity, .ciFailures:
+        case .reviewActivity, .ciFailures:
             true
         }
     }
-}
-
-private enum NotificationMatrixLayout {
-    static let relationshipColumnWidth: CGFloat = 150
-    static let columnSpacing: CGFloat = 0
 
     static func activityColumnWidth(for activity: PullRequestNotificationActivity) -> CGFloat {
         switch activity {
+        case .reviewActivity:
+            86
+        case .ciFailures:
+            60
         case .relationshipChanges, .otherCommits:
-            72
-        case .comments, .reviewActivity, .ciFailures:
-            52
+            88
+        }
+    }
+
+    static func commentModeColumnWidth(for mode: CommentNotificationMode) -> CGFloat {
+        switch mode {
+        case .all:
+            78
+        case .mentionsAndThreads:
+            110
+        case .off:
+            40
         }
     }
 }
@@ -774,13 +874,24 @@ private extension PullRequestNotificationRelationship {
     }
 }
 
-private extension PullRequestNotificationActivity {
+extension CommentNotificationMode {
+    var title: String {
+        switch self {
+        case .all:
+            "All comments"
+        case .mentionsAndThreads:
+            "Mentions & threads you joined"
+        case .off:
+            "Off"
+        }
+    }
+}
+
+extension PullRequestNotificationActivity {
     var columnTitle: String {
         switch self {
-        case .comments:
-            "Comments"
         case .reviewActivity:
-            "Reviews"
+            "Review decisions"
         case .ciFailures:
             "CI failed"
         case .relationshipChanges:
@@ -792,10 +903,8 @@ private extension PullRequestNotificationActivity {
 
     var accessibilityTitle: String {
         switch self {
-        case .comments:
-            "comments"
         case .reviewActivity:
-            "review activity"
+            "review decisions"
         case .ciFailures:
             "CI failures"
         case .relationshipChanges:

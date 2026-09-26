@@ -22,7 +22,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -246,6 +246,37 @@ final class VisualVerificationXCTests: XCTestCase {
                 botController.selectedTab = .notifications
                 try renderMenu(controller: botController, to: outputURL.appendingPathComponent("menu-bot-notifications-\(suffix).png"))
             }
+        }
+
+        let commentController = await MainActor.run {
+            makeScenarioController(.commentNotifications, suiteName: "\(suiteName)-comments")
+        }
+        try await waitUntil(context: "comment-notification baseline") {
+            await MainActor.run { commentController.state.syncedAt != nil && !commentController.isRefreshing }
+        }
+        for (stage, expectedRows) in [(1, 8), (2, 9)] {
+            await MainActor.run { commentController.refresh() }
+            try await waitUntil(context: "comment-notification stage \(stage)") {
+                await MainActor.run {
+                    commentController.pullRequestNotificationHistory.count == expectedRows && !commentController.isRefreshing
+                }
+            }
+        }
+        try await MainActor.run {
+            XCTAssertEqual(
+                commentController.pullRequestNotificationHistory.first.map { PullRequestNotificationTitlePresentation.title(for: $0) },
+                "@docs-lee mentioned you"
+            )
+            try renderSettings(
+                SettingsRootView(
+                    controller: commentController,
+                    settingsWindowState: SettingsWindowState(selection: .notifications),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-comment-notifications.png")
+            )
+            commentController.selectedTab = .notifications
+            try renderMenu(controller: commentController, to: outputURL.appendingPathComponent("menu-comment-notifications.png"))
         }
 
         try await MainActor.run {
@@ -994,6 +1025,8 @@ private struct VisualCaptureSelection {
         "settings-bot-notifications-on",
         "menu-bot-notifications-off",
         "menu-bot-notifications-on",
+        "settings-comment-notifications",
+        "menu-comment-notifications",
         "settings-about",
         "menu-notifications",
         "menu-refresh-loading",

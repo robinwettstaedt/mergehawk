@@ -24,6 +24,7 @@ Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario merged-final-activity --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario bot-notifications --ui menu --open
+  scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario comment-notifications --ui settings --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --mock --open
 USAGE
@@ -95,9 +96,9 @@ if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
   exit 2
 fi
 case "$MOCK_SCENARIO" in
-  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications) ;;
+  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications) ;;
   *)
-    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss or bot-notifications" >&2
+    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications or comment-notifications" >&2
     exit 2
     ;;
 esac

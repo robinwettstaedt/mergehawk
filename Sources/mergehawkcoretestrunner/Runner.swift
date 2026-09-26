@@ -507,7 +507,6 @@ struct Runner {
         let preferences = NotificationPreferences(
             authored: .disabled,
             assigned: PullRequestNotificationActivityPreferences(
-                comments: false,
                 reviewActivity: false,
                 ciFailures: false,
                 relationshipChanges: true
@@ -563,7 +562,6 @@ struct Runner {
     private static func testPreferencesFilterEvents() throws {
         let preferences = NotificationPreferences(
             authored: PullRequestNotificationActivityPreferences(
-                comments: true,
                 reviewActivity: false,
                 ciFailures: true
             ),
@@ -588,9 +586,8 @@ struct Runner {
     }
 
     private static func testNotificationPreferencesAllowEachRelationshipAndActivity() throws {
-        let decisionActivities = PullRequestNotificationActivity.allCases.filter { $0 != .comments }
         for relationship in PullRequestNotificationRelationship.allCases {
-            for activity in decisionActivities {
+            for activity in PullRequestNotificationActivity.allCases {
                 var preferences = NotificationPreferences(
                     authored: .disabled,
                     assigned: .disabled,
@@ -607,7 +604,6 @@ struct Runner {
                 try expect(preferences.allows(event: allowedEvent, for: pullRequest))
 
                 for disabledActivity in PullRequestNotificationActivity.allCases where disabledActivity != activity {
-                    // Comment updates follow the comment modes, which are all off here.
                     let disabledEvent = PullRequestEvent(type: eventType(for: disabledActivity), prId: pullRequest.id)
                     try expect(!preferences.allows(event: disabledEvent, for: pullRequest))
                 }
@@ -619,7 +615,6 @@ struct Runner {
         let pullRequest = PullRequest.fixture(id: "PR_REVIEWS", isMine: true)
         let preferences = NotificationPreferences(
             authored: PullRequestNotificationActivityPreferences(
-                comments: true,
                 reviewActivity: true,
                 ciFailures: false
             ),
@@ -656,12 +651,10 @@ struct Runner {
         let preferences = NotificationPreferences(
             authored: .disabled,
             assigned: PullRequestNotificationActivityPreferences(
-                comments: true,
                 reviewActivity: false,
                 ciFailures: false
             ),
             directReviewRequests: PullRequestNotificationActivityPreferences(
-                comments: true,
                 reviewActivity: false,
                 ciFailures: false
             ),
@@ -774,7 +767,6 @@ struct Runner {
         enabling activity: PullRequestNotificationActivity
     ) -> PullRequestNotificationActivityPreferences {
         PullRequestNotificationActivityPreferences(
-            comments: activity == .comments,
             reviewActivity: activity == .reviewActivity,
             ciFailures: activity == .ciFailures,
             relationshipChanges: activity == .relationshipChanges
@@ -783,8 +775,6 @@ struct Runner {
 
     private static func eventType(for activity: PullRequestNotificationActivity) -> PullRequestEventType {
         switch activity {
-        case .comments:
-            .newComment
         case .reviewActivity:
             .reviewApproved
         case .ciFailures:

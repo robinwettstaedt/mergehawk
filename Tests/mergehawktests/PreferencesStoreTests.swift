@@ -153,17 +153,14 @@ final class PreferencesStoreTests: XCTestCase {
         withStore { store, defaults in
             let preferences = NotificationPreferences(
                 authored: PullRequestNotificationActivityPreferences(
-                    comments: true,
                     reviewActivity: false,
                     ciFailures: true
                 ),
                 assigned: PullRequestNotificationActivityPreferences(
-                    comments: false,
                     reviewActivity: true,
                     ciFailures: false
                 ),
                 directReviewRequests: PullRequestNotificationActivityPreferences(
-                    comments: true,
                     reviewActivity: true,
                     ciFailures: false
                 ),

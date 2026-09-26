@@ -1,8 +1,8 @@
 import mergehawkcore
 
 let mergehawkSmokeTest: Void = {
-    precondition(NotificationPreferences.defaults.authored.comments)
+    precondition(NotificationPreferences.defaults.commentModes.authored == .all)
     precondition(!NotificationPreferences.defaults.authored.relationshipChanges)
-    precondition(!NotificationPreferences.defaults.assigned.comments)
+    precondition(NotificationPreferences.defaults.commentModes.directReviewRequests == .mentionsAndThreads)
     precondition(NotificationPreferences.defaults.assigned.relationshipChanges)
 }()

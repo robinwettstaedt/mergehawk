@@ -38,6 +38,7 @@ public final class EmptyPullRequestSource {
 public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case standard
     case botNotifications = "bot-notifications"
+    case commentNotifications = "comment-notifications"
     case delayedRefresh = "delayed-refresh"
     case refreshFailure = "refresh-failure"
     case mergedFinalActivity = "merged-final-activity"
@@ -412,6 +413,98 @@ public final class MockPullRequestSource {
         }
     }
 
+    /// Stage 0 is the quiet baseline, stage 1 adds new activity for every relationship, and stage 2 edits an
+    /// already observed comment to mention the viewer. Later refreshes repeat stage 2 unchanged.
+    private static func commentNotificationPullRequests(stage: Int) -> [PullRequest] {
+        let base = Date(timeIntervalSince1970: 1_777_820_000)
+        func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
+        func url(_ number: Int, _ fragment: String = "") -> URL {
+            URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(number)\(fragment)")!
+        }
+        func comment(
+            _ id: String, number: Int, author: String, offset: TimeInterval, thread: String? = nil,
+            review: String? = nil, updatedOffset: TimeInterval? = nil, mention: Bool = false
+        ) -> PullRequestCommentActivity {
+            PullRequestCommentActivity(
+                id: id,
+                url: url(number, thread == nil ? "#issuecomment-\(id)" : "#discussion_r\(id)"),
+                author: author,
+                authorIsBot: false,
+                viewerDidAuthor: author == "agent-fixture",
+                createdAt: at(offset),
+                source: thread == nil ? .pullRequest : .reviewThread,
+                reviewId: review,
+                updatedAt: updatedOffset.map(at),
+                threadId: thread,
+                mentionsViewer: mention
+            )
+        }
+        func review(
+            _ id: String, number: Int, state: PullRequestReviewState, offset: TimeInterval, mention: Bool = false
+        ) -> PullRequestReview {
+            PullRequestReview(
+                id: id, url: url(number, "#pullrequestreview-\(id)"), state: state, submittedAt: at(offset),
+                author: "platform-nora", authorIsBot: false, hasSummaryText: true, mentionsViewer: mention
+            )
+        }
+        let hasUpdates = stage >= 1
+        let editsMention = stage >= 2
+
+        var authoredComments = [comment("COMMENT_AUTHORED_OLD", number: 80, author: "frontend-sam", offset: 10)]
+        var authoredReviews: [PullRequestReview] = []
+        var assignedComments: [PullRequestCommentActivity] = []
+        var directComments = [
+            comment("COMMENT_DIRECT_JOINED", number: 82, author: "agent-fixture", offset: 20, thread: "THREAD_DIRECT_JOINED"),
+            comment("COMMENT_DIRECT_OLD", number: 82, author: "backend-mateo", offset: 21),
+        ]
+        var teamComments = [
+            comment(
+                "COMMENT_TEAM_EDITED", number: 83, author: "docs-lee", offset: 30,
+                updatedOffset: editsMention ? 400 : nil, mention: editsMention
+            )
+        ]
+        var teamReviews: [PullRequestReview] = []
+        if hasUpdates {
+            authoredComments += [
+                comment("COMMENT_AUTHORED_NEW", number: 80, author: "frontend-sam", offset: 200),
+                comment("INLINE_AUTHORED_1", number: 80, author: "platform-nora", offset: 210, thread: "THREAD_AUTHORED_1", review: "REVIEW_AUTHORED_APPROVAL"),
+                comment("INLINE_AUTHORED_2", number: 80, author: "platform-nora", offset: 210, thread: "THREAD_AUTHORED_2", review: "REVIEW_AUTHORED_APPROVAL"),
+            ]
+            authoredReviews = [review("REVIEW_AUTHORED_APPROVAL", number: 80, state: .approved, offset: 210, mention: true)]
+            assignedComments = [comment("COMMENT_ASSIGNED_NEW", number: 81, author: "backend-mateo", offset: 220)]
+            directComments += [
+                comment("REPLY_DIRECT_JOINED", number: 82, author: "backend-mateo", offset: 230, thread: "THREAD_DIRECT_JOINED"),
+                comment("COMMENT_DIRECT_UNRELATED", number: 82, author: "backend-mateo", offset: 231),
+                comment("INLINE_DIRECT_MENTION", number: 82, author: "design-systems-amy", offset: 232, thread: "THREAD_DIRECT_OTHER", mention: true),
+            ]
+            teamComments += [comment("COMMENT_TEAM_UNRELATED", number: 83, author: "docs-lee", offset: 240)]
+            teamReviews = [review("REVIEW_TEAM_SUMMARY_MENTION", number: 83, state: .commented, offset: 241, mention: true)]
+        }
+
+        func pullRequest(
+            _ id: String, number: Int, title: String, comments: [PullRequestCommentActivity],
+            reviews: [PullRequestReview] = [], request: ReviewRequestKind = .none, assigned: Bool = false,
+            mine: Bool = false
+        ) -> PullRequest {
+            PullRequest(
+                id: id, title: title, number: number, url: url(number), repo: "mergehawk-labs/mergehawk",
+                ciState: .passing, reviewDecision: reviews.contains { $0.state == .approved } ? .approved : .noReviewYet,
+                additions: 40, deletions: 8, commentCount: 0, commentActivityCount: comments.count,
+                recentCommentActivities: comments, reviewCount: reviews.count, recentReviews: reviews,
+                headRefOid: "comment-notification-fixture", reviewRequestKind: request, isAssignedToViewer: assigned,
+                isMine: mine, author: mine ? "agent-fixture" : "platform-nora",
+                headRefName: "MER-73-comment-notifications", mergeable: .mergeable, draft: false,
+                createdAt: at(-86_400), updatedAt: at(editsMention ? 400 : hasUpdates ? 241 : 30)
+            )
+        }
+        return [
+            pullRequest("PR_COMMENTS_AUTHORED", number: 80, title: "Tailor comment notifications", comments: authoredComments, reviews: authoredReviews, mine: true),
+            pullRequest("PR_COMMENTS_ASSIGNED", number: 81, title: "Own the comment settings rollout", comments: assignedComments, assigned: true),
+            pullRequest("PR_COMMENTS_DIRECT", number: 82, title: "Review mention parsing", comments: directComments, request: .direct),
+            pullRequest("PR_COMMENTS_TEAM", number: 83, title: "Review joined thread detection", comments: teamComments, reviews: teamReviews, request: .team),
+        ]
+    }
+
     private static let scenarioBaselinePullRequest = PullRequest(
         id: "PR_SCENARIO",
         title: "Preserve final pull request activity",
@@ -726,6 +819,10 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             return CompletePullRequestFetchResult(
                 activePullRequests: Self.botNotificationPullRequests(includesUpdates: hasBaseline)
             )
+        case .commentNotifications:
+            let stage = min(index, 2)
+            index += 1
+            return CompletePullRequestFetchResult(activePullRequests: Self.commentNotificationPullRequests(stage: stage))
         case .standard, .delayedRefresh:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:

@@ -52,6 +52,29 @@ final class CommentNotificationPreferencesTests: XCTestCase {
         }
     }
 
+    func testOldCommentsKeysNeverOverrideSavedModesAndReloadingDropsThem() throws {
+        try withDefaults { defaults in
+            var legacy = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(Self.legacyMatrixJSON(comments: [true, true, true, true]).utf8)) as? [String: Any]
+            )
+            legacy["commentModes"] = [
+                "authored": "off", "assigned": "mentions_and_threads",
+                "directReviewRequests": "all", "teamReviewRequests": "off",
+            ]
+            defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: matrixKey)
+
+            for _ in 0..<2 {
+                let controller = makeController(defaults)
+                XCTAssertEqual(controller.preferences.commentModes, CommentNotificationPreferences(
+                    authored: .off, assigned: .mentionsAndThreads, directReviewRequests: .all, teamReviewRequests: .off
+                ))
+            }
+            let stored = try storedMatrixObject(defaults)
+            XCTAssertNotNil(stored["commentModes"])
+            XCTAssertNil((stored["authored"] as? [String: Any])?["comments"])
+        }
+    }
+
     func testUnreadableStoredMatrixIsNotOverwrittenByInitialization() throws {
         try withDefaults { defaults in
             let invalid = Data("not a notification matrix".utf8)

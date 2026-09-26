@@ -774,19 +774,20 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     }
 }
 
+/// The upper matrix categories. Comment updates are governed by the comment modes instead.
 public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
-    case comments
     case reviewActivity = "review_activity"
     case ciFailures = "ci_failures"
     case relationshipChanges = "relationship_changes"
     case otherCommits = "other_commits"
 
-    public static let allCases: [Self] = [.comments, .reviewActivity, .ciFailures, .relationshipChanges]
+    public static let allCases: [Self] = [.reviewActivity, .ciFailures, .relationshipChanges]
 
-    public init(eventType: PullRequestEventType) {
+    /// Nil for comment updates, which follow the comment modes.
+    public init?(eventType: PullRequestEventType) {
         switch eventType {
         case .newComment, .reviewCommented:
-            self = .comments
+            return nil
         case .reviewApproved, .newReview, .changesRequested:
             self = .reviewActivity
         case .ciFailed:
@@ -800,50 +801,42 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
 }
 
 public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Sendable {
-    public var comments: Bool
     public var reviewActivity: Bool
     public var ciFailures: Bool
     public var relationshipChanges: Bool
 
     public static let authoredDefaults = PullRequestNotificationActivityPreferences(
-        comments: true,
         reviewActivity: true,
         ciFailures: true,
         relationshipChanges: false
     )
     public static let enabled = PullRequestNotificationActivityPreferences(
-        comments: true,
         reviewActivity: true,
         ciFailures: true,
         relationshipChanges: true
     )
     public static let disabled = PullRequestNotificationActivityPreferences(
-        comments: false,
         reviewActivity: false,
         ciFailures: false,
         relationshipChanges: false
     )
     public static let relationshipChangesOnly = PullRequestNotificationActivityPreferences(
-        comments: false,
         reviewActivity: false,
         ciFailures: false,
         relationshipChanges: true
     )
 
     enum CodingKeys: String, CodingKey {
-        case comments
         case reviewActivity
         case ciFailures
         case relationshipChanges
     }
 
     public init(
-        comments: Bool,
         reviewActivity: Bool,
         ciFailures: Bool,
         relationshipChanges: Bool = false
     ) {
-        self.comments = comments
         self.reviewActivity = reviewActivity
         self.ciFailures = ciFailures
         self.relationshipChanges = relationshipChanges
@@ -851,7 +844,6 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.comments = try container.decode(Bool.self, forKey: .comments)
         self.reviewActivity = try container.decode(Bool.self, forKey: .reviewActivity)
         self.ciFailures = try container.decode(Bool.self, forKey: .ciFailures)
         self.relationshipChanges = try container.decodeIfPresent(Bool.self, forKey: .relationshipChanges) ?? false
@@ -859,8 +851,6 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
 
     public func allows(_ activity: PullRequestNotificationActivity) -> Bool {
         switch activity {
-        case .comments:
-            comments
         case .reviewActivity:
             reviewActivity
         case .ciFailures:
@@ -1040,7 +1030,7 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
                 commentModes.mode(for: relationship).allows(event.commentReason)
             }
         default:
-            let activity = PullRequestNotificationActivity(eventType: event.type)
+            guard let activity = PullRequestNotificationActivity(eventType: event.type) else { return false }
             return relationships.contains { relationship in
                 preferences(for: relationship).allows(activity)
             }
