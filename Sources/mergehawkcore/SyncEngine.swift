@@ -68,10 +68,12 @@ public final class SyncEngine {
         var events: [PreparedPullRequestEvent] = []
         for current in fetchResult.activePullRequests {
             let previousRecord = trustedPrevious?.processedActivityByPullRequestID[current.id]
-            let detected = PRActivityDetector.detectTransitions(
+            // Without a trusted previous state this refresh is the baseline, so no transition is new.
+            let transitions = trustedPrevious == nil ? [] : PRActivityDetector.detectTransitions(
                 previous: previousByID[current.id],
                 current: current
-            ) + PRActivityDetector.detectProcessedPeopleActivity(
+            )
+            let detected = transitions + PRActivityDetector.detectProcessedPeopleActivity(
                 previous: previousRecord,
                 current: current
             )

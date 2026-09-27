@@ -14,6 +14,8 @@ struct Runner {
         try testIgnoresSelfAuthoredPeopleActivity()
         try testDetectsCIFailuresForIncomingPRs()
         try testDetectsIncomingRelationshipAddedTransitions()
+        try testDetectsRelationshipsOnPRsFirstSeenAfterBaseline()
+        try testNewlySeenPRKeepsCIBaselined()
         try testRelationshipAddedFilteringUsesChangedRelationships()
         try testNotificationPreferencesDefaultCommentModes()
         try testPreferencesFilterEvents()
@@ -468,6 +470,7 @@ struct Runner {
         )
         try expect(assigned.map(\.type) == [.relationshipAdded])
         try expect(assigned[0].relationshipChanges == [.assigned])
+        try expect(assigned[0].happenedAt == nil)
 
         let direct = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_DIRECT", reviewRequestKind: .none, isMine: false),
@@ -495,6 +498,60 @@ struct Runner {
             current: .fixture(id: "PR_SELF", reviewRequestKind: .direct, isAssignedToViewer: true, isMine: true)
         )
         try expect(selfAuthored.isEmpty)
+
+        let unchangedTeam = PRActivityDetector.detectTransitions(
+            previous: .fixture(id: "PR_TEAM_UNCHANGED", reviewRequestKind: .team, isMine: false),
+            current: .fixture(id: "PR_TEAM_UNCHANGED", reviewRequestKind: .team, isMine: false)
+        )
+        try expect(unchangedTeam.isEmpty)
+    }
+
+    private static func testDetectsRelationshipsOnPRsFirstSeenAfterBaseline() throws {
+        let direct = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(id: "PR_NEW_DIRECT", reviewRequestKind: .direct, isMine: false)
+        )
+        try expect(direct.map(\.type) == [.relationshipAdded])
+        try expect(direct[0].relationshipChanges == [.directReviewRequest])
+
+        let assigned = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(id: "PR_NEW_ASSIGNED", isAssignedToViewer: true, isMine: false)
+        )
+        try expect(assigned.map(\.type) == [.relationshipAdded])
+        try expect(assigned[0].relationshipChanges == [.assigned])
+
+        let team = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(id: "PR_NEW_TEAM", reviewRequestKind: .team, isMine: false)
+        )
+        try expect(team.map(\.type) == [.relationshipAdded])
+        try expect(team[0].relationshipChanges == [.teamReviewRequest])
+
+        let combined = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(
+                id: "PR_NEW_COMBINED", reviewRequestKind: .directAndTeam, isAssignedToViewer: true, isMine: false
+            )
+        )
+        try expect(combined.map(\.type) == [.relationshipAdded])
+        try expect(combined[0].relationshipChanges == [.assigned, .directReviewRequest, .teamReviewRequest])
+
+        let authored = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(
+                id: "PR_NEW_AUTHORED", reviewRequestKind: .directAndTeam, isAssignedToViewer: true, isMine: true
+            )
+        )
+        try expect(authored.isEmpty)
+    }
+
+    private static func testNewlySeenPRKeepsCIBaselined() throws {
+        let failing = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(id: "PR_NEW_FAILING", ciState: .failing, reviewRequestKind: .direct, isMine: false)
+        )
+        try expect(failing.map(\.type) == [.relationshipAdded])
     }
 
     private static func testRelationshipAddedFilteringUsesChangedRelationships() throws {

@@ -92,6 +92,16 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertTrue(notifications.records.contains { $0.title == "@backend-mateo commented in a thread you joined" })
     }
 
+    func testFirstRefreshPullRequestsMatchEachScenarioFirstFetch() async throws {
+        for scenario in MockPullRequestScenario.allCases {
+            let seeded = MockPullRequestSource(scenario: scenario).firstRefreshPullRequests
+            let fetched = try await MockPullRequestSource(scenario: scenario)
+                .fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+                .activePullRequests
+            XCTAssertEqual(seeded.map(\.id), fetched.map(\.id), "\(scenario)")
+        }
+    }
+
     func testLongListsScenarioReturnsOverflowingListsThenNewCommentActivity() async throws {
         let source = MockPullRequestSource(scenario: .longLists)
         let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil).activePullRequests
@@ -117,6 +127,30 @@ final class AgentModeXCTests: XCTestCase {
         controller.refresh()
         await waitUntil(timeout: 1) { await MainActor.run { controller.visiblePullRequestNotifications.count > 8 && !controller.isRefreshing } }
         XCTAssertGreaterThan(controller.visiblePullRequestNotifications.count, 8)
+    }
+
+    @MainActor
+    func testNewReviewRequestScenarioNotifiesOnceForEachNewlySeenRelationship() async {
+        let suite = "new-review-request-scenario-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let notifications = RecordingNotificationClient()
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), preferencesStore: PreferencesStore(defaults: defaults), launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .newReviewRequest), notificationClient: notifications, automaticRefreshInterval: 0)
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing } }
+        XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertTrue(notifications.records.isEmpty)
+
+        controller.refresh()
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.pullRequests.count == 6 && !controller.isRefreshing } }
+        let history = controller.pullRequestNotificationHistory
+        XCTAssertEqual(history.count, 4)
+        XCTAssertTrue(history.allSatisfy { $0.eventType == .relationshipAdded })
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: history.map { ($0.prNumber, $0.relationshipChanges) }),
+            [91: [.directReviewRequest], 93: [.assigned], 94: [.teamReviewRequest], 95: [.assigned, .directReviewRequest]]
+        )
+        XCTAssertEqual(notifications.records.map(\.eventType), Array(repeating: "relationship_added", count: 4))
+        XCTAssertFalse(notifications.records.contains { $0.pullRequestId == "PR_NEW_REQUEST_AUTHORED" })
     }
 
     @MainActor

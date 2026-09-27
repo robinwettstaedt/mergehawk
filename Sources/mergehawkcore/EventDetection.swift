@@ -1,10 +1,12 @@
 import Foundation
 
 public enum PRActivityDetector {
+    /// Compares an active PR with its snapshot from the previous trusted refresh. The caller skips this on the
+    /// baseline sync. A nil `previous` means the PR is first seen after the baseline: its current relationships
+    /// count as newly added, while its CI state stays baselined.
     public static func detectTransitions(previous: PullRequest?, current: PullRequest) -> [PullRequestEvent] {
-        guard let previous else { return [] }
         var events = relationshipAddedEvents(previous: previous, current: current)
-        if previous.ciState != .failing, current.ciState == .failing {
+        if let previous, previous.ciState != .failing, current.ciState == .failing {
             events.append(PullRequestEvent(type: .ciFailed, prId: current.id))
         }
         return events
@@ -130,33 +132,18 @@ public enum PRActivityDetector {
         return publishedAt >= start
     }
 
-    private static func relationshipAddedEvents(previous: PullRequest, current: PullRequest) -> [PullRequestEvent] {
+    /// One combined update for the relationships the viewer gained, timestamped by the refresh that observed it.
+    private static func relationshipAddedEvents(previous: PullRequest?, current: PullRequest) -> [PullRequestEvent] {
         guard !current.isMine else {
             return []
         }
-
-        var changes = Set<PullRequestNotificationRelationship>()
-        if !previous.isAssignedToViewer, current.isAssignedToViewer {
-            changes.insert(.assigned)
-        }
-        if !previous.reviewRequestKind.includesDirect, current.reviewRequestKind.includesDirect {
-            changes.insert(.directReviewRequest)
-        }
-        if !previous.reviewRequestKind.includesTeam, current.reviewRequestKind.includesTeam {
-            changes.insert(.teamReviewRequest)
-        }
-
+        let changes = Set(NotificationPreferences.relationships(matching: current))
+            .subtracting(previous.map(NotificationPreferences.relationships(matching:)) ?? [])
+            .subtracting([.authored])
         guard !changes.isEmpty else {
             return []
         }
-        return [
-            PullRequestEvent(
-                type: .relationshipAdded,
-                prId: current.id,
-                happenedAt: current.updatedAt,
-                relationshipChanges: changes
-            )
-        ]
+        return [PullRequestEvent(type: .relationshipAdded, prId: current.id, relationshipChanges: changes)]
     }
 
     private static func commentEventType(for source: PullRequestCommentActivity.Source) -> PullRequestEventType {

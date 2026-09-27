@@ -1169,8 +1169,9 @@ final class DashboardController: ObservableObject {
         sourceCatalogAccountLogin = account.login
         if launchConfiguration.showsNotificationTypeFixtures {
             let history = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
+            // Already tracking the first refresh's PRs keeps that refresh from adding rows above the fixtures.
             let dashboard = committedSyncState?.dashboard ?? DashboardState(
-                pullRequests: [],
+                pullRequests: source.firstRefreshPullRequests.map(\.withoutActivityHistory),
                 events: [],
                 syncedAt: nil,
                 source: .mock,
