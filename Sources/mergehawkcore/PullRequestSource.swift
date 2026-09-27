@@ -44,6 +44,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case mergedFinalActivity = "merged-final-activity"
     case quietAccessLoss = "quiet-access-loss"
     case longLists = "long-lists"
+    case newReviewRequest = "new-review-request"
 }
 
 public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
@@ -546,6 +547,52 @@ public final class MockPullRequestSource {
         return (0..<20).map { pullRequest($0, mine: true) } + (0..<20).map { pullRequest($0, mine: false) }
     }
 
+    /// Stage 0 is a quiet baseline with one authored pull request. Stage 1 adds a newly seen pull request that
+    /// directly requests the viewer, with an existing comment and failing CI, and a newly seen authored one.
+    /// Later refreshes repeat stage 1 unchanged.
+    private static func newReviewRequestPullRequests(stage: Int) -> [PullRequest] {
+        let base = Date(timeIntervalSince1970: 1_777_950_000)
+        func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
+        func url(_ number: Int, _ fragment: String = "") -> URL {
+            URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(number)\(fragment)")!
+        }
+        func pullRequest(
+            _ id: String, number: Int, title: String, ci: CIState = .passing,
+            comments: [PullRequestCommentActivity] = [], request: ReviewRequestKind = .none, mine: Bool
+        ) -> PullRequest {
+            PullRequest(
+                id: id, title: title, number: number, url: url(number), repo: "mergehawk-labs/mergehawk",
+                ciState: ci, reviewDecision: .noReviewYet,
+                additions: 36, deletions: 6, commentCount: comments.count, commentActivityCount: comments.count,
+                recentCommentActivities: comments, reviewCount: 0, recentReviews: [],
+                headRefOid: "new-review-request-fixture", reviewRequestKind: request,
+                isMine: mine, author: mine ? "agent-fixture" : "platform-nora",
+                headRefName: "MER-82-new-review-request-\(number)", mergeable: .mergeable, draft: false,
+                createdAt: at(-86_400), updatedAt: at(-3_600)
+            )
+        }
+        let baseline = pullRequest("PR_NEW_REQUEST_BASELINE", number: 90, title: "Keep the baseline quiet", mine: true)
+        guard stage >= 1 else {
+            return [baseline]
+        }
+        let existingComment = PullRequestCommentActivity(
+            id: "COMMENT_NEW_REQUEST_EXISTING",
+            url: url(91, "#issuecomment-COMMENT_NEW_REQUEST_EXISTING"),
+            author: "backend-mateo",
+            authorIsBot: false,
+            createdAt: at(-7_200),
+            source: .pullRequest
+        )
+        return [
+            baseline,
+            pullRequest(
+                "PR_NEW_REQUEST_DIRECT", number: 91, title: "Notify for newly requested reviews", ci: .failing,
+                comments: [existingComment], request: .direct, mine: false
+            ),
+            pullRequest("PR_NEW_REQUEST_AUTHORED", number: 92, title: "Open a follow-up pull request", mine: true),
+        ]
+    }
+
     private static let scenarioBaselinePullRequest = PullRequest(
         id: "PR_SCENARIO",
         title: "Preserve final pull request activity",
@@ -924,6 +971,10 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             let stage = min(index, 1)
             index += 1
             return CompletePullRequestFetchResult(activePullRequests: Self.longListPullRequests(stage: stage))
+        case .newReviewRequest:
+            let stage = min(index, 1)
+            index += 1
+            return CompletePullRequestFetchResult(activePullRequests: Self.newReviewRequestPullRequests(stage: stage))
         case .standard, .delayedRefresh:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:

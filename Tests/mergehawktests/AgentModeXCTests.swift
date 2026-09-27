@@ -120,6 +120,25 @@ final class AgentModeXCTests: XCTestCase {
     }
 
     @MainActor
+    func testNewReviewRequestScenarioNotifiesOnlyForTheNewlyRequestedPR() async {
+        let suite = "new-review-request-scenario-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let notifications = RecordingNotificationClient()
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), preferencesStore: PreferencesStore(defaults: defaults), launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .newReviewRequest), notificationClient: notifications, automaticRefreshInterval: 0)
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing } }
+        XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertTrue(notifications.records.isEmpty)
+
+        controller.refresh()
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.pullRequests.count == 3 && !controller.isRefreshing } }
+        XCTAssertEqual(controller.pullRequestNotificationHistory.map(\.prId), ["PR_NEW_REQUEST_DIRECT"])
+        XCTAssertEqual(controller.pullRequestNotificationHistory.first?.eventType, .relationshipAdded)
+        XCTAssertEqual(controller.pullRequestNotificationHistory.first?.relationshipChanges, [.directReviewRequest])
+        XCTAssertEqual(notifications.records.map(\.eventType), ["relationship_added"])
+    }
+
+    @MainActor
     func testFreshBotScenarioRunsRespectMuteAndRecordedPayloads() async {
         for muted in [false, true] {
             let suite = "bot-scenario-\(UUID().uuidString)"
