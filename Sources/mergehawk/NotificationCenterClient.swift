@@ -135,7 +135,7 @@ enum RelationshipChangeTitlePresentation {
         if changes.isSubset(of: [.directReviewRequest, .teamReviewRequest]) {
             return "Review requested"
         }
-        return "Assigned/requested"
+        return "Assigned and review requested"
     }
 }
 
