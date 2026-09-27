@@ -92,6 +92,16 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertTrue(notifications.records.contains { $0.title == "@backend-mateo commented in a thread you joined" })
     }
 
+    func testFirstRefreshPullRequestsMatchEachScenarioFirstFetch() async throws {
+        for scenario in MockPullRequestScenario.allCases {
+            let seeded = MockPullRequestSource(scenario: scenario).firstRefreshPullRequests
+            let fetched = try await MockPullRequestSource(scenario: scenario)
+                .fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+                .activePullRequests
+            XCTAssertEqual(seeded.map(\.id), fetched.map(\.id), "\(scenario)")
+        }
+    }
+
     func testLongListsScenarioReturnsOverflowingListsThenNewCommentActivity() async throws {
         let source = MockPullRequestSource(scenario: .longLists)
         let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil).activePullRequests
