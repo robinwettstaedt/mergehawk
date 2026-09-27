@@ -153,7 +153,6 @@ public enum PRActivityDetector {
             PullRequestEvent(
                 type: .relationshipAdded,
                 prId: current.id,
-                happenedAt: current.updatedAt,
                 relationshipChanges: changes
             )
         ]

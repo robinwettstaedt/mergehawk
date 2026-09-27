@@ -1047,9 +1047,59 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testRelationshipUpdateIsTimestampedAtTheRefreshThatObservedIt() async throws {
+        let stored = makePullRequest(id: "PR_TRACKED", title: "Tracked", isMine: false)
+        let assigned = makePullRequest(
+            id: stored.id, title: stored.title, isAssignedToViewer: true, isMine: false,
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let provider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [assigned]))
+        )
+        let fixture = try makeFixture(pullRequest: stored, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+
+        let added = fixture.addedHistory
+        XCTAssertEqual(added.map(\.eventType), [.relationshipAdded])
+        XCTAssertEqual(added.first?.relationshipChanges, [.assigned])
+        XCTAssertEqual(added.first?.createdAt, fixture.controller.state.syncedAt)
+    }
+
+    @MainActor
+    func testRelationshipUpdateForOldPRStaysAtTopOfFullHistory() async throws {
+        let stored = makePullRequest(id: "PR_TRACKED", title: "Tracked", isMine: false)
+        let assigned = makePullRequest(
+            id: stored.id, title: stored.title, isAssignedToViewer: true, isMine: false,
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let seeded = (0..<DashboardController.pullRequestNotificationHistoryLimit).map { index in
+            PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: stored.id, activityId: "COMMENT_\(index)"),
+                pullRequest: stored,
+                createdAt: Date(timeIntervalSince1970: 1_000 + TimeInterval(index))
+            )
+        }
+        let provider = AtomicGitHubProvider(
+            result: .success(CompletePullRequestFetchResult(activePullRequests: [assigned]))
+        )
+        let fixture = try makeFixture(pullRequest: stored, notificationHistory: seeded, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+
+        let history = fixture.controller.pullRequestNotificationHistory
+        XCTAssertEqual(history.count, DashboardController.pullRequestNotificationHistoryLimit)
+        XCTAssertEqual(history.first?.eventType, .relationshipAdded)
+        XCTAssertEqual(history.first?.relationshipChanges, [.assigned])
+        XCTAssertFalse(history.contains { $0.activityId == "COMMENT_0" })
+        XCTAssertTrue(history.contains { $0.activityId == "COMMENT_1" })
+    }
+
+    @MainActor
     private func makeFixture(
         pullRequest: PullRequest = makePullRequest(id: "PR_BASELINE", title: "Baseline"),
         additionalPullRequests: [PullRequest] = [],
+        notificationHistory: [PullRequestNotification]? = nil,
         provider: AtomicGitHubProvider,
         encoder: @escaping (PullRequestSyncState) throws -> Data = { try JSONEncoder().encode($0) },
         urlOpener: @escaping @MainActor (URL) -> Void = { _ in },
@@ -1091,7 +1141,7 @@ final class AtomicRefreshTests: XCTestCase {
                     ))
                 }
             ),
-            notificationHistory: [notification]
+            notificationHistory: notificationHistory ?? [notification]
         )
         try seedPreferences.storePullRequestSyncState(previous)
         let preferences = PreferencesStore(defaults: defaults, syncStateEncoder: encoder)
@@ -1120,6 +1170,15 @@ final class AtomicRefreshTests: XCTestCase {
             previous: previous,
             pullRequest: pullRequest
         )
+    }
+
+    /// Waits for a refresh that commits after the stored state, which the fixture seeds at sync time 10.
+    @MainActor
+    private func waitUntilRefreshed(_ fixture: AtomicFixture) async {
+        await waitUntil {
+            fixture.controller.state.syncedAt.map { $0 > fixture.previous.dashboard.syncedAt! } == true
+                && !fixture.controller.isRefreshing
+        }
     }
 
     @MainActor
@@ -1422,6 +1481,12 @@ private struct AtomicFixture {
     func cleanup() {
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
     }
+
+    /// History rows the controller added on top of the seeded history.
+    var addedHistory: [PullRequestNotification] {
+        let seededIDs = Set(previous.notificationHistory.map(\.id))
+        return controller.pullRequestNotificationHistory.filter { !seededIDs.contains($0.id) }
+    }
 }
 
 private func makePullRequest(
@@ -1437,7 +1502,11 @@ private func makePullRequest(
             source: .pullRequest
         )
     ],
-    reviews: [PullRequestReview] = []
+    reviews: [PullRequestReview] = [],
+    reviewRequestKind: ReviewRequestKind = .none,
+    isAssignedToViewer: Bool = false,
+    isMine: Bool = true,
+    updatedAt: Date = Date(timeIntervalSince1970: 20)
 ) -> PullRequest {
     PullRequest(
         id: id,
@@ -1454,13 +1523,15 @@ private func makePullRequest(
         reviewCount: reviews.count,
         recentReviews: reviews,
         headRefOid: "abc",
-        isMine: true,
-        author: "rw",
+        reviewRequestKind: reviewRequestKind,
+        isAssignedToViewer: isAssignedToViewer,
+        isMine: isMine,
+        author: isMine ? "rw" : "teammate",
         headRefName: "feature",
         mergeable: .mergeable,
         draft: false,
         createdAt: Date(timeIntervalSince1970: 1),
-        updatedAt: Date(timeIntervalSince1970: 20)
+        updatedAt: updatedAt
     )
 }
 

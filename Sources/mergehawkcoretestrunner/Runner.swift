@@ -468,6 +468,7 @@ struct Runner {
         )
         try expect(assigned.map(\.type) == [.relationshipAdded])
         try expect(assigned[0].relationshipChanges == [.assigned])
+        try expect(assigned[0].happenedAt == nil)
 
         let direct = PRActivityDetector.detectTransitions(
             previous: .fixture(id: "PR_DIRECT", reviewRequestKind: .none, isMine: false),
