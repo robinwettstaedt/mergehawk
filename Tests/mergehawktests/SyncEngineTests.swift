@@ -209,6 +209,130 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertNil(prepared.processedActivityByPullRequestID[current.id]?.processedThrough)
     }
 
+    func testFirstSyncWithAssignedAndRequestedPRsIsQuietBaseline() async throws {
+        let current = [
+            Self.pullRequest(id: "PR_ASSIGNED", isAssigned: true, isMine: false),
+            Self.pullRequest(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false),
+            Self.pullRequest(id: "PR_TEAM", ci: .failing, reviewRequestKind: .team, isMine: false)
+        ]
+
+        let prepared = try await Self.engine().prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: current)
+        )
+
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testStateFromAnotherLoginIsBaselineForRelationships() async throws {
+        let previous = Self.trustedState([Self.pullRequest(id: "PR_TRACKED", isMine: false)])
+        let engine = SyncEngine(
+            source: EmptyPullRequestSource(),
+            loginProvider: { "bob" },
+            accountProvider: { GitHubAccount(login: "bob") }
+        )
+        let current = [
+            Self.pullRequest(id: "PR_TRACKED", isAssigned: true, isMine: false),
+            Self.pullRequest(id: "PR_NEW", reviewRequestKind: .direct, isMine: false)
+        ]
+
+        let prepared = try await engine.prepare(
+            previousState: previous,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: current)
+        )
+
+        XCTAssertEqual(prepared.account.login, "bob")
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testTrustedEmptyDashboardIsBaselineAndFirstRequestNotifies() async throws {
+        let current = Self.pullRequest(id: "PR_NEW", reviewRequestKind: .direct, isMine: false)
+
+        let prepared = try await Self.engine().prepare(
+            previousState: Self.trustedState([]),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [current])
+        )
+
+        XCTAssertEqual(prepared.events.map(\.event.type), [.relationshipAdded])
+        XCTAssertEqual(prepared.events.first?.event.relationshipChanges, [.directReviewRequest])
+        XCTAssertEqual(prepared.events.first?.event.prId, current.id)
+    }
+
+    func testNewlySeenRequestedPRBaselinesExistingActivityAndNotifiesLaterComments() async throws {
+        let engine = Self.engine()
+        let newPR = Self.pullRequest(
+            id: "PR_NEW",
+            comments: [Self.comment("C_EXISTING")],
+            reviews: [Self.review("R_EXISTING")],
+            reviewRequestKind: .direct,
+            isMine: false
+        )
+
+        let first = try await engine.prepare(
+            previousState: Self.trustedState([]),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [newPR])
+        )
+
+        XCTAssertEqual(first.events.map(\.event.type), [.relationshipAdded])
+        XCTAssertEqual(first.processedActivityByPullRequestID[newPR.id]?.commentIDs, ["C_EXISTING"])
+        XCTAssertEqual(first.processedActivityByPullRequestID[newPR.id]?.submittedReviewIDs, ["R_EXISTING"])
+
+        let commented = Self.pullRequest(
+            id: newPR.id,
+            comments: newPR.recentCommentActivities + [Self.comment("C_LATER")],
+            reviews: newPR.recentReviews,
+            reviewRequestKind: .direct,
+            isMine: false
+        )
+        let next = try await engine.prepare(
+            previousState: Self.state(from: first),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [commented])
+        )
+
+        XCTAssertEqual(next.events.map(\.event.type), [.newComment])
+        XCTAssertEqual(next.events.map(\.event.activityId), ["C_LATER"])
+    }
+
+    func testPRReenteringWithRelationshipNotifiesAgain() async throws {
+        let engine = Self.engine()
+        let requested = Self.pullRequest(id: "PR_REENTERS", reviewRequestKind: .direct, isMine: false)
+        let tracked = try await engine.prepare(
+            previousState: Self.trustedState([requested]),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [requested])
+        )
+        XCTAssertTrue(tracked.events.isEmpty)
+        let left = try await engine.prepare(
+            previousState: Self.state(from: tracked),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [])
+        )
+
+        let reentered = try await engine.prepare(
+            previousState: Self.state(from: left),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [requested])
+        )
+
+        XCTAssertEqual(reentered.events.map(\.event.type), [.relationshipAdded])
+        XCTAssertEqual(reentered.events.first?.event.relationshipChanges, [.directReviewRequest])
+    }
+
+    func testNewlySeenAuthoredPREmitsNothing() async throws {
+        let authored = Self.pullRequest(
+            id: "PR_AUTHORED",
+            ci: .failing,
+            comments: [Self.comment("C_EXISTING")],
+            reviewRequestKind: .direct,
+            isAssigned: true,
+            isMine: true
+        )
+
+        let prepared = try await Self.engine().prepare(
+            previousState: Self.trustedState([]),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [authored])
+        )
+
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
     private static func engine() -> SyncEngine {
         SyncEngine(
             source: EmptyPullRequestSource(),
@@ -233,6 +357,17 @@ final class SyncEngineTests: XCTestCase {
         )
     }
 
+    /// A stored state for the signed-in account, so the next refresh is not a baseline.
+    private static func trustedState(_ pullRequests: [PullRequest]) -> PullRequestSyncState {
+        PullRequestSyncState(
+            account: GitHubAccount(login: "rw"),
+            dashboard: dashboard(pullRequests),
+            processedActivityByPullRequestID: Dictionary(
+                uniqueKeysWithValues: pullRequests.map { ($0.id, PRActivityDetector.processedActivity(for: $0)) }
+            )
+        )
+    }
+
     private static func dashboard(_ pullRequests: [PullRequest]) -> DashboardState {
         DashboardState(
             pullRequests: pullRequests,
@@ -245,6 +380,7 @@ final class SyncEngineTests: XCTestCase {
     }
 
     private static func pullRequest(
+        id: String = "PR_1",
         ci: CIState = .passing,
         repositoryIsArchived: Bool? = nil,
         commentCount: Int? = nil,
@@ -256,7 +392,7 @@ final class SyncEngineTests: XCTestCase {
         isMine: Bool = true
     ) -> PullRequest {
         PullRequest(
-            id: "PR_1",
+            id: id,
             title: "Prepared refresh",
             number: 1,
             url: URL(string: "https://github.com/acme/app/pull/1")!,
