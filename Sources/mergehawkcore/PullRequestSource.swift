@@ -565,9 +565,9 @@ public final class MockPullRequestSource {
         return (0..<20).map { pullRequest($0, mine: true) } + (0..<20).map { pullRequest($0, mine: false) }
     }
 
-    /// Stage 0 is a quiet baseline with one authored pull request. Stage 1 adds a newly seen pull request that
-    /// directly requests the viewer, with an existing comment and failing CI, and a newly seen authored one.
-    /// Later refreshes repeat stage 1 unchanged.
+    /// Stage 0 is a quiet baseline with one authored pull request. Stage 1 adds newly seen pull requests for every
+    /// relationship kind: a direct request with an existing comment and failing CI, an assignment, a team request,
+    /// and an assignment with a direct request, plus a newly seen authored one. Later refreshes repeat stage 1.
     private static func newReviewRequestPullRequests(stage: Int) -> [PullRequest] {
         let base = Date(timeIntervalSince1970: 1_777_950_000)
         func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
@@ -576,15 +576,16 @@ public final class MockPullRequestSource {
         }
         func pullRequest(
             _ id: String, number: Int, title: String, ci: CIState = .passing,
-            comments: [PullRequestCommentActivity] = [], request: ReviewRequestKind = .none, mine: Bool
+            comments: [PullRequestCommentActivity] = [], request: ReviewRequestKind = .none, assigned: Bool = false,
+            author: String = "platform-nora", mine: Bool = false
         ) -> PullRequest {
             PullRequest(
                 id: id, title: title, number: number, url: url(number), repo: "mergehawk-labs/mergehawk",
                 ciState: ci, reviewDecision: .noReviewYet,
                 additions: 36, deletions: 6, commentCount: comments.count, commentActivityCount: comments.count,
                 recentCommentActivities: comments, reviewCount: 0, recentReviews: [],
-                headRefOid: "new-review-request-fixture", reviewRequestKind: request,
-                isMine: mine, author: mine ? "agent-fixture" : "platform-nora",
+                headRefOid: "new-review-request-fixture", reviewRequestKind: request, isAssignedToViewer: assigned,
+                isMine: mine, author: mine ? "agent-fixture" : author,
                 headRefName: "MER-82-new-review-request-\(number)", mergeable: .mergeable, draft: false,
                 createdAt: at(-86_400), updatedAt: at(-3_600)
             )
@@ -605,9 +606,22 @@ public final class MockPullRequestSource {
             baseline,
             pullRequest(
                 "PR_NEW_REQUEST_DIRECT", number: 91, title: "Notify for newly requested reviews", ci: .failing,
-                comments: [existingComment], request: .direct, mine: false
+                comments: [existingComment], request: .direct
             ),
             pullRequest("PR_NEW_REQUEST_AUTHORED", number: 92, title: "Open a follow-up pull request", mine: true),
+            pullRequest(
+                "PR_NEW_REQUEST_ASSIGNED", number: 93, title: "Show assignments on newly seen pull requests",
+                assigned: true, author: "backend-mateo"
+            ),
+            pullRequest(
+                "PR_NEW_REQUEST_TEAM", number: 94, title: "Show team review requests on newly seen pull requests",
+                request: .team, author: "docs-lee"
+            ),
+            pullRequest(
+                "PR_NEW_REQUEST_COMBINED", number: 95,
+                title: "Combine an assignment and a review request on a newly seen pull request",
+                request: .direct, assigned: true, author: "design-systems-amy"
+            ),
         ]
     }
 

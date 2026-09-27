@@ -130,7 +130,7 @@ final class AgentModeXCTests: XCTestCase {
     }
 
     @MainActor
-    func testNewReviewRequestScenarioNotifiesOnlyForTheNewlyRequestedPR() async {
+    func testNewReviewRequestScenarioNotifiesOnceForEachNewlySeenRelationship() async {
         let suite = "new-review-request-scenario-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -141,11 +141,16 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertTrue(notifications.records.isEmpty)
 
         controller.refresh()
-        await waitUntil(timeout: 1) { await MainActor.run { controller.state.pullRequests.count == 3 && !controller.isRefreshing } }
-        XCTAssertEqual(controller.pullRequestNotificationHistory.map(\.prId), ["PR_NEW_REQUEST_DIRECT"])
-        XCTAssertEqual(controller.pullRequestNotificationHistory.first?.eventType, .relationshipAdded)
-        XCTAssertEqual(controller.pullRequestNotificationHistory.first?.relationshipChanges, [.directReviewRequest])
-        XCTAssertEqual(notifications.records.map(\.eventType), ["relationship_added"])
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.pullRequests.count == 6 && !controller.isRefreshing } }
+        let history = controller.pullRequestNotificationHistory
+        XCTAssertEqual(history.count, 4)
+        XCTAssertTrue(history.allSatisfy { $0.eventType == .relationshipAdded })
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: history.map { ($0.prNumber, $0.relationshipChanges) }),
+            [91: [.directReviewRequest], 93: [.assigned], 94: [.teamReviewRequest], 95: [.assigned, .directReviewRequest]]
+        )
+        XCTAssertEqual(notifications.records.map(\.eventType), Array(repeating: "relationship_added", count: 4))
+        XCTAssertFalse(notifications.records.contains { $0.pullRequestId == "PR_NEW_REQUEST_AUTHORED" })
     }
 
     @MainActor
