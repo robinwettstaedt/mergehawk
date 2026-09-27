@@ -374,6 +374,24 @@ public final class MockPullRequestSource {
         ]
     }
 
+    /// The active pull requests the scenario's first refresh returns.
+    public var firstRefreshPullRequests: [PullRequest] {
+        switch scenario {
+        case .standard, .delayedRefresh:
+            snapshots[0]
+        case .botNotifications:
+            Self.botNotificationPullRequests(includesUpdates: false)
+        case .commentNotifications:
+            Self.commentNotificationPullRequests(stage: 0)
+        case .longLists:
+            Self.longListPullRequests(stage: 0)
+        case .newReviewRequest:
+            Self.newReviewRequestPullRequests(stage: 0)
+        case .refreshFailure, .mergedFinalActivity, .quietAccessLoss:
+            [Self.scenarioBaselinePullRequest]
+        }
+    }
+
     private func nextPullRequests() -> [PullRequest] {
         let snapshot = snapshots[min(index, snapshots.count - 1)]
         index += 1
