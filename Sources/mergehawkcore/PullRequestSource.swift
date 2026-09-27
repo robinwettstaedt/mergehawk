@@ -675,7 +675,7 @@ public final class MockPullRequestSource {
                     count: 1,
                     actorLogin: "billing-ivy",
                     activityId: "PR_NOTIFICATION_CHANGES_REVIEW",
-                    destinationURL: URL(string: "https://github.com/example/web/pull/44#pullrequestreview-PR_NOTIFICATION_CHANGES_REVIEW")!
+                    destinationURL: URL(string: "https://github.com/enterprise-billing-platform-engineering/billing-platform-customer-notification-preferences-and-retry-scheduling-service-for-enterprise-plans-and-regional-invoicing-workflows/pull/1284#pullrequestreview-PR_NOTIFICATION_CHANGES_REVIEW")!
                 ),
                 pullRequest: notificationFixtureChangesRequestedPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_798_800)
@@ -785,7 +785,7 @@ public final class MockPullRequestSource {
 
     private static let notificationFixtureReviewCommentPullRequest = PullRequest(
         id: "PR_NOTIFICATION_REVIEW_COMMENT",
-        title: "Clarify notification grouping copy",
+        title: "Clarify notification grouping copy across the settings pane, onboarding checklist, release notes, and the menu bar tooltip for new users",
         number: 43,
         url: URL(string: "https://github.com/example/docs/pull/43")!,
         repo: "example/docs",
@@ -822,9 +822,9 @@ public final class MockPullRequestSource {
     private static let notificationFixtureChangesRequestedPullRequest = PullRequest(
         id: "PR_NOTIFICATION_CHANGES",
         title: "Tighten billing retry copy",
-        number: 44,
-        url: URL(string: "https://github.com/example/web/pull/44")!,
-        repo: "example/web",
+        number: 1284,
+        url: URL(string: "https://github.com/enterprise-billing-platform-engineering/billing-platform-customer-notification-preferences-and-retry-scheduling-service-for-enterprise-plans-and-regional-invoicing-workflows/pull/1284")!,
+        repo: "enterprise-billing-platform-engineering/billing-platform-customer-notification-preferences-and-retry-scheduling-service-for-enterprise-plans-and-regional-invoicing-workflows",
         ciState: .passing,
         reviewDecision: .changesRequested,
         commentCount: 3,

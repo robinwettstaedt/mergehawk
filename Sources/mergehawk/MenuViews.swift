@@ -2162,38 +2162,30 @@ private struct PullRequestNotificationRow: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Button(action: action) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .center, spacing: 6) {
-                            Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
-                                .frame(width: 15)
+                HStack(alignment: .center, spacing: PullRequestColumnLayout.identitySpacing) {
+                    Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
+                        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
+                    VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(title)
                                 .font(.subheadline.weight(.semibold))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
+                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("\(notification.repo)#\(notification.prNumber)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Text(notification.prTitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        pullRequestLine
                     }
-                    Spacer(minLength: 8)
-                    Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(10)
+                .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
+                .padding(.vertical, PullRequestColumnLayout.verticalInset)
                 .transparentCardStyle(
                     accentColor: notification.read ? nil : .accentColor,
                     isHovered: isHovered
@@ -2227,6 +2219,63 @@ private struct PullRequestNotificationRow: View {
         PullRequestNotificationTitlePresentation.title(for: notification)
     }
 
+    private var pullRequestLine: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                Text(notification.repo)
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(verbatim: "#\(notification.prNumber)")
+                    .fixedSize(horizontal: true, vertical: false)
+                Text("·")
+                    .fixedSize()
+                Text(verbatim: notification.prTitle)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            HStack(spacing: 4) {
+                Text(notification.repo)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(verbatim: "#\(notification.prNumber)")
+                    .fixedSize(horizontal: true, vertical: false)
+                Text("·")
+                    .fixedSize()
+                Text(verbatim: notification.prTitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(
+                        minWidth: Self.minimumPRTitleWidth,
+                        idealWidth: Self.minimumPRTitleWidth,
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+            }
+            HStack(spacing: 4) {
+                Text(notification.repo)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                Text(verbatim: "#\(notification.prNumber)")
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
+            }
+        }
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(pullRequestHelp)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(pullRequestAccessibilityLabel)
+    }
+
+    private var pullRequestHelp: String {
+        "\(notification.repo)#\(notification.prNumber) · \(notification.prTitle)"
+    }
+
+    private var pullRequestAccessibilityLabel: String {
+        "\(notification.repo)#\(notification.prNumber), \(notification.prTitle)"
+    }
+
+    private static let minimumPRTitleWidth: CGFloat = 40
 }
 
 enum PullRequestColumnLayout {
@@ -2234,6 +2283,10 @@ enum PullRequestColumnLayout {
     static let rowSpacing: CGFloat = 7
     static let headerHeight: CGFloat = 32
     static let horizontalInset: CGFloat = 10
+    static let verticalInset: CGFloat = 8
+    static let avatarSize: CGFloat = 22
+    static let identitySpacing: CGFloat = 7
+    static let identityLineSpacing: CGFloat = 4
     static let commentsWidth: CGFloat = 30
     static let statusWidth: CGFloat = 30
     static let changesWidth: CGFloat = 49
@@ -2412,7 +2465,7 @@ struct PullRequestRow: View {
         HStack(spacing: PullRequestColumnLayout.spacing) {
             Button(action: action) {
                 HStack(spacing: PullRequestColumnLayout.spacing) {
-                    HStack(spacing: 7) {
+                    HStack(spacing: PullRequestColumnLayout.identitySpacing) {
                         PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
                         identity
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2466,7 +2519,7 @@ struct PullRequestRow: View {
             .frame(width: PullRequestColumnLayout.actionsWidth)
         }
         .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .padding(.vertical, 8)
+        .padding(.vertical, PullRequestColumnLayout.verticalInset)
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
     }
@@ -2481,7 +2534,7 @@ struct PullRequestRow: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
             HStack(spacing: 4) {
                 if pullRequest.draft { DraftPullRequestIndicator() }
                 Text(pullRequest.title)
@@ -2539,7 +2592,7 @@ private struct PullRequestAuthorAvatar: View {
                 placeholder
             }
         }
-        .frame(width: 22, height: 22)
+        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
         .clipShape(Circle())
         .help("Author: \(author)")
         .accessibilityLabel("Author: \(author)")

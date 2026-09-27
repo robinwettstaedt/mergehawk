@@ -561,7 +561,7 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
-                    .contains("Assigned/requested")
+                    .contains("Assigned and review requested")
             )
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
@@ -853,7 +853,7 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertEqual(records.map(\.title), [
             "Assigned to you",
             "Review requested",
-            "Assigned/requested"
+            "Assigned and review requested"
         ])
         XCTAssertEqual(records[0].relationshipChanges, ["assigned"])
         XCTAssertEqual(records[1].relationshipChanges, ["direct_review_request"])
