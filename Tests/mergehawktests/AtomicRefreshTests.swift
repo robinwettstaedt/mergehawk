@@ -1096,6 +1096,189 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testNewlySeenRequestedPRRecordsOneRowAndNotification() async throws {
+        let newPR = makePullRequest(id: "PR_NEW", title: "New", reviewRequestKind: .direct, isMine: false)
+        let provider = AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(
+            activePullRequests: [makePullRequest(id: "PR_BASELINE", title: "Baseline"), newPR]
+        )))
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+
+        let added = fixture.addedHistory
+        XCTAssertEqual(added.map(\.eventType), [.relationshipAdded])
+        XCTAssertEqual(added.first?.prId, newPR.id)
+        XCTAssertEqual(added.first?.relationshipChanges, [.directReviewRequest])
+        XCTAssertEqual(fixture.notifications.records.map(\.title), ["Review requested"])
+        XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [newPR.id])
+    }
+
+    @MainActor
+    func testSuppressedNewlySeenPRIsConsumedAndNotReplayedWhenFilterIsReenabled() async throws {
+        enum Filter: CaseIterable { case repositoryNotifications, relationshipPreference, archivedRepository }
+        for filter in Filter.allCases {
+            let newPR = makePullRequest(
+                id: "PR_NEW", title: "New", archived: filter == .archivedRepository ? true : nil,
+                reviewRequestKind: .direct, isMine: false
+            )
+            let provider = AtomicGitHubProvider(result: .suspended)
+            let fixture = try makeFixture(provider: provider)
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 }
+            let controller = fixture.controller
+            switch filter {
+            case .repositoryNotifications:
+                controller.setRepositoryPreferences(
+                    repo: newPR.repo,
+                    preferences: RepositorySourcePreferences(
+                        notifications: .disabled, myPullRequests: .inherit, reviewRequests: .inherit
+                    )
+                )
+            case .relationshipPreference:
+                controller.preferences.directReviewRequests.relationshipChanges = false
+            case .archivedRepository:
+                XCTAssertTrue(controller.hideArchivedRepositories)
+            }
+            provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [fixture.pullRequest, newPR]))
+            await waitUntil { !controller.isRefreshing }
+
+            XCTAssertTrue(fixture.addedHistory.isEmpty, "\(filter)")
+            XCTAssertTrue(fixture.notifications.records.isEmpty, "\(filter)")
+            XCTAssertEqual(
+                fixture.preferences.pullRequestSyncState?.dashboard.pullRequests.map(\.id).contains(newPR.id),
+                true,
+                "\(filter)"
+            )
+
+            switch filter {
+            case .repositoryNotifications:
+                controller.setRepositoryPreferences(repo: newPR.repo, preferences: .defaults)
+            case .relationshipPreference:
+                controller.preferences.directReviewRequests.relationshipChanges = true
+            case .archivedRepository:
+                controller.hideArchivedRepositories = false
+            }
+            controller.refresh()
+            await waitUntil { provider.fetchCount == 2 && !controller.isRefreshing }
+
+            XCTAssertTrue(fixture.addedHistory.isEmpty, "\(filter)")
+            XCTAssertTrue(fixture.notifications.records.isEmpty, "\(filter)")
+        }
+    }
+
+    @MainActor
+    func testNewlySeenCombinedPRIsSuppressedOnlyWhenEveryAddedRelationshipIsOff() async throws {
+        for assignedEnabled in [false, true] {
+            let newPR = makePullRequest(
+                id: "PR_NEW", title: "New", reviewRequestKind: .direct, isAssignedToViewer: true, isMine: false
+            )
+            let provider = AtomicGitHubProvider(result: .suspended)
+            let fixture = try makeFixture(provider: provider)
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 }
+            fixture.controller.preferences.assigned.relationshipChanges = assignedEnabled
+            fixture.controller.preferences.directReviewRequests.relationshipChanges = false
+            provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [fixture.pullRequest, newPR]))
+            await waitUntil { !fixture.controller.isRefreshing }
+
+            if assignedEnabled {
+                XCTAssertEqual(fixture.addedHistory.map(\.relationshipChanges), [[.assigned, .directReviewRequest]])
+                XCTAssertEqual(fixture.notifications.records.map(\.title), ["Assigned and review requested"])
+            } else {
+                XCTAssertTrue(fixture.addedHistory.isEmpty)
+                XCTAssertTrue(fixture.notifications.records.isEmpty)
+            }
+        }
+    }
+
+    @MainActor
+    func testNewlySeenRequestedPRKeepsHistoryRowWhenMacOSNotificationsAreOff() async throws {
+        let newPR = makePullRequest(id: "PR_NEW", title: "New", reviewRequestKind: .direct, isMine: false)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        fixture.controller.macOSLocalNotificationsEnabled = false
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [fixture.pullRequest, newPR]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.addedHistory.map(\.eventType), [.relationshipAdded])
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+    }
+
+    @MainActor
+    func testNewlySeenRequestedPRIsDeliveredOnceAfterFailedPersistenceIsRetried() async throws {
+        let persistence = PersistenceSwitch()
+        let newPR = makePullRequest(id: "PR_NEW", title: "New", reviewRequestKind: .direct, isMine: false)
+        let provider = AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(
+            activePullRequests: [makePullRequest(id: "PR_BASELINE", title: "Baseline"), newPR]
+        )))
+        let fixture = try makeFixture(provider: provider, encoder: { state in
+            if persistence.fails { throw AtomicTestError.encodingFailed }
+            return try JSONEncoder().encode(state)
+        })
+        defer { fixture.cleanup() }
+        await waitUntil { fixture.controller.refreshErrorMessage != nil }
+
+        XCTAssertTrue(fixture.addedHistory.isEmpty)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+
+        persistence.fails = false
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+        XCTAssertEqual(fixture.addedHistory.map(\.eventType), [.relationshipAdded])
+        XCTAssertEqual(fixture.notifications.records.count, 1)
+
+        fixture.controller.refresh()
+        await waitUntil { provider.fetchCount == 3 && !fixture.controller.isRefreshing }
+        XCTAssertEqual(fixture.addedHistory.count, 1)
+        XCTAssertEqual(fixture.notifications.records.count, 1)
+    }
+
+    @MainActor
+    func testSameAccountReauthenticationNotifiesForNewlySeenRequestedPR() async throws {
+        let provider = AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(
+            activePullRequests: [makePullRequest(id: "PR_BASELINE", title: "Baseline")]
+        )))
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+        XCTAssertTrue(fixture.addedHistory.isEmpty)
+
+        let newPR = makePullRequest(id: "PR_NEW", title: "New", reviewRequestKind: .direct, isMine: false)
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [fixture.pullRequest, newPR]))
+        await fixture.controller.signInWithToken("replacement-pat")
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.state.account?.login, "rw")
+        XCTAssertEqual(fixture.addedHistory.map(\.prId), [newPR.id])
+        XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [newPR.id])
+    }
+
+    @MainActor
+    func testSignInAfterSignOutIsQuietBaselineForRequestedPRs() async throws {
+        let provider = AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(
+            activePullRequests: [makePullRequest(id: "PR_BASELINE", title: "Baseline")]
+        )))
+        let fixture = try makeFixture(provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+
+        fixture.controller.signOut()
+        await waitUntil { !fixture.controller.isRefreshing }
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [
+            makePullRequest(id: "PR_ASSIGNED", title: "Assigned", isAssignedToViewer: true, isMine: false),
+            makePullRequest(id: "PR_DIRECT", title: "Direct", reviewRequestKind: .direct, isMine: false)
+        ]))
+        await fixture.controller.signInWithToken("pat")
+        await waitUntil { provider.fetchCount == 2 && !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.controller.state.pullRequests.map(\.id).sorted(), ["PR_ASSIGNED", "PR_DIRECT"])
+        XCTAssertTrue(fixture.controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+    }
+
+    @MainActor
     private func makeFixture(
         pullRequest: PullRequest = makePullRequest(id: "PR_BASELINE", title: "Baseline"),
         additionalPullRequests: [PullRequest] = [],
@@ -1205,6 +1388,10 @@ private enum AtomicTestError: Error, LocalizedError {
         case .encodingFailed: "Encoding failed"
         }
     }
+}
+
+private final class PersistenceSwitch: @unchecked Sendable {
+    var fails = true
 }
 
 private final class AtomicGitHubProvider: GitHubProviding {
