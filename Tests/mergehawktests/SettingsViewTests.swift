@@ -88,6 +88,22 @@ final class SettingsViewTests: XCTestCase {
             ]
         )
         XCTAssertEqual(NotificationMatrixLayout.tableWidth, 414)
+        XCTAssertEqual(
+            PullRequestNotificationRelationship.allCases.map(NotificationMatrixLayout.relationshipColumnLeadingX(for:)),
+            [160, 226, 292, 358]
+        )
+        XCTAssertEqual(
+            NotificationMatrixLayout.relationshipColumnLeadingX(for: .teamReviewRequest) + NotificationMatrixLayout.relationshipColumnWidth,
+            NotificationMatrixLayout.tableWidth
+        )
+        XCTAssertEqual(
+            NotificationMatrixLayout.reviewRequestedSpanLeadingX,
+            NotificationMatrixLayout.relationshipColumnLeadingX(for: .directReviewRequest)
+        )
+        XCTAssertEqual(
+            NotificationMatrixLayout.reviewRequestedSpanLeadingX + NotificationMatrixLayout.reviewRequestedSpanWidth,
+            NotificationMatrixLayout.relationshipColumnLeadingX(for: .teamReviewRequest) + NotificationMatrixLayout.relationshipColumnWidth
+        )
         // The grouped form insets leave well under the 500pt window for both tables.
         XCTAssertLessThanOrEqual(NotificationMatrixLayout.tableWidth, SettingsTab.defaultWindowSize.width - 80)
     }

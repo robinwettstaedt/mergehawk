@@ -780,19 +780,11 @@ struct NotificationSettingsView: View {
 private struct NotificationRelationshipHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: NotificationMatrixLayout.columnSpacing) {
-                Color.clear
-                    .frame(
-                        width: NotificationMatrixLayout.labelColumnWidth
-                            + 2 * (NotificationMatrixLayout.relationshipColumnWidth + NotificationMatrixLayout.columnSpacing)
-                            - NotificationMatrixLayout.columnSpacing,
-                        height: 1
-                    )
-                Text("Review requested")
-                    .lineLimit(1)
-                    .frame(width: 2 * NotificationMatrixLayout.relationshipColumnWidth + NotificationMatrixLayout.columnSpacing)
-            }
-            HStack(spacing: NotificationMatrixLayout.columnSpacing) {
+            Text("Review requested")
+                .lineLimit(1)
+                .frame(width: NotificationMatrixLayout.reviewRequestedSpanWidth)
+                .padding(.leading, NotificationMatrixLayout.reviewRequestedSpanLeadingX)
+            ZStack(alignment: .leading) {
                 Text("Notify me for")
                     .frame(width: NotificationMatrixLayout.labelColumnWidth, alignment: .leading)
                 ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
@@ -800,6 +792,7 @@ private struct NotificationRelationshipHeader: View {
                         .lineLimit(1)
                         .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
                         .help(relationship.columnHelp)
+                        .padding(.leading, NotificationMatrixLayout.relationshipColumnLeadingX(for: relationship))
                 }
             }
         }
@@ -883,6 +876,22 @@ enum NotificationMatrixLayout {
     static var tableWidth: CGFloat {
         let columnCount = CGFloat(PullRequestNotificationRelationship.allCases.count)
         return labelColumnWidth + columnCount * (relationshipColumnWidth + columnSpacing)
+    }
+
+    /// Where a relationship column starts: after the label column, each column preceded by the column spacing,
+    /// matching the rows' HStack layout.
+    static func relationshipColumnLeadingX(for relationship: PullRequestNotificationRelationship) -> CGFloat {
+        let index = CGFloat(PullRequestNotificationRelationship.allCases.firstIndex(of: relationship) ?? 0)
+        return labelColumnWidth + columnSpacing + index * (relationshipColumnWidth + columnSpacing)
+    }
+
+    /// The "Review requested" header spans the Direct and Team columns.
+    static var reviewRequestedSpanLeadingX: CGFloat {
+        relationshipColumnLeadingX(for: .directReviewRequest)
+    }
+
+    static var reviewRequestedSpanWidth: CGFloat {
+        2 * relationshipColumnWidth + columnSpacing
     }
 
     /// Authored PRs have no Assigned or requested cell.
