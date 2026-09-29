@@ -40,6 +40,7 @@ final class SettingsViewTests: XCTestCase {
     }
 
     func testNotificationMatricesUseTheAgreedColumnsAndFitTheSettingsWindow() {
+        XCTAssertEqual(PullRequestNotificationActivity.allCases, [.reviewActivity, .ciFailures, .relationshipChanges])
         XCTAssertEqual(PullRequestNotificationActivity.allCases.map(\.columnTitle), ["Review decisions", "CI failed", "Assigned/\nRequested"])
         XCTAssertEqual(CommentNotificationMode.allCases.map(\.title), ["All comments", "Mentions & threads you joined", "Off"])
         for relationship in PullRequestNotificationRelationship.allCases {

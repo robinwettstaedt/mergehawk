@@ -582,11 +582,10 @@ final class AgentModeXCTests: XCTestCase {
                     .reviewCommented,
                     .ciFailed,
                     .changesRequested,
-                    .newReview,
-                    .otherCommitAdded
+                    .newReview
                 ]
             )
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 9)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 8)
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
@@ -606,11 +605,6 @@ final class AgentModeXCTests: XCTestCase {
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
                     .contains("New review from @qa-rin")
-            )
-            XCTAssertTrue(
-                controller.visiblePullRequestNotifications
-                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
-                    .contains("New commit by @teammate-kai")
             )
         }
     }
@@ -892,39 +886,6 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertEqual(records[0].relationshipChanges, ["assigned"])
         XCTAssertEqual(records[1].relationshipChanges, ["direct_review_request"])
         XCTAssertEqual(records[2].relationshipChanges, ["assigned", "team_review_request"])
-    }
-
-    func testNotificationContentIncludesOtherCommitTitles() {
-        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
-        let events = [
-            PullRequestEvent(
-                type: .otherCommitAdded,
-                prId: "PR_1",
-                count: 1,
-                actorLogin: "frontend-sam"
-            ),
-            PullRequestEvent(
-                type: .otherCommitAdded,
-                prId: "PR_1",
-                count: 2
-            ),
-            PullRequestEvent(
-                type: .otherCommitAdded,
-                prId: "PR_1",
-                count: 1
-            )
-        ]
-
-        let records = NotificationContentBuilder.records(events: events, pullRequests: [pullRequest])
-
-        XCTAssertEqual(records.map(\.title), [
-            "New commit by @frontend-sam",
-            "2 commits by others",
-            "New commit by someone else"
-        ])
-        XCTAssertEqual(records.map(\.count), [1, 2, 1])
-        XCTAssertEqual(records.map(\.eventType), ["other_commit_added", "other_commit_added", "other_commit_added"])
-        XCTAssertEqual(records[0].actorLogin, "frontend-sam")
     }
 
     func testRecordingNotificationClientWritesJsonLines() throws {

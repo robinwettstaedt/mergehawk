@@ -771,8 +771,6 @@ private struct NotificationSettingsView: View {
                     activityPreferences.ciFailures = isEnabled
                 case .relationshipChanges:
                     activityPreferences.relationshipChanges = isEnabled
-                case .otherCommits:
-                    break
                 }
                 preferences.set(activityPreferences, for: relationship)
                 controller.preferences = preferences
@@ -878,7 +876,7 @@ enum NotificationMatrixLayout {
     static let relationshipColumnWidth: CGFloat = 150
     static let columnSpacing: CGFloat = 10
 
-    /// Authored PRs have no Assigned/Requested cell, and other commits have no upper-matrix column.
+    /// Authored PRs have no Assigned/Requested cell.
     static func showsToggle(
         relationship: PullRequestNotificationRelationship,
         activity: PullRequestNotificationActivity
@@ -886,8 +884,6 @@ enum NotificationMatrixLayout {
         switch activity {
         case .relationshipChanges:
             relationship != .authored
-        case .otherCommits:
-            relationship == .authored
         case .reviewActivity, .ciFailures:
             true
         }
@@ -899,7 +895,7 @@ enum NotificationMatrixLayout {
             86
         case .ciFailures:
             60
-        case .relationshipChanges, .otherCommits:
+        case .relationshipChanges:
             88
         }
     }
@@ -964,8 +960,6 @@ extension PullRequestNotificationActivity {
             "CI failed"
         case .relationshipChanges:
             "Assigned/\nRequested"
-        case .otherCommits:
-            "Other\ncommits"
         }
     }
 
@@ -977,8 +971,6 @@ extension PullRequestNotificationActivity {
             "CI failures"
         case .relationshipChanges:
             "assigned or requested"
-        case .otherCommits:
-            "commits by others on authored PRs"
         }
     }
 }
