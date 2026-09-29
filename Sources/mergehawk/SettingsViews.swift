@@ -646,7 +646,7 @@ private struct PATSignInProgressView: View {
     }
 }
 
-private struct NotificationSettingsView: View {
+struct NotificationSettingsView: View {
     private static let muteBotNotificationsHelp = "Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain."
 
     @ObservedObject var controller: DashboardController
@@ -668,37 +668,28 @@ private struct NotificationSettingsView: View {
                     .accessibilityHint(Self.muteBotNotificationsHelp)
             }
             Section("Pull request notifications") {
-                // Laid out like the comment matrix below so both relationship columns start at the same x.
+                // Laid out like the comment table below so both tables share their relationship columns.
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .bottom, spacing: NotificationMatrixLayout.columnSpacing) {
-                        Text("Notify me for")
-                            .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
-                        ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
-                            NotificationMatrixHeader(
-                                title: activity.columnTitle,
-                                width: NotificationMatrixLayout.activityColumnWidth(for: activity)
-                            )
-                        }
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    NotificationRelationshipHeader()
 
                     Divider()
 
-                    ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
+                    ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
                         HStack(spacing: NotificationMatrixLayout.columnSpacing) {
-                            Text(relationship.title)
-                                .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
-                            ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
+                            Text(activity.rowTitle)
+                                .frame(width: NotificationMatrixLayout.labelColumnWidth, alignment: .leading)
+                            ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
                                 if NotificationMatrixLayout.showsToggle(relationship: relationship, activity: activity) {
                                     Toggle("", isOn: matrixBinding(relationship: relationship, activity: activity))
                                         .labelsHidden()
                                         .toggleStyle(.checkbox)
-                                        .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity))
+                                        .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
                                         .accessibilityLabel("\(relationship.title) \(activity.accessibilityTitle)")
                                 } else {
-                                    Color.clear
-                                        .frame(width: NotificationMatrixLayout.activityColumnWidth(for: activity), height: 1)
+                                    Text("—")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
+                                        .accessibilityHidden(true)
                                 }
                             }
                         }
@@ -709,26 +700,32 @@ private struct NotificationSettingsView: View {
             }
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .bottom, spacing: NotificationMatrixLayout.columnSpacing) {
-                        Text("Notify me for")
-                            .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
-                        ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
-                            NotificationMatrixHeader(
-                                title: mode.title,
-                                width: NotificationMatrixLayout.commentModeColumnWidth(for: mode)
-                            )
-                        }
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    NotificationRelationshipHeader()
 
                     Divider()
 
-                    ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
-                        CommentModeRow(
-                            relationship: relationship,
-                            selection: commentModeBinding(for: relationship)
-                        )
+                    HStack(alignment: .top, spacing: NotificationMatrixLayout.columnSpacing) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
+                                Text(mode.title)
+                                    .lineLimit(2)
+                                    .frame(
+                                        width: NotificationMatrixLayout.labelColumnWidth,
+                                        height: NotificationMatrixLayout.commentModeRowHeight,
+                                        alignment: .leading
+                                    )
+                            }
+                        }
+                        ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
+                            CommentModeRadioGroup(
+                                relationship: relationship,
+                                selection: commentModeBinding(for: relationship)
+                            )
+                            .frame(
+                                width: NotificationMatrixLayout.relationshipColumnWidth,
+                                height: NotificationMatrixLayout.commentModeRowHeight * CGFloat(CommentNotificationMode.allCases.count)
+                            )
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -742,7 +739,7 @@ private struct NotificationSettingsView: View {
         .formStyle(.grouped)
     }
 
-    private func commentModeBinding(for relationship: PullRequestNotificationRelationship) -> Binding<CommentNotificationMode> {
+    func commentModeBinding(for relationship: PullRequestNotificationRelationship) -> Binding<CommentNotificationMode> {
         Binding(
             get: { controller.preferences.commentModes.mode(for: relationship) },
             set: { mode in
@@ -753,7 +750,7 @@ private struct NotificationSettingsView: View {
         )
     }
 
-    private func matrixBinding(
+    func matrixBinding(
         relationship: PullRequestNotificationRelationship,
         activity: PullRequestNotificationActivity
     ) -> Binding<Bool> {
@@ -779,37 +776,41 @@ private struct NotificationSettingsView: View {
     }
 }
 
-private struct NotificationMatrixHeader: View {
-    let title: String
-    let width: CGFloat
-
+/// The relationship columns shared by both notification tables, with "Review requested" spanning Direct and Team.
+private struct NotificationRelationshipHeader: View {
     var body: some View {
-        Text(title)
-            .lineLimit(2)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(width: width)
-    }
-}
-
-/// A relationship's comment mode as a row of native radio buttons under the matrix columns.
-private struct CommentModeRow: View {
-    let relationship: PullRequestNotificationRelationship
-    @Binding var selection: CommentNotificationMode
-
-    var body: some View {
-        HStack(spacing: NotificationMatrixLayout.columnSpacing) {
-            Text(relationship.title)
-                .frame(width: NotificationMatrixLayout.relationshipColumnWidth, alignment: .leading)
-            CommentModeRadioGroup(relationship: relationship, selection: $selection)
-                .frame(width: NotificationMatrixLayout.commentModeColumnsWidth, height: 18)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: NotificationMatrixLayout.columnSpacing) {
+                Color.clear
+                    .frame(
+                        width: NotificationMatrixLayout.labelColumnWidth
+                            + 2 * (NotificationMatrixLayout.relationshipColumnWidth + NotificationMatrixLayout.columnSpacing)
+                            - NotificationMatrixLayout.columnSpacing,
+                        height: 1
+                    )
+                Text("Review requested")
+                    .lineLimit(1)
+                    .frame(width: 2 * NotificationMatrixLayout.relationshipColumnWidth + NotificationMatrixLayout.columnSpacing)
+            }
+            HStack(spacing: NotificationMatrixLayout.columnSpacing) {
+                Text("Notify me for")
+                    .frame(width: NotificationMatrixLayout.labelColumnWidth, alignment: .leading)
+                ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
+                    Text(relationship.columnTitle)
+                        .lineLimit(1)
+                        .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
+                        .help(relationship.columnHelp)
+                }
+            }
         }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
     }
 }
 
 /// AppKit radio buttons sharing one superview and action, so they select exclusively, move with the arrow keys
 /// under keyboard navigation, and read as one labeled radio group to assistive technologies.
-private struct CommentModeRadioGroup: NSViewRepresentable {
+struct CommentModeRadioGroup: NSViewRepresentable {
     let relationship: PullRequestNotificationRelationship
     @Binding var selection: CommentNotificationMode
 
@@ -849,34 +850,42 @@ private struct CommentModeRadioGroup: NSViewRepresentable {
         }
     }
 
-    /// Centers each radio button in its matrix column.
+    /// Stacks the radio buttons down the relationship column, each centered in its comment mode's row.
     final class RadioGroupView: NSView {
+        override var isFlipped: Bool { true }
         override func accessibilityRole() -> NSAccessibility.Role? { .radioGroup }
         override func isAccessibilityElement() -> Bool { true }
 
         override func layout() {
             super.layout()
-            var columnStart: CGFloat = 0
+            let rowHeight = NotificationMatrixLayout.commentModeRowHeight
             for case let button as NSButton in subviews {
-                let width = NotificationMatrixLayout.commentModeColumnWidth(for: CommentNotificationMode.allCases[button.tag])
                 let size = button.fittingSize
                 button.frame = CGRect(
-                    x: (columnStart + (width - size.width) / 2).rounded(),
-                    y: ((bounds.height - size.height) / 2).rounded(),
+                    x: ((bounds.width - size.width) / 2).rounded(),
+                    y: (CGFloat(button.tag) * rowHeight + (rowHeight - size.height) / 2).rounded(),
                     width: size.width,
                     height: size.height
                 )
-                columnStart += width + NotificationMatrixLayout.columnSpacing
             }
         }
     }
 }
 
 enum NotificationMatrixLayout {
-    static let relationshipColumnWidth: CGFloat = 150
+    static let labelColumnWidth: CGFloat = 150
+    static let relationshipColumnWidth: CGFloat = 56
     static let columnSpacing: CGFloat = 10
+    /// Tall enough for a comment mode label that wraps to two lines.
+    static let commentModeRowHeight: CGFloat = 32
 
-    /// Authored PRs have no Assigned/Requested cell.
+    /// The label column and the four relationship columns with the spacing before each.
+    static var tableWidth: CGFloat {
+        let columnCount = CGFloat(PullRequestNotificationRelationship.allCases.count)
+        return labelColumnWidth + columnCount * (relationshipColumnWidth + columnSpacing)
+    }
+
+    /// Authored PRs have no Assigned or requested cell.
     static func showsToggle(
         relationship: PullRequestNotificationRelationship,
         activity: PullRequestNotificationActivity
@@ -889,37 +898,9 @@ enum NotificationMatrixLayout {
         }
     }
 
-    static func activityColumnWidth(for activity: PullRequestNotificationActivity) -> CGFloat {
-        switch activity {
-        case .reviewActivity:
-            86
-        case .ciFailures:
-            60
-        case .relationshipChanges:
-            88
-        }
-    }
-
-    /// The comment-mode columns and the spacing between them.
-    static var commentModeColumnsWidth: CGFloat {
-        let widths = CommentNotificationMode.allCases.map(commentModeColumnWidth(for:))
-        return widths.reduce(0, +) + columnSpacing * CGFloat(widths.count - 1)
-    }
-
-    /// Names a row's comment-mode radio group, like the upper matrix's "<relationship> <activity>" checkboxes.
+    /// Names a relationship's comment-mode radio group, like the upper table's "<relationship> <activity>" checkboxes.
     static func commentModeAccessibilityLabel(for relationship: PullRequestNotificationRelationship) -> String {
         "\(relationship.title) comment notifications"
-    }
-
-    static func commentModeColumnWidth(for mode: CommentNotificationMode) -> CGFloat {
-        switch mode {
-        case .all:
-            78
-        case .mentionsAndThreads:
-            110
-        case .off:
-            40
-        }
     }
 }
 
@@ -934,6 +915,32 @@ extension PullRequestNotificationRelationship {
             "Direct review requests"
         case .teamReviewRequest:
             "Team review requests"
+        }
+    }
+
+    var columnTitle: String {
+        switch self {
+        case .authored:
+            "Authored"
+        case .assigned:
+            "Assigned"
+        case .directReviewRequest:
+            "Direct"
+        case .teamReviewRequest:
+            "Team"
+        }
+    }
+
+    var columnHelp: String {
+        switch self {
+        case .authored:
+            "PRs you opened"
+        case .assigned:
+            "PRs assigned to you"
+        case .directReviewRequest:
+            "Your review was requested by name"
+        case .teamReviewRequest:
+            "A team you belong to was requested"
         }
     }
 }
@@ -952,14 +959,14 @@ extension CommentNotificationMode {
 }
 
 extension PullRequestNotificationActivity {
-    var columnTitle: String {
+    var rowTitle: String {
         switch self {
         case .reviewActivity:
             "Review decisions"
         case .ciFailures:
             "CI failed"
         case .relationshipChanges:
-            "Assigned/\nRequested"
+            "Assigned or requested"
         }
     }
 
