@@ -80,11 +80,24 @@ final class SettingsViewTests: XCTestCase {
             ]
         )
         XCTAssertEqual(
-            PullRequestNotificationActivity.allCases.map { "\(PullRequestNotificationRelationship.directReviewRequest.title) \($0.accessibilityTitle)" },
+            PullRequestNotificationActivity.allCases.map {
+                NotificationMatrixLayout.checkboxAccessibilityLabel(relationship: .directReviewRequest, activity: $0)
+            },
             [
                 "Direct review requests review decisions",
                 "Direct review requests CI failures",
                 "Direct review requests assigned or requested",
+            ]
+        )
+        XCTAssertEqual(
+            PullRequestNotificationRelationship.allCases.map {
+                NotificationMatrixLayout.checkboxAccessibilityLabel(relationship: $0, activity: .reviewActivity)
+            },
+            [
+                "Authored PRs review decisions",
+                "Assigned PRs review decisions",
+                "Direct review requests review decisions",
+                "Team review requests review decisions",
             ]
         )
         XCTAssertEqual(NotificationMatrixLayout.tableWidth, 414)

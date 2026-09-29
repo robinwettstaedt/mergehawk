@@ -684,7 +684,9 @@ struct NotificationSettingsView: View {
                                         .labelsHidden()
                                         .toggleStyle(.checkbox)
                                         .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
-                                        .accessibilityLabel("\(relationship.title) \(activity.accessibilityTitle)")
+                                        .accessibilityLabel(
+                                            NotificationMatrixLayout.checkboxAccessibilityLabel(relationship: relationship, activity: activity)
+                                        )
                                 } else {
                                     Text("—")
                                         .foregroundStyle(.secondary)
@@ -905,6 +907,14 @@ enum NotificationMatrixLayout {
         case .reviewActivity, .ciFailures:
             true
         }
+    }
+
+    /// Names an upper-table checkbox by its relationship and update type.
+    static func checkboxAccessibilityLabel(
+        relationship: PullRequestNotificationRelationship,
+        activity: PullRequestNotificationActivity
+    ) -> String {
+        "\(relationship.title) \(activity.accessibilityTitle)"
     }
 
     /// Names a relationship's comment-mode radio group, like the upper table's "<relationship> <activity>" checkboxes.
