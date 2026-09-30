@@ -34,4 +34,12 @@ final class MenuMetricsTests: XCTestCase {
     func testFooterSeparatorLineStaysOnePoint() {
         XCTAssertEqual(MenuMetrics.hairline, 1)
     }
+
+    func testActionsColumnIsExactlyTheActionButtonHitSize() {
+        XCTAssertEqual(metrics.prColumns.actionsWidth, metrics.prColumns.actionButtonHitSize)
+    }
+
+    func testAvatarKeepsItsSize() {
+        XCTAssertEqual(metrics.prColumns.avatarSize, 22)
+    }
 }

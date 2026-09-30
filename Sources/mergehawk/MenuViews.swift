@@ -1363,6 +1363,7 @@ struct PullRequestListView: View {
     @Binding var dropdownState: PullRequestMenuDropdownState
     @State private var isHiddenExpanded: Bool
     @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
+    @Environment(\.menuMetrics) private var metrics
 
     init(
         controller: DashboardController,
@@ -1427,7 +1428,7 @@ struct PullRequestListView: View {
             EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
         } else {
             ScrollView(.vertical) {
-                LazyVStack(spacing: PullRequestColumnLayout.rowSpacing) {
+                LazyVStack(spacing: metrics.prColumns.rowSpacing) {
                     PullRequestColumnHeader()
 
                     ForEach(visiblePullRequests) { pr in
@@ -1467,7 +1468,7 @@ struct PullRequestListView: View {
     }
 
     private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
-        VStack(spacing: PullRequestColumnLayout.rowSpacing) {
+        VStack(spacing: metrics.prColumns.rowSpacing) {
             requestedSectionDisclosure(content)
 
             if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
@@ -1833,16 +1834,17 @@ private struct PullRequestNotificationRow: View {
     let onMarkRead: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Button(action: action) {
-                HStack(alignment: .center, spacing: PullRequestColumnLayout.identitySpacing) {
+                HStack(alignment: .center, spacing: metrics.prColumns.identitySpacing) {
                     Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
-                        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
-                    VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
+                        .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
+                    VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(title)
                                 .font(.subheadline.weight(.semibold))
@@ -1859,8 +1861,8 @@ private struct PullRequestNotificationRow: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-                .padding(.vertical, PullRequestColumnLayout.verticalInset)
+                .padding(.horizontal, metrics.prColumns.horizontalInset)
+                .padding(.vertical, metrics.prColumns.verticalInset)
                 .transparentCardStyle(
                     accentColor: notification.read ? nil : .accentColor,
                     isHovered: isHovered
@@ -1953,22 +1955,6 @@ private struct PullRequestNotificationRow: View {
     private static let minimumPRTitleWidth: CGFloat = 40
 }
 
-enum PullRequestColumnLayout {
-    static let spacing: CGFloat = 6
-    static let rowSpacing: CGFloat = 7
-    static let headerHeight: CGFloat = 32
-    static let horizontalInset: CGFloat = 10
-    static let verticalInset: CGFloat = 8
-    static let avatarSize: CGFloat = 22
-    static let identitySpacing: CGFloat = 7
-    static let identityLineSpacing: CGFloat = 4
-    static let commentsWidth: CGFloat = 30
-    static let statusWidth: CGFloat = 30
-    static let changesWidth: CGFloat = 49
-    static let ageWidth: CGFloat = 30
-    static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize
-}
-
 struct RequestedSectionHeading: View {
     let section: DashboardController.RequestedSection
     let count: Int
@@ -1976,8 +1962,10 @@ struct RequestedSectionHeading: View {
     var previewHoveredColumn: PullRequestColumnLegend.Column? = nil
     let action: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             Button(action: action) {
                 HStack(spacing: 8) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
@@ -1993,7 +1981,7 @@ struct RequestedSectionHeading: View {
                         .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
                     Spacer(minLength: 0)
                 }
-                .frame(height: PullRequestColumnLayout.headerHeight)
+                .frame(height: metrics.prColumns.headerHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -2005,20 +1993,22 @@ struct RequestedSectionHeading: View {
                 PullRequestColumnLegend(previewHoveredColumn: previewHoveredColumn)
             }
         }
-        .padding(.trailing, PullRequestColumnLayout.horizontalInset)
-        .frame(height: PullRequestColumnLayout.headerHeight)
+        .padding(.trailing, metrics.prColumns.horizontalInset)
+        .frame(height: metrics.prColumns.headerHeight)
         .zIndex(1)
     }
 }
 
 struct PullRequestColumnHeader: View {
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             Color.clear.frame(maxWidth: .infinity).accessibilityHidden(true)
             PullRequestColumnLegend()
         }
-        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .frame(height: PullRequestColumnLayout.headerHeight)
+        .padding(.horizontal, metrics.prColumns.horizontalInset)
+        .frame(height: metrics.prColumns.headerHeight)
         .zIndex(1)
     }
 }
@@ -2060,27 +2050,28 @@ struct PullRequestColumnLegend: View {
             }
         }
 
-        var width: CGFloat {
+        func width(in columns: MenuMetrics.PRColumns) -> CGFloat {
             switch self {
-            case .comments: PullRequestColumnLayout.commentsWidth
-            case .review, .ci, .mergeStatus: PullRequestColumnLayout.statusWidth
-            case .changes: PullRequestColumnLayout.changesWidth
-            case .time: PullRequestColumnLayout.ageWidth
+            case .comments: columns.commentsWidth
+            case .review, .ci, .mergeStatus: columns.statusWidth
+            case .changes: columns.changesWidth
+            case .time: columns.ageWidth
             }
         }
     }
 
     var previewHoveredColumn: Column? = nil
     @State private var hoveredColumn: Column?
+    @Environment(\.menuMetrics) private var metrics
 
     private var activeColumn: Column? { previewHoveredColumn ?? hoveredColumn }
 
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             ForEach(Column.allCases) { column in
                 columnHeader(column)
             }
-            Color.clear.frame(width: PullRequestColumnLayout.actionsWidth, height: 1)
+            Color.clear.frame(width: metrics.prColumns.actionsWidth, height: 1)
                 .accessibilityHidden(true)
         }
         .font(.caption2.weight(.semibold))
@@ -2091,7 +2082,7 @@ struct PullRequestColumnLegend: View {
     private func columnHeader(_ column: Column) -> some View {
         column.icon
             .font(.system(size: 13, weight: .semibold))
-            .frame(width: column.width, height: 22)
+            .frame(width: column.width(in: metrics.prColumns), height: 22)
             .contentShape(Rectangle())
             .onHover { isHovered in
                 if isHovered {
@@ -2136,33 +2127,34 @@ struct PullRequestRow: View {
 
     @Environment(\.menuNow) private var menuNow
     @State private var isHovered = false
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             Button(action: action) {
-                HStack(spacing: PullRequestColumnLayout.spacing) {
-                    HStack(spacing: PullRequestColumnLayout.identitySpacing) {
+                HStack(spacing: metrics.prColumns.spacing) {
+                    HStack(spacing: metrics.prColumns.identitySpacing) {
                         PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
                         identity
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
-                        .frame(width: PullRequestColumnLayout.changesWidth)
+                        .frame(width: metrics.prColumns.changesWidth)
                     CommentCountIndicator(count: pullRequest.commentCount)
-                        .frame(width: PullRequestColumnLayout.commentsWidth)
+                        .frame(width: metrics.prColumns.commentsWidth)
                     CIStatusIndicator(ciState: pullRequest.ciState)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
+                        .frame(width: metrics.prColumns.statusWidth)
                     MergeConflictIndicator(mergeable: pullRequest.mergeable)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
+                        .frame(width: metrics.prColumns.statusWidth)
                     ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
+                        .frame(width: metrics.prColumns.statusWidth)
                     VStack(alignment: .trailing, spacing: 0) {
                         ageCell(pullRequest.updatedAt, field: .updated)
                         ageCell(pullRequest.createdAt, field: .opened)
                     }
                     .fixedSize(horizontal: true, vertical: false)
-                    .frame(width: PullRequestColumnLayout.ageWidth, height: 30)
+                    .frame(width: metrics.prColumns.ageWidth, height: 30)
                 }
                 .contentShape(Rectangle())
             }
@@ -2172,7 +2164,7 @@ struct PullRequestRow: View {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 12, weight: .semibold))
                     .rotationEffect(.degrees(90))
-                    .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
+                    .frame(width: metrics.prColumns.actionButtonHitSize, height: metrics.prColumns.actionButtonHitSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -2192,10 +2184,10 @@ struct PullRequestRow: View {
                     ) : nil
                 )
             }
-            .frame(width: PullRequestColumnLayout.actionsWidth)
+            .frame(width: metrics.prColumns.actionsWidth)
         }
-        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .padding(.vertical, PullRequestColumnLayout.verticalInset)
+        .padding(.horizontal, metrics.prColumns.horizontalInset)
+        .padding(.vertical, metrics.prColumns.verticalInset)
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
     }
@@ -2210,7 +2202,7 @@ struct PullRequestRow: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
+        VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             HStack(spacing: 4) {
                 if pullRequest.draft { DraftPullRequestIndicator() }
                 Text(pullRequest.title)
@@ -2254,6 +2246,8 @@ private struct PullRequestAuthorAvatar: View {
     let author: String
     let url: URL?
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Group {
             if let url {
@@ -2268,7 +2262,7 @@ private struct PullRequestAuthorAvatar: View {
                 placeholder
             }
         }
-        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
+        .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
         .clipShape(Circle())
         .help("Author: \(author)")
         .accessibilityLabel("Author: \(author)")
@@ -2282,10 +2276,6 @@ private struct PullRequestAuthorAvatar: View {
             .symbolRenderingMode(.monochrome)
             .foregroundColor(Color.gray)
     }
-}
-
-private enum PullRequestActionButtonLayout {
-    static let hitSize: CGFloat = 28
 }
 
 private struct DraftPullRequestIndicator: View {
@@ -2701,6 +2691,8 @@ struct PullRequestChangesIndicator: View {
     let additions: Int?
     let deletions: Int?
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Group {
             if let additions, let deletions {
@@ -2719,7 +2711,7 @@ struct PullRequestChangesIndicator: View {
         .font(.caption2.monospacedDigit().weight(.semibold))
         .lineLimit(1)
         .minimumScaleFactor(0.8)
-        .frame(width: PullRequestColumnLayout.changesWidth, height: 30)
+        .frame(width: metrics.prColumns.changesWidth, height: 30)
         .contentShape(Rectangle())
         .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
         .accessibilityElement(children: .ignore)

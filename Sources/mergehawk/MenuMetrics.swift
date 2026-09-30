@@ -81,6 +81,25 @@ struct MenuMetrics: Equatable {
         var segmentDividerHeight: CGFloat { segmentedHeight - 2 * segmentDividerVerticalInset }
     }
 
+    /// Shared by the column header, the requested section headings and every PR row, so columns line up.
+    struct PRColumns: Equatable {
+        var spacing: CGFloat
+        var rowSpacing: CGFloat
+        var headerHeight: CGFloat
+        var horizontalInset: CGFloat
+        var verticalInset: CGFloat
+        var avatarSize: CGFloat
+        var identitySpacing: CGFloat
+        var identityLineSpacing: CGFloat
+        var commentsWidth: CGFloat
+        var statusWidth: CGFloat
+        var changesWidth: CGFloat
+        var ageWidth: CGFloat
+        var actionButtonHitSize: CGFloat
+
+        var actionsWidth: CGFloat { actionButtonHitSize }
+    }
+
     struct Footer: Equatable {
         static let rowCount: CGFloat = 4
 
@@ -109,6 +128,7 @@ struct MenuMetrics: Equatable {
     var topBar: TopBar
     var tabSwitcher: TabSwitcher
     var controls: Controls
+    var prColumns: PRColumns
     var footer: Footer
 
     var panelHeight: CGFloat { panel.contentHeight + footer.height }
@@ -146,6 +166,21 @@ struct MenuMetrics: Equatable {
             segmentSelectionInset: 2,
             segmentSelectionCornerRadius: 5,
             segmentDividerVerticalInset: 7
+        ),
+        prColumns: PRColumns(
+            spacing: 6,
+            rowSpacing: 7,
+            headerHeight: 32,
+            horizontalInset: 10,
+            verticalInset: 8,
+            avatarSize: 22,
+            identitySpacing: 7,
+            identityLineSpacing: 4,
+            commentsWidth: 30,
+            statusWidth: 30,
+            changesWidth: 49,
+            ageWidth: 30,
+            actionButtonHitSize: 28
         ),
         footer: Footer(
             itemFont: NativeMenuFontToken(size: NSFont.menuFont(ofSize: 0).pointSize),
