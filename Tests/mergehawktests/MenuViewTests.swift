@@ -90,7 +90,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(laptop.width, 820)
         XCTAssertLessThan(laptop.height, metrics.panelHeight)
         XCTAssertLessThanOrEqual(laptop.height + MenuPanelSize.margin * 2, laptopUsableFrame.height)
-        XCTAssertGreaterThan(laptop.height, metrics.footerHeight + metrics.topBar.height)
+        XCTAssertGreaterThan(laptop.height, metrics.footer.height + metrics.topBar.height)
 
         let narrow = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 760, height: 600), metrics: metrics)
         XCTAssertLessThanOrEqual(narrow.width + MenuPanelSize.margin * 2, 760)

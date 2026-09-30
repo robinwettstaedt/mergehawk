@@ -18,6 +18,16 @@ struct MenuMetrics: Equatable {
         }
     }
 
+    /// The system menu font at an inspectable point size, used for native-looking menu rows.
+    struct NativeMenuFontToken: Equatable {
+        var size: CGFloat
+
+        var font: Font { Font(NSFont.menuFont(ofSize: size)) }
+    }
+
+    /// Separators and borders: never a token, never scaled.
+    static let hairline: CGFloat = 1
+
     struct TypeScale: Equatable {
         /// The "MergeHawk" title shown in the top bar while signed out.
         var panelTitle: FontToken
@@ -47,19 +57,36 @@ struct MenuMetrics: Equatable {
         var textSegmentWidth: CGFloat { (width - notificationSegmentWidth) / 2 }
     }
 
+    struct Footer: Equatable {
+        static let rowCount: CGFloat = 4
+
+        var itemFont: NativeMenuFontToken
+        var separatorHorizontalPadding: CGFloat
+        var separatorVerticalPadding: CGFloat
+        var rowHeight: CGFloat
+        var selectionInsetX: CGFloat
+        var selectionInsetY: CGFloat
+        var selectionCornerRadius: CGFloat
+        var titleLeading: CGFloat
+        var shortcutTrailing: CGFloat
+        var shortcutColumnSpacing: CGFloat
+        /// Reserve one key column so every shortcut has the same width and each ⌘ aligns.
+        var shortcutKeyColumnWidth: CGFloat
+
+        var separatorHeight: CGFloat { MenuMetrics.hairline + 2 * separatorVerticalPadding }
+        /// Breathing room between the last footer row and the menu's bottom rounded corner,
+        /// intentionally mirroring the separator gap above the first footer row.
+        var bottomPadding: CGFloat { separatorVerticalPadding }
+        var height: CGFloat { separatorHeight + Self.rowCount * rowHeight + bottomPadding }
+    }
+
     var type: TypeScale
     var panel: Panel
     var topBar: TopBar
     var tabSwitcher: TabSwitcher
+    var footer: Footer
 
-    private static let footerRowCount: CGFloat = 4
-
-    var footerHeight: CGFloat {
-        FooterSeparatorLayout.height + Self.footerRowCount * FooterActionLayout.rowHeight
-            + FooterActionLayout.footerBottomPadding
-    }
-
-    var panelHeight: CGFloat { panel.contentHeight + footerHeight }
+    var panelHeight: CGFloat { panel.contentHeight + footer.height }
 
     var panelSize: CGSize { CGSize(width: panel.width, height: panelHeight) }
 
@@ -76,7 +103,20 @@ struct MenuMetrics: Equatable {
             headerControlsTrailingSpacing: 8,
             refreshStatusWidth: 58
         ),
-        tabSwitcher: TabSwitcher(width: 320, leadingInset: 5, notificationSegmentWidth: 64)
+        tabSwitcher: TabSwitcher(width: 320, leadingInset: 5, notificationSegmentWidth: 64),
+        footer: Footer(
+            itemFont: NativeMenuFontToken(size: NSFont.menuFont(ofSize: 0).pointSize),
+            separatorHorizontalPadding: 10,
+            separatorVerticalPadding: 6,
+            rowHeight: 24,
+            selectionInsetX: 5,
+            selectionInsetY: 1,
+            selectionCornerRadius: 5,
+            titleLeading: 14,
+            shortcutTrailing: 9,
+            shortcutColumnSpacing: 2,
+            shortcutKeyColumnWidth: 12
+        )
     )
 }
 

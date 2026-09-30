@@ -488,7 +488,7 @@ struct MenuRootView: View {
                 quit()
             }
         }
-        .padding(.bottom, FooterActionLayout.footerBottomPadding)
+        .padding(.bottom, metrics.footer.bottomPadding)
     }
 
     private var menuSurface: some View {
@@ -588,6 +588,7 @@ final class MenuFooterModel: ObservableObject {
     @Published private(set) var refreshFlashCount: Int = 0
     @Published fileprivate var isFlashing: Bool = false
 
+    private static let keyboardSelectionDuration: TimeInterval = 0.1
     private var flashResetWorkItem: DispatchWorkItem?
 
     func flashRefresh() {
@@ -599,42 +600,21 @@ final class MenuFooterModel: ObservableObject {
         }
         flashResetWorkItem = resetWorkItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + FooterActionLayout.keyboardSelectionDuration,
+            deadline: .now() + Self.keyboardSelectionDuration,
             execute: resetWorkItem
         )
     }
 }
 
-enum FooterSeparatorLayout {
-    static let horizontalPadding: CGFloat = 10
-    static let verticalPadding: CGFloat = 6
-    static let height: CGFloat = 13
-}
-
-enum FooterActionLayout {
-    static let rowHeight: CGFloat = 24
-    // Breathing room between the last footer row and the menu's bottom rounded corner,
-    // intentionally mirroring the separator gap above the first footer row.
-    static let footerBottomPadding: CGFloat = FooterSeparatorLayout.verticalPadding
-    static let selectionInsetX: CGFloat = 5
-    static let selectionInsetY: CGFloat = 1
-    static let selectionCornerRadius: CGFloat = 5
-    static let titleLeading: CGFloat = 14
-    static let shortcutTrailing: CGFloat = 9
-    static let shortcutColumnSpacing: CGFloat = 2
-    // Reserve one key column so every shortcut has the same width and each ⌘ aligns.
-    static let shortcutKeyColumnWidth: CGFloat = 12
-    static let keyboardSelectionDuration: TimeInterval = 0.1
-    static let mouseClickFeedbackDuration: TimeInterval = 0.12
-}
-
 struct FooterSeparatorView: View {
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
-            .frame(height: 1)
-            .padding(.horizontal, FooterSeparatorLayout.horizontalPadding)
-            .padding(.vertical, FooterSeparatorLayout.verticalPadding)
+            .frame(height: MenuMetrics.hairline)
+            .padding(.horizontal, metrics.footer.separatorHorizontalPadding)
+            .padding(.vertical, metrics.footer.separatorVerticalPadding)
     }
 }
 
@@ -644,35 +624,36 @@ struct MenuFooterActionRow: View {
     var isFlashed = false
     let action: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
     @State private var isHovering = false
     @StateObject private var clickFeedback = MenuFooterClickFeedback()
 
     var body: some View {
         HStack(spacing: 0) {
             Text(title)
-                .font(.menuFont())
+                .font(metrics.footer.itemFont.font)
                 .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .labelColor))
-                .padding(.leading, FooterActionLayout.titleLeading)
+                .padding(.leading, metrics.footer.titleLeading)
             Spacer(minLength: 0)
             if let shortcutKey {
-                HStack(spacing: FooterActionLayout.shortcutColumnSpacing) {
+                HStack(spacing: metrics.footer.shortcutColumnSpacing) {
                     Text("⌘")
                     Text(shortcutKey)
-                        .frame(width: FooterActionLayout.shortcutKeyColumnWidth, alignment: .leading)
+                        .frame(width: metrics.footer.shortcutKeyColumnWidth, alignment: .leading)
                 }
-                .font(.menuFont())
+                .font(metrics.footer.itemFont.font)
                 .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .tertiaryLabelColor))
-                .padding(.trailing, FooterActionLayout.shortcutTrailing)
+                .padding(.trailing, metrics.footer.shortcutTrailing)
             }
         }
-        .frame(height: FooterActionLayout.rowHeight)
+        .frame(height: metrics.footer.rowHeight)
         .contentShape(Rectangle())
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: FooterActionLayout.selectionCornerRadius)
+                RoundedRectangle(cornerRadius: metrics.footer.selectionCornerRadius)
                     .fill(Color(nsColor: .selectedContentBackgroundColor))
-                    .padding(.horizontal, FooterActionLayout.selectionInsetX)
-                    .padding(.vertical, FooterActionLayout.selectionInsetY)
+                    .padding(.horizontal, metrics.footer.selectionInsetX)
+                    .padding(.vertical, metrics.footer.selectionInsetY)
             }
         }
         .onHover { isHovering = $0 }
@@ -688,6 +669,7 @@ struct MenuFooterActionRow: View {
 
 @MainActor
 final class MenuFooterClickFeedback: ObservableObject {
+    private static let mouseClickFeedbackDuration: TimeInterval = 0.12
     @Published private(set) var suppressesSelection = false
     private(set) var isActive = false
 
@@ -698,19 +680,13 @@ final class MenuFooterClickFeedback: ObservableObject {
 
         isActive = true
         suppressesSelection = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + FooterActionLayout.mouseClickFeedbackDuration) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.mouseClickFeedbackDuration) {
             self.suppressesSelection = false
             DispatchQueue.main.async {
                 self.isActive = false
                 action()
             }
         }
-    }
-}
-
-private extension Font {
-    static func menuFont() -> Font {
-        Font(NSFont.menuFont(ofSize: 0))
     }
 }
 
