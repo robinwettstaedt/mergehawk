@@ -576,6 +576,11 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
+            try renderMenu(
+                controller: controller,
+                to: outputURL.appendingPathComponent("menu-my-prs-actions-open.png"),
+                initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id)
+            )
             try renderHeaderTooltips(
                 pullRequest: XCTUnwrap(controller.requestedSections.first?.visible.first),
                 to: outputURL.appendingPathComponent("menu-header-tooltips.png")
@@ -1091,6 +1096,7 @@ private struct VisualCaptureSelection {
         "menu-final-activity",
         "menu-quiet-retirement",
         "menu-my-prs",
+        "menu-my-prs-actions-open",
         "menu-header-tooltips",
         "menu-my-prs-laptop",
         "menu-my-prs-header-filter-open",
