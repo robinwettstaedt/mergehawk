@@ -131,11 +131,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             ?? statusItem.button?.window?.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSScreen.screens.first?.visibleFrame
-            ?? CGRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
-        let resolvedSize = MenuPanelSize.resolve(availableFrame: screenFrame)
+            ?? CGRect(origin: .zero, size: MenuMetrics.standard.panelSize)
+        let metrics = MenuMetrics.standard
+        let resolvedSize = MenuPanelSize.resolve(availableFrame: screenFrame, metrics: metrics)
         let hostingView = MenuRootHostingView(
             controller: controller,
             footerModel: footerModel,
+            metrics: metrics,
             resolvedSize: resolvedSize,
             initialDropdown: initialDropdown,
             refreshKeyHandler: { [weak self] in
@@ -243,6 +245,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
+        metrics: MenuMetrics,
         resolvedSize: CGSize,
         initialDropdown: PullRequestMenuDropdown?,
         refreshKeyHandler: @escaping () -> Void,
@@ -265,6 +268,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         super.init(rootView: MenuRootView(
             controller: controller,
             footerModel: footerModel,
+            metrics: metrics,
             resolvedSize: resolvedSize,
             initialDropdown: initialDropdown,
             dismissMenu: dismissMenu,

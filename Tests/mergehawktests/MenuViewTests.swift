@@ -80,18 +80,19 @@ final class MenuViewTests: XCTestCase {
     }
 
     func testPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
-        let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000))
+        let metrics = MenuMetrics.standard
+        let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000), metrics: metrics)
         XCTAssertEqual(large.width, 820)
-        XCTAssertEqual(large.height, MenuRootView.Layout.height)
+        XCTAssertEqual(large.height, 765)
 
         let laptopUsableFrame = CGRect(x: 0, y: 28, width: 1280, height: 740)
-        let laptop = MenuPanelSize.resolve(availableFrame: laptopUsableFrame)
+        let laptop = MenuPanelSize.resolve(availableFrame: laptopUsableFrame, metrics: metrics)
         XCTAssertEqual(laptop.width, 820)
-        XCTAssertLessThan(laptop.height, MenuRootView.Layout.height)
+        XCTAssertLessThan(laptop.height, metrics.panelHeight)
         XCTAssertLessThanOrEqual(laptop.height + MenuPanelSize.margin * 2, laptopUsableFrame.height)
-        XCTAssertGreaterThan(laptop.height, MenuRootView.Layout.footerHeight + MenuRootView.Layout.topBarHeight)
+        XCTAssertGreaterThan(laptop.height, metrics.footerHeight + metrics.topBar.height)
 
-        let narrow = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 760, height: 600))
+        let narrow = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 760, height: 600), metrics: metrics)
         XCTAssertLessThanOrEqual(narrow.width + MenuPanelSize.margin * 2, 760)
         XCTAssertLessThanOrEqual(narrow.height + MenuPanelSize.margin * 2, 600)
     }
@@ -102,9 +103,10 @@ final class MenuViewTests: XCTestCase {
         let statusBarController = StatusBarController(controller: controller)
         let frame = CGRect(x: 0, y: 28, width: 1280, height: 740)
         let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
-        let resolved = MenuPanelSize.resolve(availableFrame: frame)
+        let resolved = MenuPanelSize.resolve(availableFrame: frame, metrics: .standard)
         XCTAssertEqual(hosted.frame.size, resolved)
         XCTAssertEqual(hosted.rootView.resolvedSize, resolved)
+        XCTAssertEqual(hosted.rootView.metrics, .standard)
         XCTAssertNil(hosted.rootView.initialDropdown)
     }
 
@@ -451,7 +453,7 @@ final class MenuViewTests: XCTestCase {
 
         for tab in DashboardController.MenuTab.allCases {
             controller.selectedTab = tab
-            let size = CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
+            let size = MenuMetrics.standard.panelSize
             let hostingView = NSHostingView(rootView: MenuRootView(controller: controller, footerModel: MenuFooterModel()))
             hostingView.frame = CGRect(origin: .zero, size: size)
             let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)

@@ -369,25 +369,9 @@ extension EnvironmentValues {
 }
 
 struct MenuRootView: View {
-    enum Layout {
-        static let width: CGFloat = 820
-        static let contentHeight: CGFloat = 650
-        static let footerRowCount: CGFloat = 4
-        static let footerHeight: CGFloat = FooterSeparatorLayout.height + footerRowCount * FooterActionLayout.rowHeight
-            + FooterActionLayout.footerBottomPadding
-        static let height: CGFloat = contentHeight + footerHeight
-        static let topBarHeight: CGFloat = 45
-        static let tabSwitcherWidth: CGFloat = 320
-        static let tabSwitcherLeadingInset: CGFloat = 5
-        static let topBarTrailingInset: CGFloat = 12
-        static let notificationTabSegmentWidth: CGFloat = 64
-        static let topBarControlHeight: CGFloat = 24
-        static let refreshStatusWidth: CGFloat = 58
-        static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
-    }
-
     @ObservedObject var controller: DashboardController
     @ObservedObject var footerModel: MenuFooterModel
+    let metrics: MenuMetrics
     let resolvedSize: CGSize
     let initialDropdown: PullRequestMenuDropdown?
     let dismissMenu: () -> Void
@@ -400,7 +384,8 @@ struct MenuRootView: View {
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
-        resolvedSize: CGSize = CGSize(width: Layout.width, height: Layout.height),
+        metrics: MenuMetrics = .standard,
+        resolvedSize: CGSize = MenuMetrics.standard.panelSize,
         initialDropdown: PullRequestMenuDropdown? = nil,
         dismissMenu: @escaping () -> Void = {},
         showSettings: @escaping () -> Void = {},
@@ -409,6 +394,7 @@ struct MenuRootView: View {
     ) {
         self.controller = controller
         self.footerModel = footerModel
+        self.metrics = metrics
         self.resolvedSize = resolvedSize
         self.initialDropdown = initialDropdown
         self.dismissMenu = dismissMenu
@@ -474,6 +460,7 @@ struct MenuRootView: View {
         .onChange(of: controller.selectedTab) { _, _ in
             dropdownState.dismiss()
         }
+        .environment(\.menuMetrics, metrics)
     }
 
     private var footer: some View {
@@ -519,14 +506,14 @@ struct MenuRootView: View {
                 tabSwitcher
             } else {
                 Text("MergeHawk")
-                    .font(.headline)
+                    .font(metrics.type.panelTitle.font)
             }
             Spacer(minLength: 0)
                 .contentShape(Rectangle())
                 .onTapGesture { dropdownState.dismiss() }
             if let mode = activePullRequestMode, controller.state.authStatus == .signedIn {
                 PullRequestHeaderControls(controller: controller, mode: mode, dropdownState: $dropdownState)
-                    .padding(.trailing, 8)
+                    .padding(.trailing, metrics.topBar.headerControlsTrailingSpacing)
             }
             RefreshStatusControl(
                 indicatorColor: controller.hasAttention ? .red : .green,
@@ -541,14 +528,14 @@ struct MenuRootView: View {
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
                 timestampPrefix: "",
-                width: Self.Layout.refreshStatusWidth,
-                displayMode: .horizontalButton(height: Self.Layout.topBarControlHeight),
+                width: metrics.topBar.refreshStatusWidth,
+                displayMode: .horizontalButton(height: metrics.topBar.controlHeight),
                 showsIndicator: false
             )
         }
-        .padding(.leading, 8)
-        .padding(.trailing, Self.Layout.topBarTrailingInset)
-        .frame(height: Self.Layout.topBarHeight)
+        .padding(.leading, metrics.topBar.leadingInset)
+        .padding(.trailing, metrics.topBar.trailingInset)
+        .frame(height: metrics.topBar.height)
     }
 
     private var activePullRequestMode: PullRequestListView.Mode? {
@@ -564,8 +551,8 @@ struct MenuRootView: View {
             selection: $controller.selectedTab,
             attentionCount: controller.attentionCount
         )
-        .frame(width: Self.Layout.tabSwitcherWidth)
-        .padding(.leading, Self.Layout.tabSwitcherLeadingInset)
+        .frame(width: metrics.tabSwitcher.width)
+        .padding(.leading, metrics.tabSwitcher.leadingInset)
     }
 
     @ViewBuilder
@@ -588,10 +575,10 @@ struct MenuRootView: View {
 enum MenuPanelSize {
     static let margin: CGFloat = 12
 
-    static func resolve(availableFrame: CGRect) -> CGSize {
+    static func resolve(availableFrame: CGRect, metrics: MenuMetrics) -> CGSize {
         CGSize(
-            width: min(MenuRootView.Layout.width, max(0, availableFrame.width - margin * 2)),
-            height: min(MenuRootView.Layout.height, max(0, availableFrame.height - margin * 2))
+            width: min(metrics.panel.width, max(0, availableFrame.width - margin * 2)),
+            height: min(metrics.panelHeight, max(0, availableFrame.height - margin * 2))
         )
     }
 }
@@ -1050,6 +1037,7 @@ struct MenuSegmentedControl<Value: Hashable>: View {
 private struct MenuTabSegmentedControl: View {
     @Binding var selection: DashboardController.MenuTab
     let attentionCount: Int
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         MenuSegmentedControl(selection: $selection, segments: segments)
@@ -1063,14 +1051,14 @@ private struct MenuTabSegmentedControl: View {
                     value: tab,
                     title: MenuNotificationTabPresentation.label(for: attentionCount),
                     systemImageName: "bell",
-                    width: MenuRootView.Layout.notificationTabSegmentWidth,
+                    width: metrics.tabSwitcher.notificationSegmentWidth,
                     help: MenuTabShortcutHint.title(for: tab)
                 )
             case .myPRs, .reviewRequests:
                 MenuSegmentedControl.Segment(
                     value: tab,
                     title: tab.rawValue,
-                    width: MenuRootView.Layout.textTabSegmentWidth,
+                    width: metrics.tabSwitcher.textSegmentWidth,
                     help: MenuTabShortcutHint.title(for: tab)
                 )
             }

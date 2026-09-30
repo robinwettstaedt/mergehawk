@@ -617,7 +617,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(.regularMaterial)
                 .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
                 to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded.png")
             )
             try render(
@@ -629,7 +629,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(.regularMaterial)
                 .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
                 appearance: .aqua,
                 to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded-light.png")
             )
@@ -697,7 +697,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(.regularMaterial)
                 .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded.png")
             )
             try render(
@@ -709,7 +709,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(.regularMaterial)
                 .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
+                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
                 appearance: .aqua,
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded-light.png")
             )
@@ -898,7 +898,7 @@ final class VisualVerificationXCTests: XCTestCase {
 
     @MainActor
     private func renderHeaderTooltips(pullRequest: PullRequest, to url: URL) throws {
-        let size = CGSize(width: MenuRootView.Layout.width, height: 800)
+        let size = CGSize(width: MenuMetrics.standard.panel.width, height: 800)
         let view = ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 36) {
                 ForEach(PullRequestColumnLegend.Column.allCases) { column in
