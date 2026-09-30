@@ -148,37 +148,35 @@ enum PullRequestNotificationIconPresentation {
 }
 
 struct MenuControlButton: View {
-    enum Layout {
-        static let height: CGFloat = 24
-    }
-
     let symbolName: String
     let title: String
     let isOpen: Bool
     let help: String
     let action: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6)
+        let controls = metrics.controls
+        let shape = RoundedRectangle(cornerRadius: controls.cornerRadius)
 
         Button {
             action()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: controls.contentSpacing) {
                 Image(systemName: symbolName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(metrics.type.controlLabel.font)
                 if !title.isEmpty {
                     Text(title)
                         .lineLimit(1)
                 }
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(metrics.type.controlLabel.font)
             .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, title.isEmpty ? 0 : 10)
-            .frame(width: title.isEmpty ? Self.Layout.height : nil, height: Self.Layout.height)
+            .padding(.horizontal, title.isEmpty ? 0 : controls.horizontalPadding)
+            .frame(width: title.isEmpty ? controls.height : nil, height: controls.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -210,19 +208,21 @@ struct SortControlButton: View {
     let toggleDirection: () -> Void
     let openMenu: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
     @State private var directionHovered = false
     @State private var menuHovered = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6)
+        let controls = metrics.controls
+        let shape = RoundedRectangle(cornerRadius: controls.cornerRadius)
 
         HStack(spacing: 0) {
             Button(action: toggleDirection) {
                 Image(systemName: directionSymbolName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(metrics.type.controlLabel.font)
                     .foregroundStyle(Color.secondary)
-                    .frame(width: 26, height: MenuControlButton.Layout.height)
+                    .frame(width: controls.sortDirectionWidth, height: controls.height)
                     .background(HoverFillPresentation.fill(isHovered: directionHovered, colorScheme: colorScheme))
                     .contentShape(Rectangle())
             }
@@ -233,19 +233,19 @@ struct SortControlButton: View {
 
             Rectangle()
                 .fill(MenuControlBorderPresentation.color(colorScheme: colorScheme))
-                .frame(width: 1, height: MenuControlButton.Layout.height - 10)
+                .frame(width: 1, height: controls.sortDividerHeight)
 
             Button(action: openMenu) {
-                HStack(spacing: 6) {
+                HStack(spacing: controls.contentSpacing) {
                     Text(title)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(metrics.type.controlChevron.font)
                 }
-                .font(.system(size: 11, weight: .semibold))
+                .font(metrics.type.controlLabel.font)
                 .foregroundStyle(isMenuOpen ? Color.accentColor : Color.secondary)
-                .padding(.horizontal, 10)
-                .frame(height: MenuControlButton.Layout.height)
+                .padding(.horizontal, controls.horizontalPadding)
+                .frame(height: controls.height)
                 .background(HoverFillPresentation.fill(isHovered: menuHovered, colorScheme: colorScheme))
                 .contentShape(Rectangle())
             }
@@ -933,14 +933,14 @@ struct MenuSegmentedControl<Value: Hashable>: View {
 
     @Binding var selection: Value
     let segments: [Segment]
-    var height: CGFloat = 28
-    var font: Font = .system(size: 13, weight: .medium)
-    var iconPointSize: CGFloat = 12
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
 
+    private var height: CGFloat { metrics.controls.segmentedHeight }
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: metrics.controls.segmentedCornerRadius, style: .continuous)
 
         HStack(spacing: 0) {
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
@@ -963,14 +963,14 @@ struct MenuSegmentedControl<Value: Hashable>: View {
                 selection = segment.value
             }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: metrics.controls.segmentedContentSpacing) {
                 if let name = segment.systemImageName {
                     Image(systemName: name)
-                        .font(.system(size: iconPointSize, weight: .semibold))
+                        .font(metrics.type.segmentIcon.font)
                 }
                 if !segment.title.isEmpty {
                     Text(segment.title)
-                        .font(font)
+                        .font(metrics.type.segmentLabel.font)
                         .lineLimit(1)
                 }
             }
@@ -978,20 +978,24 @@ struct MenuSegmentedControl<Value: Hashable>: View {
             .frame(width: segment.width, height: height)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    let selectedShape = RoundedRectangle(
+                        cornerRadius: metrics.controls.segmentSelectionCornerRadius,
+                        style: .continuous
+                    )
+                    selectedShape
                         .fill(selectedFill)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            selectedShape
                                 .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
                         )
-                        .padding(2)
+                        .padding(metrics.controls.segmentSelectionInset)
                 }
             }
             .overlay(alignment: .leading) {
                 if showsDivider {
                     Rectangle()
                         .fill(MenuControlBorderPresentation.color(colorScheme: colorScheme))
-                        .frame(width: 1, height: height - 14)
+                        .frame(width: 1, height: metrics.controls.segmentDividerHeight)
                 }
             }
             .contentShape(Rectangle())

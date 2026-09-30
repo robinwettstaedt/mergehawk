@@ -31,6 +31,12 @@ struct MenuMetrics: Equatable {
     struct TypeScale: Equatable {
         /// The "MergeHawk" title shown in the top bar while signed out.
         var panelTitle: FontToken
+        /// Titles and symbols in bordered menu controls (filter, sort, mark all as read).
+        var controlLabel: FontToken
+        /// The small disclosure chevron inside a control.
+        var controlChevron: FontToken
+        var segmentLabel: FontToken
+        var segmentIcon: FontToken
     }
 
     struct Panel: Equatable {
@@ -55,6 +61,24 @@ struct MenuMetrics: Equatable {
 
         /// The two text tabs share the width the notification tab leaves.
         var textSegmentWidth: CGFloat { (width - notificationSegmentWidth) / 2 }
+    }
+
+    struct Controls: Equatable {
+        var height: CGFloat
+        var cornerRadius: CGFloat
+        var contentSpacing: CGFloat
+        var horizontalPadding: CGFloat
+        var sortDirectionWidth: CGFloat
+        var sortDividerVerticalInset: CGFloat
+        var segmentedHeight: CGFloat
+        var segmentedCornerRadius: CGFloat
+        var segmentedContentSpacing: CGFloat
+        var segmentSelectionInset: CGFloat
+        var segmentSelectionCornerRadius: CGFloat
+        var segmentDividerVerticalInset: CGFloat
+
+        var sortDividerHeight: CGFloat { height - 2 * sortDividerVerticalInset }
+        var segmentDividerHeight: CGFloat { segmentedHeight - 2 * segmentDividerVerticalInset }
     }
 
     struct Footer: Equatable {
@@ -84,6 +108,7 @@ struct MenuMetrics: Equatable {
     var panel: Panel
     var topBar: TopBar
     var tabSwitcher: TabSwitcher
+    var controls: Controls
     var footer: Footer
 
     var panelHeight: CGFloat { panel.contentHeight + footer.height }
@@ -92,7 +117,11 @@ struct MenuMetrics: Equatable {
 
     static let standard = MenuMetrics(
         type: TypeScale(
-            panelTitle: FontToken(size: 13, weight: .bold)
+            panelTitle: FontToken(size: 13, weight: .bold),
+            controlLabel: FontToken(size: 11, weight: .semibold),
+            controlChevron: FontToken(size: 9, weight: .semibold),
+            segmentLabel: FontToken(size: 13, weight: .medium),
+            segmentIcon: FontToken(size: 12, weight: .semibold)
         ),
         panel: Panel(width: 820, contentHeight: 650),
         topBar: TopBar(
@@ -104,6 +133,20 @@ struct MenuMetrics: Equatable {
             refreshStatusWidth: 58
         ),
         tabSwitcher: TabSwitcher(width: 320, leadingInset: 5, notificationSegmentWidth: 64),
+        controls: Controls(
+            height: 24,
+            cornerRadius: 6,
+            contentSpacing: 6,
+            horizontalPadding: 10,
+            sortDirectionWidth: 26,
+            sortDividerVerticalInset: 5,
+            segmentedHeight: 28,
+            segmentedCornerRadius: 6,
+            segmentedContentSpacing: 5,
+            segmentSelectionInset: 2,
+            segmentSelectionCornerRadius: 5,
+            segmentDividerVerticalInset: 7
+        ),
         footer: Footer(
             itemFont: NativeMenuFontToken(size: NSFont.menuFont(ofSize: 0).pointSize),
             separatorHorizontalPadding: 10,
