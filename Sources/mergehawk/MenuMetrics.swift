@@ -50,6 +50,23 @@ struct MenuMetrics: Equatable {
         var sectionChevron: FontToken
         var sectionHeading: FontToken
         var sectionCount: FontToken
+        /// Titles of PR cards and in-app notification rows.
+        var cardTitle: FontToken
+        /// Author, repository and PR number lines under a card title.
+        var cardMetadata: FontToken
+        var notificationIcon: FontToken
+        var notificationTimestamp: FontToken
+        var markReadSymbol: FontToken
+        var legendLabel: FontToken
+        var legendIcon: FontToken
+        var legendTooltip: FontToken
+        var actionsSymbol: FontToken
+        var ageValue: FontToken
+        /// Comment counts, change counts and other numeric column values.
+        var metricValue: FontToken
+        var signalSymbol: FontToken
+        var draftBadge: FontToken
+        var actionsMenuItem: FontToken
     }
 
     struct Panel: Equatable {
@@ -164,6 +181,85 @@ struct MenuMetrics: Equatable {
         var itemHeight: CGFloat
     }
 
+    struct NotificationList: Equatable {
+        var headerSpacing: CGFloat
+        var headerHorizontalPadding: CGFloat
+        var headerTopPadding: CGFloat
+        var headerBottomPadding: CGFloat
+        var rowSpacing: CGFloat
+        var horizontalPadding: CGFloat
+        var topPadding: CGFloat
+        var bottomPadding: CGFloat
+    }
+
+    struct NotificationRow: Equatable {
+        var titleSpacing: CGFloat
+        var pullRequestLineSpacing: CGFloat
+        var minimumPRTitleWidth: CGFloat
+        var markReadButtonSize: CGFloat
+        /// How far the mark-as-read button sits outside the card's top-leading corner.
+        var markReadOffset: CGFloat
+        var markReadShadowRadius: CGFloat
+        var markReadShadowOffsetY: CGFloat
+    }
+
+    struct PRRow: Equatable {
+        var identityItemSpacing: CGFloat
+        /// Height of the stacked two-line value columns (changes, ages).
+        var valueColumnHeight: CGFloat
+        var draftBadgeHorizontalPadding: CGFloat
+        var draftBadgeVerticalPadding: CGFloat
+    }
+
+    struct Card: Equatable {
+        var cornerRadius: CGFloat
+    }
+
+    struct Legend: Equatable {
+        var height: CGFloat
+        var mergeStatusSymbolSize: CGFloat
+        var mergeStatusStrokeWidth: CGFloat
+        var tooltipHorizontalPadding: CGFloat
+        var tooltipVerticalPadding: CGFloat
+        var tooltipCornerRadius: CGFloat
+        var tooltipShadowRadius: CGFloat
+        var tooltipShadowOffsetY: CGFloat
+        /// Gap between a column heading and its tooltip.
+        var tooltipGap: CGFloat
+
+        var tooltipOffset: CGFloat { height + tooltipGap }
+    }
+
+    struct ActionsMenu: Equatable {
+        static let itemCount: CGFloat = 3
+
+        var width: CGFloat
+        var padding: CGFloat
+        var itemSpacing: CGFloat
+        var itemHeight: CGFloat
+        var itemContentSpacing: CGFloat
+        var itemIconWidth: CGFloat
+        var itemHorizontalPadding: CGFloat
+        var itemCornerRadius: CGFloat
+        var cornerRadius: CGFloat
+        var shadowRadius: CGFloat
+        var shadowOffsetY: CGFloat
+        /// Gap between the actions button and its open menu.
+        var anchorGap: CGFloat
+
+        var height: CGFloat {
+            2 * padding + Self.itemCount * itemHeight + (Self.itemCount - 1) * itemSpacing
+        }
+    }
+
+    struct Indicators: Equatable {
+        var ciDotSize: CGFloat
+        var signalSize: CGFloat
+        var changesRequestedSymbolWidth: CGFloat
+        var changesRequestedSymbolHeight: CGFloat
+        var changesRequestedStrokeWidth: CGFloat
+    }
+
     struct Footer: Equatable {
         static let rowCount: CGFloat = 4
 
@@ -197,6 +293,13 @@ struct MenuMetrics: Equatable {
     var banner: Banner
     var prList: PRList
     var dropdown: Dropdown
+    var notificationList: NotificationList
+    var notificationRow: NotificationRow
+    var prRow: PRRow
+    var card: Card
+    var legend: Legend
+    var actionsMenu: ActionsMenu
+    var indicators: Indicators
     var footer: Footer
 
     /// A dropdown opens below its header control.
@@ -223,7 +326,21 @@ struct MenuMetrics: Equatable {
             dropdownCheckmark: FontToken(size: 11, weight: .semibold),
             sectionChevron: FontToken(size: 12, weight: .semibold),
             sectionHeading: FontToken(size: 13, weight: .semibold),
-            sectionCount: FontToken(size: 10, weight: .semibold, monospacedDigits: true)
+            sectionCount: FontToken(size: 10, weight: .semibold, monospacedDigits: true),
+            cardTitle: FontToken(size: 11, weight: .semibold),
+            cardMetadata: FontToken(size: 10, weight: .medium),
+            notificationIcon: FontToken(size: 17, weight: .medium),
+            notificationTimestamp: FontToken(size: 10, weight: .semibold, monospacedDigits: true),
+            markReadSymbol: FontToken(size: 9, weight: .medium),
+            legendLabel: FontToken(size: 10, weight: .semibold),
+            legendIcon: FontToken(size: 13, weight: .semibold),
+            legendTooltip: FontToken(size: 10, weight: .medium),
+            actionsSymbol: FontToken(size: 12, weight: .semibold),
+            ageValue: FontToken(size: 10, weight: .medium, monospacedDigits: true),
+            metricValue: FontToken(size: 10, weight: .semibold, monospacedDigits: true),
+            signalSymbol: FontToken(size: 12, weight: .semibold),
+            draftBadge: FontToken(size: 9, weight: .semibold),
+            actionsMenuItem: FontToken(size: 12)
         ),
         panel: Panel(width: 820, contentHeight: 650),
         topBar: TopBar(
@@ -304,6 +421,64 @@ struct MenuMetrics: Equatable {
             checkmarkWidth: 12,
             itemHorizontalPadding: 8,
             itemHeight: 24
+        ),
+        notificationList: NotificationList(
+            headerSpacing: 8,
+            headerHorizontalPadding: 12,
+            headerTopPadding: 10,
+            headerBottomPadding: 6,
+            rowSpacing: 8,
+            horizontalPadding: 12,
+            topPadding: 5,
+            bottomPadding: 12
+        ),
+        notificationRow: NotificationRow(
+            titleSpacing: 8,
+            pullRequestLineSpacing: 4,
+            minimumPRTitleWidth: 40,
+            markReadButtonSize: 22,
+            markReadOffset: 6,
+            markReadShadowRadius: 4,
+            markReadShadowOffsetY: 1
+        ),
+        prRow: PRRow(
+            identityItemSpacing: 4,
+            valueColumnHeight: 30,
+            draftBadgeHorizontalPadding: 6,
+            draftBadgeVerticalPadding: 2
+        ),
+        card: Card(cornerRadius: 8),
+        legend: Legend(
+            height: 22,
+            mergeStatusSymbolSize: 14,
+            mergeStatusStrokeWidth: 1.4,
+            tooltipHorizontalPadding: 8,
+            tooltipVerticalPadding: 5,
+            tooltipCornerRadius: 6,
+            tooltipShadowRadius: 4,
+            tooltipShadowOffsetY: 2,
+            tooltipGap: 4
+        ),
+        actionsMenu: ActionsMenu(
+            width: 156,
+            padding: 6,
+            itemSpacing: 2,
+            itemHeight: 26,
+            itemContentSpacing: 8,
+            itemIconWidth: 16,
+            itemHorizontalPadding: 6,
+            itemCornerRadius: 4,
+            cornerRadius: 7,
+            shadowRadius: 8,
+            shadowOffsetY: 3,
+            anchorGap: 4
+        ),
+        indicators: Indicators(
+            ciDotSize: 8,
+            signalSize: 17,
+            changesRequestedSymbolWidth: 13,
+            changesRequestedSymbolHeight: 15,
+            changesRequestedStrokeWidth: 1.3
         ),
         footer: Footer(
             itemFont: NativeMenuFontToken(size: NSFont.menuFont(ofSize: 0).pointSize),

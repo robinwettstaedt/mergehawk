@@ -42,4 +42,9 @@ final class MenuMetricsTests: XCTestCase {
     func testAvatarKeepsItsSize() {
         XCTAssertEqual(metrics.prColumns.avatarSize, 22)
     }
+
+    func testActionsMenuHeightFollowsItsItemsAndKeepsItsSize() {
+        // No capture opens the PR actions menu, so its derived height is checked here.
+        XCTAssertEqual(metrics.actionsMenu.height, 94)
+    }
 }

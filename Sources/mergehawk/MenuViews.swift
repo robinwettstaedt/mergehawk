@@ -433,6 +433,7 @@ struct MenuRootView: View {
             if let menu = anchors.openMenu {
                 GeometryReader { geometry in
                     let anchor = geometry[menu.bounds]
+                    let actionsMenu = metrics.actionsMenu
                     PullRequestActionsMenu(
                         url: menu.url,
                         isHidden: menu.isHidden,
@@ -442,10 +443,10 @@ struct MenuRootView: View {
                         dismiss: { dropdownState.dismiss() }
                     )
                     .offset(
-                        x: max(0, anchor.maxX - PullRequestActionsMenu.width),
-                        y: anchor.maxY + PullRequestActionsMenu.height + 4 <= geometry.size.height
-                            ? anchor.maxY + 4
-                            : max(0, anchor.minY - PullRequestActionsMenu.height - 4)
+                        x: max(0, anchor.maxX - actionsMenu.width),
+                        y: anchor.maxY + actionsMenu.height + actionsMenu.anchorGap <= geometry.size.height
+                            ? anchor.maxY + actionsMenu.anchorGap
+                            : max(0, anchor.minY - actionsMenu.height - actionsMenu.anchorGap)
                     )
                 }
             }
@@ -1076,9 +1077,12 @@ enum MenuNotificationTabPresentation {
 private struct NotificationListView: View {
     @ObservedObject var controller: DashboardController
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
+        let list = metrics.notificationList
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: list.headerSpacing) {
                 Spacer()
 
                 if !controller.visiblePullRequestNotifications.isEmpty {
@@ -1092,9 +1096,9 @@ private struct NotificationListView: View {
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+            .padding(.horizontal, list.headerHorizontalPadding)
+            .padding(.top, list.headerTopPadding)
+            .padding(.bottom, list.headerBottomPadding)
 
             if controller.showsGitHubAppRepositoryAccessPrompt {
                 GitHubAppRepositoryAccessPrompt(controller: controller)
@@ -1102,7 +1106,7 @@ private struct NotificationListView: View {
                 EmptyMenuState(text: "No PR notifications.")
             } else {
                 ScrollView(.vertical) {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: list.rowSpacing) {
                         ForEach(controller.visiblePullRequestNotifications) { notification in
                             PullRequestNotificationRow(notification: notification) {
                                 controller.openPullRequestNotification(notification)
@@ -1111,9 +1115,9 @@ private struct NotificationListView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 5)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, list.horizontalPadding)
+                    .padding(.top, list.topPadding)
+                    .padding(.bottom, list.bottomPadding)
                 }
             }
         }
@@ -1847,18 +1851,18 @@ private struct PullRequestNotificationRow: View {
             Button(action: action) {
                 HStack(alignment: .center, spacing: metrics.prColumns.identitySpacing) {
                     Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
-                        .font(.system(size: 17, weight: .medium))
+                        .font(metrics.type.notificationIcon.font)
                         .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
                         .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
                     VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
                             Text(title)
-                                .font(.subheadline.weight(.semibold))
+                                .font(metrics.type.cardTitle.font)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
-                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                .font(metrics.type.notificationTimestamp.font)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
@@ -1879,18 +1883,18 @@ private struct PullRequestNotificationRow: View {
             if isHovered && !notification.read {
                 Button(action: onMarkRead) {
                     Image(systemName: NotificationReadPresentation.symbolName)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(metrics.type.markReadSymbol.font)
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22)
+                        .frame(width: row.markReadButtonSize, height: row.markReadButtonSize)
                         .background(.regularMaterial, in: Circle())
                         .overlay(
                             Circle()
                                 .stroke(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
                         )
-                        .shadow(color: .black.opacity(0.16), radius: 4, y: 1)
+                        .shadow(color: .black.opacity(0.16), radius: row.markReadShadowRadius, y: row.markReadShadowOffsetY)
                 }
                 .buttonStyle(.plain)
-                .offset(x: -6, y: -6)
+                .offset(x: -row.markReadOffset, y: -row.markReadOffset)
                 .help(NotificationReadPresentation.markOneHelp)
                 .accessibilityLabel(NotificationReadPresentation.markPRAccessibilityLabel)
             }
@@ -1902,9 +1906,11 @@ private struct PullRequestNotificationRow: View {
         PullRequestNotificationTitlePresentation.title(for: notification)
     }
 
+    private var row: MenuMetrics.NotificationRow { metrics.notificationRow }
+
     private var pullRequestLine: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 4) {
+            HStack(spacing: row.pullRequestLineSpacing) {
                 Text(notification.repo)
                     .fixedSize(horizontal: true, vertical: false)
                 Text(verbatim: "#\(notification.prNumber)")
@@ -1914,7 +1920,7 @@ private struct PullRequestNotificationRow: View {
                 Text(verbatim: notification.prTitle)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            HStack(spacing: 4) {
+            HStack(spacing: row.pullRequestLineSpacing) {
                 Text(notification.repo)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -1926,13 +1932,13 @@ private struct PullRequestNotificationRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(
-                        minWidth: Self.minimumPRTitleWidth,
-                        idealWidth: Self.minimumPRTitleWidth,
+                        minWidth: row.minimumPRTitleWidth,
+                        idealWidth: row.minimumPRTitleWidth,
                         maxWidth: .infinity,
                         alignment: .leading
                     )
             }
-            HStack(spacing: 4) {
+            HStack(spacing: row.pullRequestLineSpacing) {
                 Text(notification.repo)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -1942,7 +1948,7 @@ private struct PullRequestNotificationRow: View {
                     .layoutPriority(2)
             }
         }
-        .font(.caption2.weight(.medium))
+        .font(metrics.type.cardMetadata.font)
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(pullRequestHelp)
@@ -1957,8 +1963,6 @@ private struct PullRequestNotificationRow: View {
     private var pullRequestAccessibilityLabel: String {
         "\(notification.repo)#\(notification.prNumber), \(notification.prTitle)"
     }
-
-    private static let minimumPRTitleWidth: CGFloat = 40
 }
 
 struct RequestedSectionHeading: View {
@@ -2031,15 +2035,15 @@ struct PullRequestColumnLegend: View {
         var id: Self { self }
 
         @ViewBuilder
-        var icon: some View {
+        func icon(in legend: MenuMetrics.Legend) -> some View {
             switch self {
             case .comments: Image(systemName: "bubble.left")
             case .review: Image(systemName: "person.crop.circle.badge.checkmark")
             case .ci: Image(systemName: "checkmark.circle")
             case .mergeStatus:
                 MergeStatusSymbol()
-                    .stroke(style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
-                    .frame(width: 14, height: 14)
+                    .stroke(style: StrokeStyle(lineWidth: legend.mergeStatusStrokeWidth, lineCap: .round, lineJoin: .round))
+                    .frame(width: legend.mergeStatusSymbolSize, height: legend.mergeStatusSymbolSize)
             case .changes: Image(systemName: "plusminus")
             case .time: Image(systemName: "clock.arrow.circlepath")
             }
@@ -2080,15 +2084,16 @@ struct PullRequestColumnLegend: View {
             Color.clear.frame(width: metrics.prColumns.actionsWidth, height: 1)
                 .accessibilityHidden(true)
         }
-        .font(.caption2.weight(.semibold))
+        .font(metrics.type.legendLabel.font)
         .foregroundStyle(.secondary)
-        .frame(height: 22)
+        .frame(height: metrics.legend.height)
     }
 
     private func columnHeader(_ column: Column) -> some View {
-        column.icon
-            .font(.system(size: 13, weight: .semibold))
-            .frame(width: column.width(in: metrics.prColumns), height: 22)
+        let legend = metrics.legend
+        return column.icon(in: legend)
+            .font(metrics.type.legendIcon.font)
+            .frame(width: column.width(in: metrics.prColumns), height: legend.height)
             .contentShape(Rectangle())
             .onHover { isHovered in
                 if isHovered {
@@ -2100,18 +2105,18 @@ struct PullRequestColumnLegend: View {
             .overlay(alignment: .top) {
                 if activeColumn == column {
                     Text(column.label)
-                        .font(.caption.weight(.medium))
+                        .font(metrics.type.legendTooltip.font)
                         .foregroundStyle(Color(nsColor: .labelColor))
                         .fixedSize()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(.horizontal, legend.tooltipHorizontalPadding)
+                        .padding(.vertical, legend.tooltipVerticalPadding)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: legend.tooltipCornerRadius))
                         .overlay {
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: legend.tooltipCornerRadius)
                                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                         }
-                        .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
-                        .offset(y: 26)
+                        .shadow(color: .black.opacity(0.16), radius: legend.tooltipShadowRadius, y: legend.tooltipShadowOffsetY)
+                        .offset(y: legend.tooltipOffset)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -2160,7 +2165,7 @@ struct PullRequestRow: View {
                         ageCell(pullRequest.createdAt, field: .opened)
                     }
                     .fixedSize(horizontal: true, vertical: false)
-                    .frame(width: metrics.prColumns.ageWidth, height: 30)
+                    .frame(width: metrics.prColumns.ageWidth, height: metrics.prRow.valueColumnHeight)
                 }
                 .contentShape(Rectangle())
             }
@@ -2168,7 +2173,7 @@ struct PullRequestRow: View {
 
             Button(action: toggleActions) {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(metrics.type.actionsSymbol.font)
                     .rotationEffect(.degrees(90))
                     .frame(width: metrics.prColumns.actionButtonHitSize, height: metrics.prColumns.actionButtonHitSize)
                     .contentShape(Rectangle())
@@ -2200,7 +2205,7 @@ struct PullRequestRow: View {
 
     private func ageCell(_ date: Date, field: PullRequestAgePresentation.Field) -> some View {
         Text(PullRequestAgePresentation.shortText(for: date, now: menuNow))
-            .font(.caption2.monospacedDigit().weight(.medium))
+            .font(metrics.type.ageValue.font)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .help(PullRequestAgePresentation.label(for: date, field: field, now: menuNow))
@@ -2209,10 +2214,10 @@ struct PullRequestRow: View {
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
-            HStack(spacing: 4) {
+            HStack(spacing: metrics.prRow.identityItemSpacing) {
                 if pullRequest.draft { DraftPullRequestIndicator() }
                 Text(pullRequest.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(metrics.type.cardTitle.font)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(pullRequest.title)
@@ -2220,7 +2225,7 @@ struct PullRequestRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 4) {
+            HStack(spacing: metrics.prRow.identityItemSpacing) {
                 Text(pullRequest.author)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -2241,7 +2246,7 @@ struct PullRequestRow: View {
                     .help("Pull request #\(pullRequest.number)")
                     .accessibilityLabel("Pull request number \(pullRequest.number)")
             }
-            .font(.caption2.weight(.medium))
+            .font(metrics.type.cardMetadata.font)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2285,14 +2290,16 @@ private struct PullRequestAuthorAvatar: View {
 }
 
 private struct DraftPullRequestIndicator: View {
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Text("Draft")
-            .font(.system(size: 9, weight: .semibold))
+            .font(metrics.type.draftBadge.font)
             .foregroundStyle(.primary)
             .lineLimit(1)
             .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, metrics.prRow.draftBadgeHorizontalPadding)
+            .padding(.vertical, metrics.prRow.draftBadgeVerticalPadding)
             .background(Color.secondary.opacity(0.2), in: Capsule())
             .help("Draft PR")
             .accessibilityLabel("Draft PR")
@@ -2303,22 +2310,24 @@ private struct TransparentCardStyle: ViewModifier {
     let accentColor: Color?
     let isHovered: Bool
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        content
+        let shape = RoundedRectangle(cornerRadius: metrics.card.cornerRadius, style: .continuous)
+        return content
             .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                shape
                     .fill(restFill)
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                shape
                     .fill(hoverFill)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                shape
                     .stroke(borderColor, lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(shape)
+            .contentShape(shape)
     }
 
     private var restFill: Color {
@@ -2419,9 +2428,6 @@ private struct PullRequestActionsAnchorKey: PreferenceKey {
 }
 
 struct PullRequestActionsMenu: View {
-    static let width: CGFloat = 156
-    static let height: CGFloat = 94
-
     let url: URL
     let isHidden: Bool
     let isPinned: Bool
@@ -2429,25 +2435,28 @@ struct PullRequestActionsMenu: View {
     let togglePin: () -> Void
     let dismiss: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        VStack(spacing: 2) {
+        let actionsMenu = metrics.actionsMenu
+        VStack(spacing: actionsMenu.itemSpacing) {
             menuItem(PullRequestHidePresentation.label(isHidden: isHidden), symbol: PullRequestHidePresentation.symbolName, action: toggleHide)
             menuItem(PullRequestPinPresentation.label(isPinned: isPinned), symbol: PullRequestPinPresentation.symbolName(isPinned: isPinned), action: togglePin)
             menuItem("Copy link", symbol: "doc.on.doc") {
                 copyToPasteboard(url)
             }
         }
-        .padding(6)
-        .frame(width: Self.width, height: Self.height)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        .padding(actionsMenu.padding)
+        .frame(width: actionsMenu.width, height: actionsMenu.height)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: actionsMenu.cornerRadius))
         // Padding belongs to the open menu, not the outside-click dismiss area.
         .contentShape(Rectangle())
         .onTapGesture {}
         .overlay {
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: actionsMenu.cornerRadius)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+        .shadow(color: .black.opacity(0.2), radius: actionsMenu.shadowRadius, y: actionsMenu.shadowOffsetY)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("PR actions")
     }
@@ -2474,21 +2483,26 @@ private struct PullRequestActionMenuItem: View {
     let title: String
     let symbol: String
     let action: () -> Void
+    @Environment(\.menuMetrics) private var metrics
     @State private var isHovered = false
 
     var body: some View {
+        let actionsMenu = metrics.actionsMenu
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: actionsMenu.itemContentSpacing) {
                 Image(systemName: symbol)
-                    .frame(width: 16)
+                    .frame(width: actionsMenu.itemIconWidth)
                 Text(title)
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 12))
-            .padding(.horizontal, 6)
-            .frame(height: 26)
+            .font(metrics.type.actionsMenuItem.font)
+            .padding(.horizontal, actionsMenu.itemHorizontalPadding)
+            .frame(height: actionsMenu.itemHeight)
             .foregroundStyle(isHovered ? Color.white : Color.primary)
-            .background(isHovered ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+            .background(
+                isHovered ? Color.accentColor : Color.clear,
+                in: RoundedRectangle(cornerRadius: actionsMenu.itemCornerRadius)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2499,9 +2513,11 @@ private struct PullRequestActionMenuItem: View {
 struct CommentCountIndicator: View {
     let count: Int
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Text("\(count)")
-            .font(.caption2.monospacedDigit().weight(.semibold))
+            .font(metrics.type.metricValue.font)
             .foregroundStyle(.secondary)
             .accessibilityLabel(Self.label(for: count))
             .help(Self.label(for: count))
@@ -2535,10 +2551,12 @@ struct CIStatusIndicator: View {
 
     let ciState: CIState
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Circle()
             .fill(kind.color.opacity(0.65))
-            .frame(width: 8, height: 8)
+            .frame(width: metrics.indicators.ciDotSize, height: metrics.indicators.ciDotSize)
             .accessibilityLabel(kind.label)
             .help(kind.label)
     }
@@ -2586,24 +2604,26 @@ struct PullRequestSignalIndicator: View {
     let kind: Kind
     let label: String
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Group {
             switch kind {
             case .positive:
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(metrics.type.signalSymbol.font)
                     .foregroundStyle(.green)
             case .negative:
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(metrics.type.signalSymbol.font)
                     .foregroundStyle(.red)
             case .unavailable:
                 Text("—")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .font(metrics.type.metricValue.font)
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 17, height: 17)
+        .frame(width: metrics.indicators.signalSize, height: metrics.indicators.signalSize)
         .help(label)
         .accessibilityLabel(label)
     }
@@ -2714,10 +2734,10 @@ struct PullRequestChangesIndicator: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .font(.caption2.monospacedDigit().weight(.semibold))
+        .font(metrics.type.metricValue.font)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
-        .frame(width: metrics.prColumns.changesWidth, height: 30)
+        .frame(width: metrics.prColumns.changesWidth, height: metrics.prRow.valueColumnHeight)
         .contentShape(Rectangle())
         .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
         .accessibilityElement(children: .ignore)
@@ -2791,12 +2811,15 @@ struct ReviewDecisionIndicator: View {
 
     let reviewDecision: ReviewDecision
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
+        let indicators = metrics.indicators
         if kind == .changesRequested {
             ChangesRequestedSymbol()
-                .stroke(.red, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
-                .frame(width: 13, height: 15)
-                .frame(width: 17, height: 17)
+                .stroke(.red, style: StrokeStyle(lineWidth: indicators.changesRequestedStrokeWidth, lineCap: .round, lineJoin: .round))
+                .frame(width: indicators.changesRequestedSymbolWidth, height: indicators.changesRequestedSymbolHeight)
+                .frame(width: indicators.signalSize, height: indicators.signalSize)
                 .help(kind.label)
                 .accessibilityLabel(kind.label)
         } else {
