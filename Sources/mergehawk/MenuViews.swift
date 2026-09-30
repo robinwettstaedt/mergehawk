@@ -1142,6 +1142,7 @@ struct GitHubSignInView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    @Environment(\.menuMetrics) private var metrics
     @State private var isHoveringSignIn: Bool = false
     @State private var isHoveringPAT: Bool = false
 
@@ -1157,32 +1158,32 @@ struct GitHubSignInView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 20) {
+            VStack(spacing: metrics.signIn.contentSpacing) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: 88, height: 88)
+                    .frame(width: metrics.signIn.appIconSize, height: metrics.signIn.appIconSize)
 
-                HStack(spacing: 8) {
+                HStack(spacing: metrics.signIn.buttonRowSpacing) {
                     Button {
                         connect()
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: metrics.gitHubButton.contentSpacing) {
                             if let mark = Self.gitHubMarkImage {
                                 Image(nsImage: mark)
                                     .resizable()
                                     .renderingMode(.template)
-                                    .frame(width: 14, height: 14)
+                                    .frame(width: metrics.gitHubButton.markSize, height: metrics.gitHubButton.markSize)
                             }
                             Text(Self.Copy.buttonTitle)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(metrics.type.gitHubButtonTitle.font)
                         }
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .frame(height: 30)
+                        .padding(.horizontal, metrics.gitHubButton.horizontalPadding)
+                        .frame(height: metrics.gitHubButton.height)
                         .background(
                             Color.accentColor.opacity(isHoveringSignIn ? 0.8 : 1.0),
-                            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            in: RoundedRectangle(cornerRadius: metrics.gitHubButton.cornerRadius, style: .continuous)
                         )
                     }
                     .buttonStyle(.plain)
@@ -1200,7 +1201,7 @@ struct GitHubSignInView: View {
 
                 if let error = controller.errorMessage {
                     Text(error)
-                        .font(.caption)
+                        .font(metrics.type.signInError.font)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1209,7 +1210,7 @@ struct GitHubSignInView: View {
                     controller.showGitHubSettings(patMode: true)
                 }
                 .buttonStyle(.plain)
-                .font(.subheadline)
+                .font(metrics.type.signInLink.font)
                 .foregroundStyle(isHoveringPAT ? Color.secondary : Color(nsColor: .tertiaryLabelColor))
                 .underline(isHoveringPAT)
                 .onHover { hovering in
@@ -1220,7 +1221,7 @@ struct GitHubSignInView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(24)
+        .padding(metrics.signIn.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
@@ -1241,13 +1242,14 @@ struct GitHubSignInView: View {
 struct DeviceFlowPendingSignInView: View {
     @ObservedObject var controller: DashboardController
     let challenge: DeviceFlowChallenge
+    @Environment(\.menuMetrics) private var metrics
     @State private var expiryTimeRemaining: String = ""
     @State private var justCopied: Bool = false
     @State private var isHoveringCopy: Bool = false
     private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: metrics.signIn.pendingSpacing) {
             Spacer(minLength: 0)
 
             if controller.deviceFlowPhase == .loadingApp {
@@ -1258,36 +1260,39 @@ struct DeviceFlowPendingSignInView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(24)
+        .padding(metrics.signIn.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .onAppear { updateExpiryLabel(challenge: challenge) }
         .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
     }
 
     private var enterCodeContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: metrics.signIn.enterCodeSpacing) {
             HStack(spacing: 0) {
                 Text("Enter code on ")
-                    .font(.headline)
+                    .font(metrics.type.signInTitle.font)
                 Link(destination: challenge.verificationURI) {
-                    HStack(spacing: 3) {
+                    HStack(spacing: metrics.signIn.linkSpacing) {
                         Text("GitHub")
                         Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(metrics.type.signInLinkArrow.font)
                     }
-                    .font(.headline)
+                    .font(metrics.type.signInTitle.font)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: metrics.signIn.codeRowSpacing) {
                 Text(challenge.userCode)
-                    .font(.system(.title2, design: .monospaced).weight(.semibold))
-                    .tracking(2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .font(metrics.type.deviceCode.font)
+                    .tracking(metrics.signIn.codeTracking)
+                    .padding(.horizontal, metrics.signIn.codeHorizontalPadding)
+                    .padding(.vertical, metrics.signIn.codeVerticalPadding)
+                    .background(
+                        .quaternary,
+                        in: RoundedRectangle(cornerRadius: metrics.signIn.codeCornerRadius, style: .continuous)
+                    )
 
                 Button {
                     controller.copyDeviceFlowUserCode()
@@ -1297,9 +1302,9 @@ struct DeviceFlowPendingSignInView: View {
                     }
                 } label: {
                     Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(metrics.type.copySymbol.font)
                         .foregroundStyle(justCopied ? Color.green : (isHoveringCopy ? Color.primary : Color.secondary))
-                        .frame(width: 22, height: 22)
+                        .frame(width: metrics.signIn.copyButtonSize, height: metrics.signIn.copyButtonSize)
                         .scaleEffect(isHoveringCopy && !justCopied ? 1.2 : 1.0)
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -1309,13 +1314,13 @@ struct DeviceFlowPendingSignInView: View {
                 }
             }
 
-            HStack(spacing: 5) {
+            HStack(spacing: metrics.signIn.expirySpacing) {
                 Image(systemName: "clock")
-                    .font(.system(size: 11))
+                    .font(metrics.type.expirySymbol.font)
                     .foregroundStyle(.tertiary)
                 if !expiryTimeRemaining.isEmpty {
                     Text(expiryTimeRemaining)
-                        .font(.caption)
+                        .font(metrics.type.expiry.font)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -1324,19 +1329,19 @@ struct DeviceFlowPendingSignInView: View {
                 controller.cancelDeviceFlowSignIn()
             }
             .buttonStyle(.plain)
-            .font(.subheadline)
+            .font(metrics.type.signInLink.font)
             .foregroundStyle(.tertiary)
         }
     }
 
     private var loadingAppContent: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: metrics.signIn.loadingSpacing) {
             ProgressView()
                 .controlSize(.regular)
             Text(GitHubSignInView.Copy.loadingTitle)
-                .font(.headline)
+                .font(metrics.type.signInTitle.font)
             Text(GitHubSignInView.Copy.loadingDetail)
-                .font(.subheadline)
+                .font(metrics.type.signInDetail.font)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -2858,13 +2863,15 @@ extension ReviewDecisionIndicator.Kind {
 private struct EmptyMenuState: View {
     let text: String
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: metrics.emptyState.spacing) {
             Image(systemName: "tray")
-                .font(.title2)
+                .font(metrics.type.emptyStateIcon.font)
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.subheadline)
+                .font(metrics.type.emptyStateText.font)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2875,6 +2882,8 @@ struct GitHubAppRepositoryAccessPrompt: View {
     @ObservedObject var controller: DashboardController
     var minHeight: CGFloat? = nil
 
+    @Environment(\.menuMetrics) private var metrics
+
     private struct ContextRow {
         let icon: String
         let text: String
@@ -2884,42 +2893,46 @@ struct GitHubAppRepositoryAccessPrompt: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 20) {
-                VStack(spacing: 10) {
+            VStack(spacing: metrics.accessPrompt.contentSpacing) {
+                VStack(spacing: metrics.accessPrompt.headerSpacing) {
                     Image(systemName: headerIconName)
-                        .font(.system(size: 34, weight: .light))
+                        .font(metrics.type.accessPromptIcon.font)
                         .foregroundStyle(.secondary)
                     Text(GitHubAppRepositoryAccessCopy.title(for: controller.gitHubAppRepositoryAccessStatus))
-                        .font(.headline)
+                        .font(metrics.type.accessPromptTitle.font)
                         .multilineTextAlignment(.center)
                 }
 
-                VStack(spacing: 12) {
+                VStack(spacing: metrics.accessPrompt.actionsSpacing) {
                     contextBox
 
                     Button { controller.openGitHubAppInstallation() } label: {
-                        HStack(spacing: 6) {
+                        let button = metrics.gitHubButton
+                        HStack(spacing: button.contentSpacing) {
                             if let mark = GitHubSignInView.gitHubMarkImage {
                                 Image(nsImage: mark)
                                     .resizable()
                                     .renderingMode(.template)
-                                    .frame(width: 14, height: 14)
+                                    .frame(width: button.markSize, height: button.markSize)
                             }
                             Text(GitHubAppRepositoryAccessCopy.buttonTitle)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(metrics.type.gitHubButtonTitle.font)
                         }
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, button.horizontalPadding)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .frame(height: 30)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .frame(height: button.height)
+                        .background(
+                            Color.accentColor,
+                            in: RoundedRectangle(cornerRadius: button.cornerRadius, style: .continuous)
+                        )
                     }
                     .buttonStyle(.plain)
                 }
-                .frame(maxWidth: 340)
+                .frame(maxWidth: metrics.accessPrompt.maxContentWidth)
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, metrics.accessPrompt.horizontalPadding)
 
             Spacer(minLength: 0)
         }
@@ -2960,23 +2973,29 @@ struct GitHubAppRepositoryAccessPrompt: View {
                 noteRow(icon: row.icon, text: row.text)
             }
         }
-        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.gray.opacity(0.22), lineWidth: 1))
+        .background(
+            Color.gray.opacity(0.14),
+            in: RoundedRectangle(cornerRadius: metrics.accessPrompt.noteBoxCornerRadius, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: metrics.accessPrompt.noteBoxCornerRadius, style: .continuous)
+                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
+        )
     }
 
     private func noteRow(icon: String, text: String) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: metrics.accessPrompt.noteSpacing) {
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(metrics.type.accessPromptNoteIcon.font)
                 .foregroundStyle(.secondary)
-                .frame(width: 22, alignment: .center)
+                .frame(width: metrics.accessPrompt.noteIconWidth, alignment: .center)
             Text(text)
-                .font(.callout)
+                .font(metrics.type.accessPromptNote.font)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, metrics.accessPrompt.noteHorizontalPadding)
+        .padding(.vertical, metrics.accessPrompt.noteVerticalPadding)
     }
 }

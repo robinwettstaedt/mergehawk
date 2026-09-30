@@ -67,6 +67,24 @@ struct MenuMetrics: Equatable {
         var signalSymbol: FontToken
         var draftBadge: FontToken
         var actionsMenuItem: FontToken
+        /// Title of the GitHub buttons in the sign-in view and the repository access prompt.
+        var gitHubButtonTitle: FontToken
+        var signInTitle: FontToken
+        var signInDetail: FontToken
+        /// Secondary text buttons: "Use a personal access token instead", "Cancel".
+        var signInLink: FontToken
+        var signInLinkArrow: FontToken
+        var signInError: FontToken
+        var deviceCode: FontToken
+        var copySymbol: FontToken
+        var expirySymbol: FontToken
+        var expiry: FontToken
+        var emptyStateIcon: FontToken
+        var emptyStateText: FontToken
+        var accessPromptIcon: FontToken
+        var accessPromptTitle: FontToken
+        var accessPromptNoteIcon: FontToken
+        var accessPromptNote: FontToken
     }
 
     struct Panel: Equatable {
@@ -260,6 +278,50 @@ struct MenuMetrics: Equatable {
         var changesRequestedStrokeWidth: CGFloat
     }
 
+    /// The accent "Sign in with GitHub" and "Install or Manage Repository Access" buttons.
+    struct GitHubButton: Equatable {
+        var contentSpacing: CGFloat
+        var markSize: CGFloat
+        var horizontalPadding: CGFloat
+        var height: CGFloat
+        var cornerRadius: CGFloat
+    }
+
+    struct SignIn: Equatable {
+        var padding: CGFloat
+        var contentSpacing: CGFloat
+        var appIconSize: CGFloat
+        var buttonRowSpacing: CGFloat
+        var pendingSpacing: CGFloat
+        var enterCodeSpacing: CGFloat
+        var linkSpacing: CGFloat
+        var codeRowSpacing: CGFloat
+        var codeTracking: CGFloat
+        var codeHorizontalPadding: CGFloat
+        var codeVerticalPadding: CGFloat
+        var codeCornerRadius: CGFloat
+        var copyButtonSize: CGFloat
+        var expirySpacing: CGFloat
+        var loadingSpacing: CGFloat
+    }
+
+    struct EmptyState: Equatable {
+        var spacing: CGFloat
+    }
+
+    struct AccessPrompt: Equatable {
+        var contentSpacing: CGFloat
+        var headerSpacing: CGFloat
+        var actionsSpacing: CGFloat
+        var maxContentWidth: CGFloat
+        var horizontalPadding: CGFloat
+        var noteBoxCornerRadius: CGFloat
+        var noteSpacing: CGFloat
+        var noteIconWidth: CGFloat
+        var noteHorizontalPadding: CGFloat
+        var noteVerticalPadding: CGFloat
+    }
+
     struct Footer: Equatable {
         static let rowCount: CGFloat = 4
 
@@ -300,6 +362,10 @@ struct MenuMetrics: Equatable {
     var legend: Legend
     var actionsMenu: ActionsMenu
     var indicators: Indicators
+    var gitHubButton: GitHubButton
+    var signIn: SignIn
+    var emptyState: EmptyState
+    var accessPrompt: AccessPrompt
     var footer: Footer
 
     /// A dropdown opens below its header control.
@@ -340,7 +406,23 @@ struct MenuMetrics: Equatable {
             metricValue: FontToken(size: 10, weight: .semibold, monospacedDigits: true),
             signalSymbol: FontToken(size: 12, weight: .semibold),
             draftBadge: FontToken(size: 9, weight: .semibold),
-            actionsMenuItem: FontToken(size: 12)
+            actionsMenuItem: FontToken(size: 12),
+            gitHubButtonTitle: FontToken(size: 13, weight: .semibold),
+            signInTitle: FontToken(size: 13, weight: .bold),
+            signInDetail: FontToken(size: 11),
+            signInLink: FontToken(size: 11),
+            signInLinkArrow: FontToken(size: 10, weight: .bold),
+            signInError: FontToken(size: 10),
+            deviceCode: FontToken(size: 17, weight: .semibold, design: .monospaced),
+            copySymbol: FontToken(size: 13, weight: .medium),
+            expirySymbol: FontToken(size: 11),
+            expiry: FontToken(size: 10),
+            emptyStateIcon: FontToken(size: 17),
+            emptyStateText: FontToken(size: 11),
+            accessPromptIcon: FontToken(size: 34, weight: .light),
+            accessPromptTitle: FontToken(size: 13, weight: .bold),
+            accessPromptNoteIcon: FontToken(size: 13),
+            accessPromptNote: FontToken(size: 12)
         ),
         panel: Panel(width: 820, contentHeight: 650),
         topBar: TopBar(
@@ -479,6 +561,43 @@ struct MenuMetrics: Equatable {
             changesRequestedSymbolWidth: 13,
             changesRequestedSymbolHeight: 15,
             changesRequestedStrokeWidth: 1.3
+        ),
+        gitHubButton: GitHubButton(
+            contentSpacing: 6,
+            markSize: 14,
+            horizontalPadding: 16,
+            height: 30,
+            cornerRadius: 7
+        ),
+        signIn: SignIn(
+            padding: 24,
+            contentSpacing: 20,
+            appIconSize: 88,
+            buttonRowSpacing: 8,
+            pendingSpacing: 14,
+            enterCodeSpacing: 16,
+            linkSpacing: 3,
+            codeRowSpacing: 8,
+            codeTracking: 2,
+            codeHorizontalPadding: 12,
+            codeVerticalPadding: 10,
+            codeCornerRadius: 8,
+            copyButtonSize: 22,
+            expirySpacing: 5,
+            loadingSpacing: 10
+        ),
+        emptyState: EmptyState(spacing: 8),
+        accessPrompt: AccessPrompt(
+            contentSpacing: 20,
+            headerSpacing: 10,
+            actionsSpacing: 12,
+            maxContentWidth: 340,
+            horizontalPadding: 24,
+            noteBoxCornerRadius: 8,
+            noteSpacing: 10,
+            noteIconWidth: 22,
+            noteHorizontalPadding: 12,
+            noteVerticalPadding: 10
         ),
         footer: Footer(
             itemFont: NativeMenuFontToken(size: NSFont.menuFont(ofSize: 0).pointSize),
