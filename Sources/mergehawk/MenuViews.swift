@@ -373,7 +373,6 @@ struct MenuRootView: View {
     @ObservedObject var footerModel: MenuFooterModel
     let metrics: MenuMetrics
     let resolvedSize: CGSize
-    let initialDropdown: PullRequestMenuDropdown?
     let dismissMenu: () -> Void
     let showSettings: () -> Void
     let showAbout: () -> Void
@@ -396,7 +395,6 @@ struct MenuRootView: View {
         self.footerModel = footerModel
         self.metrics = metrics
         self.resolvedSize = resolvedSize
-        self.initialDropdown = initialDropdown
         self.dismissMenu = dismissMenu
         self.showSettings = showSettings
         self.showAbout = showAbout

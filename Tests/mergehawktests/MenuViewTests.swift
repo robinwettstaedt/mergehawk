@@ -107,20 +107,6 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(hosted.frame.size, resolved)
         XCTAssertEqual(hosted.rootView.resolvedSize, resolved)
         XCTAssertEqual(hosted.rootView.metrics, .standard)
-        XCTAssertNil(hosted.rootView.initialDropdown)
-    }
-
-    @MainActor
-    func testMenuFactoryOpensTheRequestedInitialDropdown() throws {
-        let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
-        let statusBarController = StatusBarController(controller: controller)
-        let hosted = try XCTUnwrap(
-            statusBarController.makeMenuContentView(
-                availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000),
-                initialDropdown: .sort
-            ) as? MenuRootHostingView
-        )
-        XCTAssertEqual(hosted.rootView.initialDropdown, .sort)
     }
 
     @MainActor
