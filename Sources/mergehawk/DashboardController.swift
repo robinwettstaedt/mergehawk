@@ -303,7 +303,7 @@ final class DashboardController: ObservableObject {
     private let openPullRequestRequest: @MainActor (PullRequestOpenRequest) -> Void
     private let openDeviceFlowURL: @MainActor (URL) -> Void
     private let copyStringToClipboard: @MainActor (String) -> Void
-    private let now: @MainActor () -> Date
+    private let now: () -> Date
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
@@ -322,6 +322,11 @@ final class DashboardController: ObservableObject {
     private var committedSyncState: PullRequestSyncState?
     var pullRequestNotificationHistory: [PullRequestNotification] { presentation.notificationHistory }
 
+    /// The presentation clock: views compute relative times and countdowns against it.
+    func currentDate() -> Date {
+        now()
+    }
+
     init(
         tokenStore: TokenStore = KeychainTokenStore(),
         preferencesStore: PreferencesStore = PreferencesStore(),
@@ -338,7 +343,7 @@ final class DashboardController: ObservableObject {
         pullRequestOpener: (@MainActor (PullRequestOpenRequest) -> Void)? = nil,
         deviceFlowURLOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
         clipboardWriter: @escaping @MainActor (String) -> Void = DashboardController.copyToPasteboard,
-        now: @escaping @MainActor () -> Date = Date.init
+        now: @escaping () -> Date = Date.init
     ) {
         self.tokenStore = tokenStore
         self.oauthSignIn = oauthSignIn ?? GitHubDeviceFlowSignIn()
@@ -1096,7 +1101,8 @@ final class DashboardController: ObservableObject {
         syncEngine = SyncEngine(
             source: client,
             loginProvider: loginProvider,
-            accountProvider: accountProvider
+            accountProvider: accountProvider,
+            now: now
         )
     }
 
@@ -1140,7 +1146,8 @@ final class DashboardController: ObservableObject {
         syncEngine = SyncEngine(
             source: source,
             loginProvider: { "" },
-            accountProvider: { nil }
+            accountProvider: { nil },
+            now: now
         )
     }
 
@@ -1158,6 +1165,7 @@ final class DashboardController: ObservableObject {
         setAuthMethod(.oauth)
         let source = MockPullRequestSource(
             showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures,
+            referenceDate: now(),
             scenario: launchConfiguration.mockPullRequestScenario
         )
         sourceCatalogProvider = source
@@ -1165,7 +1173,7 @@ final class DashboardController: ObservableObject {
         gitHubAppRepositoryAccessStatus = .notApplicable
         gitHubAppRepositoryAccessURL = MergeHawkAuthDefaults.installURL
         sourceCatalog = source.mockSourceCatalog(accountLogin: account.login)
-        sourceCatalogSyncedAt = Date()
+        sourceCatalogSyncedAt = now()
         sourceCatalogAccountLogin = account.login
         if launchConfiguration.showsNotificationTypeFixtures {
             let history = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
@@ -1189,7 +1197,8 @@ final class DashboardController: ObservableObject {
         syncEngine = SyncEngine(
             source: source,
             loginProvider: { account.login },
-            accountProvider: { account }
+            accountProvider: { account },
+            now: now
         )
     }
 

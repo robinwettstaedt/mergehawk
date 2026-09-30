@@ -638,7 +638,7 @@ enum PullRequestAgePresentation {
         }
     }
 
-    static func shortText(for date: Date, now: Date = Date()) -> String {
+    static func shortText(for date: Date, now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         switch seconds {
         case ..<60:
@@ -658,9 +658,22 @@ enum PullRequestAgePresentation {
         }
     }
 
-    static func label(for date: Date, field: Field, now: Date = Date()) -> String {
+    static func label(for date: Date, field: Field, now: Date) -> String {
         let text = shortText(for: date, now: now)
         return text == "now" ? "\(field.title) just now" : "\(field.title) \(text) ago"
+    }
+}
+
+private struct MenuNowKey: EnvironmentKey {
+    static var defaultValue: Date { Date() }
+}
+
+extension EnvironmentValues {
+    /// The date relative times are shown against. The menu root sets it from the controller's clock;
+    /// views outside the menu root use the current time.
+    var menuNow: Date {
+        get { self[MenuNowKey.self] }
+        set { self[MenuNowKey.self] = newValue }
     }
 }
 
@@ -685,6 +698,7 @@ struct MenuRootView: View {
     @ObservedObject var controller: DashboardController
     @ObservedObject var footerModel: MenuFooterModel
     let resolvedSize: CGSize
+    let initialDropdown: PullRequestMenuDropdown?
     let dismissMenu: () -> Void
     let showSettings: () -> Void
     let showAbout: () -> Void
@@ -705,6 +719,7 @@ struct MenuRootView: View {
         self.controller = controller
         self.footerModel = footerModel
         self.resolvedSize = resolvedSize
+        self.initialDropdown = initialDropdown
         self.dismissMenu = dismissMenu
         self.showSettings = showSettings
         self.showAbout = showAbout
@@ -734,6 +749,7 @@ struct MenuRootView: View {
                 }
             footer
         }
+        .environment(\.menuNow, controller.currentDate())
         .frame(width: resolvedSize.width, height: resolvedSize.height)
         .background(menuSurface)
         .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { anchors in
@@ -1661,7 +1677,7 @@ struct DeviceFlowPendingSignInView: View {
     }
 
     private func updateExpiryLabel(challenge: DeviceFlowChallenge) {
-        let remaining = challenge.expiresAt.timeIntervalSinceNow
+        let remaining = challenge.expiresAt.timeIntervalSince(controller.currentDate())
         if remaining <= 0 {
             expiryTimeRemaining = ""
         } else {
@@ -2459,6 +2475,7 @@ struct PullRequestRow: View {
     let togglePin: () -> Void
     let action: () -> Void
 
+    @Environment(\.menuNow) private var menuNow
     @State private var isHovered = false
 
     var body: some View {
@@ -2525,12 +2542,12 @@ struct PullRequestRow: View {
     }
 
     private func ageCell(_ date: Date, field: PullRequestAgePresentation.Field) -> some View {
-        Text(PullRequestAgePresentation.shortText(for: date))
+        Text(PullRequestAgePresentation.shortText(for: date, now: menuNow))
             .font(.caption2.monospacedDigit().weight(.medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .help(PullRequestAgePresentation.label(for: date, field: field))
-            .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field))
+            .help(PullRequestAgePresentation.label(for: date, field: field, now: menuNow))
+            .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field, now: menuNow))
     }
 
     private var identity: some View {

@@ -105,6 +105,59 @@ final class MenuViewTests: XCTestCase {
         let resolved = MenuPanelSize.resolve(availableFrame: frame)
         XCTAssertEqual(hosted.frame.size, resolved)
         XCTAssertEqual(hosted.rootView.resolvedSize, resolved)
+        XCTAssertNil(hosted.rootView.initialDropdown)
+    }
+
+    @MainActor
+    func testMenuFactoryOpensTheRequestedInitialDropdown() throws {
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
+        let statusBarController = StatusBarController(controller: controller)
+        let hosted = try XCTUnwrap(
+            statusBarController.makeMenuContentView(
+                availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000),
+                initialDropdown: .sort
+            ) as? MenuRootHostingView
+        )
+        XCTAssertEqual(hosted.rootView.initialDropdown, .sort)
+    }
+
+    @MainActor
+    func testAgeLabelsUseTheMenuNowFromTheEnvironment() throws {
+        // Ages computed against menuNow render the same for the same offsets, decades apart;
+        // ages computed against wall-clock time would differ.
+        let decade: TimeInterval = 10 * 31_536_000
+        let early = Date(timeIntervalSince1970: 1_000_000_000)
+        let late = early.addingTimeInterval(decade)
+        let reference = try renderAgeRow(menuNow: early, updatedAgo: 3 * 3_600)
+        XCTAssertEqual(try renderAgeRow(menuNow: late, updatedAgo: 3 * 3_600), reference)
+        XCTAssertNotEqual(try renderAgeRow(menuNow: early, updatedAgo: 5 * 3_600), reference)
+    }
+
+    @MainActor
+    private func renderAgeRow(menuNow: Date, updatedAgo: TimeInterval) throws -> Data {
+        let pullRequest = PullRequest(
+            id: "PR_AGE", title: "Age", number: 1,
+            url: URL(string: "https://github.com/example/app/pull/1")!,
+            repo: "example/app", ciState: .passing, reviewDecision: .noReviewYet,
+            commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
+            mergeable: .mergeable, draft: false,
+            createdAt: menuNow.addingTimeInterval(-2 * 86_400),
+            updatedAt: menuNow.addingTimeInterval(-updatedAgo)
+        )
+        let row = PullRequestRow(
+            pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
+            toggleHide: {}, togglePin: {}, action: {}
+        )
+        .environment(\.menuNow, menuNow)
+        let hostingView = NSHostingView(rootView: row)
+        hostingView.frame = CGRect(x: 0, y: 0, width: 800, height: 60)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = hostingView
+        hostingView.layoutSubtreeIfNeeded()
+        let representation = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: representation)
+        window.contentView = nil
+        return try XCTUnwrap(representation.representation(using: .png, properties: [:]))
     }
 
     func testIndependentStatusDescriptionsAndMixedSignals() {

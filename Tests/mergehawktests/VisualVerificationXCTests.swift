@@ -5,6 +5,10 @@ import mergehawkcore
 import XCTest
 
 final class VisualVerificationXCTests: XCTestCase {
+    /// One fixed presentation clock for every controller and fixture, so captures do not depend on when they run.
+    fileprivate static let visualNow = Date(timeIntervalSince1970: 1_790_000_000)
+    fileprivate static func visualClock() -> Date { visualNow }
+
     private var captureSelection = VisualCaptureSelection.all
     private var renderedFilenames: Set<String> = []
     private var waitTimeout: TimeInterval = 5
@@ -17,6 +21,8 @@ final class VisualVerificationXCTests: XCTestCase {
 
         let outputURL = URL(fileURLWithPath: outputPath)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let restoreTimeZone = Self.useUTCTimeZone()
+        defer { restoreTimeZone() }
         captureSelection = try VisualCaptureSelection(environment: environment)
         renderedFilenames = []
         waitTimeout = try visualWaitTimeout(environment: environment)
@@ -32,7 +38,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 tokenStore: InMemoryTokenStore(),
                 preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-                automaticRefreshInterval: 0
+                automaticRefreshInterval: 0,
+                now: Self.visualClock
             )
         }
 
@@ -63,7 +70,8 @@ final class VisualVerificationXCTests: XCTestCase {
                     mockRefreshDelaySeconds: 0.2,
                     mockPullRequestScenario: .delayedRefresh
                 ),
-                automaticRefreshInterval: 0
+                automaticRefreshInterval: 0,
+                now: Self.visualClock
             )
         }
         try await waitUntil(context: "delayed-refresh baseline") {
@@ -155,7 +163,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 tokenStore: InMemoryTokenStore(),
                 preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
-                automaticRefreshInterval: 0
+                automaticRefreshInterval: 0,
+                now: Self.visualClock
             )
             try renderMenu(
                 controller: signedOutController,
@@ -176,7 +185,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 tokenStore: InMemoryTokenStore(),
                 preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
-                automaticRefreshInterval: 0
+                automaticRefreshInterval: 0,
+                now: Self.visualClock
             )
             patIdleController.openGitHubSettingsInPATMode = true
             try renderSettings(
@@ -199,7 +209,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
                 automaticRefreshInterval: 0,
-                patGitHubClientFactory: { _ in patLoadingClient }
+                patGitHubClientFactory: { _ in patLoadingClient },
+                now: Self.visualClock
             )
             controller.openGitHubSettingsInPATMode = true
             return controller
@@ -221,7 +232,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 return DashboardController(
                     tokenStore: InMemoryTokenStore(), preferencesStore: preferences,
                     launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .botNotifications),
-                    notificationClient: notifications, automaticRefreshInterval: 0
+                    notificationClient: notifications, automaticRefreshInterval: 0,
+                    now: Self.visualClock
                 )
             }
             try await waitUntil(context: "bot-notification \(suffix) baseline") {
@@ -308,7 +320,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 automaticRefreshInterval: 0,
                 oauthSignIn: VisualPendingOAuthSignIn(),
                 urlOpener: { _ in },
-                deviceFlowURLOpener: { _ in }
+                deviceFlowURLOpener: { _ in },
+                now: Self.visualClock
             )
         }
         Task {
@@ -345,7 +358,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 oauthSignIn: VisualOAuthSignIn(),
                 oauthGitHubClientFactory: { _ in loadingClient },
                 urlOpener: { _ in },
-                deviceFlowURLOpener: { _ in }
+                deviceFlowURLOpener: { _ in },
+                now: Self.visualClock
             )
         }
         Task {
@@ -390,7 +404,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 oauthSignIn: VisualOAuthSignIn(),
                 oauthGitHubClientFactory: { _ in accessPromptClient },
                 urlOpener: { _ in },
-                deviceFlowURLOpener: { _ in }
+                deviceFlowURLOpener: { _ in },
+                now: Self.visualClock
             )
         }
         try await waitUntil(context: "repository-access fixture synchronization") {
@@ -445,13 +460,13 @@ final class VisualVerificationXCTests: XCTestCase {
         var archivedNotification = PullRequestNotification(
             event: PullRequestEvent(type: .newComment, prId: archivedPR.id, activityId: "ARCHIVED_COMMENT"),
             pullRequest: archivedPR,
-            createdAt: Date().addingTimeInterval(-1800)
+            createdAt: Self.visualNow.addingTimeInterval(-1800)
         )
         archivedNotification.read = false
         var activeNotification = PullRequestNotification(
             event: PullRequestEvent(type: .newComment, prId: activePR.id, activityId: "ACTIVE_COMMENT"),
             pullRequest: activePR,
-            createdAt: Date().addingTimeInterval(-3600)
+            createdAt: Self.visualNow.addingTimeInterval(-3600)
         )
         activeNotification.read = true
         let retainedNotifications = [archivedNotification, activeNotification]
@@ -464,7 +479,7 @@ final class VisualVerificationXCTests: XCTestCase {
             var store = PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!)
             store.authMethod = .pat
             store.sourceCatalog = mixedCatalog
-            store.sourceCatalogSyncedAt = Date()
+            store.sourceCatalogSyncedAt = Self.visualNow
             store.sourceCatalogAccountLogin = "rw"
             let account = GitHubAccount(login: "rw")
             try store.storePullRequestSyncState(PullRequestSyncState(
@@ -484,7 +499,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 launchAtLoginService: InMemoryLaunchAtLoginService(),
                 launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
                 automaticRefreshInterval: 0,
-                patGitHubClientFactory: { _ in archivedProvider }
+                patGitHubClientFactory: { _ in archivedProvider },
+                now: Self.visualClock
             )
         }
         try await waitUntil(context: "archived fixture startup refresh") {
@@ -599,7 +615,8 @@ final class VisualVerificationXCTests: XCTestCase {
                     hiddenPullRequestsExpanded: true
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial),
+                .background(.regularMaterial)
+                .environment(\.menuNow, Self.visualNow),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
                 to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded.png")
             )
@@ -610,7 +627,8 @@ final class VisualVerificationXCTests: XCTestCase {
                     hiddenPullRequestsExpanded: true
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial),
+                .background(.regularMaterial)
+                .environment(\.menuNow, Self.visualNow),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
                 appearance: .aqua,
                 to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded-light.png")
@@ -677,7 +695,8 @@ final class VisualVerificationXCTests: XCTestCase {
                     hiddenPullRequestsExpanded: true
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial),
+                .background(.regularMaterial)
+                .environment(\.menuNow, Self.visualNow),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded.png")
             )
@@ -688,7 +707,8 @@ final class VisualVerificationXCTests: XCTestCase {
                     hiddenPullRequestsExpanded: true
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial),
+                .background(.regularMaterial)
+                .environment(\.menuNow, Self.visualNow),
                 size: CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height - 100),
                 appearance: .aqua,
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded-light.png")
@@ -800,6 +820,24 @@ final class VisualVerificationXCTests: XCTestCase {
         throw VisualCaptureError.timedOut(context: context, seconds: waitTimeout)
     }
 
+    /// Formats times in UTC for the capture run. `NSTimeZone.default` does not change `TimeZone.current`,
+    /// so the process time zone is switched and restored.
+    private static func useUTCTimeZone() -> () -> Void {
+        let originalTZ = ProcessInfo.processInfo.environment["TZ"]
+        setenv("TZ", "UTC", 1)
+        tzset()
+        NSTimeZone.resetSystemTimeZone()
+        return {
+            if let originalTZ {
+                setenv("TZ", originalTZ, 1)
+            } else {
+                unsetenv("TZ")
+            }
+            tzset()
+            NSTimeZone.resetSystemTimeZone()
+        }
+    }
+
     private static func archivedVisualPullRequest(id: String, repo: String, archived: Bool) -> PullRequest {
         PullRequest(
             id: id, title: archived ? "Archived repository PR" : "Active repository PR", number: archived ? 68 : 69,
@@ -808,8 +846,8 @@ final class VisualVerificationXCTests: XCTestCase {
             ciState: .passing, reviewDecision: .noReviewYet,
             commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
             mergeable: .mergeable, draft: false,
-            createdAt: Date().addingTimeInterval(archived ? -7200 : -86_400),
-            updatedAt: Date().addingTimeInterval(-1800)
+            createdAt: visualNow.addingTimeInterval(archived ? -7200 : -86_400),
+            updatedAt: visualNow.addingTimeInterval(-1800)
         )
     }
 
@@ -826,7 +864,8 @@ final class VisualVerificationXCTests: XCTestCase {
                 suppressesMacOSNotifications: true,
                 mockPullRequestScenario: scenario
             ),
-            automaticRefreshInterval: 0
+            automaticRefreshInterval: 0,
+            now: Self.visualClock
         )
     }
 
@@ -837,21 +876,24 @@ final class VisualVerificationXCTests: XCTestCase {
         availableFrame: CGRect? = nil,
         initialDropdown: PullRequestMenuDropdown? = nil
     ) throws {
-        let size = availableFrame.map { MenuPanelSize.resolve(availableFrame: $0) }
-            ?? CGSize(width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
-        let view = MenuRootView(
-            controller: controller,
-            footerModel: MenuFooterModel(),
-            resolvedSize: size,
-            initialDropdown: initialDropdown
-        )
-            .background(.regularMaterial)
+        // Without a usable frame, the frame is large enough that the panel is never clamped.
+        let frame = availableFrame ?? CGRect(x: 0, y: 0, width: 10_000, height: 10_000)
+        let makeMenuView = { () -> NSView in
+            let menuView = StatusBarController(controller: controller)
+                .makeMenuContentView(availableFrame: frame, initialDropdown: initialDropdown)
+            // The status menu hosts the content on the system menu material.
+            let materialView = NSVisualEffectView(frame: menuView.frame)
+            materialView.material = .menu
+            materialView.state = .active
+            materialView.addSubview(menuView)
+            return materialView
+        }
 
-        try render(view, size: size, appearance: .darkAqua, to: url)
+        try renderView(makeMenuView(), appearance: .darkAqua, to: url)
 
         let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
         let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
-        try render(view, size: size, appearance: .aqua, to: lightURL)
+        try renderView(makeMenuView(), appearance: .aqua, to: lightURL)
     }
 
     @MainActor
@@ -884,6 +926,7 @@ final class VisualVerificationXCTests: XCTestCase {
         }
         .frame(width: size.width, height: size.height, alignment: .top)
         .background(.regularMaterial)
+        .environment(\.menuNow, Self.visualNow)
 
         try render(view, size: size, appearance: .darkAqua, to: url)
         let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
@@ -934,9 +977,23 @@ final class VisualVerificationXCTests: XCTestCase {
         guard captureSelection.includes(filename: url.lastPathComponent) else {
             return
         }
-        let frame = NSRect(origin: .zero, size: size)
         let hostingView = NSHostingView(rootView: view)
-        hostingView.frame = frame
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        try renderView(hostingView, appearance: appearance, to: url, pausesAnimations: pausesAnimations)
+    }
+
+    @MainActor
+    private func renderView(
+        _ view: @autoclosure () -> NSView,
+        appearance: NSAppearance.Name,
+        to url: URL,
+        pausesAnimations: Bool = false
+    ) throws {
+        guard captureSelection.includes(filename: url.lastPathComponent) else {
+            return
+        }
+        let hostingView = view()
+        let frame = NSRect(origin: .zero, size: hostingView.frame.size)
         hostingView.appearance = NSAppearance(named: appearance)
         if pausesAnimations {
             hostingView.wantsLayer = true
@@ -1152,7 +1209,7 @@ private struct VisualPendingOAuthSignIn: GitHubOAuthSigningIn {
             userCode: "ABCD-1234",
             deviceCode: "fake-device-code",
             verificationURI: URL(string: "https://github.com/login/device")!,
-            expiresAt: Date().addingTimeInterval(900),
+            expiresAt: VisualVerificationXCTests.visualClock().addingTimeInterval(900),
             interval: 5
         )
     }
