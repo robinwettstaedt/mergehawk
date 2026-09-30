@@ -17,6 +17,27 @@ struct VisualCaptureComparison {
         let after: CGSize
     }
 
+    /// Everything that decides how decoded pixel bytes are laid out and interpreted, apart from the pixel size.
+    struct PixelFormat: Equatable, CustomStringConvertible {
+        let bitsPerSample: Int
+        let samplesPerPixel: Int
+        let bitsPerPixel: Int
+        let bitmapFormat: UInt
+        let colorSpaceName: String
+        let colorSpace: String
+        let colorProfile: Data?
+
+        var description: String {
+            "\(bitsPerSample)-bit x\(samplesPerPixel) (\(bitsPerPixel) bpp), format \(bitmapFormat), \(colorSpace)"
+        }
+    }
+
+    struct FormatMismatch: Equatable {
+        let file: String
+        let before: PixelFormat
+        let after: PixelFormat
+    }
+
     struct PixelDifference: Equatable {
         let file: String
         /// Top-left origin, in pixels.
@@ -29,13 +50,15 @@ struct VisualCaptureComparison {
         var missingFromAfter: [String] = []
         var onlyInAfter: [String] = []
         var sizeMismatches: [SizeMismatch] = []
+        var formatMismatches: [FormatMismatch] = []
         var pixelDifferences: [PixelDifference] = []
 
         var beforeIsEmpty: Bool { comparedFiles.isEmpty && missingFromAfter.isEmpty }
 
         /// Files only in "after" are reported for separate review but do not fail the comparison.
         var failed: Bool {
-            beforeIsEmpty || !missingFromAfter.isEmpty || !sizeMismatches.isEmpty || !pixelDifferences.isEmpty
+            beforeIsEmpty || !missingFromAfter.isEmpty || !sizeMismatches.isEmpty || !formatMismatches.isEmpty
+                || !pixelDifferences.isEmpty
         }
 
         var description: String {
@@ -48,6 +71,9 @@ struct VisualCaptureComparison {
                 "FAIL size mismatch: \($0.file) before \(Int($0.before.width))x\(Int($0.before.height))"
                     + " after \(Int($0.after.width))x\(Int($0.after.height))"
             }
+            lines += formatMismatches.map {
+                "FAIL format mismatch: \($0.file) before \($0.before) after \($0.after)"
+            }
             lines += pixelDifferences.map {
                 "FAIL pixels differ: \($0.file) box \($0.boundingBox) count \($0.count)"
             }
@@ -59,10 +85,12 @@ struct VisualCaptureComparison {
 
     enum ComparisonError: LocalizedError {
         case undecodable(URL)
+        case unsupportedLayout(URL)
 
         var errorDescription: String? {
             switch self {
             case let .undecodable(url): "Could not decode PNG at \(url.path)"
+            case let .unsupportedLayout(url): "Only interleaved, whole-byte pixels are supported: \(url.path)"
             }
         }
     }
@@ -78,13 +106,21 @@ struct VisualCaptureComparison {
                 continue
             }
             report.comparedFiles.append(file)
-            let beforeImage = try RGBAImage(url: before.appendingPathComponent(file))
-            let afterImage = try RGBAImage(url: after.appendingPathComponent(file))
+            let beforeImage = try DecodedImage(url: before.appendingPathComponent(file))
+            let afterImage = try DecodedImage(url: after.appendingPathComponent(file))
             guard beforeImage.width == afterImage.width, beforeImage.height == afterImage.height else {
                 report.sizeMismatches.append(SizeMismatch(
                     file: file,
                     before: CGSize(width: beforeImage.width, height: beforeImage.height),
                     after: CGSize(width: afterImage.width, height: afterImage.height)
+                ))
+                continue
+            }
+            guard beforeImage.format == afterImage.format else {
+                report.formatMismatches.append(FormatMismatch(
+                    file: file,
+                    before: beforeImage.format,
+                    after: afterImage.format
                 ))
                 continue
             }
@@ -101,22 +137,22 @@ struct VisualCaptureComparison {
             .filter { $0.lowercased().hasSuffix(".png") })
     }
 
-    private static func difference(file: String, _ before: RGBAImage, _ after: RGBAImage) -> PixelDifference? {
-        guard before.pixels != after.pixels else { return nil }
+    /// Compares the decoded bytes directly; both images have the same size and pixel format.
+    private static func difference(file: String, _ before: DecodedImage, _ after: DecodedImage) -> PixelDifference? {
+        let bytesPerPixel = before.format.bitsPerPixel / 8
+        let rowLength = before.width * bytesPerPixel
         var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1, count = 0
-        before.pixels.withUnsafeBytes { beforeBytes in
-            after.pixels.withUnsafeBytes { afterBytes in
-                let beforePixels = beforeBytes.bindMemory(to: UInt32.self)
-                let afterPixels = afterBytes.bindMemory(to: UInt32.self)
-                for y in 0..<before.height {
-                    for x in 0..<before.width where beforePixels[y * before.width + x] != afterPixels[y * before.width + x] {
-                        count += 1
-                        minX = min(minX, x)
-                        minY = min(minY, y)
-                        maxX = max(maxX, x)
-                        maxY = max(maxY, y)
-                    }
-                }
+        for y in 0..<before.height {
+            let beforeRow = before.bytes + y * before.bytesPerRow
+            let afterRow = after.bytes + y * after.bytesPerRow
+            guard memcmp(beforeRow, afterRow, rowLength) != 0 else { continue }
+            for x in 0..<before.width
+            where memcmp(beforeRow + x * bytesPerPixel, afterRow + x * bytesPerPixel, bytesPerPixel) != 0 {
+                count += 1
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
             }
         }
         guard count > 0 else { return nil }
@@ -128,45 +164,39 @@ struct VisualCaptureComparison {
     }
 }
 
-/// A decoded image as RGBA8 pixels in sRGB, rows top to bottom, at the image's pixel size.
-private struct RGBAImage {
+/// A PNG decoded by `NSBitmapImageRep`, compared as-is without redrawing or color conversion.
+/// Rows run top to bottom.
+private struct DecodedImage {
+    let representation: NSBitmapImageRep
     let width: Int
     let height: Int
-    let pixels: [UInt8]
+    let bytesPerRow: Int
+    let format: VisualCaptureComparison.PixelFormat
+
+    var bytes: UnsafeMutablePointer<UInt8> { representation.bitmapData! }
 
     init(url: URL) throws {
         guard let data = try? Data(contentsOf: url),
               let representation = NSBitmapImageRep(data: data),
-              let image = representation.cgImage,
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
+              representation.bitmapData != nil
         else {
             throw VisualCaptureComparison.ComparisonError.undecodable(url)
         }
-        let width = representation.pixelsWide
-        let height = representation.pixelsHigh
-        var buffer = [UInt8](repeating: 0, count: width * height * 4)
-        let drawn = buffer.withUnsafeMutableBytes { bytes -> Bool in
-            guard let context = CGContext(
-                data: bytes.baseAddress,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * 4,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                return false
-            }
-            context.interpolationQuality = .none
-            context.setBlendMode(.copy)
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
+        guard !representation.isPlanar, representation.bitsPerPixel % 8 == 0 else {
+            throw VisualCaptureComparison.ComparisonError.unsupportedLayout(url)
         }
-        guard drawn else {
-            throw VisualCaptureComparison.ComparisonError.undecodable(url)
-        }
-        self.width = width
-        self.height = height
-        pixels = buffer
+        self.representation = representation
+        width = representation.pixelsWide
+        height = representation.pixelsHigh
+        bytesPerRow = representation.bytesPerRow
+        format = VisualCaptureComparison.PixelFormat(
+            bitsPerSample: representation.bitsPerSample,
+            samplesPerPixel: representation.samplesPerPixel,
+            bitsPerPixel: representation.bitsPerPixel,
+            bitmapFormat: representation.bitmapFormat.rawValue,
+            colorSpaceName: representation.colorSpaceName.rawValue,
+            colorSpace: representation.colorSpace.localizedName ?? representation.colorSpaceName.rawValue,
+            colorProfile: representation.colorSpace.iccProfileData
+        )
     }
 }

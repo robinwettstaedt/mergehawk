@@ -101,6 +101,19 @@ final class VisualCaptureComparisonXCTests: XCTestCase {
         XCTAssertTrue(report.failed)
     }
 
+    func testDifferentPixelFormatsAreReportedAsFormatMismatch() throws {
+        let (before, after) = try makeDirectories()
+        try writeImage(width: 4, height: 3, to: before.appendingPathComponent("a.png"))
+        try writeImage(width: 4, height: 3, hasAlpha: false, to: after.appendingPathComponent("a.png"))
+
+        let report = try VisualCaptureComparison.compare(before: before, after: after)
+        XCTAssertEqual(report.formatMismatches.map(\.file), ["a.png"])
+        XCTAssertEqual(report.formatMismatches.map(\.before.samplesPerPixel), [4])
+        XCTAssertEqual(report.formatMismatches.map(\.after.samplesPerPixel), [3])
+        XCTAssertTrue(report.pixelDifferences.isEmpty)
+        XCTAssertTrue(report.failed)
+    }
+
     func testEmptyBeforeDirectoryFails() throws {
         let (before, after) = try makeDirectories()
         try writeImage(width: 4, height: 3, to: after.appendingPathComponent("a.png"))
@@ -118,18 +131,25 @@ final class VisualCaptureComparisonXCTests: XCTestCase {
     }
 
     /// A gray image; `changedPixels` (x, y from the top-left) are red.
-    private func writeImage(width: Int, height: Int, changedPixels: [(Int, Int)] = [], to url: URL) throws {
+    private func writeImage(
+        width: Int,
+        height: Int,
+        hasAlpha: Bool = true,
+        changedPixels: [(Int, Int)] = [],
+        to url: URL
+    ) throws {
+        let samplesPerPixel = hasAlpha ? 4 : 3
         let representation = try XCTUnwrap(NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: width,
             pixelsHigh: height,
             bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
+            samplesPerPixel: samplesPerPixel,
+            hasAlpha: hasAlpha,
             isPlanar: false,
             colorSpaceName: .deviceRGB,
-            bytesPerRow: width * 4,
-            bitsPerPixel: 32
+            bytesPerRow: width * samplesPerPixel,
+            bitsPerPixel: 8 * samplesPerPixel
         ))
         let gray = NSColor(deviceRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
         let red = NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1)
