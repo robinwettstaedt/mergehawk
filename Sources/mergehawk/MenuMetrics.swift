@@ -37,6 +37,19 @@ struct MenuMetrics: Equatable {
         var controlChevron: FontToken
         var segmentLabel: FontToken
         var segmentIcon: FontToken
+        var refreshSymbol: FontToken
+        var refreshTimestamp: FontToken
+        var bannerMessage: FontToken
+        /// The banner's warning and dismiss symbols.
+        var bannerSymbol: FontToken
+        /// Chevron of the "Hidden (n)" disclosure rows.
+        var disclosureChevron: FontToken
+        var disclosureTitle: FontToken
+        var dropdownItem: FontToken
+        var dropdownCheckmark: FontToken
+        var sectionChevron: FontToken
+        var sectionHeading: FontToken
+        var sectionCount: FontToken
     }
 
     struct Panel: Equatable {
@@ -100,6 +113,57 @@ struct MenuMetrics: Equatable {
         var actionsWidth: CGFloat { actionButtonHitSize }
     }
 
+    struct RefreshStatus: Equatable {
+        var verticalWidth: CGFloat
+        var verticalSpacing: CGFloat
+        var indicatorSpacing: CGFloat
+        var indicatorSize: CGFloat
+        var iconFrame: CGFloat
+        var horizontalIconFrame: CGFloat
+        var horizontalSpacing: CGFloat
+        var horizontalPadding: CGFloat
+        var cornerRadius: CGFloat
+    }
+
+    struct Banner: Equatable {
+        var spacing: CGFloat
+        var horizontalPadding: CGFloat
+        var verticalPadding: CGFloat
+    }
+
+    struct PRList: Equatable {
+        var horizontalPadding: CGFloat
+        var topPadding: CGFloat
+        var bottomPadding: CGFloat
+        var sectionSpacing: CGFloat
+        var disclosureSpacing: CGFloat
+        var disclosureHorizontalPadding: CGFloat
+        var disclosureHeight: CGFloat
+        var sectionHeadingSpacing: CGFloat
+        var sectionChevronWidth: CGFloat
+        var sectionCountHorizontalPadding: CGFloat
+        var sectionCountVerticalPadding: CGFloat
+    }
+
+    /// The filter and sort dropdowns under the PR header controls.
+    struct Dropdown: Equatable {
+        var headerControlsSpacing: CGFloat
+        /// Gap between a header control's bottom edge and its open dropdown.
+        var gap: CGFloat
+        var authoredFilterWidth: CGFloat
+        var requestedFilterWidth: CGFloat
+        var sortWidth: CGFloat
+        var itemSpacing: CGFloat
+        var verticalPadding: CGFloat
+        var cornerRadius: CGFloat
+        var shadowRadius: CGFloat
+        var shadowOffsetY: CGFloat
+        var itemContentSpacing: CGFloat
+        var checkmarkWidth: CGFloat
+        var itemHorizontalPadding: CGFloat
+        var itemHeight: CGFloat
+    }
+
     struct Footer: Equatable {
         static let rowCount: CGFloat = 4
 
@@ -129,7 +193,14 @@ struct MenuMetrics: Equatable {
     var tabSwitcher: TabSwitcher
     var controls: Controls
     var prColumns: PRColumns
+    var refreshStatus: RefreshStatus
+    var banner: Banner
+    var prList: PRList
+    var dropdown: Dropdown
     var footer: Footer
+
+    /// A dropdown opens below its header control.
+    var dropdownOffset: CGFloat { controls.height + dropdown.gap }
 
     var panelHeight: CGFloat { panel.contentHeight + footer.height }
 
@@ -141,7 +212,18 @@ struct MenuMetrics: Equatable {
             controlLabel: FontToken(size: 11, weight: .semibold),
             controlChevron: FontToken(size: 9, weight: .semibold),
             segmentLabel: FontToken(size: 13, weight: .medium),
-            segmentIcon: FontToken(size: 12, weight: .semibold)
+            segmentIcon: FontToken(size: 12, weight: .semibold),
+            refreshSymbol: FontToken(size: 13, weight: .semibold),
+            refreshTimestamp: FontToken(size: 10, weight: .medium),
+            bannerMessage: FontToken(size: 12),
+            bannerSymbol: FontToken(size: 13),
+            disclosureChevron: FontToken(size: 9, weight: .semibold),
+            disclosureTitle: FontToken(size: 10, weight: .semibold),
+            dropdownItem: FontToken(size: 11, weight: .semibold),
+            dropdownCheckmark: FontToken(size: 11, weight: .semibold),
+            sectionChevron: FontToken(size: 12, weight: .semibold),
+            sectionHeading: FontToken(size: 13, weight: .semibold),
+            sectionCount: FontToken(size: 10, weight: .semibold, monospacedDigits: true)
         ),
         panel: Panel(width: 820, contentHeight: 650),
         topBar: TopBar(
@@ -181,6 +263,47 @@ struct MenuMetrics: Equatable {
             changesWidth: 49,
             ageWidth: 30,
             actionButtonHitSize: 28
+        ),
+        refreshStatus: RefreshStatus(
+            verticalWidth: 82,
+            verticalSpacing: 3,
+            indicatorSpacing: 7,
+            indicatorSize: 10,
+            iconFrame: 22,
+            horizontalIconFrame: 15,
+            horizontalSpacing: 5,
+            horizontalPadding: 3,
+            cornerRadius: 6
+        ),
+        banner: Banner(spacing: 8, horizontalPadding: 12, verticalPadding: 8),
+        prList: PRList(
+            horizontalPadding: 12,
+            topPadding: 5,
+            bottomPadding: 12,
+            sectionSpacing: 20,
+            disclosureSpacing: 7,
+            disclosureHorizontalPadding: 10,
+            disclosureHeight: 30,
+            sectionHeadingSpacing: 8,
+            sectionChevronWidth: 12,
+            sectionCountHorizontalPadding: 6,
+            sectionCountVerticalPadding: 2
+        ),
+        dropdown: Dropdown(
+            headerControlsSpacing: 8,
+            gap: 10,
+            authoredFilterWidth: 156,
+            requestedFilterWidth: 112,
+            sortWidth: 132,
+            itemSpacing: 2,
+            verticalPadding: 6,
+            cornerRadius: 7,
+            shadowRadius: 8,
+            shadowOffsetY: 3,
+            itemContentSpacing: 8,
+            checkmarkWidth: 12,
+            itemHorizontalPadding: 8,
+            itemHeight: 24
         ),
         footer: Footer(
             itemFont: NativeMenuFontToken(size: NSFont.menuFont(ofSize: 0).pointSize),

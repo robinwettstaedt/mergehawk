@@ -696,14 +696,6 @@ struct RefreshStatusControl: View {
         case horizontalButton(height: CGFloat)
     }
 
-    enum Layout {
-        static let width: CGFloat = 82
-        static let refreshIconSize: CGFloat = 22
-        static let horizontalIconSize: CGFloat = 15
-        static let horizontalSpacing: CGFloat = 5
-        static let horizontalHorizontalPadding: CGFloat = 3
-    }
-
     let indicatorColor: Color
     let isRefreshing: Bool
     let updatedAt: Date?
@@ -714,10 +706,12 @@ struct RefreshStatusControl: View {
     let accessibilityLabel: String
     var keyboardShortcut: KeyboardShortcut?
     var timestampPrefix = "updated "
-    var width = Layout.width
+    /// Defaults to the vertical layout's width.
+    var width: CGFloat?
     var displayMode = DisplayMode.vertical
     var showsIndicator = true
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
@@ -731,47 +725,52 @@ struct RefreshStatusControl: View {
     }
 
     private var verticalBody: some View {
-        VStack(alignment: .center, spacing: 3) {
-            HStack(spacing: 7) {
+        VStack(alignment: .center, spacing: metrics.refreshStatus.verticalSpacing) {
+            HStack(spacing: metrics.refreshStatus.indicatorSpacing) {
                 if showsIndicator {
                     Circle()
                         .fill(indicatorColor)
-                        .frame(width: 10, height: 10)
+                        .frame(width: metrics.refreshStatus.indicatorSize, height: metrics.refreshStatus.indicatorSize)
                 }
                 refreshControl
             }
             Text("\(timestampPrefix)\(updatedText)")
-                .font(.caption2)
+                .font(metrics.type.refreshTimestamp.font)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .frame(width: width, alignment: .center)
+        .frame(width: resolvedWidth, alignment: .center)
+    }
+
+    private var resolvedWidth: CGFloat {
+        width ?? metrics.refreshStatus.verticalWidth
     }
 
     @ViewBuilder
     private func horizontalButton(height: CGFloat) -> some View {
         let presentation = statusPresentation
-        let shape = RoundedRectangle(cornerRadius: 6)
+        let refreshStatus = metrics.refreshStatus
+        let shape = RoundedRectangle(cornerRadius: refreshStatus.cornerRadius)
         let button = Button(action: action) {
-            HStack(spacing: Layout.horizontalSpacing) {
+            HStack(spacing: refreshStatus.horizontalSpacing) {
                 if isRefreshing {
                     ProgressView()
                         .controlSize(.small)
-                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                        .frame(width: refreshStatus.horizontalIconFrame, height: refreshStatus.horizontalIconFrame)
                 } else {
                     Image(systemName: presentation.symbolName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(metrics.type.refreshSymbol.font)
                         .foregroundStyle(presentation.state == .failed ? Color.red : Color.secondary)
-                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                        .frame(width: refreshStatus.horizontalIconFrame, height: refreshStatus.horizontalIconFrame)
                 }
                 Text("\(timestampPrefix)\(compactUpdatedText)")
-                    .font(.caption2)
+                    .font(metrics.type.refreshTimestamp.font)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .padding(.horizontal, Layout.horizontalHorizontalPadding)
-            .frame(width: width, height: height)
+            .padding(.horizontal, refreshStatus.horizontalPadding)
+            .frame(width: resolvedWidth, height: height)
             .contentShape(shape)
         }
         .buttonStyle(.plain)
@@ -805,14 +804,14 @@ struct RefreshStatusControl: View {
         if isRefreshing {
             ProgressView()
                 .controlSize(.small)
-                .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
+                .frame(width: metrics.refreshStatus.iconFrame, height: metrics.refreshStatus.iconFrame)
         } else {
             let presentation = statusPresentation
             let button = Button(action: action) {
                 Image(systemName: presentation.symbolName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(metrics.type.refreshSymbol.font)
                     .foregroundStyle(presentation.state == .failed ? Color.red : Color.secondary)
-                    .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
+                    .frame(width: metrics.refreshStatus.iconFrame, height: metrics.refreshStatus.iconFrame)
             }
             .buttonStyle(.plain)
             .disabled(!isRefreshEnabled)
@@ -860,23 +859,27 @@ struct SaveErrorBanner: View {
     let message: String
     let dismiss: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.banner.spacing) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .font(metrics.type.bannerSymbol.font)
                 .foregroundStyle(.red)
             Text("Couldn't save your changes: \(message)")
-                .font(.callout)
+                .font(metrics.type.bannerMessage.font)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button(action: dismiss) {
                 Image(systemName: "xmark")
+                    .font(metrics.type.bannerSymbol.font)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .accessibilityLabel("Dismiss save error")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, metrics.banner.horizontalPadding)
+        .padding(.vertical, metrics.banner.verticalPadding)
     }
 }
 
@@ -1447,23 +1450,23 @@ struct PullRequestListView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 5)
-                .padding(.bottom, 12)
+                .padding(.horizontal, metrics.prList.horizontalPadding)
+                .padding(.top, metrics.prList.topPadding)
+                .padding(.bottom, metrics.prList.bottomPadding)
             }
         }
     }
 
     private var requestedContent: some View {
         ScrollView(.vertical) {
-            LazyVStack(spacing: 20) {
+            LazyVStack(spacing: metrics.prList.sectionSpacing) {
                 ForEach(controller.requestedSections, id: \.section) { content in
                     requestedSection(content)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 5)
-            .padding(.bottom, 12)
+            .padding(.horizontal, metrics.prList.horizontalPadding)
+            .padding(.top, metrics.prList.topPadding)
+            .padding(.bottom, metrics.prList.bottomPadding)
         }
     }
 
@@ -1514,16 +1517,16 @@ struct PullRequestListView: View {
                 expandedRequestedHiddenSections.insert(content.section)
             }
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: metrics.prList.disclosureSpacing) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(metrics.type.disclosureChevron.font)
                 Text(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
-                    .font(.caption.weight(.semibold))
+                    .font(metrics.type.disclosureTitle.font)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .padding(.horizontal, metrics.prList.disclosureHorizontalPadding)
+            .frame(height: metrics.prList.disclosureHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1557,16 +1560,16 @@ struct PullRequestListView: View {
         Button {
             isHiddenExpanded.toggle()
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: metrics.prList.disclosureSpacing) {
                 Image(systemName: isHiddenExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(metrics.type.disclosureChevron.font)
                 Text(HiddenPullRequestsDisclosurePresentation.title(count: hiddenPullRequests.count))
-                    .font(.caption.weight(.semibold))
+                    .font(metrics.type.disclosureTitle.font)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .padding(.horizontal, metrics.prList.disclosureHorizontalPadding)
+            .frame(height: metrics.prList.disclosureHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1601,19 +1604,21 @@ struct PullRequestHeaderControls: View {
     let mode: PullRequestListView.Mode
     @Binding var dropdownState: PullRequestMenuDropdownState
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.dropdown.headerControlsSpacing) {
             filterButton
                 .overlay(alignment: .topTrailing) {
                     if dropdownState.openMenu == .filter {
-                        filterMenu.offset(y: 34)
+                        filterMenu.offset(y: metrics.dropdownOffset)
                     }
                 }
                 .zIndex(dropdownState.openMenu == .filter ? 1 : 0)
             sortButton
                 .overlay(alignment: .topTrailing) {
                     if dropdownState.openMenu == .sort {
-                        sortMenu.offset(y: 34)
+                        sortMenu.offset(y: metrics.dropdownOffset)
                     }
                 }
                 .zIndex(dropdownState.openMenu == .sort ? 1 : 0)
@@ -1709,24 +1714,24 @@ struct PullRequestHeaderControls: View {
     private var filterMenu: some View {
         switch mode {
         case .authored:
-            optionMenu(width: 156) {
+            optionMenu(width: metrics.dropdown.authoredFilterWidth) {
                 ForEach(DashboardController.PullRequestFilterOption.allCases) { option in
                     optionMenuButton(
                         title: option.label,
                         isSelected: pullRequestFilterIsSelected(option),
-                        width: 156
+                        width: metrics.dropdown.authoredFilterWidth
                     ) {
                         togglePullRequestFilter(option)
                     }
                 }
             }
         case .reviewRequests:
-            optionMenu(width: 112) {
+            optionMenu(width: metrics.dropdown.requestedFilterWidth) {
                 ForEach(DashboardController.ReviewRequestFilterOption.allCases) { option in
                     optionMenuButton(
                         title: option.label,
                         isSelected: reviewRequestFilterIsSelected(option),
-                        width: 112
+                        width: metrics.dropdown.requestedFilterWidth
                     ) {
                         toggleReviewRequestFilter(option)
                     }
@@ -1774,12 +1779,12 @@ struct PullRequestHeaderControls: View {
     }
 
     private var sortMenu: some View {
-        optionMenu(width: 132) {
+        optionMenu(width: metrics.dropdown.sortWidth) {
             ForEach(DashboardController.PullRequestSortOption.allCases) { option in
                 optionMenuButton(
                     title: option.label,
                     isSelected: sortOption == option,
-                    width: 132
+                    width: metrics.dropdown.sortWidth
                 ) {
                     setSortOption(option)
                     dropdownState.dismiss()
@@ -1789,17 +1794,18 @@ struct PullRequestHeaderControls: View {
     }
 
     private func optionMenu<Content: View>(width: CGFloat, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let dropdown = metrics.dropdown
+        return VStack(alignment: .leading, spacing: dropdown.itemSpacing) {
             content()
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, dropdown.verticalPadding)
         .background(.ultraThinMaterial)
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: dropdown.cornerRadius)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .shadow(radius: 8, y: 3)
+        .clipShape(RoundedRectangle(cornerRadius: dropdown.cornerRadius))
+        .shadow(radius: dropdown.shadowRadius, y: dropdown.shadowOffsetY)
         .zIndex(1)
     }
 
@@ -1810,18 +1816,18 @@ struct PullRequestHeaderControls: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: metrics.dropdown.itemContentSpacing) {
                 Image(systemName: isSelected ? "checkmark" : "")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 12)
+                    .font(metrics.type.dropdownCheckmark.font)
+                    .frame(width: metrics.dropdown.checkmarkWidth)
                 Text(title)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(metrics.type.dropdownItem.font)
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, 8)
-            .frame(width: width, height: 24, alignment: .leading)
+            .padding(.horizontal, metrics.dropdown.itemHorizontalPadding)
+            .frame(width: width, height: metrics.dropdown.itemHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1967,17 +1973,17 @@ struct RequestedSectionHeading: View {
     var body: some View {
         HStack(spacing: metrics.prColumns.spacing) {
             Button(action: action) {
-                HStack(spacing: 8) {
+                HStack(spacing: metrics.prList.sectionHeadingSpacing) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 12, alignment: .leading)
+                        .font(metrics.type.sectionChevron.font)
+                        .frame(width: metrics.prList.sectionChevronWidth, alignment: .leading)
                     Text(section.title)
-                        .font(.body.weight(.semibold))
+                        .font(metrics.type.sectionHeading.font)
                     Text("\(count)")
-                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .font(metrics.type.sectionCount.font)
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, metrics.prList.sectionCountHorizontalPadding)
+                        .padding(.vertical, metrics.prList.sectionCountVerticalPadding)
                         .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
                     Spacer(minLength: 0)
                 }
