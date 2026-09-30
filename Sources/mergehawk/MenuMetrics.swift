@@ -96,7 +96,6 @@ struct MenuMetrics: Equatable {
         var height: CGFloat
         var leadingInset: CGFloat
         var trailingInset: CGFloat
-        var controlHeight: CGFloat
         /// Gap between the PR header controls and the refresh status control.
         var headerControlsTrailingSpacing: CGFloat
         var refreshStatusWidth: CGFloat
@@ -429,7 +428,6 @@ struct MenuMetrics: Equatable {
             height: 45,
             leadingInset: 8,
             trailingInset: 12,
-            controlHeight: 24,
             headerControlsTrailingSpacing: 8,
             refreshStatusWidth: 58
         ),

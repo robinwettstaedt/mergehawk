@@ -528,7 +528,8 @@ struct MenuRootView: View {
                 accessibilityLabel: "Refresh",
                 timestampPrefix: "",
                 width: metrics.topBar.refreshStatusWidth,
-                displayMode: .horizontalButton(height: metrics.topBar.controlHeight),
+                // Same height as the filter and sort controls beside it, so the top bar lines up.
+                displayMode: .horizontalButton(height: metrics.controls.height),
                 showsIndicator: false
             )
         }
