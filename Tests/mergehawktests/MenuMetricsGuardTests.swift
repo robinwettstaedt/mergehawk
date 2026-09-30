@@ -3,11 +3,15 @@ import XCTest
 
 /// A guard against new menu code bypassing `MenuMetrics`; not proof that everything scales.
 final class MenuMetricsGuardTests: XCTestCase {
+    private static let textStyles = "(largeTitle|title|title2|title3|headline|subheadline|body|callout|footnote|caption|caption2)"
     private static let forbiddenPatterns: [NSRegularExpression] = [
         #"\.system\(size:"#,
-        #"\.system\(\.(largeTitle|title|title2|title3|headline|subheadline|body|callout|footnote|caption|caption2)\b"#,
-        #"\.font\(\.(largeTitle|title|title2|title3|headline|subheadline|body|callout|footnote|caption|caption2)\b"#,
-        #"NSFont\.systemFont\(ofSize:\s*[0-9]"#,
+        #"\.system\(\."# + textStyles + #"\b"#,
+        #"\.font\(\."# + textStyles + #"\b"#,
+        // A text style chosen in a ternary inside a font expression.
+        #"\.font\(.*[?:]\s*\."# + textStyles + #"\b"#,
+        #"\bFont\."# + textStyles + #"\b"#,
+        #"systemFont\(ofSize:\s*[0-9]"#,
         #"\benum\s+\w*Layout\b"#,
     ].map { try! NSRegularExpression(pattern: $0) }
 
@@ -40,6 +44,23 @@ final class MenuMetricsGuardTests: XCTestCase {
         XCTAssertEqual(Self.violatingLines(in: "field.font = NSFont.systemFont(ofSize: 11)"), [1])
         XCTAssertEqual(Self.violatingLines(in: ".font(.system(.title2, design: .monospaced))"), [1])
         XCTAssertEqual(Self.violatingLines(in: "a\n.font(.headline)"), [2])
+    }
+
+    func testMatcherFlagsSystemFontSizesWithOrWithoutThePrefix() {
+        XCTAssertEqual(Self.violatingLines(in: "field.font = .systemFont(ofSize: 12)"), [1])
+        XCTAssertEqual(Self.violatingLines(in: "let font = systemFont(ofSize: 9, weight: .bold)"), [1])
+        XCTAssertEqual(Self.violatingLines(in: "field.font = .systemFont(ofSize: size)"), [])
+    }
+
+    func testMatcherFlagsFontTextStyleReferences() {
+        XCTAssertEqual(Self.violatingLines(in: "let font = Font.caption"), [1])
+        XCTAssertEqual(Self.violatingLines(in: "var font: Font = Font.headline.weight(.bold)"), [1])
+    }
+
+    func testMatcherFlagsTextStylesInFontTernaries() {
+        XCTAssertEqual(Self.violatingLines(in: ".font(isOpen ? .caption : metrics.type.cardTitle.font)"), [1])
+        XCTAssertEqual(Self.violatingLines(in: ".font(isOpen ? metrics.type.cardTitle.font : .body)"), [1])
+        XCTAssertEqual(Self.violatingLines(in: ".font(isOpen ? .subheadline.weight(.semibold) : metrics.type.cardTitle.font)"), [1])
     }
 
     func testMatcherAcceptsMetricsTokens() {
