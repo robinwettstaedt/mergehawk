@@ -574,6 +574,7 @@ struct MenuRootView: View {
 }
 
 enum MenuPanelSize {
+    /// Screen-space gap between the panel and the usable screen edges; not a panel size, so it never scales.
     static let margin: CGFloat = 12
 
     static func resolve(availableFrame: CGRect, metrics: MenuMetrics) -> CGSize {
