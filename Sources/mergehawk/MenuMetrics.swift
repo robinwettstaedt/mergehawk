@@ -440,29 +440,29 @@ struct MenuMetrics: Equatable {
             headerControlsTrailingSpacing: s(8),
             refreshStatusWidth: s(58)
         )
-        tabSwitcher = TabSwitcher(width: s(320), leadingInset: s(5), notificationSegmentWidth: s(64))
+        tabSwitcher = TabSwitcher(width: s(320), leadingInset: s(4), notificationSegmentWidth: s(64))
         controls = Controls(
             height: s(24),
             cornerRadius: s(6),
             contentSpacing: s(6),
-            horizontalPadding: s(10),
+            horizontalPadding: s(8),
             sortDirectionWidth: s(26),
             sortDividerVerticalInset: s(5),
             segmentedHeight: s(28),
             segmentedCornerRadius: s(6),
-            segmentedContentSpacing: s(5),
+            segmentedContentSpacing: s(4),
             segmentSelectionInset: s(2),
             segmentSelectionCornerRadius: s(5),
             segmentDividerVerticalInset: s(7)
         )
         prColumns = PRColumns(
             spacing: s(6),
-            rowSpacing: s(7),
+            rowSpacing: s(6),
             headerHeight: s(32),
-            horizontalInset: s(10),
+            horizontalInset: s(8),
             verticalInset: s(8),
             avatarSize: s(22),
-            identitySpacing: s(7),
+            identitySpacing: s(6),
             identityLineSpacing: s(4),
             commentsWidth: s(30),
             statusWidth: s(30),
@@ -472,23 +472,23 @@ struct MenuMetrics: Equatable {
         )
         refreshStatus = RefreshStatus(
             verticalWidth: s(82),
-            verticalSpacing: s(3),
-            indicatorSpacing: s(7),
+            verticalSpacing: s(2),
+            indicatorSpacing: s(6),
             indicatorSize: s(10),
             iconFrame: s(22),
             horizontalIconFrame: s(15),
-            horizontalSpacing: s(5),
-            horizontalPadding: s(3),
+            horizontalSpacing: s(4),
+            horizontalPadding: s(2),
             cornerRadius: s(6)
         )
         banner = Banner(spacing: s(8), horizontalPadding: s(12), verticalPadding: s(8))
         prList = PRList(
             horizontalPadding: s(12),
-            topPadding: s(5),
+            topPadding: s(4),
             bottomPadding: s(12),
             sectionSpacing: s(20),
-            disclosureSpacing: s(7),
-            disclosureHorizontalPadding: s(10),
+            disclosureSpacing: s(6),
+            disclosureHorizontalPadding: s(8),
             disclosureHeight: s(30),
             sectionHeadingSpacing: s(8),
             sectionChevronWidth: s(12),
@@ -497,7 +497,7 @@ struct MenuMetrics: Equatable {
         )
         dropdown = Dropdown(
             headerControlsSpacing: s(8),
-            gap: s(10),
+            gap: s(8),
             authoredFilterWidth: s(156),
             requestedFilterWidth: s(112),
             sortWidth: s(132),
@@ -514,11 +514,11 @@ struct MenuMetrics: Equatable {
         notificationList = NotificationList(
             headerSpacing: s(8),
             headerHorizontalPadding: s(12),
-            headerTopPadding: s(10),
+            headerTopPadding: s(8),
             headerBottomPadding: s(6),
             rowSpacing: s(8),
             horizontalPadding: s(12),
-            topPadding: s(5),
+            topPadding: s(4),
             bottomPadding: s(12)
         )
         notificationRow = NotificationRow(
@@ -542,7 +542,7 @@ struct MenuMetrics: Equatable {
             mergeStatusSymbolSize: s(14),
             mergeStatusStrokeWidth: s(1.4),
             tooltipHorizontalPadding: s(8),
-            tooltipVerticalPadding: s(5),
+            tooltipVerticalPadding: s(4),
             tooltipCornerRadius: s(6),
             tooltipShadowRadius: s(4),
             tooltipShadowOffsetY: s(2),
@@ -581,30 +581,30 @@ struct MenuMetrics: Equatable {
             contentSpacing: s(20),
             appIconSize: s(88),
             buttonRowSpacing: s(8),
-            pendingSpacing: s(14),
+            pendingSpacing: s(12),
             enterCodeSpacing: s(16),
-            linkSpacing: s(3),
+            linkSpacing: s(2),
             codeRowSpacing: s(8),
             codeTracking: s(2),
             codeHorizontalPadding: s(12),
-            codeVerticalPadding: s(10),
+            codeVerticalPadding: s(8),
             codeCornerRadius: s(8),
             copyButtonSize: s(22),
-            expirySpacing: s(5),
-            loadingSpacing: s(10)
+            expirySpacing: s(4),
+            loadingSpacing: s(8)
         )
         emptyState = EmptyState(spacing: s(8))
         accessPrompt = AccessPrompt(
             contentSpacing: s(20),
-            headerSpacing: s(10),
+            headerSpacing: s(8),
             actionsSpacing: s(12),
             maxContentWidth: s(340),
             horizontalPadding: s(24),
             noteBoxCornerRadius: s(8),
-            noteSpacing: s(10),
+            noteSpacing: s(8),
             noteIconWidth: s(22),
             noteHorizontalPadding: s(12),
-            noteVerticalPadding: s(10)
+            noteVerticalPadding: s(8)
         )
         footer = Footer(
             itemFont: NativeMenuFontToken(size: s(NSFont.menuFont(ofSize: 0).pointSize)),

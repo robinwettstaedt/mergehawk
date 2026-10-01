@@ -123,6 +123,130 @@ final class MenuMetricsTests: XCTestCase {
         }
     }
 
+    // MARK: Consolidated scales
+
+    private typealias SizeToken = (name: String, keyPath: KeyPath<MenuMetrics, CGFloat>, mer86Value: CGFloat)
+
+    private static let spacingScale: Set<CGFloat> = [0, 2, 4, 6, 8, 12, 16, 20, 24]
+
+    /// Spacing kept off the scale on purpose: the footer imitates native menu rows, and the divider
+    /// insets set divider length rather than spacing.
+    private static let spacingOneOffs: Set<String> = [
+        "footer.selectionInsetX", "footer.selectionInsetY", "footer.titleLeading", "footer.shortcutTrailing",
+        "footer.separatorHorizontalPadding",
+        "controls.sortDividerVerticalInset", "controls.segmentDividerVerticalInset",
+    ]
+
+    /// Every spacing and padding token with its value before the scales were consolidated (MER-86).
+    private static let spacingTokens: [SizeToken] = [
+        ("topBar.leadingInset", \.topBar.leadingInset, 8),
+        ("topBar.trailingInset", \.topBar.trailingInset, 12),
+        ("topBar.headerControlsTrailingSpacing", \.topBar.headerControlsTrailingSpacing, 8),
+        ("tabSwitcher.leadingInset", \.tabSwitcher.leadingInset, 5),
+        ("controls.contentSpacing", \.controls.contentSpacing, 6),
+        ("controls.horizontalPadding", \.controls.horizontalPadding, 10),
+        ("controls.sortDividerVerticalInset", \.controls.sortDividerVerticalInset, 5),
+        ("controls.segmentedContentSpacing", \.controls.segmentedContentSpacing, 5),
+        ("controls.segmentSelectionInset", \.controls.segmentSelectionInset, 2),
+        ("controls.segmentDividerVerticalInset", \.controls.segmentDividerVerticalInset, 7),
+        ("prColumns.spacing", \.prColumns.spacing, 6),
+        ("prColumns.rowSpacing", \.prColumns.rowSpacing, 7),
+        ("prColumns.horizontalInset", \.prColumns.horizontalInset, 10),
+        ("prColumns.verticalInset", \.prColumns.verticalInset, 8),
+        ("prColumns.identitySpacing", \.prColumns.identitySpacing, 7),
+        ("prColumns.identityLineSpacing", \.prColumns.identityLineSpacing, 4),
+        ("refreshStatus.verticalSpacing", \.refreshStatus.verticalSpacing, 3),
+        ("refreshStatus.indicatorSpacing", \.refreshStatus.indicatorSpacing, 7),
+        ("refreshStatus.horizontalSpacing", \.refreshStatus.horizontalSpacing, 5),
+        ("refreshStatus.horizontalPadding", \.refreshStatus.horizontalPadding, 3),
+        ("banner.spacing", \.banner.spacing, 8),
+        ("banner.horizontalPadding", \.banner.horizontalPadding, 12),
+        ("banner.verticalPadding", \.banner.verticalPadding, 8),
+        ("prList.horizontalPadding", \.prList.horizontalPadding, 12),
+        ("prList.topPadding", \.prList.topPadding, 5),
+        ("prList.bottomPadding", \.prList.bottomPadding, 12),
+        ("prList.sectionSpacing", \.prList.sectionSpacing, 20),
+        ("prList.disclosureSpacing", \.prList.disclosureSpacing, 7),
+        ("prList.disclosureHorizontalPadding", \.prList.disclosureHorizontalPadding, 10),
+        ("prList.sectionHeadingSpacing", \.prList.sectionHeadingSpacing, 8),
+        ("prList.sectionCountHorizontalPadding", \.prList.sectionCountHorizontalPadding, 6),
+        ("prList.sectionCountVerticalPadding", \.prList.sectionCountVerticalPadding, 2),
+        ("dropdown.headerControlsSpacing", \.dropdown.headerControlsSpacing, 8),
+        ("dropdown.gap", \.dropdown.gap, 10),
+        ("dropdown.itemSpacing", \.dropdown.itemSpacing, 2),
+        ("dropdown.verticalPadding", \.dropdown.verticalPadding, 6),
+        ("dropdown.itemContentSpacing", \.dropdown.itemContentSpacing, 8),
+        ("dropdown.itemHorizontalPadding", \.dropdown.itemHorizontalPadding, 8),
+        ("notificationList.headerSpacing", \.notificationList.headerSpacing, 8),
+        ("notificationList.headerHorizontalPadding", \.notificationList.headerHorizontalPadding, 12),
+        ("notificationList.headerTopPadding", \.notificationList.headerTopPadding, 10),
+        ("notificationList.headerBottomPadding", \.notificationList.headerBottomPadding, 6),
+        ("notificationList.rowSpacing", \.notificationList.rowSpacing, 8),
+        ("notificationList.horizontalPadding", \.notificationList.horizontalPadding, 12),
+        ("notificationList.topPadding", \.notificationList.topPadding, 5),
+        ("notificationList.bottomPadding", \.notificationList.bottomPadding, 12),
+        ("notificationRow.titleSpacing", \.notificationRow.titleSpacing, 8),
+        ("notificationRow.pullRequestLineSpacing", \.notificationRow.pullRequestLineSpacing, 4),
+        ("notificationRow.markReadOffset", \.notificationRow.markReadOffset, 6),
+        ("prRow.identityItemSpacing", \.prRow.identityItemSpacing, 4),
+        ("prRow.draftBadgeHorizontalPadding", \.prRow.draftBadgeHorizontalPadding, 6),
+        ("prRow.draftBadgeVerticalPadding", \.prRow.draftBadgeVerticalPadding, 2),
+        ("legend.tooltipHorizontalPadding", \.legend.tooltipHorizontalPadding, 8),
+        ("legend.tooltipVerticalPadding", \.legend.tooltipVerticalPadding, 5),
+        ("legend.tooltipGap", \.legend.tooltipGap, 4),
+        ("actionsMenu.padding", \.actionsMenu.padding, 6),
+        ("actionsMenu.itemSpacing", \.actionsMenu.itemSpacing, 2),
+        ("actionsMenu.itemContentSpacing", \.actionsMenu.itemContentSpacing, 8),
+        ("actionsMenu.itemHorizontalPadding", \.actionsMenu.itemHorizontalPadding, 6),
+        ("actionsMenu.anchorGap", \.actionsMenu.anchorGap, 4),
+        ("gitHubButton.contentSpacing", \.gitHubButton.contentSpacing, 6),
+        ("gitHubButton.horizontalPadding", \.gitHubButton.horizontalPadding, 16),
+        ("signIn.padding", \.signIn.padding, 24),
+        ("signIn.contentSpacing", \.signIn.contentSpacing, 20),
+        ("signIn.buttonRowSpacing", \.signIn.buttonRowSpacing, 8),
+        ("signIn.pendingSpacing", \.signIn.pendingSpacing, 14),
+        ("signIn.enterCodeSpacing", \.signIn.enterCodeSpacing, 16),
+        ("signIn.linkSpacing", \.signIn.linkSpacing, 3),
+        ("signIn.codeRowSpacing", \.signIn.codeRowSpacing, 8),
+        ("signIn.codeHorizontalPadding", \.signIn.codeHorizontalPadding, 12),
+        ("signIn.codeVerticalPadding", \.signIn.codeVerticalPadding, 10),
+        ("signIn.expirySpacing", \.signIn.expirySpacing, 5),
+        ("signIn.loadingSpacing", \.signIn.loadingSpacing, 10),
+        ("emptyState.spacing", \.emptyState.spacing, 8),
+        ("accessPrompt.contentSpacing", \.accessPrompt.contentSpacing, 20),
+        ("accessPrompt.headerSpacing", \.accessPrompt.headerSpacing, 10),
+        ("accessPrompt.actionsSpacing", \.accessPrompt.actionsSpacing, 12),
+        ("accessPrompt.horizontalPadding", \.accessPrompt.horizontalPadding, 24),
+        ("accessPrompt.noteSpacing", \.accessPrompt.noteSpacing, 10),
+        ("accessPrompt.noteHorizontalPadding", \.accessPrompt.noteHorizontalPadding, 12),
+        ("accessPrompt.noteVerticalPadding", \.accessPrompt.noteVerticalPadding, 10),
+        ("footer.separatorHorizontalPadding", \.footer.separatorHorizontalPadding, 10),
+        ("footer.separatorVerticalPadding", \.footer.separatorVerticalPadding, 6),
+        ("footer.selectionInsetX", \.footer.selectionInsetX, 5),
+        ("footer.selectionInsetY", \.footer.selectionInsetY, 1),
+        ("footer.titleLeading", \.footer.titleLeading, 14),
+        ("footer.shortcutTrailing", \.footer.shortcutTrailing, 9),
+        ("footer.shortcutColumnSpacing", \.footer.shortcutColumnSpacing, 2),
+    ]
+
+    func testSpacingIsOnTheScaleOrADocumentedOneOff() {
+        XCTAssertEqual(Self.spacingTokens.count, 88)
+        for token in Self.spacingTokens {
+            let value = metrics[keyPath: token.keyPath]
+            if Self.spacingOneOffs.contains(token.name) {
+                XCTAssertEqual(value, token.mer86Value, "one-off \(token.name) keeps its value")
+            } else {
+                XCTAssertTrue(Self.spacingScale.contains(value), "\(token.name) = \(value) is off the spacing scale")
+            }
+        }
+    }
+
+    func testSpacingMovedAtMostTwoPoints() {
+        for token in Self.spacingTokens {
+            XCTAssertLessThanOrEqual(abs(metrics[keyPath: token.keyPath] - token.mer86Value), 2, token.name)
+        }
+    }
+
     // MARK: Mirror walk
 
     private struct StoredMeasurements {
