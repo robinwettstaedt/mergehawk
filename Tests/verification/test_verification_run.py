@@ -212,7 +212,51 @@ with open(os.environ["TEST_PIDS"], "a") as log:
             with self.assertRaisesRegex(verification_run.VerificationError, "runtime identity"):
                 verification_run.validate_required_commands(manifest, run_dir, [name])
         manifest["app"] = {"runtime": {"bundle_id": "review"}}
-        verification_run.validate_required_commands(manifest, run_dir, ["app-review", "app-review-2"])
+        with self.assertRaisesRegex(verification_run.VerificationError, "later launcher stage"):
+            verification_run.validate_required_commands(manifest, run_dir, ["app-review"])
+        verification_run.validate_required_commands(manifest, run_dir, ["app-review-2"])
+
+    def test_review_status_ignores_later_verification_and_screenshot_stages(self) -> None:
+        root = self.make_repo("nonlaunch stages")
+        run_dir = verification_run.begin(root, "review")
+        log = run_dir / "logs" / "result.log"
+        log.write_text("passed\n")
+        verification_run.record_start(root, "review", str(run_dir), "app-review", None)
+        verification_run.record_finish(root, "review", str(run_dir), "app-review", 0,
+                                       [str(log)], ["opened=1", "ui=native"])
+        for name in ("verify", "screenshots"):
+            verification_run.record_start(root, "review", str(run_dir), name, None)
+            verification_run.record_finish(root, "review", str(run_dir), name, 0, [str(log)], [])
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        manifest["app"] = {"runtime": {"bundle_id": "review"}}
+        verification_run.validate_required_commands(manifest, run_dir, ["app-review", "verify", "screenshots"])
+
+    def test_launcher_later_menu_settings_and_preparation_supersede_native_review(self) -> None:
+        root, run_dir, environment, _ = self.prepare_launcher("superseded review")
+        review_name = "app-review"
+        result = self.launch(root, run_dir, environment, "--stage", review_name, "--ui", "native")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for index, (stage, arguments) in enumerate((
+            ("app-menu", ("--ui", "menu")),
+            ("app-settings", ("--ui", "settings")),
+            ("app-prepared", ("--ui", "native", "--no-open")),
+        ), start=2):
+            with self.subTest(stage=stage):
+                result = self.launch(root, run_dir, environment, "--stage", stage, *arguments)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                manifest = json.loads((run_dir / "manifest.json").read_text())
+                with self.assertRaisesRegex(verification_run.VerificationError, "later launcher stage"):
+                    verification_run.validate_required_commands(manifest, run_dir, [review_name])
+                if stage == "app-prepared":
+                    self.assertEqual(manifest["commands"][stage]["details"]["opened"], "0")
+                previous_review = review_name
+                review_name = f"app-review-{index}"
+                result = self.launch(root, run_dir, environment, "--stage", review_name, "--ui", "native")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                manifest = json.loads((run_dir / "manifest.json").read_text())
+                verification_run.validate_required_commands(manifest, run_dir, [review_name])
+                with self.assertRaisesRegex(verification_run.VerificationError, "later launcher stage"):
+                    verification_run.validate_required_commands(manifest, run_dir, [previous_review])
 
     def test_same_logical_slot_has_distinct_worktree_keys(self) -> None:
         first = self.make_repo("first repo")

@@ -440,6 +440,17 @@ def validate_required_commands(manifest: dict[str, object], run_dir: Path, requi
             app = manifest.get("app")
             if not isinstance(app, dict) or not isinstance(app.get("runtime"), dict):
                 raise VerificationError("required app command has no recorded runtime identity")
+            if is_review:
+                # A later launcher can replace or stop the runtime even with opened=0.
+                for later_name, later_record in commands.items():
+                    if not isinstance(later_record, dict):
+                        continue
+                    later_details = later_record.get("details")
+                    if (isinstance(later_details, dict) and "opened" in later_details
+                            and later_record.get("started_at", "") > record.get("started_at", "")):
+                        raise VerificationError(
+                            f"required review command was superseded by a later launcher stage: {command}: {later_name}"
+                        )
         files = record.get("files")
         if not isinstance(files, list):
             raise VerificationError(f"required command has invalid evidence files: {command}")

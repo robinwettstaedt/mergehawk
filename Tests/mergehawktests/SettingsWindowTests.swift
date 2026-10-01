@@ -23,10 +23,14 @@ final class SettingsWindowTests: XCTestCase {
     }
 
     @MainActor
-    func testStartupAssignsDelegateBeforeRunLoopAndKeepsItAlive() {
+    func testStartupAssignsDelegateBeforeRunLoop() {
         let delegate = makeDelegate()
         let previousDelegate = NSApplication.shared.delegate
-        defer { NSApplication.shared.delegate = previousDelegate }
+        let previousActivationPolicy = NSApplication.shared.activationPolicy()
+        defer {
+            NSApplication.shared.delegate = previousDelegate
+            NSApplication.shared.setActivationPolicy(previousActivationPolicy)
+        }
         mergehawkApp.runApplication(delegate: delegate) {
             XCTAssertTrue(NSApplication.shared.delegate === delegate)
             delegate.applicationWillFinishLaunching(Notification(name: NSApplication.willFinishLaunchingNotification))
