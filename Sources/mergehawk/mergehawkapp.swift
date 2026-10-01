@@ -121,16 +121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func closeAllWindows(_ sender: Any?) {
-        NSApp.windows.filter { $0.isVisible || $0.isMiniaturized }.forEach { $0.performClose(sender) }
-    }
-
-    @objc private func minimizeAllWindows(_ sender: Any?) {
-        NSApp.windows.filter { $0.isVisible && $0.styleMask.contains(.miniaturizable) }
-            .forEach { $0.performMiniaturize(sender) }
+        [settingsWindow, verificationMenuWindow].compactMap { $0 }
+            .filter { ($0.isVisible || $0.isMiniaturized) && $0.styleMask.contains(.closable) }
+            .forEach { $0.performClose(sender) }
     }
 
     @objc private func zoomAllWindows(_ sender: Any?) {
-        NSApp.windows.filter { $0.isVisible && $0.styleMask.contains(.resizable) }
+        [settingsWindow, verificationMenuWindow].compactMap { $0 }
+            .filter { $0.isVisible && $0.styleMask.contains(.resizable) }
             .forEach { $0.performZoom(sender) }
     }
 
@@ -190,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         command(windowMenu, "Close", #selector(NSWindow.performClose(_:)), "w")
         command(windowMenu, "Close All", #selector(closeAllWindows), "w", modifiers: [.command, .option], target: self)
         command(windowMenu, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")
-        command(windowMenu, "Minimize All", #selector(minimizeAllWindows), "m", modifiers: [.command, .option], target: self)
+        command(windowMenu, "Minimize All", #selector(NSApplication.miniaturizeAll(_:)), "m", modifiers: [.command, .option])
         command(windowMenu, "Zoom", #selector(NSWindow.performZoom(_:)))
         command(windowMenu, "Zoom All", #selector(zoomAllWindows), target: self)
         windowMenu.addItem(.separator())

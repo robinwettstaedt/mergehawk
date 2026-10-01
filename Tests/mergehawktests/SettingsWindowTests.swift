@@ -141,6 +141,23 @@ final class SettingsWindowTests: XCTestCase {
         let windows = try XCTUnwrap(application.windowsMenu)
         XCTAssertEqual(windows.items.first { $0.title == "Close" }?.action, #selector(NSWindow.performClose(_:)))
         XCTAssertEqual(windows.items.first { $0.title == "Minimize" }?.action, #selector(NSWindow.performMiniaturize(_:)))
+        let minimizeAll = try XCTUnwrap(windows.items.first { $0.title == "Minimize All" })
+        XCTAssertEqual(minimizeAll.action, #selector(NSApplication.miniaturizeAll(_:)))
+        XCTAssertNil(minimizeAll.target)
+
+        let unrelated = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        unrelated.isReleasedWhenClosed = false
+        defer { unrelated.close() }
+        unrelated.orderBack(nil)
+        XCTAssertTrue(unrelated.isVisible)
+        XCTAssertTrue(window.isVisible)
+        let closeAll = try XCTUnwrap(windows.items.first { $0.title == "Close All" })
+        XCTAssertTrue(application.sendAction(try XCTUnwrap(closeAll.action), to: closeAll.target, from: closeAll))
+        XCTAssertFalse(window.isVisible)
+        XCTAssertTrue(unrelated.isVisible)
     }
 
     @MainActor
