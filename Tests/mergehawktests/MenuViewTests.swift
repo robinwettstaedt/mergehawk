@@ -102,6 +102,29 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: .larger).size.width, 1066, accuracy: 1e-9)
     }
 
+    func testEachMenuSizeResolvesToItsFullPanelSizeUnclampedAndClampsOnlyItsHeightOnAShortFrame() throws {
+        // Panel at factor f: width 820f, height 650f + footer (1 + 114f) = 1 + 764f.
+        let expectedUnclamped: [MenuSize: CGSize] = [
+            .small: CGSize(width: 697, height: 650.4),
+            .standard: CGSize(width: 820, height: 765),
+            .large: CGSize(width: 943, height: 879.6),
+            .larger: CGSize(width: 1066, height: 994.2)
+        ]
+        let roomy = CGRect(x: 0, y: 0, width: 2000, height: 1200)
+        let short = CGRect(x: 0, y: 0, width: 1600, height: 600)
+        for size in MenuSize.allCases {
+            let expected = try XCTUnwrap(expectedUnclamped[size])
+            let unclamped = MenuPanelSize.resolve(availableFrame: roomy, menuSize: size).size
+            XCTAssertEqual(unclamped.width, expected.width, accuracy: 1e-9, "\(size)")
+            XCTAssertEqual(unclamped.height, expected.height, accuracy: 1e-9, "\(size)")
+
+            let clamped = MenuPanelSize.resolve(availableFrame: short, menuSize: size)
+            XCTAssertEqual(clamped.metrics.scale, size.factor, "\(size)")
+            XCTAssertEqual(clamped.size.width, expected.width, accuracy: 1e-9, "\(size)")
+            XCTAssertEqual(clamped.size.height, 576, "\(size)")
+        }
+    }
+
     func testLargerFitsTheLaptopWidthAndClampsItsHeight() {
         let larger = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1470, height: 919), menuSize: .larger)
         XCTAssertEqual(larger.metrics.scale, 1.3)
