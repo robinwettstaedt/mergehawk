@@ -10,6 +10,7 @@ import shutil
 import shlex
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -202,7 +203,7 @@ with open(os.environ["TEST_PIDS"], "a") as log:
         log = run_dir / "logs" / "app-review.log"
         log.write_text("review\n")
         for name in ("app-review", "app-review-2"):
-            verification_run.record_start(root, "review", str(run_dir), name, None)
+            verification_run.record_start(root, "review", str(run_dir), name, None, app_launch=True)
             verification_run.record_finish(root, "review", str(run_dir), name, 0, [str(log)], ["opened=1", "ui=settings"])
         manifest = json.loads((run_dir / "manifest.json").read_text())
         for name in ("app-review", "app-review-2"):
@@ -212,7 +213,7 @@ with open(os.environ["TEST_PIDS"], "a") as log:
             with self.assertRaisesRegex(verification_run.VerificationError, "runtime identity"):
                 verification_run.validate_required_commands(manifest, run_dir, [name])
         manifest["app"] = {"runtime": {"bundle_id": "review"}}
-        with self.assertRaisesRegex(verification_run.VerificationError, "later launcher stage"):
+        with self.assertRaisesRegex(verification_run.VerificationError, "latest slot launch"):
             verification_run.validate_required_commands(manifest, run_dir, ["app-review"])
         verification_run.validate_required_commands(manifest, run_dir, ["app-review-2"])
 
@@ -221,7 +222,7 @@ with open(os.environ["TEST_PIDS"], "a") as log:
         run_dir = verification_run.begin(root, "review")
         log = run_dir / "logs" / "result.log"
         log.write_text("passed\n")
-        verification_run.record_start(root, "review", str(run_dir), "app-review", None)
+        verification_run.record_start(root, "review", str(run_dir), "app-review", None, app_launch=True)
         verification_run.record_finish(root, "review", str(run_dir), "app-review", 0,
                                        [str(log)], ["opened=1", "ui=native"])
         for name in ("verify", "screenshots"):
@@ -245,7 +246,7 @@ with open(os.environ["TEST_PIDS"], "a") as log:
                 result = self.launch(root, run_dir, environment, "--stage", stage, *arguments)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 manifest = json.loads((run_dir / "manifest.json").read_text())
-                with self.assertRaisesRegex(verification_run.VerificationError, "later launcher stage"):
+                with self.assertRaisesRegex(verification_run.VerificationError, "latest slot launch"):
                     verification_run.validate_required_commands(manifest, run_dir, [review_name])
                 if stage == "app-prepared":
                     self.assertEqual(manifest["commands"][stage]["details"]["opened"], "0")
@@ -255,8 +256,90 @@ with open(os.environ["TEST_PIDS"], "a") as log:
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 manifest = json.loads((run_dir / "manifest.json").read_text())
                 verification_run.validate_required_commands(manifest, run_dir, [review_name])
-                with self.assertRaisesRegex(verification_run.VerificationError, "later launcher stage"):
+                with self.assertRaisesRegex(verification_run.VerificationError, "latest slot launch"):
                     verification_run.validate_required_commands(manifest, run_dir, [previous_review])
+
+    def record_native_review(self, root: Path, run_dir: Path, stage: str) -> dict[str, object]:
+        log = run_dir / "logs" / f"{stage}.log"
+        log.write_text("native review\n")
+        verification_run.record_start(root, "review", str(run_dir), stage, None, app_launch=True)
+        verification_run.record_finish(root, "review", str(run_dir), stage, 0, [str(log)], ["opened=1", "ui=native"])
+        verification_run.record_app(root, "review", str(run_dir), "runtime", {"bundle_id": "review"})
+        return json.loads((run_dir / "manifest.json").read_text())
+
+    def test_interrupted_launcher_start_invalidates_review_without_finished_details(self) -> None:
+        root = self.make_repo("interrupted launch")
+        run_dir = verification_run.begin(root, "review")
+        review_manifest = self.record_native_review(root, run_dir, "app-review")
+        verification_run.validate_required_commands(review_manifest, run_dir, ["app-review"])
+        verification_run.record_start(root, "review", str(run_dir), "app-interrupted", None, app_launch=True)
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        self.assertEqual(manifest["commands"]["app-interrupted"]["status"], "running")
+        self.assertNotIn("details", manifest["commands"]["app-interrupted"])
+        self.assertEqual(manifest["commands"]["app-review"], review_manifest["commands"]["app-review"])
+        with self.assertRaisesRegex(verification_run.VerificationError, "latest slot launch"):
+            verification_run.validate_required_commands(manifest, run_dir, ["app-review"])
+        next_manifest = self.record_native_review(root, run_dir, "app-review-2")
+        verification_run.validate_required_commands(next_manifest, run_dir, ["app-review-2"])
+
+    def test_actual_launcher_declares_ownership_before_interrupted_runtime_shutdown(self) -> None:
+        root, run_dir, environment, _ = self.prepare_launcher("interrupted actual launcher")
+        result = self.launch(root, run_dir, environment, "--stage", "app-review", "--ui", "native")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        review_record = manifest["commands"]["app-review"]
+        osascript = Path(environment["TEST_OPEN_CALLS"]).parent / "osascript"
+        original_stub = osascript.read_text()
+        shutdown_marker = osascript.with_name("shutdown-started")
+        osascript.write_text(f"#!/usr/bin/env bash\ntouch {shlex.quote(str(shutdown_marker))}\n/bin/sleep 60\n")
+        process = subprocess.Popen([
+            str(root / "scripts" / "run-agent-app.sh"), "--slot", "review",
+            "--run-dir", str(run_dir), "--stage", "app-interrupted", "--ui", "menu",
+        ], cwd=root, env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 20
+            while not shutdown_marker.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(shutdown_marker.exists(), "launcher did not enter owned-runtime shutdown")
+            interrupted = json.loads((run_dir / "manifest.json").read_text())
+            self.assertEqual(interrupted["commands"]["app-interrupted"]["status"], "running")
+            self.assertNotIn("details", interrupted["commands"]["app-interrupted"])
+            self.assertEqual(interrupted["commands"]["app-review"], review_record)
+            with self.assertRaisesRegex(verification_run.VerificationError, "latest slot launch"):
+                verification_run.validate_required_commands(interrupted, run_dir, ["app-review"])
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+            process.communicate(timeout=5)
+            osascript.write_text(original_stub)
+        result = self.launch(root, run_dir, environment, "--stage", "app-review-2", "--ui", "native")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        final = json.loads((run_dir / "manifest.json").read_text())
+        self.assertEqual(final["commands"]["app-review"], review_record)
+        verification_run.validate_required_commands(final, run_dir, ["app-review-2"])
+
+    def test_new_run_launch_owns_slot_and_preserves_historical_review(self) -> None:
+        root = self.make_repo("cross run launch")
+        first_run = verification_run.begin(root, "review")
+        first_manifest = self.record_native_review(root, first_run, "app-review")
+        prior_files = {path: path.read_bytes() for path in first_run.rglob("*") if path.is_file()}
+        second_run = verification_run.begin(root, "review")
+        self.assertEqual(first_manifest["source"], json.loads((second_run / "manifest.json").read_text())["source"])
+        verification_run.validate_required_commands(first_manifest, first_run, ["app-review"])
+        verification_run.record_start(root, "review", str(second_run), "app-review", None, app_launch=True)
+        with self.assertRaisesRegex(verification_run.VerificationError, "latest slot launch"):
+            verification_run.validate_required_commands(first_manifest, first_run, ["app-review"])
+        latest_path = first_run.parent.parent / "latest-launch.json"
+        latest = latest_path.read_bytes()
+        with self.assertRaisesRegex(verification_run.VerificationError, "already exists"):
+            verification_run.record_start(root, "review", str(first_run), "app-review", None, app_launch=True)
+        self.assertEqual(latest_path.read_bytes(), latest)
+        verification_run.record_start(root, "review", str(second_run), "ui", None)
+        self.assertEqual(latest_path.read_bytes(), latest)
+        next_manifest = self.record_native_review(root, second_run, "app-review-2")
+        verification_run.validate_required_commands(next_manifest, second_run, ["app-review-2"])
+        for path, content in prior_files.items():
+            self.assertEqual(path.read_bytes(), content)
 
     def test_same_logical_slot_has_distinct_worktree_keys(self) -> None:
         first = self.make_repo("first repo")

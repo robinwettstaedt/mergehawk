@@ -34,7 +34,10 @@ final class SettingsWindowTests: XCTestCase {
         mergehawkApp.runApplication(delegate: delegate) {
             XCTAssertTrue(NSApplication.shared.delegate === delegate)
             delegate.applicationWillFinishLaunching(Notification(name: NSApplication.willFinishLaunchingNotification))
-            XCTAssertEqual(UserDefaults.standard.integer(forKey: "NSInitialToolTipDelay"), 500)
+            XCTAssertEqual(
+                UserDefaults.standard.volatileDomain(forName: UserDefaults.registrationDomain)["NSInitialToolTipDelay"] as? Int,
+                500
+            )
         }
     }
 

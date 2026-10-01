@@ -196,7 +196,7 @@ stop_owned_runtime() {
   rm -f "$PID_PATH"
 }
 
-"$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command "$LAUNCH_STAGE"
+"$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command "$LAUNCH_STAGE" --app-launch
 
 set +e
 (

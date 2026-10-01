@@ -260,7 +260,7 @@ def run_context(root: Path, logical_name: str, run_dir_value: str, check_source:
     return slot, manifest, run_dir, manifest_path
 
 
-def record_start(root: Path, slot_name: str, run_dir: str, command: str, output_path: str | None) -> None:
+def record_start(root: Path, slot_name: str, run_dir: str, command: str, output_path: str | None, app_launch: bool = False) -> None:
     _, manifest, resolved_run, manifest_path = run_context(root, slot_name, run_dir)
     commands = manifest.setdefault("commands", {})
     if not isinstance(commands, dict):
@@ -276,6 +276,11 @@ def record_start(root: Path, slot_name: str, run_dir: str, command: str, output_
             raise VerificationError(f"stage output path already exists: {candidate}")
         candidate.parent.mkdir(parents=True, exist_ok=True)
         reserved = str(candidate)
+    if app_launch:
+        # Declare ownership before the launcher can stop or replace the shared runtime.
+        atomic_write(resolved_run.parent.parent / "latest-launch.json", {
+            "run_id": manifest["run_id"], "stage": command,
+        })
     commands[command] = {"status": "running", "started_at": utc_now(), "output_path": reserved}
     manifest["updated_at"] = utc_now()
     atomic_write(manifest_path, manifest)
@@ -441,16 +446,9 @@ def validate_required_commands(manifest: dict[str, object], run_dir: Path, requi
             if not isinstance(app, dict) or not isinstance(app.get("runtime"), dict):
                 raise VerificationError("required app command has no recorded runtime identity")
             if is_review:
-                # A later launcher can replace or stop the runtime even with opened=0.
-                for later_name, later_record in commands.items():
-                    if not isinstance(later_record, dict):
-                        continue
-                    later_details = later_record.get("details")
-                    if (isinstance(later_details, dict) and "opened" in later_details
-                            and later_record.get("started_at", "") > record.get("started_at", "")):
-                        raise VerificationError(
-                            f"required review command was superseded by a later launcher stage: {command}: {later_name}"
-                        )
+                latest_launch = load_json(run_dir.parent.parent / "latest-launch.json")
+                if latest_launch != {"run_id": manifest["run_id"], "stage": command}:
+                    raise VerificationError(f"required review command is not the latest slot launch: {command}")
         files = record.get("files")
         if not isinstance(files, list):
             raise VerificationError(f"required command has invalid evidence files: {command}")
@@ -527,6 +525,7 @@ def make_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--slot", required=True)
     start_parser.add_argument("--run-dir", required=True)
     start_parser.add_argument("--command", required=True)
+    start_parser.add_argument("--app-launch", action="store_true")
     start_parser.add_argument("--output-path")
 
     finish_parser = subparsers.add_parser("finish")
@@ -589,7 +588,7 @@ def main() -> int:
             slot, _, _ = identify_run(root, args.run_dir)
             print(field_value(slot, None, args.field))
         elif args.action == "start":
-            record_start(root, args.slot, args.run_dir, args.command, args.output_path)
+            record_start(root, args.slot, args.run_dir, args.command, args.output_path, args.app_launch)
         elif args.action == "finish":
             record_finish(root, args.slot, args.run_dir, args.command, args.exit_code, args.file, args.detail)
         elif args.action == "record-app":
