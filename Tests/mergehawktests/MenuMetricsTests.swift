@@ -247,6 +247,46 @@ final class MenuMetricsTests: XCTestCase {
         }
     }
 
+    private static let cornerRadiusScale: Set<CGFloat> = [4, 6, 8]
+
+    /// The footer selection keeps the native menu's radius.
+    private static let cornerRadiusOneOffs: Set<String> = ["footer.selectionCornerRadius"]
+
+    /// Every corner radius token with its value before the scales were consolidated (MER-86).
+    private static let cornerRadiusTokens: [SizeToken] = [
+        ("controls.cornerRadius", \.controls.cornerRadius, 6),
+        ("controls.segmentedCornerRadius", \.controls.segmentedCornerRadius, 6),
+        ("controls.segmentSelectionCornerRadius", \.controls.segmentSelectionCornerRadius, 5),
+        ("refreshStatus.cornerRadius", \.refreshStatus.cornerRadius, 6),
+        ("dropdown.cornerRadius", \.dropdown.cornerRadius, 7),
+        ("card.cornerRadius", \.card.cornerRadius, 8),
+        ("legend.tooltipCornerRadius", \.legend.tooltipCornerRadius, 6),
+        ("actionsMenu.itemCornerRadius", \.actionsMenu.itemCornerRadius, 4),
+        ("actionsMenu.cornerRadius", \.actionsMenu.cornerRadius, 7),
+        ("gitHubButton.cornerRadius", \.gitHubButton.cornerRadius, 7),
+        ("signIn.codeCornerRadius", \.signIn.codeCornerRadius, 8),
+        ("accessPrompt.noteBoxCornerRadius", \.accessPrompt.noteBoxCornerRadius, 8),
+        ("footer.selectionCornerRadius", \.footer.selectionCornerRadius, 5),
+    ]
+
+    func testCornerRadiiAreOnTheScaleOrADocumentedOneOff() {
+        XCTAssertEqual(Self.cornerRadiusTokens.count, 13)
+        for token in Self.cornerRadiusTokens {
+            let value = metrics[keyPath: token.keyPath]
+            if Self.cornerRadiusOneOffs.contains(token.name) {
+                XCTAssertEqual(value, token.mer86Value, "one-off \(token.name) keeps its value")
+            } else {
+                XCTAssertTrue(Self.cornerRadiusScale.contains(value), "\(token.name) = \(value) is not 4, 6 or 8")
+            }
+        }
+    }
+
+    func testCornerRadiiMovedAtMostTwoPoints() {
+        for token in Self.cornerRadiusTokens {
+            XCTAssertLessThanOrEqual(abs(metrics[keyPath: token.keyPath] - token.mer86Value), 2, token.name)
+        }
+    }
+
     // MARK: Mirror walk
 
     private struct StoredMeasurements {

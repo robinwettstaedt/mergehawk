@@ -452,7 +452,7 @@ struct MenuMetrics: Equatable {
             segmentedCornerRadius: s(6),
             segmentedContentSpacing: s(4),
             segmentSelectionInset: s(2),
-            segmentSelectionCornerRadius: s(5),
+            segmentSelectionCornerRadius: s(4),
             segmentDividerVerticalInset: s(7)
         )
         prColumns = PRColumns(
@@ -503,7 +503,7 @@ struct MenuMetrics: Equatable {
             sortWidth: s(132),
             itemSpacing: s(2),
             verticalPadding: s(6),
-            cornerRadius: s(7),
+            cornerRadius: s(6),
             shadowRadius: s(8),
             shadowOffsetY: s(3),
             itemContentSpacing: s(8),
@@ -557,7 +557,7 @@ struct MenuMetrics: Equatable {
             itemIconWidth: s(16),
             itemHorizontalPadding: s(6),
             itemCornerRadius: s(4),
-            cornerRadius: s(7),
+            cornerRadius: s(6),
             shadowRadius: s(8),
             shadowOffsetY: s(3),
             anchorGap: s(4)
@@ -574,7 +574,7 @@ struct MenuMetrics: Equatable {
             markSize: s(14),
             horizontalPadding: s(16),
             height: s(30),
-            cornerRadius: s(7)
+            cornerRadius: s(6)
         )
         signIn = SignIn(
             padding: s(24),
