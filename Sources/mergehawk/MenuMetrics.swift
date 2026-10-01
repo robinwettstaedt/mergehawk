@@ -374,243 +374,252 @@ struct MenuMetrics: Equatable {
 
     var panelSize: CGSize { CGSize(width: panel.width, height: panelHeight) }
 
-    static let standard = MenuMetrics(
-        type: TypeScale(
-            panelTitle: FontToken(size: 13, weight: .bold),
-            controlLabel: FontToken(size: 11, weight: .semibold),
-            controlChevron: FontToken(size: 9, weight: .semibold),
-            segmentLabel: FontToken(size: 13, weight: .medium),
-            segmentIcon: FontToken(size: 12, weight: .semibold),
-            refreshSymbol: FontToken(size: 13, weight: .semibold),
-            refreshTimestamp: FontToken(size: 10, weight: .medium),
-            bannerMessage: FontToken(size: 12),
-            bannerSymbol: FontToken(size: 13),
-            disclosureChevron: FontToken(size: 9, weight: .semibold),
-            disclosureTitle: FontToken(size: 10, weight: .semibold),
-            dropdownItem: FontToken(size: 11, weight: .semibold),
-            dropdownCheckmark: FontToken(size: 11, weight: .semibold),
-            sectionChevron: FontToken(size: 12, weight: .semibold),
-            sectionHeading: FontToken(size: 13, weight: .semibold),
-            sectionCount: FontToken(size: 10, weight: .semibold, monospacedDigits: true),
-            cardTitle: FontToken(size: 11, weight: .semibold),
-            cardMetadata: FontToken(size: 10, weight: .medium),
-            notificationIcon: FontToken(size: 17, weight: .medium),
-            notificationTimestamp: FontToken(size: 10, weight: .semibold, monospacedDigits: true),
-            markReadSymbol: FontToken(size: 9, weight: .medium),
-            legendLabel: FontToken(size: 10, weight: .semibold),
-            legendIcon: FontToken(size: 13, weight: .semibold),
-            legendTooltip: FontToken(size: 10, weight: .medium),
-            actionsSymbol: FontToken(size: 12, weight: .semibold),
-            ageValue: FontToken(size: 10, weight: .medium, monospacedDigits: true),
-            metricValue: FontToken(size: 10, weight: .semibold, monospacedDigits: true),
-            signalSymbol: FontToken(size: 12, weight: .semibold),
-            draftBadge: FontToken(size: 9, weight: .semibold),
-            actionsMenuItem: FontToken(size: 12),
-            gitHubButtonTitle: FontToken(size: 13, weight: .semibold),
-            signInTitle: FontToken(size: 13, weight: .bold),
-            signInDetail: FontToken(size: 11),
-            signInLink: FontToken(size: 11),
-            signInLinkArrow: FontToken(size: 10, weight: .bold),
-            signInError: FontToken(size: 10),
-            deviceCode: FontToken(size: 17, weight: .semibold, design: .monospaced),
-            copySymbol: FontToken(size: 13, weight: .medium),
-            expirySymbol: FontToken(size: 11),
-            expiry: FontToken(size: 10),
-            emptyStateIcon: FontToken(size: 17),
-            emptyStateText: FontToken(size: 11),
-            accessPromptIcon: FontToken(size: 34, weight: .light),
-            accessPromptTitle: FontToken(size: 13, weight: .bold),
-            accessPromptNoteIcon: FontToken(size: 13),
-            accessPromptNote: FontToken(size: 12)
-        ),
-        panel: Panel(width: 820, contentHeight: 650),
-        topBar: TopBar(
-            height: 45,
-            leadingInset: 8,
-            trailingInset: 12,
-            headerControlsTrailingSpacing: 8,
-            refreshStatusWidth: 58
-        ),
-        tabSwitcher: TabSwitcher(width: 320, leadingInset: 5, notificationSegmentWidth: 64),
-        controls: Controls(
-            height: 24,
-            cornerRadius: 6,
-            contentSpacing: 6,
-            horizontalPadding: 10,
-            sortDirectionWidth: 26,
-            sortDividerVerticalInset: 5,
-            segmentedHeight: 28,
-            segmentedCornerRadius: 6,
-            segmentedContentSpacing: 5,
-            segmentSelectionInset: 2,
-            segmentSelectionCornerRadius: 5,
-            segmentDividerVerticalInset: 7
-        ),
-        prColumns: PRColumns(
-            spacing: 6,
-            rowSpacing: 7,
-            headerHeight: 32,
-            horizontalInset: 10,
-            verticalInset: 8,
-            avatarSize: 22,
-            identitySpacing: 7,
-            identityLineSpacing: 4,
-            commentsWidth: 30,
-            statusWidth: 30,
-            changesWidth: 49,
-            ageWidth: 30,
-            actionButtonHitSize: 28
-        ),
-        refreshStatus: RefreshStatus(
-            verticalWidth: 82,
-            verticalSpacing: 3,
-            indicatorSpacing: 7,
-            indicatorSize: 10,
-            iconFrame: 22,
-            horizontalIconFrame: 15,
-            horizontalSpacing: 5,
-            horizontalPadding: 3,
-            cornerRadius: 6
-        ),
-        banner: Banner(spacing: 8, horizontalPadding: 12, verticalPadding: 8),
-        prList: PRList(
-            horizontalPadding: 12,
-            topPadding: 5,
-            bottomPadding: 12,
-            sectionSpacing: 20,
-            disclosureSpacing: 7,
-            disclosureHorizontalPadding: 10,
-            disclosureHeight: 30,
-            sectionHeadingSpacing: 8,
-            sectionChevronWidth: 12,
-            sectionCountHorizontalPadding: 6,
-            sectionCountVerticalPadding: 2
-        ),
-        dropdown: Dropdown(
-            headerControlsSpacing: 8,
-            gap: 10,
-            authoredFilterWidth: 156,
-            requestedFilterWidth: 112,
-            sortWidth: 132,
-            itemSpacing: 2,
-            verticalPadding: 6,
-            cornerRadius: 7,
-            shadowRadius: 8,
-            shadowOffsetY: 3,
-            itemContentSpacing: 8,
-            checkmarkWidth: 12,
-            itemHorizontalPadding: 8,
-            itemHeight: 24
-        ),
-        notificationList: NotificationList(
-            headerSpacing: 8,
-            headerHorizontalPadding: 12,
-            headerTopPadding: 10,
-            headerBottomPadding: 6,
-            rowSpacing: 8,
-            horizontalPadding: 12,
-            topPadding: 5,
-            bottomPadding: 12
-        ),
-        notificationRow: NotificationRow(
-            titleSpacing: 8,
-            pullRequestLineSpacing: 4,
-            minimumPRTitleWidth: 40,
-            markReadButtonSize: 22,
-            markReadOffset: 6,
-            markReadShadowRadius: 4,
-            markReadShadowOffsetY: 1
-        ),
-        prRow: PRRow(
-            identityItemSpacing: 4,
-            valueColumnHeight: 30,
-            draftBadgeHorizontalPadding: 6,
-            draftBadgeVerticalPadding: 2
-        ),
-        card: Card(cornerRadius: 8),
-        legend: Legend(
-            height: 22,
-            mergeStatusSymbolSize: 14,
-            mergeStatusStrokeWidth: 1.4,
-            tooltipHorizontalPadding: 8,
-            tooltipVerticalPadding: 5,
-            tooltipCornerRadius: 6,
-            tooltipShadowRadius: 4,
-            tooltipShadowOffsetY: 2,
-            tooltipGap: 4
-        ),
-        actionsMenu: ActionsMenu(
-            width: 156,
-            padding: 6,
-            itemSpacing: 2,
-            itemHeight: 26,
-            itemContentSpacing: 8,
-            itemIconWidth: 16,
-            itemHorizontalPadding: 6,
-            itemCornerRadius: 4,
-            cornerRadius: 7,
-            shadowRadius: 8,
-            shadowOffsetY: 3,
-            anchorGap: 4
-        ),
-        indicators: Indicators(
-            ciDotSize: 8,
-            signalSize: 17,
-            changesRequestedSymbolWidth: 13,
-            changesRequestedSymbolHeight: 15,
-            changesRequestedStrokeWidth: 1.3
-        ),
-        gitHubButton: GitHubButton(
-            contentSpacing: 6,
-            markSize: 14,
-            horizontalPadding: 16,
-            height: 30,
-            cornerRadius: 7
-        ),
-        signIn: SignIn(
-            padding: 24,
-            contentSpacing: 20,
-            appIconSize: 88,
-            buttonRowSpacing: 8,
-            pendingSpacing: 14,
-            enterCodeSpacing: 16,
-            linkSpacing: 3,
-            codeRowSpacing: 8,
-            codeTracking: 2,
-            codeHorizontalPadding: 12,
-            codeVerticalPadding: 10,
-            codeCornerRadius: 8,
-            copyButtonSize: 22,
-            expirySpacing: 5,
-            loadingSpacing: 10
-        ),
-        emptyState: EmptyState(spacing: 8),
-        accessPrompt: AccessPrompt(
-            contentSpacing: 20,
-            headerSpacing: 10,
-            actionsSpacing: 12,
-            maxContentWidth: 340,
-            horizontalPadding: 24,
-            noteBoxCornerRadius: 8,
-            noteSpacing: 10,
-            noteIconWidth: 22,
-            noteHorizontalPadding: 12,
-            noteVerticalPadding: 10
-        ),
-        footer: Footer(
-            itemFont: NativeMenuFontToken(size: NSFont.menuFont(ofSize: 0).pointSize),
-            separatorHorizontalPadding: 10,
-            separatorVerticalPadding: 6,
-            rowHeight: 24,
-            selectionInsetX: 5,
-            selectionInsetY: 1,
-            selectionCornerRadius: 5,
-            titleLeading: 14,
-            shortcutTrailing: 9,
-            shortcutColumnSpacing: 2,
-            shortcutKeyColumnWidth: 12
+    static let standard = MenuMetrics(scale: 1)
+
+    /// The applied menu size factor. Every base measurement is its Default value times this;
+    /// derived measurements follow from the scaled parts and hairlines stay 1 pt.
+    let scale: CGFloat
+
+    init(scale: CGFloat) {
+        self.scale = scale
+        func s(_ value: CGFloat) -> CGFloat { value * scale }
+
+        type = TypeScale(
+            panelTitle: FontToken(size: s(13), weight: .bold),
+            controlLabel: FontToken(size: s(11), weight: .semibold),
+            controlChevron: FontToken(size: s(9), weight: .semibold),
+            segmentLabel: FontToken(size: s(13), weight: .medium),
+            segmentIcon: FontToken(size: s(12), weight: .semibold),
+            refreshSymbol: FontToken(size: s(13), weight: .semibold),
+            refreshTimestamp: FontToken(size: s(10), weight: .medium),
+            bannerMessage: FontToken(size: s(12)),
+            bannerSymbol: FontToken(size: s(13)),
+            disclosureChevron: FontToken(size: s(9), weight: .semibold),
+            disclosureTitle: FontToken(size: s(10), weight: .semibold),
+            dropdownItem: FontToken(size: s(11), weight: .semibold),
+            dropdownCheckmark: FontToken(size: s(11), weight: .semibold),
+            sectionChevron: FontToken(size: s(12), weight: .semibold),
+            sectionHeading: FontToken(size: s(13), weight: .semibold),
+            sectionCount: FontToken(size: s(10), weight: .semibold, monospacedDigits: true),
+            cardTitle: FontToken(size: s(11), weight: .semibold),
+            cardMetadata: FontToken(size: s(10), weight: .medium),
+            notificationIcon: FontToken(size: s(17), weight: .medium),
+            notificationTimestamp: FontToken(size: s(10), weight: .semibold, monospacedDigits: true),
+            markReadSymbol: FontToken(size: s(9), weight: .medium),
+            legendLabel: FontToken(size: s(10), weight: .semibold),
+            legendIcon: FontToken(size: s(13), weight: .semibold),
+            legendTooltip: FontToken(size: s(10), weight: .medium),
+            actionsSymbol: FontToken(size: s(12), weight: .semibold),
+            ageValue: FontToken(size: s(10), weight: .medium, monospacedDigits: true),
+            metricValue: FontToken(size: s(10), weight: .semibold, monospacedDigits: true),
+            signalSymbol: FontToken(size: s(12), weight: .semibold),
+            draftBadge: FontToken(size: s(9), weight: .semibold),
+            actionsMenuItem: FontToken(size: s(12)),
+            gitHubButtonTitle: FontToken(size: s(13), weight: .semibold),
+            signInTitle: FontToken(size: s(13), weight: .bold),
+            signInDetail: FontToken(size: s(11)),
+            signInLink: FontToken(size: s(11)),
+            signInLinkArrow: FontToken(size: s(10), weight: .bold),
+            signInError: FontToken(size: s(10)),
+            deviceCode: FontToken(size: s(17), weight: .semibold, design: .monospaced),
+            copySymbol: FontToken(size: s(13), weight: .medium),
+            expirySymbol: FontToken(size: s(11)),
+            expiry: FontToken(size: s(10)),
+            emptyStateIcon: FontToken(size: s(17)),
+            emptyStateText: FontToken(size: s(11)),
+            accessPromptIcon: FontToken(size: s(34), weight: .light),
+            accessPromptTitle: FontToken(size: s(13), weight: .bold),
+            accessPromptNoteIcon: FontToken(size: s(13)),
+            accessPromptNote: FontToken(size: s(12))
         )
-    )
+        panel = Panel(width: s(820), contentHeight: s(650))
+        topBar = TopBar(
+            height: s(45),
+            leadingInset: s(8),
+            trailingInset: s(12),
+            headerControlsTrailingSpacing: s(8),
+            refreshStatusWidth: s(58)
+        )
+        tabSwitcher = TabSwitcher(width: s(320), leadingInset: s(5), notificationSegmentWidth: s(64))
+        controls = Controls(
+            height: s(24),
+            cornerRadius: s(6),
+            contentSpacing: s(6),
+            horizontalPadding: s(10),
+            sortDirectionWidth: s(26),
+            sortDividerVerticalInset: s(5),
+            segmentedHeight: s(28),
+            segmentedCornerRadius: s(6),
+            segmentedContentSpacing: s(5),
+            segmentSelectionInset: s(2),
+            segmentSelectionCornerRadius: s(5),
+            segmentDividerVerticalInset: s(7)
+        )
+        prColumns = PRColumns(
+            spacing: s(6),
+            rowSpacing: s(7),
+            headerHeight: s(32),
+            horizontalInset: s(10),
+            verticalInset: s(8),
+            avatarSize: s(22),
+            identitySpacing: s(7),
+            identityLineSpacing: s(4),
+            commentsWidth: s(30),
+            statusWidth: s(30),
+            changesWidth: s(49),
+            ageWidth: s(30),
+            actionButtonHitSize: s(28)
+        )
+        refreshStatus = RefreshStatus(
+            verticalWidth: s(82),
+            verticalSpacing: s(3),
+            indicatorSpacing: s(7),
+            indicatorSize: s(10),
+            iconFrame: s(22),
+            horizontalIconFrame: s(15),
+            horizontalSpacing: s(5),
+            horizontalPadding: s(3),
+            cornerRadius: s(6)
+        )
+        banner = Banner(spacing: s(8), horizontalPadding: s(12), verticalPadding: s(8))
+        prList = PRList(
+            horizontalPadding: s(12),
+            topPadding: s(5),
+            bottomPadding: s(12),
+            sectionSpacing: s(20),
+            disclosureSpacing: s(7),
+            disclosureHorizontalPadding: s(10),
+            disclosureHeight: s(30),
+            sectionHeadingSpacing: s(8),
+            sectionChevronWidth: s(12),
+            sectionCountHorizontalPadding: s(6),
+            sectionCountVerticalPadding: s(2)
+        )
+        dropdown = Dropdown(
+            headerControlsSpacing: s(8),
+            gap: s(10),
+            authoredFilterWidth: s(156),
+            requestedFilterWidth: s(112),
+            sortWidth: s(132),
+            itemSpacing: s(2),
+            verticalPadding: s(6),
+            cornerRadius: s(7),
+            shadowRadius: s(8),
+            shadowOffsetY: s(3),
+            itemContentSpacing: s(8),
+            checkmarkWidth: s(12),
+            itemHorizontalPadding: s(8),
+            itemHeight: s(24)
+        )
+        notificationList = NotificationList(
+            headerSpacing: s(8),
+            headerHorizontalPadding: s(12),
+            headerTopPadding: s(10),
+            headerBottomPadding: s(6),
+            rowSpacing: s(8),
+            horizontalPadding: s(12),
+            topPadding: s(5),
+            bottomPadding: s(12)
+        )
+        notificationRow = NotificationRow(
+            titleSpacing: s(8),
+            pullRequestLineSpacing: s(4),
+            minimumPRTitleWidth: s(40),
+            markReadButtonSize: s(22),
+            markReadOffset: s(6),
+            markReadShadowRadius: s(4),
+            markReadShadowOffsetY: s(1)
+        )
+        prRow = PRRow(
+            identityItemSpacing: s(4),
+            valueColumnHeight: s(30),
+            draftBadgeHorizontalPadding: s(6),
+            draftBadgeVerticalPadding: s(2)
+        )
+        card = Card(cornerRadius: s(8))
+        legend = Legend(
+            height: s(22),
+            mergeStatusSymbolSize: s(14),
+            mergeStatusStrokeWidth: s(1.4),
+            tooltipHorizontalPadding: s(8),
+            tooltipVerticalPadding: s(5),
+            tooltipCornerRadius: s(6),
+            tooltipShadowRadius: s(4),
+            tooltipShadowOffsetY: s(2),
+            tooltipGap: s(4)
+        )
+        actionsMenu = ActionsMenu(
+            width: s(156),
+            padding: s(6),
+            itemSpacing: s(2),
+            itemHeight: s(26),
+            itemContentSpacing: s(8),
+            itemIconWidth: s(16),
+            itemHorizontalPadding: s(6),
+            itemCornerRadius: s(4),
+            cornerRadius: s(7),
+            shadowRadius: s(8),
+            shadowOffsetY: s(3),
+            anchorGap: s(4)
+        )
+        indicators = Indicators(
+            ciDotSize: s(8),
+            signalSize: s(17),
+            changesRequestedSymbolWidth: s(13),
+            changesRequestedSymbolHeight: s(15),
+            changesRequestedStrokeWidth: s(1.3)
+        )
+        gitHubButton = GitHubButton(
+            contentSpacing: s(6),
+            markSize: s(14),
+            horizontalPadding: s(16),
+            height: s(30),
+            cornerRadius: s(7)
+        )
+        signIn = SignIn(
+            padding: s(24),
+            contentSpacing: s(20),
+            appIconSize: s(88),
+            buttonRowSpacing: s(8),
+            pendingSpacing: s(14),
+            enterCodeSpacing: s(16),
+            linkSpacing: s(3),
+            codeRowSpacing: s(8),
+            codeTracking: s(2),
+            codeHorizontalPadding: s(12),
+            codeVerticalPadding: s(10),
+            codeCornerRadius: s(8),
+            copyButtonSize: s(22),
+            expirySpacing: s(5),
+            loadingSpacing: s(10)
+        )
+        emptyState = EmptyState(spacing: s(8))
+        accessPrompt = AccessPrompt(
+            contentSpacing: s(20),
+            headerSpacing: s(10),
+            actionsSpacing: s(12),
+            maxContentWidth: s(340),
+            horizontalPadding: s(24),
+            noteBoxCornerRadius: s(8),
+            noteSpacing: s(10),
+            noteIconWidth: s(22),
+            noteHorizontalPadding: s(12),
+            noteVerticalPadding: s(10)
+        )
+        footer = Footer(
+            itemFont: NativeMenuFontToken(size: s(NSFont.menuFont(ofSize: 0).pointSize)),
+            separatorHorizontalPadding: s(10),
+            separatorVerticalPadding: s(6),
+            rowHeight: s(24),
+            selectionInsetX: s(5),
+            selectionInsetY: s(1),
+            selectionCornerRadius: s(5),
+            titleLeading: s(14),
+            shortcutTrailing: s(9),
+            shortcutColumnSpacing: s(2),
+            shortcutKeyColumnWidth: s(12)
+        )
+    }
 }
 
 private struct MenuMetricsKey: EnvironmentKey {
