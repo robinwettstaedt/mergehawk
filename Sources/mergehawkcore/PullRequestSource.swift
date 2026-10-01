@@ -101,7 +101,8 @@ public final class MockPullRequestSource {
                     url: URL(string: "https://github.com/customer-success-platform/team-portal-web/pull/48")!,
                     repo: "customer-success-platform/team-portal-web",
                     ciState: .failing,
-                    reviewDecision: .approved,
+                    // Reviewed, but GitHub no longer counts the approvals.
+                    reviewDecision: .reviewRequired,
                     additions: 12_345,
                     deletions: 6_789,
                     commentCount: 5,
@@ -254,7 +255,8 @@ public final class MockPullRequestSource {
                     url: URL(string: "https://github.com/customer-success-platform/team-portal-web/pull/48")!,
                     repo: "customer-success-platform/team-portal-web",
                     ciState: .failing,
-                    reviewDecision: .approved,
+                    // Reviewed, but GitHub no longer counts the approvals.
+                    reviewDecision: .reviewRequired,
                     additions: 12_345,
                     deletions: 6_789,
                     commentCount: 5,
