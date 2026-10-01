@@ -430,10 +430,13 @@ def validate_required_commands(manifest: dict[str, object], run_dir: Path, requi
         record = commands.get(command)
         if not isinstance(record, dict) or record.get("status") != "success":
             raise VerificationError(f"required command is not successful: {command}")
-        if command == "app":
+        is_review = command == "app-review" or command.startswith("app-review-")
+        if command == "app" or is_review:
             details = record.get("details")
             if not isinstance(details, dict) or details.get("opened") != "1":
                 raise VerificationError("required app command did not record an actual launch")
+            if is_review and details.get("ui") != "native":
+                raise VerificationError(f"required review command did not record native presentation: {command}")
             app = manifest.get("app")
             if not isinstance(app, dict) or not isinstance(app.get("runtime"), dict):
                 raise VerificationError("required app command has no recorded runtime identity")
