@@ -143,6 +143,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             dismissMenu: { [weak self] in
                 self?.dismissMenu()
             },
+            showSettingsPreservingSelection: { [weak self] in
+                self?.controller.showSettingsPreservingSelection()
+            },
             showSettings: { [weak self] in
                 self?.controller.showSettings()
             },
@@ -160,7 +163,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     // During NSMenu tracking, key equivalents are matched against the open menu's own native
     // items first and then forwarded straight to the app's main menu — the hosted view hierarchy
     // is never consulted. Hidden native items are the only way to outrank the main menu (e.g. the
-    // SwiftUI Settings scene's auto-generated ⌘, item) while the menu is open.
+    // native main-menu Settings item) while the menu is open.
     private func makeKeyEquivalentTrapItem(
         title: String,
         action: Selector,
@@ -221,7 +224,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func dismissAndShowSettings() {
         dismissMenu()
-        controller.showSettings()
+        controller.showSettingsPreservingSelection()
     }
 
     private func dismissAndQuit() {
@@ -243,6 +246,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         refreshKeyHandler: @escaping () -> Void,
         tabShortcutHandler: @escaping (DashboardController.MenuTab) -> Bool,
         dismissMenu: @escaping () -> Void,
+        showSettingsPreservingSelection: @escaping () -> Void,
         showSettings: @escaping () -> Void,
         showAbout: @escaping () -> Void,
         quit: @escaping () -> Void
@@ -251,7 +255,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         self.tabShortcutHandler = tabShortcutHandler
         self.settingsKeyHandler = {
             dismissMenu()
-            showSettings()
+            showSettingsPreservingSelection()
         }
         self.quitKeyHandler = {
             dismissMenu()

@@ -275,6 +275,7 @@ final class DashboardController: ObservableObject {
     @Published private(set) var authMethod: GitHubAuthMethod = .oauth
 
     var openSettingsWindow: ((SettingsTab) -> Void)?
+    var openSettingsWindowPreservingSelection: (() -> Void)?
     var openGitHubSettingsInPATMode = false
     var showDeviceFlowSignInMenu: (() -> Void)?
 
@@ -864,6 +865,10 @@ final class DashboardController: ObservableObject {
 
     func showSettings(selection: SettingsTab = .general) {
         openSettingsWindow?(selection)
+    }
+
+    func showSettingsPreservingSelection() {
+        openSettingsWindowPreservingSelection?()
     }
 
     func showGitHubSettings(patMode: Bool = false) {
