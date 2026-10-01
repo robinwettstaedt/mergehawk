@@ -235,6 +235,12 @@ private struct GeneralSettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            Picker("Menu Size", selection: $controller.menuSize) {
+                ForEach(MenuSize.allCases, id: \.self) { size in
+                    Text(size.title).tag(size)
+                }
+            }
+            .pickerStyle(.segmented)
 
             if softwareUpdateController.isAvailable {
                 HStack {

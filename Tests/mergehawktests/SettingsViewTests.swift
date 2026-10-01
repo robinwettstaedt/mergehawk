@@ -70,6 +70,10 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertLessThanOrEqual(rowWidth([78, 110, 40]), SettingsTab.defaultWindowSize.width - 80)
     }
 
+    func testMenuSizeControlOffersEverySizeInOrder() {
+        XCTAssertEqual(MenuSize.allCases.map(\.title), ["Small", "Default", "Large", "Larger"])
+    }
+
     @MainActor
     func testChangingOneCommentRowKeepsEveryOtherRowAndSetting() {
         let suite = "settings-comment-modes-\(UUID().uuidString)"
