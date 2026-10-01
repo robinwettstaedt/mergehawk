@@ -372,6 +372,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 ),
                 to: outputURL.appendingPathComponent("settings-github-sign-in-pending.png")
             )
+            try renderSettingsIsolation(
+                controller: pendingSignInController,
+                tabs: MenuSizeCaptures.settingsIsolationPendingSignInTabs,
+                outputURL: outputURL
+            )
             pendingSignInController.cancelDeviceFlowSignIn()
         }
 
@@ -658,7 +663,6 @@ final class VisualVerificationXCTests: XCTestCase {
                     }
                 }
             }
-            controller.menuSize = .standard
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
@@ -899,7 +903,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("settings-sources-search-example.png")
             )
 
-            try renderSettingsIsolation(controller: controller, outputURL: outputURL)
+            try renderSettingsIsolation(
+                controller: controller,
+                tabs: MenuSizeCaptures.settingsIsolationTabs,
+                outputURL: outputURL
+            )
         }
 
         let expectedFilenames = captureSelection.expectedFilenames
@@ -1011,7 +1019,9 @@ final class VisualVerificationXCTests: XCTestCase {
     ) throws {
         // Without a usable frame, the frame is large enough that the panel is never clamped.
         let frame = availableFrame ?? CGRect(x: 0, y: 0, width: 10_000, height: 10_000)
+        let previousMenuSize = controller.menuSize
         controller.menuSize = menuSize
+        defer { controller.menuSize = previousMenuSize }
         let makeMenuView = { () -> NSView in
             let menuView = StatusBarController(controller: controller)
                 .makeMenuContentView(availableFrame: frame, initialDropdown: initialDropdown)
@@ -1097,21 +1107,28 @@ final class VisualVerificationXCTests: XCTestCase {
         try render(view, size: size, appearance: .aqua, to: lightURL)
     }
 
-    /// The Settings window never scales: its tabs render the same at Larger as at Default.
+    /// The Settings window never scales: each tab renders the same at every menu size as at Default.
+    /// Every size renders under the same file names into its own directory, so the comparator can match
+    /// them; the Larger renders are kept as artifacts.
     @MainActor
-    private func renderSettingsIsolation(controller: DashboardController, outputURL: URL) throws {
+    private func renderSettingsIsolation(
+        controller: DashboardController,
+        tabs: [(String, SettingsTab)],
+        outputURL: URL
+    ) throws {
         let workURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("mergehawk-settings-isolation-\(UUID().uuidString)")
-        let largerURL = workURL.appendingPathComponent("larger")
-        let standardURL = workURL.appendingPathComponent("standard")
-        for directory in [largerURL, standardURL] {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
         defer { try? FileManager.default.removeItem(at: workURL) }
+        let previousMenuSize = controller.menuSize
+        defer { controller.menuSize = previousMenuSize }
 
-        for (menuSize, directory) in [(MenuSize.larger, largerURL), (.standard, standardURL)] {
-            controller.menuSize = menuSize
-            for (tabName, tab) in MenuSizeCaptures.settingsIsolationTabs {
+        var directories: [MenuSize: URL] = [:]
+        for size in MenuSize.allCases {
+            let directory = workURL.appendingPathComponent(size.rawValue)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            directories[size] = directory
+            controller.menuSize = size
+            for (tabName, tab) in tabs {
                 try renderSettings(
                     SettingsRootView(
                         controller: controller,
@@ -1122,16 +1139,18 @@ final class VisualVerificationXCTests: XCTestCase {
                 )
             }
         }
-        controller.menuSize = .standard
 
-        let largerFiles = try FileManager.default.contentsOfDirectory(atPath: largerURL.path)
-        guard !largerFiles.isEmpty else {
+        let standardURL = try XCTUnwrap(directories[.standard])
+        guard !(try FileManager.default.contentsOfDirectory(atPath: standardURL.path)).isEmpty else {
             return
         }
-        let report = try VisualCaptureComparison.compare(before: standardURL, after: largerURL)
-        XCTAssertFalse(report.failed, report.description)
-        XCTAssertTrue(report.onlyInAfter.isEmpty, report.description)
-        for file in largerFiles {
+        for size in MenuSize.allCases where size != .standard {
+            let report = try VisualCaptureComparison.compare(before: standardURL, after: try XCTUnwrap(directories[size]))
+            XCTAssertFalse(report.failed, "\(size): \(report.description)")
+            XCTAssertTrue(report.onlyInAfter.isEmpty, "\(size): \(report.description)")
+        }
+        let largerURL = try XCTUnwrap(directories[.larger])
+        for file in try FileManager.default.contentsOfDirectory(atPath: largerURL.path) {
             let destination = outputURL.appendingPathComponent(file)
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.copyItem(at: largerURL.appendingPathComponent(file), to: destination)
@@ -1285,10 +1304,16 @@ private enum MenuSizeCaptures {
         "access-prompt"
     ]
     static let fragments = ["my-prs-hidden-expanded", "review-requests-hidden-expanded", "header-tooltips"]
+    /// General is excluded: its Menu Size control shows the selected size by design.
     static let settingsIsolationTabs: [(String, SettingsTab)] = [
         ("github", .github),
         ("notifications", .notifications),
-        ("sources", .sources)
+        ("sources", .sources),
+        ("about", .about)
+    ]
+    /// The GitHub tab while the device-flow sign-in is pending reuses the menu's pending sign-in view.
+    static let settingsIsolationPendingSignInTabs: [(String, SettingsTab)] = [
+        ("github-sign-in-pending", .github)
     ]
 
     static func scenario(_ size: MenuSize, _ name: String) -> String {
@@ -1303,7 +1328,7 @@ private enum MenuSizeCaptures {
         let tabFrameNames = tabs.flatMap { tab in frames.map { frame in "\(tab.0)-\(frame.0)" } }
         let menuNames = tabFrameNames + states + fragments
         return Set(MenuSize.allCases.flatMap { size in menuNames.map { scenario(size, $0) } })
-            .union(settingsIsolationTabs.map { settingsIsolationScenario($0.0) })
+            .union((settingsIsolationTabs + settingsIsolationPendingSignInTabs).map { settingsIsolationScenario($0.0) })
     }
 }
 
