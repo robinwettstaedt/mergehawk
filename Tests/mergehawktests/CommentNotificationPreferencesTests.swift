@@ -137,7 +137,7 @@ final class CommentNotificationPreferencesTests: XCTestCase {
             let pullRequest = PullRequest(
                 id: "PR_1", title: "History", number: 1,
                 url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
-                ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0, reviewCount: 0,
+                ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, reviewCount: 0,
                 isMine: true, author: "rw", mergeable: .mergeable, draft: false
             )
             var notification = PullRequestNotification(

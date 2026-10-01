@@ -1091,7 +1091,7 @@ struct GitHubPullRequestFetcher: Sendable {
             }
         }
         if uncertain { return .unknown }
-        return approved ? .approved : .noReviewYet
+        return approved ? .approved : .reviewRequired
     }
 
     private func reviewRequestKind(for value: HydrationAccumulator, login: String) -> ReviewRequestKind {

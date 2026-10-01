@@ -399,7 +399,7 @@ final class SyncEngineTests: XCTestCase {
             repo: "acme/app",
             repositoryIsArchived: repositoryIsArchived,
             ciState: ci,
-            reviewDecision: .noReviewYet,
+            reviewDecision: .reviewRequired,
             commentCount: commentCount ?? comments.count,
             commentActivityCount: comments.count,
             recentCommentActivities: comments,
