@@ -572,15 +572,37 @@ struct MenuRootView: View {
     }
 }
 
+/// The metrics the menu panel is built with and the size it is shown at.
+struct MenuPanelLayout: Equatable {
+    var metrics: MenuMetrics
+    var size: CGSize
+}
+
 enum MenuPanelSize {
     /// Screen-space gap between the panel and the usable screen edges; not a panel size, so it never scales.
     static let margin: CGFloat = 12
 
-    static func resolve(availableFrame: CGRect, metrics: MenuMetrics) -> CGSize {
-        CGSize(
-            width: min(metrics.panel.width, max(0, availableFrame.width - margin * 2)),
-            height: min(metrics.panelHeight, max(0, availableFrame.height - margin * 2))
+    static func resolve(availableFrame: CGRect, menuSize: MenuSize) -> MenuPanelLayout {
+        let metrics = MenuMetrics(scale: appliedFactor(availableFrame: availableFrame, menuSize: menuSize))
+        return MenuPanelLayout(
+            metrics: metrics,
+            size: CGSize(
+                width: min(metrics.panel.width, max(0, availableFrame.width - margin * 2)),
+                height: min(metrics.panelHeight, max(0, availableFrame.height - margin * 2))
+            )
         )
+    }
+
+    /// Small and Default always use their own factor. Large and Larger shrink toward the factor whose
+    /// panel fits the usable width, but never below Default, which keeps today's clamping on narrow screens.
+    private static func appliedFactor(availableFrame: CGRect, menuSize: MenuSize) -> CGFloat {
+        switch menuSize {
+        case .small, .standard:
+            return menuSize.factor
+        case .large, .larger:
+            let fittingFactor = (availableFrame.width - margin * 2) / MenuMetrics.standard.panel.width
+            return min(menuSize.factor, max(1, fittingFactor))
+        }
     }
 }
 

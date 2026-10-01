@@ -79,23 +79,76 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(dismissCount, 4)
     }
 
-    func testPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
+    func testDefaultPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
         let metrics = MenuMetrics.standard
-        let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000), metrics: metrics)
-        XCTAssertEqual(large.width, 820)
-        XCTAssertEqual(large.height, 765)
+        let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000), menuSize: .standard)
+        XCTAssertEqual(large.size, CGSize(width: 820, height: 765))
+        XCTAssertEqual(large.metrics, metrics)
 
         let laptopUsableFrame = CGRect(x: 0, y: 28, width: 1280, height: 740)
-        let laptop = MenuPanelSize.resolve(availableFrame: laptopUsableFrame, metrics: metrics)
+        let laptop = MenuPanelSize.resolve(availableFrame: laptopUsableFrame, menuSize: .standard).size
         XCTAssertEqual(laptop.width, 820)
         XCTAssertLessThan(laptop.height, metrics.panelHeight)
         XCTAssertLessThanOrEqual(laptop.height + MenuPanelSize.margin * 2, laptopUsableFrame.height)
         XCTAssertGreaterThan(laptop.height, metrics.footer.height + metrics.topBar.height)
-
-        let narrow = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 760, height: 600), metrics: metrics)
-        XCTAssertLessThanOrEqual(narrow.width + MenuPanelSize.margin * 2, 760)
-        XCTAssertLessThanOrEqual(narrow.height + MenuPanelSize.margin * 2, 600)
     }
+
+    func testEachMenuSizeGetsItsOwnFactorWhenTheScreenIsWideEnough() {
+        let frame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        for size in MenuSize.allCases {
+            XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: size).metrics.scale, size.factor, "\(size)")
+        }
+        XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: .large).size.width, 943, accuracy: 1e-9)
+        XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: .larger).size.width, 1066, accuracy: 1e-9)
+    }
+
+    func testLargerFitsTheLaptopWidthAndClampsItsHeight() {
+        let larger = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1470, height: 919), menuSize: .larger)
+        XCTAssertEqual(larger.metrics.scale, 1.3)
+        XCTAssertEqual(larger.size.width, 1066, accuracy: 1e-9)
+        XCTAssertEqual(larger.size.height, 895)
+    }
+
+    func testLargerShrinksToTheFactorThatFitsTheUsableWidth() {
+        let larger = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 900, height: 919), menuSize: .larger)
+        XCTAssertEqual(larger.metrics.scale, (900 - 24) / 820)
+        XCTAssertEqual(larger.size.width, 876)
+    }
+
+    func testLargeAndLargerNeverGoBelowDefaultOnNarrowScreens() {
+        let frame = CGRect(x: 0, y: 0, width: 760, height: 600)
+        let standard = MenuPanelSize.resolve(availableFrame: frame, menuSize: .standard)
+        XCTAssertEqual(standard.size, CGSize(width: 736, height: 576))
+        for size in [MenuSize.large, .larger] {
+            let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size)
+            XCTAssertEqual(resolved.metrics.scale, 1, "\(size)")
+            XCTAssertEqual(resolved.size, standard.size, "\(size)")
+        }
+    }
+
+    func testSmallKeepsItsFactorOnEveryFrame() {
+        for frame in Self.panelSizeFrames {
+            XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: .small).metrics.scale, 0.85, "\(frame)")
+        }
+    }
+
+    func testResolvedSizeNeverExceedsTheFrameMinusMargins() {
+        for frame in Self.panelSizeFrames {
+            for size in MenuSize.allCases {
+                let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size).size
+                XCTAssertLessThanOrEqual(resolved.width, frame.width - 2 * MenuPanelSize.margin, "\(size) on \(frame)")
+                XCTAssertLessThanOrEqual(resolved.height, frame.height - 2 * MenuPanelSize.margin, "\(size) on \(frame)")
+            }
+        }
+    }
+
+    private static let panelSizeFrames = [
+        CGRect(x: 0, y: 0, width: 1600, height: 1000),
+        CGRect(x: 0, y: 0, width: 1470, height: 919),
+        CGRect(x: 0, y: 28, width: 1280, height: 740),
+        CGRect(x: 0, y: 0, width: 900, height: 919),
+        CGRect(x: 0, y: 0, width: 760, height: 600)
+    ]
 
     @MainActor
     func testNativeHostAndRootUseTheSameResolvedSize() throws {
@@ -103,10 +156,10 @@ final class MenuViewTests: XCTestCase {
         let statusBarController = StatusBarController(controller: controller)
         let frame = CGRect(x: 0, y: 28, width: 1280, height: 740)
         let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
-        let resolved = MenuPanelSize.resolve(availableFrame: frame, metrics: .standard)
-        XCTAssertEqual(hosted.frame.size, resolved)
-        XCTAssertEqual(hosted.rootView.resolvedSize, resolved)
-        XCTAssertEqual(hosted.rootView.metrics, .standard)
+        let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: .standard)
+        XCTAssertEqual(hosted.frame.size, resolved.size)
+        XCTAssertEqual(hosted.rootView.resolvedSize, resolved.size)
+        XCTAssertEqual(hosted.rootView.metrics, resolved.metrics)
     }
 
     @MainActor
