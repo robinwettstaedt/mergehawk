@@ -152,14 +152,52 @@ final class MenuViewTests: XCTestCase {
 
     @MainActor
     func testNativeHostAndRootUseTheSameResolvedSize() throws {
-        let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            automaticRefreshInterval: 0
+        )
         let statusBarController = StatusBarController(controller: controller)
         let frame = CGRect(x: 0, y: 28, width: 1280, height: 740)
-        let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
-        let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: .standard)
-        XCTAssertEqual(hosted.frame.size, resolved.size)
-        XCTAssertEqual(hosted.rootView.resolvedSize, resolved.size)
-        XCTAssertEqual(hosted.rootView.metrics, resolved.metrics)
+        for size in MenuSize.allCases {
+            controller.menuSize = size
+            let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
+            let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size)
+            XCTAssertEqual(hosted.frame.size, resolved.size, "\(size)")
+            XCTAssertEqual(hosted.rootView.resolvedSize, resolved.size, "\(size)")
+            XCTAssertEqual(hosted.rootView.metrics, resolved.metrics, "\(size)")
+            XCTAssertEqual(hosted.rootView.metrics.scale, size.factor, "\(size)")
+        }
+    }
+
+    @MainActor
+    func testChangedMenuSizeAppliesWhenTheMenuIsRebuilt() throws {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            automaticRefreshInterval: 0
+        )
+        let statusBarController = StatusBarController(controller: controller)
+        let built = try XCTUnwrap(statusBarController.rebuildMenuForTesting().first?.view as? MenuRootHostingView)
+        let builtSize = built.frame.size
+        XCTAssertEqual(built.rootView.metrics, .standard)
+
+        // Small applies its own factor on every screen, so the rebuilt host is predictable here.
+        controller.menuSize = .small
+
+        XCTAssertEqual(built.frame.size, builtSize)
+        XCTAssertEqual(built.rootView.metrics, .standard)
+        let rebuilt = try XCTUnwrap(statusBarController.rebuildMenuForTesting().first?.view as? MenuRootHostingView)
+        XCTAssertEqual(rebuilt.rootView.metrics, MenuMetrics(scale: MenuSize.small.factor))
+        XCTAssertEqual(rebuilt.frame.size, rebuilt.rootView.resolvedSize)
+        XCTAssertNotEqual(rebuilt.frame.size, builtSize)
+    }
+
+    private func isolatedDefaults() throws -> UserDefaults {
+        let suite = "menu-view-tests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return defaults
     }
 
     @MainActor
@@ -490,19 +528,29 @@ final class MenuViewTests: XCTestCase {
         controller.refresh()
         waitUntil(timeout: 1.0) { !controller.visiblePullRequestNotifications.isEmpty && !controller.isRefreshing }
 
-        for tab in DashboardController.MenuTab.allCases {
-            controller.selectedTab = tab
-            let size = MenuMetrics.standard.panelSize
-            let hostingView = NSHostingView(rootView: MenuRootView(controller: controller, footerModel: MenuFooterModel()))
-            hostingView.frame = CGRect(origin: .zero, size: size)
-            let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            window.contentView = hostingView
-            hostingView.layoutSubtreeIfNeeded()
+        let statusBarController = StatusBarController(controller: controller)
+        let frames = [
+            CGRect(x: 0, y: 0, width: 1470, height: 919),
+            CGRect(x: 0, y: 0, width: 900, height: 919),
+            CGRect(x: 0, y: 0, width: 760, height: 600)
+        ]
+        for size in MenuSize.allCases {
+            controller.menuSize = size
+            for frame in frames {
+                for tab in DashboardController.MenuTab.allCases {
+                    controller.selectedTab = tab
+                    let label = "\(size) \(tab.rawValue) on \(frame.size)"
+                    let hostingView = statusBarController.makeMenuContentView(availableFrame: frame)
+                    let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                    window.contentView = hostingView
+                    hostingView.layoutSubtreeIfNeeded()
 
-            let scrollViews = scrollViews(in: hostingView)
-            XCTAssertFalse(scrollViews.isEmpty, tab.rawValue)
-            XCTAssertTrue(scrollViews.allSatisfy(\.hasVerticalScroller), tab.rawValue)
-            window.contentView = nil
+                    let scrollViews = scrollViews(in: hostingView)
+                    XCTAssertFalse(scrollViews.isEmpty, label)
+                    XCTAssertTrue(scrollViews.allSatisfy(\.hasVerticalScroller), label)
+                    window.contentView = nil
+                }
+            }
         }
     }
 
