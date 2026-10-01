@@ -204,6 +204,11 @@ final class DashboardController: ObservableObject {
             startAutomaticRefresh()
         }
     }
+    @Published var menuSize: MenuSize {
+        didSet {
+            preferencesStore.menuSize = menuSize
+        }
+    }
     @Published var pullRequestSortOption: PullRequestSortOption {
         didSet {
             preferencesStore.pullRequestSortOption = pullRequestSortOption
@@ -380,6 +385,7 @@ final class DashboardController: ObservableObject {
         self.muteBotNotifications = preferencesStore.muteBotNotifications
         self.preferences = preferencesStore.loadAndPersistNotificationPreferences()
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
+        self.menuSize = preferencesStore.menuSize
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestSortDirection = preferencesStore.pullRequestSortDirection
         self.reviewRequestSortOption = preferencesStore.reviewRequestSortOption

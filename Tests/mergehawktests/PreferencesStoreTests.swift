@@ -403,6 +403,53 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testMenuSizeDefaultsToStandardWhenNothingIsStored() {
+        withStore { store, _ in
+            XCTAssertEqual(store.menuSize, .standard)
+        }
+    }
+
+    func testEveryMenuSizeRoundTripsThroughTheStore() {
+        withStore { store, defaults in
+            for size in MenuSize.allCases {
+                store.menuSize = size
+                XCTAssertEqual(PreferencesStore(defaults: defaults).menuSize, size)
+            }
+        }
+    }
+
+    func testUnknownStoredMenuSizeReadsAsStandard() {
+        withStore { store, defaults in
+            defaults.set("enormous", forKey: "menu.size")
+            XCTAssertEqual(store.menuSize, .standard)
+        }
+    }
+
+    @MainActor
+    func testChangingTheControllerMenuSizePersistsIt() {
+        let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            notificationClient: RecordingNotificationClient(),
+            automaticRefreshInterval: 0
+        )
+        XCTAssertEqual(controller.menuSize, .standard)
+
+        controller.menuSize = .larger
+
+        XCTAssertEqual(PreferencesStore(defaults: defaults).menuSize, .larger)
+    }
+
+    func testMenuSizesListTheirTitlesAndFactorsInDisplayOrder() {
+        XCTAssertEqual(MenuSize.allCases, [.small, .standard, .large, .larger])
+        XCTAssertEqual(MenuSize.allCases.map(\.title), ["Small", "Default", "Large", "Larger"])
+        XCTAssertEqual(MenuSize.allCases.map(\.factor), [0.85, 1.0, 1.15, 1.3])
+    }
+
     private func withStore(_ body: (inout PreferencesStore, UserDefaults) -> Void) {
         let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
