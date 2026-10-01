@@ -177,15 +177,17 @@ Examples:
 ```sh
 # Default Settings verification surface for agent testing.
 scripts/run-agent-app.sh --slot agent-3 --mock --open
-# Normal native menu bar presentation for human review of the same run.
-scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-review --ui native --mock --open
+# Native handoff for a run verified with long-lists and notification type fixtures.
+scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-review --ui native --mock --mock-scenario long-lists --notification-type-fixtures --open
 ```
 
 Verification surfaces (`settings` and `menu`) are explicit agent testing aids.
 Native presentation opens no Settings or persistent Verification Menu automatically.
-The presentation choice is independent of mock fixture data. Each additional
-launch within a run needs an unused stage name, such as `app-review-2` for a second
-native review launch; source changes require a fresh run.
+The presentation choice is independent of mock fixture data. For same-run native
+handoff, preserve the recorded `--mock-scenario` and replay
+`--notification-type-fixtures` when the packaged verified bundle used it. Each
+additional launch within a run needs an unused stage name, such as `app-review-2`
+for a second native review launch; source changes require a fresh run.
 
 An agent slot should have its own app name, bundle identifier, executable name,
 and artifact directory so multiple agents can work in parallel without replacing

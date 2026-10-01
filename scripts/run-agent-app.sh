@@ -20,6 +20,8 @@ Launches a run-bound, mock-only MergeHawk app bundle without replacing the
 normal installed app. Opens Settings by default for unattended computer use.
 Use --ui native for normal menu bar presentation during human review.
 Starts a fresh verification run when --run-dir is omitted.
+When reusing a run, preserve its recorded --mock-scenario and replay
+--notification-type-fixtures when the packaged verified bundle used it.
 
 Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
@@ -28,7 +30,8 @@ Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario comment-notifications --ui settings --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario new-review-request --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
-  scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-review --ui native --mock --open
+  # Native handoff for a run verified with long-lists and notification type fixtures:
+  scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-review --ui native --mock --mock-scenario long-lists --notification-type-fixtures --open
 USAGE
 }
 

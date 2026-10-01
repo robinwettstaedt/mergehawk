@@ -319,10 +319,13 @@ such as `app-final-activity`. This keeps its app log and mock notification JSONL
 immutable while the default first launch remains the `app` stage.
 
 For human review of the same verified source and bundle, reuse the printed run
-directory and slot with a native review stage:
+directory and slot with a native review stage. Preserve the recorded
+`--mock-scenario` and replay `--notification-type-fixtures` when the packaged
+verified bundle used it. For example, a run verified with the `long-lists`
+scenario and notification type fixtures uses this matching handoff:
 
 ```sh
-scripts/run-agent-app.sh --slot local --run-dir "$RUN_DIR" --stage app-review --ui native --mock --open
+scripts/run-agent-app.sh --slot local --run-dir "$RUN_DIR" --stage app-review --ui native --mock --mock-scenario long-lists --notification-type-fixtures --open
 ```
 
 This replaces the slot's running process while preserving its packaged app and
