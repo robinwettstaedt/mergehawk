@@ -496,7 +496,7 @@ private func pr(
     PullRequest(
         id: "PR", title: "Comment notifications", number: 7,
         url: URL(string: "https://github.com/acme/app/pull/7")!, repo: "acme/app",
-        repositoryIsArchived: archived, ciState: .passing, reviewDecision: .noReviewYet,
+        repositoryIsArchived: archived, ciState: .passing, reviewDecision: .reviewRequired,
         commentCount: 0, recentCommentActivities: comments, reviewCount: reviews.count, recentReviews: reviews,
         reviewRequestKind: request, isAssignedToViewer: assigned, isMine: mine,
         author: mine ? "rw" : "alice", mergeable: .mergeable, draft: false

@@ -996,7 +996,8 @@ struct GitHubPullRequestFetcher: Sendable {
             ciState: ciState,
             reviewDecision: normalizeReviewDecision(
                 Array(value.opinionatedReviews.values),
-                pullRequestAuthor: payload.author?.login
+                pullRequestAuthor: payload.author?.login,
+                gitHubDecision: payload.reviewDecision
             ),
             additions: payload.additions,
             deletions: payload.deletions,
@@ -1072,9 +1073,9 @@ struct GitHubPullRequestFetcher: Sendable {
 
     private func normalizeReviewDecision(
         _ reviews: [GitHubPayloadReview],
-        pullRequestAuthor: String?
+        pullRequestAuthor: String?,
+        gitHubDecision: String?
     ) -> ReviewDecision {
-        var approved = false
         var uncertain = false
         for review in reviews {
             let state = review.state.uppercased()
@@ -1086,12 +1087,12 @@ struct GitHubPullRequestFetcher: Sendable {
             if author.caseInsensitiveCompare(pullRequestAuthor) == .orderedSame { continue }
             switch state {
             case "CHANGES_REQUESTED": return .changesRequested
-            case "APPROVED": approved = true
+            case "APPROVED": continue
             default: uncertain = true
             }
         }
         if uncertain { return .unknown }
-        return approved ? .approved : .noReviewYet
+        return gitHubDecision == "APPROVED" ? .approved : .reviewRequired
     }
 
     private func reviewRequestKind(for value: HydrationAccumulator, login: String) -> ReviewRequestKind {

@@ -1703,7 +1703,7 @@ private func makePullRequest(
         repo: "acme/app",
         repositoryIsArchived: archived,
         ciState: .passing,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: comments.count,
         commentActivityCount: comments.count,
         recentCommentActivities: comments,

@@ -3098,7 +3098,7 @@ struct ReviewDecisionIndicator: View {
     enum Kind: Equatable {
         case approved
         case changesRequested
-        case noReviewYet
+        case reviewRequired
         case unknown
 
         init(reviewDecision: ReviewDecision) {
@@ -3107,8 +3107,8 @@ struct ReviewDecisionIndicator: View {
                 self = .approved
             case .changesRequested:
                 self = .changesRequested
-            case .noReviewYet:
-                self = .noReviewYet
+            case .reviewRequired:
+                self = .reviewRequired
             case .unknown:
                 self = .unknown
             }
@@ -3140,7 +3140,7 @@ extension ReviewDecisionIndicator.Kind {
         switch self {
         case .approved: .positive
         case .changesRequested: .negative
-        case .noReviewYet, .unknown: .unavailable
+        case .reviewRequired, .unknown: .unavailable
         }
     }
 
@@ -3150,8 +3150,8 @@ extension ReviewDecisionIndicator.Kind {
             "Review approved"
         case .changesRequested:
             "Changes requested"
-        case .noReviewYet:
-            "No review yet"
+        case .reviewRequired:
+            "Review required"
         case .unknown:
             "Review status unknown"
         }

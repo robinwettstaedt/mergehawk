@@ -612,7 +612,7 @@ final class GitHubRetirementTests: XCTestCase {
         PullRequest(
             id: id, title: "Tracked PR", number: number,
             url: URL(string: "https://github.com/acme/app/pull/\(number)")!, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet,
+            ciState: .passing, reviewDecision: .reviewRequired,
             commentCount: 0, reviewCount: 0,
             reviewRequestKind: reviewKind, isAssignedToViewer: assigned,
             isMine: isMine, author: isMine ? "rw" : "author", mergeable: .mergeable, draft: false,
