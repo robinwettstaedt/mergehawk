@@ -287,6 +287,89 @@ final class MenuMetricsTests: XCTestCase {
         }
     }
 
+    private struct FontExpectation {
+        var name: String
+        var keyPath: KeyPath<MenuMetrics, MenuMetrics.FontToken>
+        var mer86Size: CGFloat
+        var size: CGFloat
+        var weight: Font.Weight = .regular
+        var design: Font.Design = .default
+        var monospacedDigits = false
+    }
+
+    /// Every font token: its size before the scales were consolidated (MER-86), its approved size,
+    /// and its unchanged weight and design. The footer's native menu font is not listed: it comes from `NSFont.menuFont`.
+    private static let fontExpectations: [FontExpectation] = [
+        .init(name: "panelTitle", keyPath: \.type.panelTitle, mer86Size: 13, size: 13, weight: .bold),
+        .init(name: "controlLabel", keyPath: \.type.controlLabel, mer86Size: 11, size: 11, weight: .semibold),
+        .init(name: "controlChevron", keyPath: \.type.controlChevron, mer86Size: 9, size: 10, weight: .semibold),
+        .init(name: "segmentLabel", keyPath: \.type.segmentLabel, mer86Size: 13, size: 13, weight: .medium),
+        .init(name: "segmentIcon", keyPath: \.type.segmentIcon, mer86Size: 12, size: 11, weight: .semibold),
+        .init(name: "refreshSymbol", keyPath: \.type.refreshSymbol, mer86Size: 13, size: 13, weight: .semibold),
+        .init(name: "refreshTimestamp", keyPath: \.type.refreshTimestamp, mer86Size: 10, size: 10, weight: .medium),
+        .init(name: "bannerMessage", keyPath: \.type.bannerMessage, mer86Size: 12, size: 11),
+        .init(name: "bannerSymbol", keyPath: \.type.bannerSymbol, mer86Size: 13, size: 13),
+        .init(name: "disclosureChevron", keyPath: \.type.disclosureChevron, mer86Size: 9, size: 10, weight: .semibold),
+        .init(name: "disclosureTitle", keyPath: \.type.disclosureTitle, mer86Size: 10, size: 10, weight: .semibold),
+        .init(name: "dropdownItem", keyPath: \.type.dropdownItem, mer86Size: 11, size: 11, weight: .semibold),
+        .init(name: "dropdownCheckmark", keyPath: \.type.dropdownCheckmark, mer86Size: 11, size: 11, weight: .semibold),
+        .init(name: "sectionChevron", keyPath: \.type.sectionChevron, mer86Size: 12, size: 11, weight: .semibold),
+        .init(name: "sectionHeading", keyPath: \.type.sectionHeading, mer86Size: 13, size: 13, weight: .semibold),
+        .init(name: "sectionCount", keyPath: \.type.sectionCount, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
+        .init(name: "cardTitle", keyPath: \.type.cardTitle, mer86Size: 11, size: 11, weight: .semibold),
+        .init(name: "cardMetadata", keyPath: \.type.cardMetadata, mer86Size: 10, size: 10, weight: .medium),
+        .init(name: "notificationIcon", keyPath: \.type.notificationIcon, mer86Size: 17, size: 17, weight: .medium),
+        .init(name: "notificationTimestamp", keyPath: \.type.notificationTimestamp, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
+        .init(name: "markReadSymbol", keyPath: \.type.markReadSymbol, mer86Size: 9, size: 10, weight: .medium),
+        .init(name: "legendLabel", keyPath: \.type.legendLabel, mer86Size: 10, size: 10, weight: .semibold),
+        .init(name: "legendIcon", keyPath: \.type.legendIcon, mer86Size: 13, size: 13, weight: .semibold),
+        .init(name: "legendTooltip", keyPath: \.type.legendTooltip, mer86Size: 10, size: 10, weight: .medium),
+        .init(name: "actionsSymbol", keyPath: \.type.actionsSymbol, mer86Size: 12, size: 11, weight: .semibold),
+        .init(name: "ageValue", keyPath: \.type.ageValue, mer86Size: 10, size: 10, weight: .medium, monospacedDigits: true),
+        .init(name: "metricValue", keyPath: \.type.metricValue, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
+        .init(name: "signalSymbol", keyPath: \.type.signalSymbol, mer86Size: 12, size: 11, weight: .semibold),
+        .init(name: "draftBadge", keyPath: \.type.draftBadge, mer86Size: 9, size: 10, weight: .semibold),
+        .init(name: "actionsMenuItem", keyPath: \.type.actionsMenuItem, mer86Size: 12, size: 11),
+        .init(name: "gitHubButtonTitle", keyPath: \.type.gitHubButtonTitle, mer86Size: 13, size: 13, weight: .semibold),
+        .init(name: "signInTitle", keyPath: \.type.signInTitle, mer86Size: 13, size: 13, weight: .bold),
+        .init(name: "signInDetail", keyPath: \.type.signInDetail, mer86Size: 11, size: 11),
+        .init(name: "signInLink", keyPath: \.type.signInLink, mer86Size: 11, size: 11),
+        .init(name: "signInLinkArrow", keyPath: \.type.signInLinkArrow, mer86Size: 10, size: 10, weight: .bold),
+        .init(name: "signInError", keyPath: \.type.signInError, mer86Size: 10, size: 10),
+        .init(name: "deviceCode", keyPath: \.type.deviceCode, mer86Size: 17, size: 17, weight: .semibold, design: .monospaced),
+        .init(name: "copySymbol", keyPath: \.type.copySymbol, mer86Size: 13, size: 13, weight: .medium),
+        .init(name: "expirySymbol", keyPath: \.type.expirySymbol, mer86Size: 11, size: 11),
+        .init(name: "expiry", keyPath: \.type.expiry, mer86Size: 10, size: 10),
+        .init(name: "emptyStateIcon", keyPath: \.type.emptyStateIcon, mer86Size: 17, size: 17),
+        .init(name: "emptyStateText", keyPath: \.type.emptyStateText, mer86Size: 11, size: 11),
+        .init(name: "accessPromptIcon", keyPath: \.type.accessPromptIcon, mer86Size: 34, size: 34, weight: .light),
+        .init(name: "accessPromptTitle", keyPath: \.type.accessPromptTitle, mer86Size: 13, size: 13, weight: .bold),
+        .init(name: "accessPromptNoteIcon", keyPath: \.type.accessPromptNoteIcon, mer86Size: 13, size: 13),
+        .init(name: "accessPromptNote", keyPath: \.type.accessPromptNote, mer86Size: 12, size: 11),
+    ]
+
+    func testFontSizesFollowTheApprovedTypeScale() {
+        XCTAssertEqual(Self.fontExpectations.count, Self.fontTokens(in: metrics).count)
+        for expected in Self.fontExpectations {
+            XCTAssertEqual(metrics[keyPath: expected.keyPath].size, expected.size, expected.name)
+        }
+    }
+
+    func testFontWeightAndDesignAreUnchanged() {
+        for expected in Self.fontExpectations {
+            let token = metrics[keyPath: expected.keyPath]
+            XCTAssertEqual(token.weight, expected.weight, expected.name)
+            XCTAssertEqual(token.design, expected.design, expected.name)
+            XCTAssertEqual(token.monospacedDigits, expected.monospacedDigits, expected.name)
+        }
+    }
+
+    func testFontSizesMovedAtMostTwoPoints() {
+        for expected in Self.fontExpectations {
+            XCTAssertLessThanOrEqual(abs(metrics[keyPath: expected.keyPath].size - expected.mer86Size), 2, expected.name)
+        }
+    }
+
     // MARK: Mirror walk
 
     private struct StoredMeasurements {
