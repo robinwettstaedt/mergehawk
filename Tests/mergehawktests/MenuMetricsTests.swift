@@ -53,16 +53,21 @@ final class MenuMetricsTests: XCTestCase {
 
     private let factors = MenuSize.allCases.map(\.factor)
 
-    func testEveryBaseMeasurementScalesByTheFactor() {
+    func testEveryStoredMeasurementScalesByTheFactor() {
+        let base = Self.storedMeasurements(in: metrics)
+        XCTAssertTrue(base.unexpectedLeaves.isEmpty, "Unscaled stored values: \(base.unexpectedLeaves)")
+        // Spot-check that the walk reaches every kind of stored token.
+        let basePaths = Set(base.values.map(\.path))
+        for path in [".panel.width", ".prColumns.avatarSize", ".type.cardTitle.size", ".footer.itemFont.size", ".legend.mergeStatusStrokeWidth"] {
+            XCTAssertTrue(basePaths.contains(path), path)
+        }
         for factor in factors {
             let scaled = MenuMetrics(scale: factor)
             XCTAssertEqual(scaled.scale, factor)
-            for keyPath in Self.baseMeasurements {
-                XCTAssertEqual(
-                    scaled[keyPath: keyPath],
-                    metrics[keyPath: keyPath] * factor,
-                    "\(keyPath) at \(factor)"
-                )
+            let scaledValues = Self.storedMeasurements(in: scaled).values
+            XCTAssertEqual(scaledValues.map(\.path), base.values.map(\.path))
+            for (scaledValue, baseValue) in zip(scaledValues, base.values) {
+                XCTAssertEqual(scaledValue.value, baseValue.value * factor, "\(baseValue.path) at \(factor)")
             }
             XCTAssertEqual(MenuMetrics.hairline, 1)
             XCTAssertEqual(scaled.footer.separatorHeight - 2 * scaled.footer.separatorVerticalPadding, 1, accuracy: 1e-9)
@@ -99,283 +104,71 @@ final class MenuMetricsTests: XCTestCase {
     }
 
     func testFontTokensScaleTheirSizeAndKeepTheirConstruction() {
+        let baseTokens = Self.fontTokens(in: metrics)
+        XCTAssertFalse(baseTokens.isEmpty)
         for factor in factors {
-            let scaled = MenuMetrics(scale: factor)
-            for keyPath in Self.fontTokens {
-                let base = metrics[keyPath: keyPath]
-                let token = scaled[keyPath: keyPath]
-                XCTAssertEqual(token.size, base.size * factor, "\(keyPath) at \(factor)")
-                XCTAssertEqual(token.weight, base.weight, "\(keyPath) at \(factor)")
-                XCTAssertEqual(token.design, base.design, "\(keyPath) at \(factor)")
-                XCTAssertEqual(token.monospacedDigits, base.monospacedDigits, "\(keyPath) at \(factor)")
-                XCTAssertEqual(
-                    token.font,
-                    base.monospacedDigits
-                        ? Font.system(size: base.size * factor, weight: base.weight, design: base.design).monospacedDigit()
-                        : Font.system(size: base.size * factor, weight: base.weight, design: base.design),
-                    "\(keyPath) at \(factor)"
-                )
+            let scaledTokens = Self.fontTokens(in: MenuMetrics(scale: factor))
+            XCTAssertEqual(scaledTokens.map(\.path), baseTokens.map(\.path))
+            for (scaled, base) in zip(scaledTokens, baseTokens) {
+                let token = scaled.token
+                let label = "\(base.path) at \(factor)"
+                XCTAssertEqual(token.size, base.token.size * factor, label)
+                XCTAssertEqual(token.weight, base.token.weight, label)
+                XCTAssertEqual(token.design, base.token.design, label)
+                XCTAssertEqual(token.monospacedDigits, base.token.monospacedDigits, label)
+                let expectedFont = Font.system(size: base.token.size * factor, weight: base.token.weight, design: base.token.design)
+                XCTAssertEqual(token.font, base.token.monospacedDigits ? expectedFont.monospacedDigit() : expectedFont, label)
             }
-            XCTAssertEqual(scaled.footer.itemFont.size, NSFont.menuFont(ofSize: 0).pointSize * factor)
+            XCTAssertEqual(MenuMetrics(scale: factor).footer.itemFont.size, NSFont.menuFont(ofSize: 0).pointSize * factor)
         }
     }
 
-    /// Every stored base measurement, group by group. Derived (computed) measurements are not listed.
-    private static let baseMeasurements: [KeyPath<MenuMetrics, CGFloat>] = [
-        \.type.panelTitle.size,
-        \.type.controlLabel.size,
-        \.type.controlChevron.size,
-        \.type.segmentLabel.size,
-        \.type.segmentIcon.size,
-        \.type.refreshSymbol.size,
-        \.type.refreshTimestamp.size,
-        \.type.bannerMessage.size,
-        \.type.bannerSymbol.size,
-        \.type.disclosureChevron.size,
-        \.type.disclosureTitle.size,
-        \.type.dropdownItem.size,
-        \.type.dropdownCheckmark.size,
-        \.type.sectionChevron.size,
-        \.type.sectionHeading.size,
-        \.type.sectionCount.size,
-        \.type.cardTitle.size,
-        \.type.cardMetadata.size,
-        \.type.notificationIcon.size,
-        \.type.notificationTimestamp.size,
-        \.type.markReadSymbol.size,
-        \.type.legendLabel.size,
-        \.type.legendIcon.size,
-        \.type.legendTooltip.size,
-        \.type.actionsSymbol.size,
-        \.type.ageValue.size,
-        \.type.metricValue.size,
-        \.type.signalSymbol.size,
-        \.type.draftBadge.size,
-        \.type.actionsMenuItem.size,
-        \.type.gitHubButtonTitle.size,
-        \.type.signInTitle.size,
-        \.type.signInDetail.size,
-        \.type.signInLink.size,
-        \.type.signInLinkArrow.size,
-        \.type.signInError.size,
-        \.type.deviceCode.size,
-        \.type.copySymbol.size,
-        \.type.expirySymbol.size,
-        \.type.expiry.size,
-        \.type.emptyStateIcon.size,
-        \.type.emptyStateText.size,
-        \.type.accessPromptIcon.size,
-        \.type.accessPromptTitle.size,
-        \.type.accessPromptNoteIcon.size,
-        \.type.accessPromptNote.size,
-        \.panel.width,
-        \.panel.contentHeight,
-        \.topBar.height,
-        \.topBar.leadingInset,
-        \.topBar.trailingInset,
-        \.topBar.headerControlsTrailingSpacing,
-        \.topBar.refreshStatusWidth,
-        \.tabSwitcher.width,
-        \.tabSwitcher.leadingInset,
-        \.tabSwitcher.notificationSegmentWidth,
-        \.controls.height,
-        \.controls.cornerRadius,
-        \.controls.contentSpacing,
-        \.controls.horizontalPadding,
-        \.controls.sortDirectionWidth,
-        \.controls.sortDividerVerticalInset,
-        \.controls.segmentedHeight,
-        \.controls.segmentedCornerRadius,
-        \.controls.segmentedContentSpacing,
-        \.controls.segmentSelectionInset,
-        \.controls.segmentSelectionCornerRadius,
-        \.controls.segmentDividerVerticalInset,
-        \.prColumns.spacing,
-        \.prColumns.rowSpacing,
-        \.prColumns.headerHeight,
-        \.prColumns.horizontalInset,
-        \.prColumns.verticalInset,
-        \.prColumns.avatarSize,
-        \.prColumns.identitySpacing,
-        \.prColumns.identityLineSpacing,
-        \.prColumns.commentsWidth,
-        \.prColumns.statusWidth,
-        \.prColumns.changesWidth,
-        \.prColumns.ageWidth,
-        \.prColumns.actionButtonHitSize,
-        \.refreshStatus.verticalWidth,
-        \.refreshStatus.verticalSpacing,
-        \.refreshStatus.indicatorSpacing,
-        \.refreshStatus.indicatorSize,
-        \.refreshStatus.iconFrame,
-        \.refreshStatus.horizontalIconFrame,
-        \.refreshStatus.horizontalSpacing,
-        \.refreshStatus.horizontalPadding,
-        \.refreshStatus.cornerRadius,
-        \.banner.spacing,
-        \.banner.horizontalPadding,
-        \.banner.verticalPadding,
-        \.prList.horizontalPadding,
-        \.prList.topPadding,
-        \.prList.bottomPadding,
-        \.prList.sectionSpacing,
-        \.prList.disclosureSpacing,
-        \.prList.disclosureHorizontalPadding,
-        \.prList.disclosureHeight,
-        \.prList.sectionHeadingSpacing,
-        \.prList.sectionChevronWidth,
-        \.prList.sectionCountHorizontalPadding,
-        \.prList.sectionCountVerticalPadding,
-        \.dropdown.headerControlsSpacing,
-        \.dropdown.gap,
-        \.dropdown.authoredFilterWidth,
-        \.dropdown.requestedFilterWidth,
-        \.dropdown.sortWidth,
-        \.dropdown.itemSpacing,
-        \.dropdown.verticalPadding,
-        \.dropdown.cornerRadius,
-        \.dropdown.shadowRadius,
-        \.dropdown.shadowOffsetY,
-        \.dropdown.itemContentSpacing,
-        \.dropdown.checkmarkWidth,
-        \.dropdown.itemHorizontalPadding,
-        \.dropdown.itemHeight,
-        \.notificationList.headerSpacing,
-        \.notificationList.headerHorizontalPadding,
-        \.notificationList.headerTopPadding,
-        \.notificationList.headerBottomPadding,
-        \.notificationList.rowSpacing,
-        \.notificationList.horizontalPadding,
-        \.notificationList.topPadding,
-        \.notificationList.bottomPadding,
-        \.notificationRow.titleSpacing,
-        \.notificationRow.pullRequestLineSpacing,
-        \.notificationRow.minimumPRTitleWidth,
-        \.notificationRow.markReadButtonSize,
-        \.notificationRow.markReadOffset,
-        \.notificationRow.markReadShadowRadius,
-        \.notificationRow.markReadShadowOffsetY,
-        \.prRow.identityItemSpacing,
-        \.prRow.valueColumnHeight,
-        \.prRow.draftBadgeHorizontalPadding,
-        \.prRow.draftBadgeVerticalPadding,
-        \.card.cornerRadius,
-        \.legend.height,
-        \.legend.mergeStatusSymbolSize,
-        \.legend.mergeStatusStrokeWidth,
-        \.legend.tooltipHorizontalPadding,
-        \.legend.tooltipVerticalPadding,
-        \.legend.tooltipCornerRadius,
-        \.legend.tooltipShadowRadius,
-        \.legend.tooltipShadowOffsetY,
-        \.legend.tooltipGap,
-        \.actionsMenu.width,
-        \.actionsMenu.padding,
-        \.actionsMenu.itemSpacing,
-        \.actionsMenu.itemHeight,
-        \.actionsMenu.itemContentSpacing,
-        \.actionsMenu.itemIconWidth,
-        \.actionsMenu.itemHorizontalPadding,
-        \.actionsMenu.itemCornerRadius,
-        \.actionsMenu.cornerRadius,
-        \.actionsMenu.shadowRadius,
-        \.actionsMenu.shadowOffsetY,
-        \.actionsMenu.anchorGap,
-        \.indicators.ciDotSize,
-        \.indicators.signalSize,
-        \.indicators.changesRequestedSymbolWidth,
-        \.indicators.changesRequestedSymbolHeight,
-        \.indicators.changesRequestedStrokeWidth,
-        \.gitHubButton.contentSpacing,
-        \.gitHubButton.markSize,
-        \.gitHubButton.horizontalPadding,
-        \.gitHubButton.height,
-        \.gitHubButton.cornerRadius,
-        \.signIn.padding,
-        \.signIn.contentSpacing,
-        \.signIn.appIconSize,
-        \.signIn.buttonRowSpacing,
-        \.signIn.pendingSpacing,
-        \.signIn.enterCodeSpacing,
-        \.signIn.linkSpacing,
-        \.signIn.codeRowSpacing,
-        \.signIn.codeTracking,
-        \.signIn.codeHorizontalPadding,
-        \.signIn.codeVerticalPadding,
-        \.signIn.codeCornerRadius,
-        \.signIn.copyButtonSize,
-        \.signIn.expirySpacing,
-        \.signIn.loadingSpacing,
-        \.emptyState.spacing,
-        \.accessPrompt.contentSpacing,
-        \.accessPrompt.headerSpacing,
-        \.accessPrompt.actionsSpacing,
-        \.accessPrompt.maxContentWidth,
-        \.accessPrompt.horizontalPadding,
-        \.accessPrompt.noteBoxCornerRadius,
-        \.accessPrompt.noteSpacing,
-        \.accessPrompt.noteIconWidth,
-        \.accessPrompt.noteHorizontalPadding,
-        \.accessPrompt.noteVerticalPadding,
-        \.footer.itemFont.size,
-        \.footer.separatorHorizontalPadding,
-        \.footer.separatorVerticalPadding,
-        \.footer.rowHeight,
-        \.footer.selectionInsetX,
-        \.footer.selectionInsetY,
-        \.footer.selectionCornerRadius,
-        \.footer.titleLeading,
-        \.footer.shortcutTrailing,
-        \.footer.shortcutColumnSpacing,
-        \.footer.shortcutKeyColumnWidth,
-    ]
+    // MARK: Mirror walk
 
-    private static let fontTokens: [KeyPath<MenuMetrics, MenuMetrics.FontToken>] = [
-        \.type.panelTitle,
-        \.type.controlLabel,
-        \.type.controlChevron,
-        \.type.segmentLabel,
-        \.type.segmentIcon,
-        \.type.refreshSymbol,
-        \.type.refreshTimestamp,
-        \.type.bannerMessage,
-        \.type.bannerSymbol,
-        \.type.disclosureChevron,
-        \.type.disclosureTitle,
-        \.type.dropdownItem,
-        \.type.dropdownCheckmark,
-        \.type.sectionChevron,
-        \.type.sectionHeading,
-        \.type.sectionCount,
-        \.type.cardTitle,
-        \.type.cardMetadata,
-        \.type.notificationIcon,
-        \.type.notificationTimestamp,
-        \.type.markReadSymbol,
-        \.type.legendLabel,
-        \.type.legendIcon,
-        \.type.legendTooltip,
-        \.type.actionsSymbol,
-        \.type.ageValue,
-        \.type.metricValue,
-        \.type.signalSymbol,
-        \.type.draftBadge,
-        \.type.actionsMenuItem,
-        \.type.gitHubButtonTitle,
-        \.type.signInTitle,
-        \.type.signInDetail,
-        \.type.signInLink,
-        \.type.signInLinkArrow,
-        \.type.signInError,
-        \.type.deviceCode,
-        \.type.copySymbol,
-        \.type.expirySymbol,
-        \.type.expiry,
-        \.type.emptyStateIcon,
-        \.type.emptyStateText,
-        \.type.accessPromptIcon,
-        \.type.accessPromptTitle,
-        \.type.accessPromptNoteIcon,
-        \.type.accessPromptNote,
-    ]
+    private struct StoredMeasurements {
+        var values: [(path: String, value: CGFloat)] = []
+        /// Stored leaves that are neither a CGFloat nor a font token, so the walk could not check them.
+        var unexpectedLeaves: [String] = []
+    }
+
+    /// Every stored CGFloat and font token size, in declaration order. `scale` itself is skipped.
+    private static func storedMeasurements(in metrics: MenuMetrics) -> StoredMeasurements {
+        var result = StoredMeasurements()
+        func walk(_ value: Any, path: String) {
+            if let number = value as? CGFloat {
+                result.values.append((path, number))
+            } else if let token = value as? MenuMetrics.FontToken {
+                result.values.append((path + ".size", token.size))
+            } else if let token = value as? MenuMetrics.NativeMenuFontToken {
+                result.values.append((path + ".size", token.size))
+            } else {
+                let children = Mirror(reflecting: value).children
+                if children.isEmpty {
+                    result.unexpectedLeaves.append(path)
+                }
+                for child in children {
+                    walk(child.value, path: path + "." + (child.label ?? "?"))
+                }
+            }
+        }
+        for child in Mirror(reflecting: metrics).children where child.label != "scale" {
+            walk(child.value, path: "." + (child.label ?? "?"))
+        }
+        return result
+    }
+
+    private static func fontTokens(in metrics: MenuMetrics) -> [(path: String, token: MenuMetrics.FontToken)] {
+        var tokens: [(path: String, token: MenuMetrics.FontToken)] = []
+        func walk(_ value: Any, path: String) {
+            if let token = value as? MenuMetrics.FontToken {
+                tokens.append((path, token))
+                return
+            }
+            for child in Mirror(reflecting: value).children {
+                walk(child.value, path: path + "." + (child.label ?? "?"))
+            }
+        }
+        walk(metrics, path: "")
+        return tokens
+    }
 }
