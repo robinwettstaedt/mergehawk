@@ -18,7 +18,7 @@ issues, prompts, tests, UI copy, and implementation notes.
 | Complete PR refresh | One provider read attempt that discovers relevant PRs, fetches their complete paginated activity, reconciles disappeared PRs, and commits one coherent app state. |
 | Sources refresh | A separate repository catalog and GitHub App installation refresh used by the `Sources` settings pane. |
 | Mock mode | Fixture-backed app mode without real provider credentials, provider network calls, or macOS credential prompts. |
-| Agent slot | A named isolated installed app bundle used by one agent. |
+| Agent slot | A named isolated installed app bundle used for agent verification and native human review. |
 | UI artifact | A generated visual verification file, usually a screenshot PNG. |
 
 ## Notification Terms
@@ -169,13 +169,23 @@ Mock mode should:
 
 ### Agent Slot
 
-A named, isolated installed app bundle used by an agent.
+A named, isolated installed app bundle used for agent verification and human
+review.
 
-Example:
+Examples:
 
 ```sh
+# Default Settings verification surface for agent testing.
 scripts/run-agent-app.sh --slot agent-3 --mock --open
+# Normal native menu bar presentation for human review of the same run.
+scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-review --ui native --mock --open
 ```
+
+Verification surfaces (`settings` and `menu`) are explicit agent testing aids.
+Native presentation opens no Settings or persistent Verification Menu automatically.
+The presentation choice is independent of mock fixture data. Each additional
+launch within a run needs an unused stage name, such as `app-review-2` for a second
+native review launch; source changes require a fresh run.
 
 An agent slot should have its own app name, bundle identifier, executable name,
 and artifact directory so multiple agents can work in parallel without replacing
