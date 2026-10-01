@@ -108,6 +108,7 @@ struct GitHubCompletePullRequestPayload: Decodable, Equatable, Sendable {
     let headRefOid: String
     let isDraft: Bool
     let mergeable: String?
+    let reviewDecision: String?
     let additions: Int?
     let deletions: Int?
     let statusCheckRollup: GitHubPayloadStatusRollup?
