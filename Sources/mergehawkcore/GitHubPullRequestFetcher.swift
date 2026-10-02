@@ -1164,7 +1164,7 @@ struct GitHubPullRequestFetcher: Sendable {
         }
         for direct in sortedDirectTeams {
             guard !direct.team.ancestors.pageInfo.hasNextPage else {
-                throw GitHubReadError.incompleteCoverage("More than 100 ancestors of team \(direct.reference.displayName)")
+                throw GitHubReadError.incompleteCoverage("More than \(GitHubPullRequestQueries.teamAncestorsPageSize) ancestors of team \(direct.reference.displayName)")
             }
             for ancestor in direct.team.ancestors.nodes where teamsByID[ancestor.id] == nil {
                 teamsByID[ancestor.id] = ViewerTeam(

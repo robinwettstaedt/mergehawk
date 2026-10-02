@@ -124,20 +124,27 @@ enum GitHubPullRequestQueries {
       }
     """
 
+    /// Page sizes for the viewer-teams queries. GitHub multiplies nested `first` values when it checks a query
+    /// against its 500,000 node limit, so these stay small enough for the nested selection to pass.
+    static let viewerOrganizationPageSize = 20
+    static let viewerTeamsPerOrganizationPageSize = 50
+    static let organizationViewerTeamsPageSize = 100
+    static let teamAncestorsPageSize = 20
+
     /// The viewer's direct teams in one org page, with each team's full ancestor chain.
     static let viewerTeamConnectionFields = """
       pageInfo { hasNextPage endCursor }
-      nodes { id slug ancestors(first: 100) { pageInfo { hasNextPage } nodes { id slug } } }
+      nodes { id slug ancestors(first: \(teamAncestorsPageSize)) { pageInfo { hasNextPage } nodes { id slug } } }
     """
 
     static let viewerTeams = """
       query ViewerTeams($login: String!, $orgCursor: String) {
         viewer {
-          organizations(first: 100, after: $orgCursor) {
+          organizations(first: \(viewerOrganizationPageSize), after: $orgCursor) {
             pageInfo { hasNextPage endCursor }
             nodes {
               login
-              teams(first: 100, userLogins: [$login]) { \(viewerTeamConnectionFields) }
+              teams(first: \(viewerTeamsPerOrganizationPageSize), userLogins: [$login]) { \(viewerTeamConnectionFields) }
             }
           }
         }
@@ -148,7 +155,9 @@ enum GitHubPullRequestQueries {
     static let organizationViewerTeams = """
       query OrganizationViewerTeams($org: String!, $login: String!, $cursor: String) {
         organization(login: $org) {
-          teams(first: 100, after: $cursor, userLogins: [$login]) { \(viewerTeamConnectionFields) }
+          teams(first: \(organizationViewerTeamsPageSize), after: $cursor, userLogins: [$login]) {
+            \(viewerTeamConnectionFields)
+          }
         }
       }
     """

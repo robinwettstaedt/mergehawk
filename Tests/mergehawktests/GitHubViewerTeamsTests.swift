@@ -146,6 +146,28 @@ final class GitHubViewerTeamsTests: XCTestCase {
         }
     }
 
+    func testViewerTeamsQueriesStayUnderGitHubsNodeLimit() {
+        typealias Queries = GitHubPullRequestQueries
+        /// GitHub's documented node cost: the sum over nesting levels of the product of `first` values.
+        func nodeCost(_ pageSizes: [Int]) -> Int {
+            pageSizes.indices.reduce(0) { total, level in total + pageSizes[...level].reduce(1, *) }
+        }
+        let viewerTeamsCost = nodeCost([
+            Queries.viewerOrganizationPageSize, Queries.viewerTeamsPerOrganizationPageSize, Queries.teamAncestorsPageSize
+        ])
+        let organizationViewerTeamsCost = nodeCost([
+            Queries.organizationViewerTeamsPageSize, Queries.teamAncestorsPageSize
+        ])
+
+        XCTAssertLessThan(viewerTeamsCost, 500_000)
+        XCTAssertLessThan(organizationViewerTeamsCost, 500_000)
+        XCTAssertTrue(Queries.viewerTeams.contains("organizations(first: \(Queries.viewerOrganizationPageSize),"))
+        XCTAssertTrue(Queries.viewerTeams.contains("teams(first: \(Queries.viewerTeamsPerOrganizationPageSize),"))
+        XCTAssertTrue(Queries.viewerTeams.contains("ancestors(first: \(Queries.teamAncestorsPageSize))"))
+        XCTAssertTrue(Queries.organizationViewerTeams.contains("teams(first: \(Queries.organizationViewerTeamsPageSize),"))
+        XCTAssertTrue(Queries.organizationViewerTeams.contains("ancestors(first: \(Queries.teamAncestorsPageSize))"))
+    }
+
     private static func fetcher(_ transport: ViewerTeamsTransport) -> GitHubPullRequestFetcher {
         GitHubPullRequestFetcher { query, variables in
             try await transport.read(query: query, variables: variables)
