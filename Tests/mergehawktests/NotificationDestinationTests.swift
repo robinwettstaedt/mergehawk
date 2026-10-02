@@ -52,7 +52,7 @@ final class NotificationDestinationTests: XCTestCase {
         let destination = URL(string: "https://github.com/acme/app/pull/1?view=comment#discussion_r99")!
         let pullRequest = PullRequest(
             id: "PR_1", title: "Retired", number: 1, url: base, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
             reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
         )
         let notification = PullRequestNotification(
@@ -89,7 +89,7 @@ final class NotificationDestinationTests: XCTestCase {
         let destination = URL(string: "https://github.com/acme/app/pull/1?view=comment#discussion_r7")!
         let pullRequest = PullRequest(
             id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
             reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
         )
         let event = PullRequestEvent(
@@ -122,7 +122,7 @@ final class NotificationDestinationTests: XCTestCase {
         let destination = URL(string: "https://github.com/acme/app/pull/1#issuecomment-7")!
         let pullRequest = PullRequest(
             id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
             reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
         )
         let notification = PullRequestNotification(

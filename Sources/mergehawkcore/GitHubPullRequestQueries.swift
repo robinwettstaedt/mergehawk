@@ -14,7 +14,7 @@ enum GitHubPullRequestQueries {
         "id url createdAt publishedAt updatedAt bodyHTML state viewerDidAuthor author { login __typename } pullRequestReview { id }"
     static let fullReviewFields =
         "id url state submittedAt updatedAt bodyHTML bodyText viewerDidAuthor author { login __typename }"
-    /// Latest opinionated reviews only feed the review decision, so they carry no summary content.
+    /// Latest opinionated reviews only decide changes requested and unknown review data, so they carry no summary content.
     static let opinionatedReviewFields = "id url state submittedAt viewerDidAuthor author { login __typename }"
 
     static let conversationCommentConnectionFields = "totalCount \(pageInfoFields) nodes { \(conversationCommentFields) }"
@@ -35,6 +35,7 @@ enum GitHubPullRequestQueries {
       headRefOid
       isDraft
       mergeable
+      reviewDecision
       additions
       deletions
       statusCheckRollup { state }

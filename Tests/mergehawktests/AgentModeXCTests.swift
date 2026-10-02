@@ -273,7 +273,10 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertEqual(controller.state.pullRequests.map(\.id), ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
             let requests = controller.state.pullRequests
             let byId = Dictionary(uniqueKeysWithValues: requests.map { ($0.id, $0) })
-            XCTAssertEqual(Set(requests.map(\.reviewDecision)), [.noReviewYet, .approved, .changesRequested, .unknown])
+            XCTAssertEqual(Set(requests.map(\.reviewDecision)), [.reviewRequired, .approved, .changesRequested, .unknown])
+            XCTAssertEqual(byId["PR_4"]?.reviewDecision, .reviewRequired)
+            XCTAssertGreaterThan(byId["PR_4"]?.reviewCount ?? 0, 0)
+            XCTAssertEqual(byId["PR_2"]?.reviewDecision, .approved)
             XCTAssertEqual(Set(requests.map(\.ciState)), [.passing, .failing, .pending, .unknown])
             XCTAssertEqual(Set(requests.map(\.mergeable)), [.mergeable, .conflicting, .unknown])
             XCTAssertGreaterThanOrEqual(requests.filter { $0.mergeable == .unknown }.count, 2)
@@ -305,6 +308,7 @@ final class AgentModeXCTests: XCTestCase {
             ["ci_failed", "new_comment", "relationship_added"]
         )
         await MainActor.run {
+            XCTAssertEqual(controller.state.pullRequests.first { $0.id == "PR_4" }?.reviewDecision, .reviewRequired)
             XCTAssertGreaterThanOrEqual(controller.state.pullRequests.filter { $0.mergeable == .unknown }.count, 2)
         }
     }
@@ -925,7 +929,7 @@ final class AgentModeXCTests: XCTestCase {
             url: URL(string: url)!,
             repo: "example/mergehawk",
             ciState: .failing,
-            reviewDecision: .noReviewYet,
+            reviewDecision: .reviewRequired,
             commentCount: 3,
             reviewCount: 0,
             isMine: true,
