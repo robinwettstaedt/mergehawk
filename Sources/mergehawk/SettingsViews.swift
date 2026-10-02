@@ -778,24 +778,19 @@ struct NotificationSettingsView: View {
     }
 }
 
-/// The relationship columns shared by both notification tables, with "Review requested" spanning Direct and Team.
+/// The relationship columns shared by both notification tables, bottom-aligned on one header level.
 private struct NotificationRelationshipHeader: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Review requested")
-                .lineLimit(1)
-                .frame(width: NotificationMatrixLayout.reviewRequestedSpanWidth)
-                .padding(.leading, NotificationMatrixLayout.reviewRequestedSpanLeadingX)
-            ZStack(alignment: .leading) {
-                Text("Notify me for")
-                    .frame(width: NotificationMatrixLayout.labelColumnWidth, alignment: .leading)
-                ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
-                    Text(relationship.columnTitle)
-                        .lineLimit(1)
-                        .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
-                        .help(relationship.columnHelp)
-                        .padding(.leading, NotificationMatrixLayout.relationshipColumnLeadingX(for: relationship))
-                }
+        HStack(alignment: .bottom, spacing: NotificationMatrixLayout.columnSpacing) {
+            Text("Notify me for")
+                .frame(width: NotificationMatrixLayout.labelColumnWidth, alignment: .leading)
+            ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
+                Text(relationship.columnTitle)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
+                    .help(relationship.columnHelp)
             }
         }
         .font(.caption.weight(.semibold))
@@ -880,23 +875,7 @@ enum NotificationMatrixLayout {
         return labelColumnWidth + columnCount * (relationshipColumnWidth + columnSpacing)
     }
 
-    /// Where a relationship column starts: after the label column, each column preceded by the column spacing,
-    /// matching the rows' HStack layout.
-    static func relationshipColumnLeadingX(for relationship: PullRequestNotificationRelationship) -> CGFloat {
-        let index = CGFloat(PullRequestNotificationRelationship.allCases.firstIndex(of: relationship) ?? 0)
-        return labelColumnWidth + columnSpacing + index * (relationshipColumnWidth + columnSpacing)
-    }
-
-    /// The "Review requested" header spans the Direct and Team columns.
-    static var reviewRequestedSpanLeadingX: CGFloat {
-        relationshipColumnLeadingX(for: .directReviewRequest)
-    }
-
-    static var reviewRequestedSpanWidth: CGFloat {
-        2 * relationshipColumnWidth + columnSpacing
-    }
-
-    /// Authored PRs have no Assigned or requested cell.
+    /// Authored PRs have no New assignment or review request cell.
     static func showsToggle(
         relationship: PullRequestNotificationRelationship,
         activity: PullRequestNotificationActivity
@@ -944,9 +923,9 @@ extension PullRequestNotificationRelationship {
         case .assigned:
             "Assigned"
         case .directReviewRequest:
-            "Direct"
+            "Direct\nrequest"
         case .teamReviewRequest:
-            "Team"
+            "Team\nrequest"
         }
     }
 
@@ -985,7 +964,7 @@ extension PullRequestNotificationActivity {
         case .ciFailures:
             "CI failed"
         case .relationshipChanges:
-            "Assigned or requested"
+            "New assignment or review request"
         }
     }
 
@@ -996,7 +975,7 @@ extension PullRequestNotificationActivity {
         case .ciFailures:
             "CI failures"
         case .relationshipChanges:
-            "assigned or requested"
+            "new assignment or review request"
         }
     }
 }

@@ -45,12 +45,12 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(PullRequestNotificationActivity.allCases, [.reviewActivity, .ciFailures, .relationshipChanges])
         XCTAssertEqual(
             PullRequestNotificationActivity.allCases.map(\.rowTitle),
-            ["Review decisions", "CI failed", "Assigned or requested"]
+            ["Review decisions", "CI failed", "New assignment or review request"]
         )
         XCTAssertEqual(CommentNotificationMode.allCases.map(\.title), ["All comments", "Mentions & threads you joined", "Off"])
         XCTAssertEqual(
             PullRequestNotificationRelationship.allCases.map(\.columnTitle),
-            ["Authored", "Assigned", "Direct", "Team"]
+            ["Authored", "Assigned", "Direct\nrequest", "Team\nrequest"]
         )
         XCTAssertEqual(
             PullRequestNotificationRelationship.allCases.map(\.columnHelp),
@@ -86,7 +86,7 @@ final class SettingsViewTests: XCTestCase {
             [
                 "Direct review requests review decisions",
                 "Direct review requests CI failures",
-                "Direct review requests assigned or requested",
+                "Direct review requests new assignment or review request",
             ]
         )
         XCTAssertEqual(
@@ -101,22 +101,6 @@ final class SettingsViewTests: XCTestCase {
             ]
         )
         XCTAssertEqual(NotificationMatrixLayout.tableWidth, 414)
-        XCTAssertEqual(
-            PullRequestNotificationRelationship.allCases.map(NotificationMatrixLayout.relationshipColumnLeadingX(for:)),
-            [160, 226, 292, 358]
-        )
-        XCTAssertEqual(
-            NotificationMatrixLayout.relationshipColumnLeadingX(for: .teamReviewRequest) + NotificationMatrixLayout.relationshipColumnWidth,
-            NotificationMatrixLayout.tableWidth
-        )
-        XCTAssertEqual(
-            NotificationMatrixLayout.reviewRequestedSpanLeadingX,
-            NotificationMatrixLayout.relationshipColumnLeadingX(for: .directReviewRequest)
-        )
-        XCTAssertEqual(
-            NotificationMatrixLayout.reviewRequestedSpanLeadingX + NotificationMatrixLayout.reviewRequestedSpanWidth,
-            NotificationMatrixLayout.relationshipColumnLeadingX(for: .teamReviewRequest) + NotificationMatrixLayout.relationshipColumnWidth
-        )
         // The grouped form insets leave well under the 500pt window for both tables.
         XCTAssertLessThanOrEqual(NotificationMatrixLayout.tableWidth, SettingsTab.defaultWindowSize.width - 80)
     }
