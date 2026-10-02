@@ -1178,6 +1178,10 @@ private struct TeamsSettingsView: View {
                         .foregroundStyle(.secondary)
                         .padding(.bottom, 6)
                     ForEach(groups) { group in
+                        if group.id != groups.first?.id {
+                            Divider()
+                                .padding(.vertical, 6)
+                        }
                         HStack(spacing: 6) {
                             TeamSettingsAvatar(url: group.avatarURL, placeholderSystemImage: "building.2")
                             Text(group.organization)
@@ -1188,8 +1192,6 @@ private struct TeamsSettingsView: View {
                         ForEach(group.rows) { row in
                             ReviewTeamSettingsRow(row: row, controller: controller)
                         }
-                        Divider()
-                            .padding(.vertical, 6)
                     }
                 }
                 .padding(.horizontal, 20)
