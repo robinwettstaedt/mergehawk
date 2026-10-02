@@ -786,6 +786,19 @@ final class VisualVerificationXCTests: XCTestCase {
                 ),
                 to: outputURL.appendingPathComponent("settings-sources-search-example.png")
             )
+            // The standard mock's teams span two organizations, so the tab draws a second header and a divider.
+            XCTAssertEqual(
+                Set(controller.reviewTeamRows.map(\.team.organization)),
+                ["billing-platform-experiments", "mergehawk-labs"]
+            )
+            try renderSettings(
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .teams),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-teams-multi-org.png")
+            )
         }
 
         // Nested teams with a turned-off parent above a counted child, and a team no PR requests.
@@ -1095,6 +1108,7 @@ private struct VisualCaptureSelection {
         "settings-sources-search-example",
         "settings-teams",
         "settings-teams-empty",
+        "settings-teams-multi-org",
     ]
 
     static let all = VisualCaptureSelection(scenarios: allScenarios)
