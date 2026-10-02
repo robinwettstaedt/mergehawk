@@ -774,6 +774,14 @@ final class VisualVerificationXCTests: XCTestCase {
                 ),
                 to: outputURL.appendingPathComponent("settings-sources-search-example.png")
             )
+            try renderSettings(
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .teams),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-teams.png")
+            )
         }
 
         let expectedFilenames = captureSelection.expectedFilenames
@@ -1061,6 +1069,7 @@ private struct VisualCaptureSelection {
         "menu-notifications-read",
         "settings-sources",
         "settings-sources-search-example",
+        "settings-teams",
     ]
 
     static let all = VisualCaptureSelection(scenarios: allScenarios)

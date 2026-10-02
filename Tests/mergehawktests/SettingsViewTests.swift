@@ -103,7 +103,7 @@ final class SettingsViewTests: XCTestCase {
     }
 
     @MainActor
-    func testReviewTeamRowsGroupByOrganizationWithInheritedViaLabelsAndCounts() async throws {
+    func testTeamsTabGroupsTheTeamTreeByOrganizationWithCountsAndCheckboxesOn() async throws {
         let suite = "settings-review-teams-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -134,23 +134,10 @@ final class SettingsViewTests: XCTestCase {
             "@mergehawk-labs/secret-squad"
         ])
         XCTAssertEqual(groups[0].rows.map(\.depth), [0, 1, 2, 0])
-        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsPresentation.detailLines(for:)), [
-            ["1 PR requesting this team"],
-            ["4 PRs requesting this team"],
-            ["2 PRs requesting this team"],
-            ["0 PRs requesting this team"],
+        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsPresentation.countLabel(for:)), [
+            "1 PR", "4 PRs", "2 PRs", "0 PRs",
         ])
-        // Four rows overflow the cap and scroll.
-        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsLayout.rowHeight(for:)), [38, 38, 38, 38])
-        XCTAssertEqual(ReviewTeamsSettingsLayout.listHeight(for: groups), ReviewTeamsSettingsLayout.maximumListHeight)
-        XCTAssertEqual(
-            ReviewTeamsSettingsLayout.headerTrailingInset(for: groups, scrollerStyle: .legacy),
-            NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-        )
-        XCTAssertEqual(ReviewTeamsSettingsLayout.headerTrailingInset(for: groups, scrollerStyle: .overlay), 0)
-        let singleGroup = [ReviewTeamsSettingsPresentation.OrganizationGroup(organization: "mergehawk-labs", rows: [groups[0].rows[2]])]
-        XCTAssertEqual(ReviewTeamsSettingsLayout.listHeight(for: singleGroup), 64)
-        XCTAssertEqual(ReviewTeamsSettingsLayout.headerTrailingInset(for: singleGroup, scrollerStyle: .legacy), 0)
+        XCTAssertTrue(groups[0].rows.allSatisfy(\.isCounting))
 
         let acme = TeamReference(id: "T_ACME", organization: "acme", slug: "reviewers")
         let zeta = TeamReference(id: "T_ZETA", organization: "zeta", slug: "ops")
@@ -166,6 +153,20 @@ final class SettingsViewTests: XCTestCase {
                 .init(organization: "acme", rows: [rows[0]]),
                 .init(organization: "zeta", rows: [rows[1], rows[2]]),
             ])
+        )
+    }
+
+    @MainActor
+    func testTeamsTabSitsBetweenSourcesAndAboutWithItsShortcut() {
+        XCTAssertEqual(SettingsTab.allCases, [.general, .github, .notifications, .sources, .teams, .about])
+        XCTAssertEqual(SettingsTab.teams.title, "Teams")
+        XCTAssertEqual(SettingsTab.teams.systemImage, "person.3")
+        // Tab shortcuts are ⌘ plus the tab's 1-based position, so About moves to ⌘6.
+        XCTAssertEqual(SettingsTab.allCases.firstIndex(of: .about).map { $0 + 1 }, 6)
+        let tabCount = CGFloat(SettingsTab.allCases.count)
+        XCTAssertLessThanOrEqual(
+            SettingsTabLayout.tabWidth * tabCount + SettingsTabLayout.tabSpacing * (tabCount - 1),
+            SettingsTab.defaultWindowSize.width - 24
         )
     }
 
@@ -190,7 +191,7 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(PreferencesStore(defaults: defaults).turnedOffReviewTeamIDs, [])
     }
 
-    func testReviewTeamsBlockIsHiddenSignedOutAndReportsNoTeamsSignedIn() {
+    func testTeamsTabReportsSignedOutAndNoTeamsStates() {
         let row = DashboardController.ReviewTeamRow(
             team: TeamReference(id: "T", organization: "acme", slug: "reviewers"),
             depth: 0,
@@ -198,8 +199,8 @@ final class SettingsViewTests: XCTestCase {
             pullRequestCount: 0
         )
 
-        XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: []), .hidden)
-        XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: [row]), .hidden)
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: []), .signedOut)
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: [row]), .signedOut)
         XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: []), .noTeams)
         XCTAssertEqual(ReviewTeamsSettingsPresentation.noTeamsText, "You're not in any GitHub teams.")
     }

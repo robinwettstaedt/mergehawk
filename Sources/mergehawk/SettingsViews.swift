@@ -7,6 +7,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
     case github
     case notifications
     case sources
+    case teams
     case about
 
     static let defaultWindowSize = CGSize(width: 500, height: 700)
@@ -17,6 +18,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
         case .github: "GitHub"
         case .notifications: "Notifications"
         case .sources: "Sources"
+        case .teams: "Teams"
         case .about: "About"
         }
     }
@@ -27,6 +29,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
         case .github: "person.crop.circle.badge.checkmark"
         case .notifications: "bell"
         case .sources: "tray.full"
+        case .teams: "person.3"
         case .about: "info.circle"
         }
     }
@@ -96,6 +99,8 @@ struct SettingsRootView: View {
                 controller: controller,
                 initialSearchState: initialSourcesSearchState
             )
+        case .teams:
+            TeamsSettingsView(controller: controller)
         case .about:
             AboutSettingsView()
         }
@@ -107,7 +112,7 @@ enum SettingsTabLayout {
     static let bottomPadding: CGFloat = 10
     static let titleToTabsSpacing: CGFloat = 8
     static let tabSpacing: CGFloat = 8
-    static let tabWidth: CGFloat = 76
+    static let tabWidth: CGFloat = 72
     static let tabHeight: CGFloat = 58
     static let titleSize: CGFloat = 14
     static let iconSize: CGFloat = 18
@@ -1004,7 +1009,6 @@ private struct SourcesSettingsView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Hide PRs from archived repositories", isOn: $controller.hideArchivedRepositories)
-                ReviewTeamsSettingsSection(controller: controller)
                 HStack(spacing: 8) {
                     sourceCount(for: filteredCatalog)
                     CountSearchControl(
@@ -1116,18 +1120,18 @@ enum ReviewTeamsSettingsPresentation {
     }
 
     enum Content: Equatable {
-        case hidden
+        case signedOut
         case noTeams
         case teams([OrganizationGroup])
     }
 
-    static let title = "Teams"
-    static let toggleColumnTitle = "Count review requests"
+    static let signedOutText = "Sign in to GitHub to manage teams."
     static let noTeamsText = "You're not in any GitHub teams."
+    static let footnote = "Unchecked teams' review requests don't show under Requested or notify you."
 
-    /// Shows the last complete PR refresh's teams; signed out there is nothing to show.
+    /// Shows the last complete PR refresh's teams, grouped by organization in the controller's tree order.
     static func content(authStatus: AuthStatus, rows: [DashboardController.ReviewTeamRow]) -> Content {
-        guard authStatus == .signedIn else { return .hidden }
+        guard authStatus == .signedIn else { return .signedOut }
         guard !rows.isEmpty else { return .noTeams }
         var groups: [OrganizationGroup] = []
         for row in rows {
@@ -1140,47 +1144,18 @@ enum ReviewTeamsSettingsPresentation {
         return .teams(groups)
     }
 
-    /// Secondary lines under the team name. The inherited-via label gets its own line so neither truncates.
-    static func detailLines(for row: DashboardController.ReviewTeamRow) -> [String] {
-        let count = "\(row.pullRequestCount) \(row.pullRequestCount == 1 ? "PR" : "PRs") requesting this team"
-        return [count]
+    static func countLabel(for row: DashboardController.ReviewTeamRow) -> String {
+        "\(row.pullRequestCount) \(row.pullRequestCount == 1 ? "PR" : "PRs")"
     }
 }
 
-enum ReviewTeamsSettingsLayout {
-    static let organizationRowHeight: CGFloat = 26
-    static let teamRowBaseHeight: CGFloat = 24
-    static let detailLineHeight: CGFloat = 14
-    static let toggleColumnWidth: CGFloat = 132
-    /// Keeps the repository list below with most of the pane height; more teams scroll inside the block.
-    static let maximumListHeight: CGFloat = 150
-
-    static func rowHeight(for row: DashboardController.ReviewTeamRow) -> CGFloat {
-        teamRowBaseHeight + detailLineHeight * CGFloat(ReviewTeamsSettingsPresentation.detailLines(for: row).count)
-    }
-
-    static func contentHeight(for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup]) -> CGFloat {
-        groups.reduce(0) { height, group in
-            height + organizationRowHeight + group.rows.map(rowHeight(for:)).reduce(0, +)
-        }
-    }
-
-    static func listHeight(for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup]) -> CGFloat {
-        min(contentHeight(for: groups), maximumListHeight)
-    }
-
-    /// A legacy (always visible) scroll bar takes width inside the list, so the header outside it moves its
-    /// toggle column by the same amount to stay centered over the toggles.
-    static func headerTrailingInset(
-        for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup],
-        scrollerStyle: NSScroller.Style = NSScroller.preferredScrollerStyle
-    ) -> CGFloat {
-        guard contentHeight(for: groups) > maximumListHeight, scrollerStyle == .legacy else { return 0 }
-        return NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-    }
+private enum ReviewTeamsSettingsLayout {
+    static let organizationRowHeight: CGFloat = 30
+    static let teamRowHeight: CGFloat = 26
+    static let indentPerLevel: CGFloat = 20
 }
 
-private struct ReviewTeamsSettingsSection: View {
+private struct TeamsSettingsView: View {
     @ObservedObject var controller: DashboardController
 
     var body: some View {
@@ -1188,47 +1163,38 @@ private struct ReviewTeamsSettingsSection: View {
             authStatus: controller.state.authStatus,
             rows: controller.reviewTeamRows
         ) {
-        case .hidden:
-            EmptyView()
+        case .signedOut:
+            Text(ReviewTeamsSettingsPresentation.signedOutText)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         case .noTeams:
-            VStack(alignment: .leading, spacing: 6) {
-                header(trailingInset: 0)
-                Text(ReviewTeamsSettingsPresentation.noTeamsText)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+            EmptyMenuState(text: ReviewTeamsSettingsPresentation.noTeamsText, systemImage: "person.3")
         case .teams(let groups):
-            VStack(alignment: .leading, spacing: 6) {
-                header(trailingInset: ReviewTeamsSettingsLayout.headerTrailingInset(for: groups))
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(groups) { group in
-                            Text(group.organization)
-                                .font(.callout.weight(.medium))
-                                .lineLimit(1)
-                                .frame(height: ReviewTeamsSettingsLayout.organizationRowHeight)
-                            ForEach(group.rows) { row in
-                                ReviewTeamSettingsRow(row: row, controller: controller)
-                            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(groups) { group in
+                        Text(group.organization)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                            .frame(height: ReviewTeamsSettingsLayout.organizationRowHeight)
+                        ForEach(group.rows) { row in
+                            ReviewTeamSettingsRow(row: row, controller: controller)
                         }
+                        Divider()
+                            .padding(.vertical, 6)
                     }
+                    Text(ReviewTeamsSettingsPresentation.footnote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
                 }
-                .frame(height: ReviewTeamsSettingsLayout.listHeight(for: groups))
-                Divider()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    private func header(trailingInset: CGFloat) -> some View {
-        HStack(spacing: 8) {
-            Text(ReviewTeamsSettingsPresentation.title)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(ReviewTeamsSettingsPresentation.toggleColumnTitle)
-                .frame(width: ReviewTeamsSettingsLayout.toggleColumnWidth)
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
-        .padding(.trailing, trailingInset)
     }
 }
 
@@ -1237,30 +1203,23 @@ private struct ReviewTeamSettingsRow: View {
     @ObservedObject var controller: DashboardController
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.team.displayName)
-                    .font(.callout)
-                    .lineLimit(1)
-                ForEach(ReviewTeamsSettingsPresentation.detailLines(for: row), id: \.self) { line in
-                    Text(line)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle("", isOn: Binding {
+        HStack(spacing: 6) {
+            Toggle(isOn: Binding {
                 row.isCounting
             } set: { counting in
                 controller.setReviewTeam(row.team.id, counting: counting)
-            })
-            .labelsHidden()
-            .accessibilityLabel("\(ReviewTeamsSettingsPresentation.toggleColumnTitle) for \(row.team.displayName)")
-            .frame(width: ReviewTeamsSettingsLayout.toggleColumnWidth)
+            }) {
+                Text(row.team.slug)
+                    .font(.callout)
+                    .lineLimit(1)
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityLabel("Count review requests for \(row.team.displayName)")
+            CountBubble(text: ReviewTeamsSettingsPresentation.countLabel(for: row))
+            Spacer(minLength: 0)
         }
-        .padding(.leading, 12)
-        .frame(height: ReviewTeamsSettingsLayout.rowHeight(for: row))
+        .padding(.leading, CGFloat(row.depth) * ReviewTeamsSettingsLayout.indentPerLevel)
+        .frame(height: ReviewTeamsSettingsLayout.teamRowHeight)
     }
 }
 
