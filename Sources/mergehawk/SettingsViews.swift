@@ -1004,6 +1004,7 @@ private struct SourcesSettingsView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Hide PRs from archived repositories", isOn: $controller.hideArchivedRepositories)
+                ReviewTeamsSettingsSection(controller: controller)
                 HStack(spacing: 8) {
                     sourceCount(for: filteredCatalog)
                     CountSearchControl(
@@ -1103,6 +1104,143 @@ private struct SourcesSettingsView: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
             .accessibilityLabel(sourceCountLabel(for: catalog))
+    }
+}
+
+enum ReviewTeamsSettingsPresentation {
+    struct OrganizationGroup: Identifiable, Equatable {
+        let organization: String
+        let rows: [DashboardController.ReviewTeamRow]
+
+        var id: String { organization }
+    }
+
+    enum Content: Equatable {
+        case hidden
+        case noTeams
+        case teams([OrganizationGroup])
+    }
+
+    static let title = "Teams"
+    static let toggleColumnTitle = "Count review requests"
+    static let noTeamsText = "You're not in any GitHub teams."
+
+    /// Shows the last complete PR refresh's teams; signed out there is nothing to show.
+    static func content(authStatus: AuthStatus, rows: [DashboardController.ReviewTeamRow]) -> Content {
+        guard authStatus == .signedIn else { return .hidden }
+        guard !rows.isEmpty else { return .noTeams }
+        var groups: [OrganizationGroup] = []
+        for row in rows {
+            if let last = groups.last, last.organization == row.team.organization {
+                groups[groups.count - 1] = OrganizationGroup(organization: last.organization, rows: last.rows + [row])
+            } else {
+                groups.append(OrganizationGroup(organization: row.team.organization, rows: [row]))
+            }
+        }
+        return .teams(groups)
+    }
+
+    static func detail(for row: DashboardController.ReviewTeamRow) -> String {
+        let count = "\(row.pullRequestCount) \(row.pullRequestCount == 1 ? "PR" : "PRs") requesting this team"
+        guard let inheritedVia = row.inheritedVia else { return count }
+        return "via \(inheritedVia.displayName) · \(count)"
+    }
+}
+
+private enum ReviewTeamsSettingsLayout {
+    static let organizationRowHeight: CGFloat = 26
+    static let teamRowHeight: CGFloat = 38
+    static let toggleColumnWidth: CGFloat = 132
+    /// Keeps the repository list below with most of the pane height; more teams scroll inside the block.
+    static let maximumListHeight: CGFloat = 150
+
+    static func listHeight(for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup]) -> CGFloat {
+        let contentHeight = groups.reduce(0) { height, group in
+            height + organizationRowHeight + teamRowHeight * CGFloat(group.rows.count)
+        }
+        return min(contentHeight, maximumListHeight)
+    }
+}
+
+private struct ReviewTeamsSettingsSection: View {
+    @ObservedObject var controller: DashboardController
+
+    var body: some View {
+        switch ReviewTeamsSettingsPresentation.content(
+            authStatus: controller.state.authStatus,
+            rows: controller.reviewTeamRows
+        ) {
+        case .hidden:
+            EmptyView()
+        case .noTeams:
+            VStack(alignment: .leading, spacing: 6) {
+                header
+                Text(ReviewTeamsSettingsPresentation.noTeamsText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        case .teams(let groups):
+            VStack(alignment: .leading, spacing: 6) {
+                header
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(groups) { group in
+                            Text(group.organization)
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                                .frame(height: ReviewTeamsSettingsLayout.organizationRowHeight)
+                            ForEach(group.rows) { row in
+                                ReviewTeamSettingsRow(row: row, controller: controller)
+                            }
+                        }
+                    }
+                }
+                .frame(height: ReviewTeamsSettingsLayout.listHeight(for: groups))
+                Divider()
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(ReviewTeamsSettingsPresentation.title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(ReviewTeamsSettingsPresentation.toggleColumnTitle)
+                .frame(width: ReviewTeamsSettingsLayout.toggleColumnWidth)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.trailing, 4)
+    }
+}
+
+private struct ReviewTeamSettingsRow: View {
+    let row: DashboardController.ReviewTeamRow
+    @ObservedObject var controller: DashboardController
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.team.displayName)
+                    .font(.callout)
+                    .lineLimit(1)
+                Text(ReviewTeamsSettingsPresentation.detail(for: row))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Toggle("", isOn: Binding {
+                row.isCounting
+            } set: { counting in
+                controller.setReviewTeam(row.team.id, counting: counting)
+            })
+            .labelsHidden()
+            .accessibilityLabel("\(ReviewTeamsSettingsPresentation.toggleColumnTitle) for \(row.team.displayName)")
+            .frame(width: ReviewTeamsSettingsLayout.toggleColumnWidth)
+        }
+        .padding(.leading, 12)
+        .frame(height: ReviewTeamsSettingsLayout.teamRowHeight)
     }
 }
 

@@ -101,6 +101,96 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertTrue(PreferencesStore(defaults: defaults).notificationPreferences.teamReviewRequests.ciFailures)
     }
 
+    @MainActor
+    func testReviewTeamRowsGroupByOrganizationWithInheritedViaLabelsAndCounts() async throws {
+        let suite = "settings-review-teams-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true,
+                suppressesMacOSNotifications: true,
+                mockPullRequestScenario: .reviewTeams
+            ),
+            automaticRefreshInterval: 0
+        )
+        let deadline = Date().addingTimeInterval(1)
+        while controller.state.syncedAt == nil || controller.isRefreshing, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        guard case .teams(let groups) = ReviewTeamsSettingsPresentation.content(
+            authStatus: controller.state.authStatus,
+            rows: controller.reviewTeamRows
+        ) else {
+            return XCTFail("Expected team rows")
+        }
+        XCTAssertEqual(groups.map(\.organization), ["mergehawk-labs"])
+        XCTAssertEqual(groups[0].rows.map(\.team.displayName), [
+            "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
+            "@mergehawk-labs/secret-squad"
+        ])
+        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsPresentation.detail(for:)), [
+            "via @mergehawk-labs/plm-team · 4 PRs requesting this team",
+            "via @mergehawk-labs/plm-team · 1 PR requesting this team",
+            "2 PRs requesting this team",
+            "0 PRs requesting this team",
+        ])
+
+        let acme = TeamReference(id: "T_ACME", organization: "acme", slug: "reviewers")
+        let zeta = TeamReference(id: "T_ZETA", organization: "zeta", slug: "ops")
+        let platform = TeamReference(id: "T_PLATFORM", organization: "zeta", slug: "platform")
+        let rows = [
+            DashboardController.ReviewTeamRow(team: acme, inheritedVia: nil, isCounting: true, pullRequestCount: 1),
+            DashboardController.ReviewTeamRow(team: zeta, inheritedVia: platform, isCounting: false, pullRequestCount: 0),
+            DashboardController.ReviewTeamRow(team: platform, inheritedVia: nil, isCounting: true, pullRequestCount: 3),
+        ]
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: rows),
+            .teams([
+                .init(organization: "acme", rows: [rows[0]]),
+                .init(organization: "zeta", rows: [rows[1], rows[2]]),
+            ])
+        )
+    }
+
+    @MainActor
+    func testSetReviewTeamFlipsTheTurnedOffSetBothWays() {
+        let suite = "settings-review-team-toggle-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+
+        controller.setReviewTeam("T_DEV", counting: false)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, ["T_DEV"])
+        controller.setReviewTeam("T_DEV", counting: false)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, ["T_DEV"])
+        controller.setReviewTeam("T_DEV", counting: true)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, [])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).turnedOffReviewTeamIDs, [])
+    }
+
+    func testReviewTeamsBlockIsHiddenSignedOutAndReportsNoTeamsSignedIn() {
+        let row = DashboardController.ReviewTeamRow(
+            team: TeamReference(id: "T", organization: "acme", slug: "reviewers"),
+            inheritedVia: nil,
+            isCounting: true,
+            pullRequestCount: 0
+        )
+
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: []), .hidden)
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: [row]), .hidden)
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: []), .noTeams)
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.noTeamsText, "You're not in any GitHub teams.")
+    }
+
     private func makeCatalog() -> SourceCatalog {
         SourceCatalog(owners: [
             OwnerSource(owner: "acme", repositories: [
