@@ -22,6 +22,37 @@ private func archiveFixturePR(
     )
 }
 
+private final class ReviewTeamGitHubProvider: GitHubProviding {
+    enum OfflineError: Error, LocalizedError {
+        case offline
+
+        var errorDescription: String? { "Offline" }
+    }
+
+    let sourceKind: DashboardSource = .github
+    /// Nil fails every complete PR refresh, like a machine without network.
+    var result: CompletePullRequestFetchResult?
+    private(set) var fetchCount = 0
+
+    init(result: CompletePullRequestFetchResult?) { self.result = result }
+
+    func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
+
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+        fetchCount += 1
+        guard let result else { throw OfflineError.offline }
+        return result
+    }
+
+    func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
+        SourceCatalog(repositories: [], accountLogin: accountLogin)
+    }
+
+    func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
+        GitHubAppInstallations(installations: [])
+    }
+}
+
 private final class ArchiveFixtureGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     let pullRequests: [PullRequest]
@@ -192,6 +223,263 @@ final class DashboardControllerXCTests: XCTestCase {
             secondTeams.filter { $0.key != "PR_TEAMS_DEVELOPERS" },
             firstTeams.filter { $0.key != "PR_TEAMS_DEVELOPERS" }
         )
+    }
+
+    // MARK: Review teams
+
+    private static let engineering = TeamReference(id: "T_ENG", organization: "acme", slug: "engineering")
+    private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
+    private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
+    private static let nestedViewerTeams = [
+        ViewerTeam(team: developers, inheritedVia: plmTeam),
+        ViewerTeam(team: engineering, inheritedVia: plmTeam),
+        ViewerTeam(team: plmTeam)
+    ]
+
+    private static func teamPR(
+        _ id: String,
+        _ teams: [TeamReference],
+        direct: Bool = false,
+        assigned: Bool = false,
+        isMine: Bool = false
+    ) -> PullRequest {
+        archiveFixturePR(
+            id, repo: "acme/app", isMine: isMine, assigned: assigned,
+            request: ReviewRequestKind(direct: direct, team: !teams.isEmpty), requestedTeams: teams
+        )
+    }
+
+    @MainActor
+    private static func requestedIDs(
+        _ controller: DashboardController
+    ) -> [DashboardController.RequestedSection: [String]] {
+        Dictionary(uniqueKeysWithValues: controller.requestedSections.map {
+            ($0.section, ($0.visible + $0.hidden).map(\.id).sorted())
+        })
+    }
+
+    @MainActor
+    private static func makeReviewTeamController(
+        defaults: UserDefaults,
+        provider: ReviewTeamGitHubProvider,
+        notifications: RecordingNotificationClient = RecordingNotificationClient()
+    ) -> DashboardController {
+        var store = PreferencesStore(defaults: defaults)
+        store.authMethod = .pat
+        return DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: store,
+            launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            notificationClient: notifications,
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider }
+        )
+    }
+
+    @MainActor
+    private static func refreshAndWait(_ controller: DashboardController, _ provider: ReviewTeamGitHubProvider) {
+        let count = provider.fetchCount
+        controller.refresh()
+        waitUntil(timeout: 1) { provider.fetchCount == count + 1 && !controller.isRefreshing }
+    }
+
+    @MainActor
+    func testTurningATeamOffAndOnChangesRequestedImmediatelyWithoutNotifications() throws {
+        let suiteName = "review-teams-toggle-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let notifications = RecordingNotificationClient()
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [Self.teamPR("PR_DEV", [Self.developers]), Self.teamPR("PR_PLM", [Self.plmTeam])],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider, notifications: notifications)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        let storedState = PreferencesStore(defaults: defaults).pullRequestSyncState
+        XCTAssertEqual(Self.requestedIDs(controller)[.team], ["PR_DEV", "PR_PLM"])
+
+        controller.setReviewTeam(Self.developers.id, counting: false)
+        XCTAssertEqual(Self.requestedIDs(controller)[.team], ["PR_PLM"])
+
+        controller.setReviewTeam(Self.developers.id, counting: true)
+        XCTAssertEqual(Self.requestedIDs(controller)[.team], ["PR_DEV", "PR_PLM"])
+        XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertTrue(notifications.records.isEmpty)
+        XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState, storedState)
+    }
+
+    @MainActor
+    func testDirectRequestWithTurnedOffTeamStaysUnderDirect() throws {
+        let suiteName = "review-teams-direct-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [Self.teamPR("PR_DIRECT_DEV", [Self.developers], direct: true)],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+
+        controller.setReviewTeam(Self.developers.id, counting: false)
+
+        XCTAssertEqual(Self.requestedIDs(controller)[.direct], ["PR_DIRECT_DEV"])
+        XCTAssertEqual(Self.requestedIDs(controller)[.team], [])
+    }
+
+    @MainActor
+    func testRelaunchedControllerWithoutNetworkShowsStoredRequestedSectionsAndTeamRows() throws {
+        let suiteName = "review-teams-relaunch-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [
+                Self.teamPR("PR_DEV", [Self.developers]),
+                Self.teamPR("PR_ENG", [Self.engineering]),
+                Self.teamPR("PR_DIRECT_DEV", [Self.developers], direct: true)
+            ],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        controller.setReviewTeam(Self.developers.id, counting: false)
+        let sections = Self.requestedIDs(controller)
+        let rows = controller.reviewTeamRows
+
+        let offline = ReviewTeamGitHubProvider(result: nil)
+        let relaunched = Self.makeReviewTeamController(defaults: defaults, provider: offline)
+        waitUntil(timeout: 1) { relaunched.refreshErrorMessage != nil }
+
+        XCTAssertEqual(sections, [.assigned: [], .direct: ["PR_DIRECT_DEV"], .team: ["PR_ENG"]])
+        XCTAssertEqual(Self.requestedIDs(relaunched), sections)
+        XCTAssertEqual(relaunched.reviewTeamRows, rows)
+        XCTAssertEqual(relaunched.state.viewerTeams, Self.nestedViewerTeams)
+    }
+
+    @MainActor
+    func testTeamRowsReportInheritanceCountingAndPRCountsAcrossAllFetchedPRs() throws {
+        let suiteName = "review-teams-rows-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [
+                Self.teamPR("PR_AUTHORED", [Self.developers], isMine: true),
+                Self.teamPR("PR_ASSIGNED", [Self.developers, Self.plmTeam], assigned: true),
+                Self.teamPR("PR_DIRECT", [Self.plmTeam], direct: true),
+                Self.teamPR("PR_TEAM", [Self.developers])
+            ],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+
+        controller.setReviewTeam(Self.developers.id, counting: false)
+
+        XCTAssertEqual(controller.reviewTeamRows, [
+            DashboardController.ReviewTeamRow(
+                team: Self.developers, inheritedVia: Self.plmTeam, isCounting: false, pullRequestCount: 3
+            ),
+            DashboardController.ReviewTeamRow(
+                team: Self.engineering, inheritedVia: Self.plmTeam, isCounting: true, pullRequestCount: 0
+            ),
+            DashboardController.ReviewTeamRow(team: Self.plmTeam, inheritedVia: nil, isCounting: true, pullRequestCount: 2)
+        ])
+    }
+
+    @MainActor
+    func testTurnedOffTeamSurvivesRenameLeavingAndRejoining() throws {
+        let suiteName = "review-teams-membership-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        controller.setReviewTeam(Self.developers.id, counting: false)
+        controller.setReviewTeam("T_FORMER", counting: false)
+        XCTAssertFalse(controller.reviewTeamRows.contains { $0.id == "T_FORMER" })
+
+        let renamed = TeamReference(id: Self.developers.id, organization: "acme", slug: "all-developers")
+        provider.result = CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: [ViewerTeam(team: renamed, inheritedVia: Self.plmTeam), ViewerTeam(team: Self.plmTeam)]
+        )
+        Self.refreshAndWait(controller, provider)
+        let renamedRow = try XCTUnwrap(controller.reviewTeamRows.first { $0.id == Self.developers.id })
+        XCTAssertEqual(renamedRow.team.slug, "all-developers")
+        XCTAssertFalse(renamedRow.isCounting)
+
+        provider.result = CompletePullRequestFetchResult(activePullRequests: [], viewerTeams: [])
+        Self.refreshAndWait(controller, provider)
+        XCTAssertTrue(controller.reviewTeamRows.isEmpty)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, [Self.developers.id, "T_FORMER"])
+
+        provider.result = CompletePullRequestFetchResult(activePullRequests: [], viewerTeams: Self.nestedViewerTeams)
+        Self.refreshAndWait(controller, provider)
+        XCTAssertEqual(controller.reviewTeamRows.first { $0.id == Self.developers.id }?.isCounting, false)
+        XCTAssertEqual(PreferencesStore(defaults: defaults).turnedOffReviewTeamIDs, [Self.developers.id, "T_FORMER"])
+    }
+
+    @MainActor
+    func testStandardMockScenarioRequestedSectionsAreUnchangedWithNoTeamsTurnedOff() async throws {
+        let suiteName = "review-teams-standard-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        let rawSections = Dictionary(grouping: controller.state.pullRequests.filter {
+            DashboardController.RequestedSection.section(for: $0) != nil
+        }) { DashboardController.RequestedSection.section(for: $0)! }.mapValues { $0.map(\.id).sorted() }
+        XCTAssertEqual(rawSections[.team]?.isEmpty, false)
+        for section in DashboardController.RequestedSection.allCases {
+            XCTAssertEqual(Self.requestedIDs(controller)[section], rawSections[section] ?? [], section.rawValue)
+        }
+    }
+
+    @MainActor
+    func testReviewTeamsMockScenarioNotifiesForGainedPlmTeamOnlyWhileDevelopersIsOff() async throws {
+        for developersOff in [true, false] {
+            let suiteName = "review-teams-mock-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let notifications = RecordingNotificationClient()
+            let controller = DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: defaults),
+                launchConfiguration: LaunchConfiguration(
+                    usesMockData: true,
+                    suppressesMacOSNotifications: true,
+                    mockPullRequestScenario: .reviewTeams
+                ),
+                notificationClient: notifications,
+                automaticRefreshInterval: 0
+            )
+            try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+            let firstSyncedAt = controller.state.syncedAt
+            XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+            controller.setReviewTeam("T_MOCK_DEVELOPERS", counting: !developersOff)
+
+            controller.refresh()
+            try await waitUntilAsync { controller.state.syncedAt != firstSyncedAt && !controller.isRefreshing }
+
+            let history = controller.pullRequestNotificationHistory
+            if developersOff {
+                XCTAssertEqual(history.map(\.prId), ["PR_TEAMS_DEVELOPERS"])
+                XCTAssertEqual(history.first?.eventType, .relationshipAdded)
+                XCTAssertEqual(history.first?.relationshipChanges, [.teamReviewRequest])
+                XCTAssertEqual(notifications.records.map(\.pullRequestId), ["PR_TEAMS_DEVELOPERS"])
+            } else {
+                XCTAssertTrue(history.isEmpty)
+                XCTAssertTrue(notifications.records.isEmpty)
+            }
+        }
     }
 
     @MainActor
