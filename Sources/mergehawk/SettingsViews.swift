@@ -674,26 +674,30 @@ struct NotificationSettingsView: View {
 
                     Divider()
 
-                    ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
-                        HStack(spacing: NotificationMatrixLayout.columnSpacing) {
-                            Text(activity.rowTitle)
-                                .frame(width: NotificationMatrixLayout.labelColumnWidth, alignment: .leading)
-                            ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
-                                if NotificationMatrixLayout.showsToggle(relationship: relationship, activity: activity) {
-                                    Toggle("", isOn: matrixBinding(relationship: relationship, activity: activity))
-                                        .labelsHidden()
-                                        .toggleStyle(.checkbox)
-                                        .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
-                                        .accessibilityLabel(
-                                            NotificationMatrixLayout.checkboxAccessibilityLabel(relationship: relationship, activity: activity)
-                                        )
-                                } else {
-                                    Text("—")
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
-                                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
+                            HStack(spacing: NotificationMatrixLayout.columnSpacing) {
+                                Text(activity.rowTitle)
+                                    .lineLimit(2)
+                                    .frame(width: NotificationMatrixLayout.labelColumnWidth, alignment: .leading)
+                                ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
+                                    if NotificationMatrixLayout.showsToggle(relationship: relationship, activity: activity) {
+                                        Toggle("", isOn: matrixBinding(relationship: relationship, activity: activity))
+                                            .labelsHidden()
+                                            .toggleStyle(.checkbox)
+                                            .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
+                                            .accessibilityLabel(
+                                                NotificationMatrixLayout.checkboxAccessibilityLabel(relationship: relationship, activity: activity)
+                                            )
+                                    } else {
+                                        Text("—")
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: NotificationMatrixLayout.relationshipColumnWidth)
+                                            .accessibilityHidden(true)
+                                    }
                                 }
                             }
+                            .frame(height: NotificationMatrixLayout.rowHeight)
                         }
                     }
                 }
@@ -713,7 +717,7 @@ struct NotificationSettingsView: View {
                                     .lineLimit(2)
                                     .frame(
                                         width: NotificationMatrixLayout.labelColumnWidth,
-                                        height: NotificationMatrixLayout.commentModeRowHeight,
+                                        height: NotificationMatrixLayout.rowHeight,
                                         alignment: .leading
                                     )
                             }
@@ -725,7 +729,7 @@ struct NotificationSettingsView: View {
                             )
                             .frame(
                                 width: NotificationMatrixLayout.relationshipColumnWidth,
-                                height: NotificationMatrixLayout.commentModeRowHeight * CGFloat(CommentNotificationMode.allCases.count)
+                                height: NotificationMatrixLayout.rowHeight * CGFloat(CommentNotificationMode.allCases.count)
                             )
                         }
                     }
@@ -848,7 +852,7 @@ struct CommentModeRadioGroup: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            let rowHeight = NotificationMatrixLayout.commentModeRowHeight
+            let rowHeight = NotificationMatrixLayout.rowHeight
             for case let button as NSButton in subviews {
                 let size = button.fittingSize
                 button.frame = CGRect(
@@ -866,8 +870,8 @@ enum NotificationMatrixLayout {
     static let labelColumnWidth: CGFloat = 150
     static let relationshipColumnWidth: CGFloat = 56
     static let columnSpacing: CGFloat = 10
-    /// Tall enough for a comment mode label that wraps to two lines.
-    static let commentModeRowHeight: CGFloat = 32
+    /// Every row in both tables: tall enough for a label that wraps to two lines, so rows sit evenly spaced.
+    static let rowHeight: CGFloat = 32
 
     /// The label column and the four relationship columns with the spacing before each.
     static var tableWidth: CGFloat {

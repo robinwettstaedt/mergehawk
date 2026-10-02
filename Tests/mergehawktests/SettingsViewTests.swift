@@ -105,9 +105,16 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertLessThanOrEqual(NotificationMatrixLayout.tableWidth, SettingsTab.defaultWindowSize.width - 80)
     }
 
+    func testBothNotificationTablesShareARowHeightThatFitsATwoLineLabel() {
+        // Both tables lay out every row at this height, so rows sit evenly spaced whether or not a label wraps.
+        XCTAssertEqual(NotificationMatrixLayout.rowHeight, 32)
+        let bodyFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        XCTAssertLessThanOrEqual(2 * NSLayoutManager().defaultLineHeight(for: bodyFont), NotificationMatrixLayout.rowHeight)
+    }
+
     @MainActor
     func testCommentRadioGroupStacksModesTopToBottomInTheRelationshipColumn() {
-        let rowHeight = NotificationMatrixLayout.commentModeRowHeight
+        let rowHeight = NotificationMatrixLayout.rowHeight
         let group = CommentModeRadioGroup.RadioGroupView(frame: CGRect(
             x: 0,
             y: 0,
