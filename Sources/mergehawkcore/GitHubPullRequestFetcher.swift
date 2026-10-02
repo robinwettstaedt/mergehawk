@@ -1121,6 +1121,76 @@ struct GitHubPullRequestFetcher: Sendable {
             .filter { seenIDs.insert($0.id).inserted }
     }
 
+    /// Reads every team the viewer belongs to in every org, plus each team's ancestors, which GitHub also
+    /// treats as the viewer's teams for review requests.
+    func fetchViewerTeams(login: String) async throws -> [ViewerTeam] {
+        var directTeams: [(organization: String, team: GitHubPayloadViewerTeam)] = []
+        var orgCursor: String?
+        repeat {
+            let page = try await readValidated(
+                GitHubViewerTeamsPayload.self,
+                query: GitHubPullRequestQueries.viewerTeams,
+                variables: ["login": .string(login), "orgCursor": orgCursor.map(GitHubQueryValue.string) ?? .null]
+            )
+            let organizations = page.viewer.organizations
+            for organization in organizations.nodes {
+                var teams = organization.teams
+                directTeams += teams.nodes.map { (organization.login, $0) }
+                while teams.pageInfo.hasNextPage {
+                    guard let cursor = teams.pageInfo.endCursor else { throw GitHubReadError.invalidPayload }
+                    teams = try await readValidated(
+                        GitHubOrganizationViewerTeamsPayload.self,
+                        query: GitHubPullRequestQueries.organizationViewerTeams,
+                        variables: [
+                            "org": .string(organization.login),
+                            "login": .string(login),
+                            "cursor": .string(cursor)
+                        ]
+                    ).organization.teams
+                    directTeams += teams.nodes.map { (organization.login, $0) }
+                }
+            }
+            guard organizations.pageInfo.hasNextPage else { break }
+            guard let cursor = organizations.pageInfo.endCursor else { throw GitHubReadError.invalidPayload }
+            orgCursor = cursor
+        } while true
+
+        let sortedDirectTeams = directTeams
+            .map { (reference: TeamReference(id: $0.team.id, organization: $0.organization, slug: $0.team.slug), team: $0.team) }
+            .sorted { ($0.reference.organization, $0.reference.slug) < ($1.reference.organization, $1.reference.slug) }
+        var teamsByID: [String: ViewerTeam] = [:]
+        for direct in sortedDirectTeams {
+            teamsByID[direct.reference.id] = ViewerTeam(team: direct.reference)
+        }
+        for direct in sortedDirectTeams {
+            guard !direct.team.ancestors.pageInfo.hasNextPage else {
+                throw GitHubReadError.incompleteCoverage("More than 100 ancestors of team \(direct.reference.displayName)")
+            }
+            for ancestor in direct.team.ancestors.nodes where teamsByID[ancestor.id] == nil {
+                teamsByID[ancestor.id] = ViewerTeam(
+                    team: TeamReference(id: ancestor.id, organization: direct.reference.organization, slug: ancestor.slug),
+                    inheritedVia: direct.reference
+                )
+            }
+        }
+        return teamsByID.values.sorted {
+            ($0.team.organization, $0.team.slug, $0.team.id) < ($1.team.organization, $1.team.slug, $1.team.id)
+        }
+    }
+
+    private func readValidated<Payload: Decodable>(
+        _ type: Payload.Type,
+        query: String,
+        variables: [String: GitHubQueryValue]
+    ) async throws -> Payload {
+        let data = try await read(query, variables)
+        try validate(errors: try decoder.decode(GitHubGraphQLErrorEnvelope.self, from: data).errors)
+        guard let payload = try? decoder.decode(GitHubGraphQLPayload<Payload>.self, from: data).data else {
+            throw GitHubReadError.invalidPayload
+        }
+        return payload
+    }
+
     private struct LeafResult {
         let interval: ClosedRange<Int>
         let nodes: [GitHubDiscoveryNode]

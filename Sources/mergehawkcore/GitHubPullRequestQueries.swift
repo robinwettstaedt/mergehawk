@@ -124,6 +124,35 @@ enum GitHubPullRequestQueries {
       }
     """
 
+    /// The viewer's direct teams in one org page, with each team's full ancestor chain.
+    static let viewerTeamConnectionFields = """
+      pageInfo { hasNextPage endCursor }
+      nodes { id slug ancestors(first: 100) { pageInfo { hasNextPage } nodes { id slug } } }
+    """
+
+    static let viewerTeams = """
+      query ViewerTeams($login: String!, $orgCursor: String) {
+        viewer {
+          organizations(first: 100, after: $orgCursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              login
+              teams(first: 100, userLogins: [$login]) { \(viewerTeamConnectionFields) }
+            }
+          }
+        }
+      }
+    """
+
+    /// Only used for an org whose first page of the viewer's teams in `viewerTeams` has more pages.
+    static let organizationViewerTeams = """
+      query OrganizationViewerTeams($org: String!, $login: String!, $cursor: String) {
+        organization(login: $org) {
+          teams(first: 100, after: $cursor, userLogins: [$login]) { \(viewerTeamConnectionFields) }
+        }
+      }
+    """
+
     static let searchPage = """
       query SearchPullRequests($query: String!, $cursor: String) {
         search(query: $query, type: ISSUE, first: 100, after: $cursor) {
