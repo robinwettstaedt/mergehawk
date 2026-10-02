@@ -476,8 +476,8 @@ final class SyncEngineTests: XCTestCase {
     private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
     private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
     private static let nestedViewerTeams = [
-        ViewerTeam(team: developers, inheritedVia: plmTeam),
-        ViewerTeam(team: plmTeam)
+        ViewerTeam(team: developers),
+        ViewerTeam(team: plmTeam, parentTeamID: developers.id)
     ]
 
     private static func prepareCounted(

@@ -134,7 +134,10 @@ enum GitHubPullRequestQueries {
     /// The viewer's direct teams in one org page, with each team's full ancestor chain.
     static let viewerTeamConnectionFields = """
       pageInfo { hasNextPage endCursor }
-      nodes { id slug ancestors(first: \(teamAncestorsPageSize)) { pageInfo { hasNextPage } nodes { id slug } } }
+      nodes {
+        id slug parentTeam { id }
+        ancestors(first: \(teamAncestorsPageSize)) { pageInfo { hasNextPage } nodes { id slug parentTeam { id } } }
+      }
     """
 
     static let viewerTeams = """

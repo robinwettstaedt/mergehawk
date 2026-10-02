@@ -9,9 +9,9 @@ final class ReviewTeamsTests: XCTestCase {
     static let security = TeamReference(id: "T_security", organization: "acme", slug: "security")
 
     static let viewerTeams = [
-        ViewerTeam(team: plmTeam),
-        ViewerTeam(team: developers, inheritedVia: plmTeam),
-        ViewerTeam(team: engineering, inheritedVia: plmTeam)
+        ViewerTeam(team: plmTeam, parentTeamID: developers.id),
+        ViewerTeam(team: developers, parentTeamID: engineering.id),
+        ViewerTeam(team: engineering)
     ]
 
     func testRequestedTeamTheViewerIsNotInNeverCounts() {

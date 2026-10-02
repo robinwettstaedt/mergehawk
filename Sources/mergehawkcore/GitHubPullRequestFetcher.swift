@@ -1155,21 +1155,20 @@ struct GitHubPullRequestFetcher: Sendable {
             orgCursor = cursor
         } while true
 
-        let sortedDirectTeams = directTeams
-            .map { (reference: TeamReference(id: $0.team.id, organization: $0.organization, slug: $0.team.slug), team: $0.team) }
-            .sorted { ($0.reference.organization, $0.reference.slug) < ($1.reference.organization, $1.reference.slug) }
         var teamsByID: [String: ViewerTeam] = [:]
-        for direct in sortedDirectTeams {
-            teamsByID[direct.reference.id] = ViewerTeam(team: direct.reference)
-        }
-        for direct in sortedDirectTeams {
+        for direct in directTeams {
+            let organization = direct.organization
             guard !direct.team.ancestors.pageInfo.hasNextPage else {
-                throw GitHubReadError.incompleteCoverage("More than \(GitHubPullRequestQueries.teamAncestorsPageSize) ancestors of team \(direct.reference.displayName)")
+                throw GitHubReadError.incompleteCoverage(
+                    "More than \(GitHubPullRequestQueries.teamAncestorsPageSize) ancestors of team @\(organization)/\(direct.team.slug)"
+                )
             }
-            for ancestor in direct.team.ancestors.nodes where teamsByID[ancestor.id] == nil {
-                teamsByID[ancestor.id] = ViewerTeam(
-                    team: TeamReference(id: ancestor.id, organization: direct.reference.organization, slug: ancestor.slug),
-                    inheritedVia: direct.reference
+            let identities = [GitHubPayloadTeamIdentity(id: direct.team.id, slug: direct.team.slug, parentTeam: direct.team.parentTeam)]
+                + direct.team.ancestors.nodes
+            for identity in identities {
+                teamsByID[identity.id] = ViewerTeam(
+                    team: TeamReference(id: identity.id, organization: organization, slug: identity.slug),
+                    parentTeamID: identity.parentTeam?.id
                 )
             }
         }

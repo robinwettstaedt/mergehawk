@@ -20,12 +20,12 @@ public struct TeamReference: Codable, Equatable, Hashable, Sendable {
 /// A team the viewer belongs to, either directly or as an ancestor of one of their direct teams.
 public struct ViewerTeam: Codable, Equatable, Sendable {
     public let team: TeamReference
-    /// Nil for a direct team; the direct team this ancestor was reached from otherwise.
-    public let inheritedVia: TeamReference?
+    /// The node ID of the team's parent team, or nil for a top-level team.
+    public let parentTeamID: String?
 
-    public init(team: TeamReference, inheritedVia: TeamReference? = nil) {
+    public init(team: TeamReference, parentTeamID: String? = nil) {
         self.team = team
-        self.inheritedVia = inheritedVia
+        self.parentTeamID = parentTeamID
     }
 }
 

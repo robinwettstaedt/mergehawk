@@ -3,30 +3,33 @@ import Foundation
 import XCTest
 
 final class GitHubViewerTeamsTests: XCTestCase {
-    func testNestedTeamsListTheDirectTeamAndItsAncestorsInheritedViaIt() async throws {
+    func testNestedTeamsListTheDirectTeamAndEveryAncestorWithTheirParents() async throws {
         let transport = ViewerTeamsTransport { _, _ in
             Self.viewerPage(organizations: [
                 Self.organization("acme", teams: [
-                    Self.team("T_plm", "plm-team", ancestors: [("T_dev", "developers"), ("T_eng", "engineering")])
+                    Self.team(
+                        "T_plm", "plm-team", parent: "T_dev",
+                        ancestors: [("T_dev", "developers", "T_eng"), ("T_eng", "engineering", nil)]
+                    )
                 ])
             ])
         }
 
         let teams = try await Self.fetcher(transport).fetchViewerTeams(login: "rw")
 
-        let plm = TeamReference(id: "T_plm", organization: "acme", slug: "plm-team")
         XCTAssertEqual(teams, [
-            ViewerTeam(team: TeamReference(id: "T_dev", organization: "acme", slug: "developers"), inheritedVia: plm),
-            ViewerTeam(team: TeamReference(id: "T_eng", organization: "acme", slug: "engineering"), inheritedVia: plm),
-            ViewerTeam(team: plm)
+            ViewerTeam(team: TeamReference(id: "T_dev", organization: "acme", slug: "developers"), parentTeamID: "T_eng"),
+            ViewerTeam(team: TeamReference(id: "T_eng", organization: "acme", slug: "engineering")),
+            ViewerTeam(team: TeamReference(id: "T_plm", organization: "acme", slug: "plm-team"), parentTeamID: "T_dev")
         ])
         XCTAssertEqual(transport.queries.count, 1)
         XCTAssertTrue(transport.queries[0].query.contains("userLogins: [$login]"))
+        XCTAssertTrue(transport.queries[0].query.contains("id slug parentTeam { id }"))
         XCTAssertEqual(transport.queries[0].variables["login"], .string("rw"))
         XCTAssertEqual(transport.queries[0].variables["orgCursor"], .null)
     }
 
-    func testSecretTeamWithoutParentIsOneDirectEntry() async throws {
+    func testSecretTeamWithoutParentIsOneTopLevelEntry() async throws {
         let transport = ViewerTeamsTransport { _, _ in
             Self.viewerPage(organizations: [Self.organization("acme", teams: [Self.team("T_secret", "secret-squad")])])
         }
@@ -36,12 +39,12 @@ final class GitHubViewerTeamsTests: XCTestCase {
         XCTAssertEqual(teams, [ViewerTeam(team: TeamReference(id: "T_secret", organization: "acme", slug: "secret-squad"))])
     }
 
-    func testAncestorSharedByTwoDirectTeamsAppearsOnceViaTheFirstDirectTeamBySlug() async throws {
+    func testAncestorSharedByTwoDirectTeamsAppearsOnce() async throws {
         let transport = ViewerTeamsTransport { _, _ in
             Self.viewerPage(organizations: [
                 Self.organization("acme", teams: [
-                    Self.team("T_web", "web", ancestors: [("T_eng", "engineering")]),
-                    Self.team("T_api", "api", ancestors: [("T_eng", "engineering")])
+                    Self.team("T_web", "web", parent: "T_eng", ancestors: [("T_eng", "engineering", nil)]),
+                    Self.team("T_api", "api", parent: "T_eng", ancestors: [("T_eng", "engineering", nil)])
                 ])
             ])
         }
@@ -49,14 +52,14 @@ final class GitHubViewerTeamsTests: XCTestCase {
         let teams = try await Self.fetcher(transport).fetchViewerTeams(login: "rw")
 
         XCTAssertEqual(teams.map(\.team.slug), ["api", "engineering", "web"])
-        XCTAssertEqual(teams.first { $0.team.id == "T_eng" }?.inheritedVia?.slug, "api")
+        XCTAssertEqual(teams.map(\.parentTeamID), ["T_eng", nil, "T_eng"])
     }
 
-    func testTeamThatIsDirectAndAnAncestorAppearsOnceAsDirect() async throws {
+    func testTeamThatIsDirectAndAnAncestorOfAnotherDirectTeamAppearsOnce() async throws {
         let transport = ViewerTeamsTransport { _, _ in
             Self.viewerPage(organizations: [
                 Self.organization("acme", teams: [
-                    Self.team("T_plm", "plm-team", ancestors: [("T_dev", "developers")]),
+                    Self.team("T_plm", "plm-team", parent: "T_dev", ancestors: [("T_dev", "developers", nil)]),
                     Self.team("T_dev", "developers")
                 ])
             ])
@@ -64,10 +67,10 @@ final class GitHubViewerTeamsTests: XCTestCase {
 
         let teams = try await Self.fetcher(transport).fetchViewerTeams(login: "rw")
 
-        XCTAssertEqual(teams.count, 2)
-        XCTAssertEqual(teams.first { $0.team.id == "T_dev" }, ViewerTeam(
-            team: TeamReference(id: "T_dev", organization: "acme", slug: "developers")
-        ))
+        XCTAssertEqual(teams, [
+            ViewerTeam(team: TeamReference(id: "T_dev", organization: "acme", slug: "developers")),
+            ViewerTeam(team: TeamReference(id: "T_plm", organization: "acme", slug: "plm-team"), parentTeamID: "T_dev")
+        ])
     }
 
     func testOrganizationAndPerOrganizationTeamPaginationAreBothFollowed() async throws {
@@ -77,7 +80,7 @@ final class GitHubViewerTeamsTests: XCTestCase {
                 XCTAssertEqual(variables["login"], .string("rw"))
                 XCTAssertEqual(variables["cursor"], .string("acme-teams-1"))
                 return Self.json(["data": ["organization": ["teams": Self.teamConnection(
-                    [Self.team("T_web", "web", ancestors: [("T_eng", "engineering")])]
+                    [Self.team("T_web", "web", parent: "T_eng", ancestors: [("T_eng", "engineering", nil)])]
                 )]]])
             }
             if variables["orgCursor"] == .string("orgs-1") {
@@ -100,7 +103,7 @@ final class GitHubViewerTeamsTests: XCTestCase {
         let teams = try await Self.fetcher(transport).fetchViewerTeams(login: "rw")
 
         XCTAssertEqual(teams.map(\.team.displayName), ["@acme/api", "@acme/engineering", "@acme/web", "@zeta/ops"])
-        XCTAssertEqual(teams.first { $0.team.id == "T_eng" }?.inheritedVia?.slug, "web")
+        XCTAssertEqual(teams.first { $0.team.id == "T_web" }?.parentTeamID, "T_eng")
         XCTAssertEqual(transport.queries.filter { $0.query.contains("OrganizationViewerTeams") }.count, 1)
         XCTAssertEqual(transport.queries.filter { $0.query.contains("query ViewerTeams") }.count, 2)
     }
@@ -109,7 +112,10 @@ final class GitHubViewerTeamsTests: XCTestCase {
         let transport = ViewerTeamsTransport { _, _ in
             Self.viewerPage(organizations: [
                 Self.organization("acme", teams: [
-                    Self.team("T_plm", "plm-team", ancestors: [("T_dev", "developers")], ancestorsHaveNextPage: true)
+                    Self.team(
+                        "T_plm", "plm-team", parent: "T_dev",
+                        ancestors: [("T_dev", "developers", nil)], ancestorsHaveNextPage: true
+                    )
                 ])
             ])
         }
@@ -205,17 +211,23 @@ final class GitHubViewerTeamsTests: XCTestCase {
     private static func team(
         _ id: String,
         _ slug: String,
-        ancestors: [(String, String)] = [],
+        parent: String? = nil,
+        ancestors: [(id: String, slug: String, parent: String?)] = [],
         ancestorsHaveNextPage: Bool = false
     ) -> [String: Any] {
         [
             "id": id,
             "slug": slug,
+            "parentTeam": parentTeam(parent),
             "ancestors": [
                 "pageInfo": ["hasNextPage": ancestorsHaveNextPage],
-                "nodes": ancestors.map { ["id": $0.0, "slug": $0.1] }
+                "nodes": ancestors.map { ["id": $0.id, "slug": $0.slug, "parentTeam": parentTeam($0.parent)] }
             ]
         ]
+    }
+
+    private static func parentTeam(_ id: String?) -> Any {
+        id.map { ["id": $0] as Any } ?? NSNull()
     }
 
     private static func json(_ object: Any) -> Data {

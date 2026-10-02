@@ -130,17 +130,18 @@ final class SettingsViewTests: XCTestCase {
         }
         XCTAssertEqual(groups.map(\.organization), ["mergehawk-labs"])
         XCTAssertEqual(groups[0].rows.map(\.team.displayName), [
-            "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
+            "@mergehawk-labs/engineering", "@mergehawk-labs/developers", "@mergehawk-labs/plm-team",
             "@mergehawk-labs/secret-squad"
         ])
+        XCTAssertEqual(groups[0].rows.map(\.depth), [0, 1, 2, 0])
         XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsPresentation.detailLines(for:)), [
-            ["via @mergehawk-labs/plm-team", "4 PRs requesting this team"],
-            ["via @mergehawk-labs/plm-team", "1 PR requesting this team"],
+            ["1 PR requesting this team"],
+            ["4 PRs requesting this team"],
             ["2 PRs requesting this team"],
             ["0 PRs requesting this team"],
         ])
-        // Inherited rows get room for their extra line; four rows here overflow the cap and scroll.
-        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsLayout.rowHeight(for:)), [52, 52, 38, 38])
+        // Four rows overflow the cap and scroll.
+        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsLayout.rowHeight(for:)), [38, 38, 38, 38])
         XCTAssertEqual(ReviewTeamsSettingsLayout.listHeight(for: groups), ReviewTeamsSettingsLayout.maximumListHeight)
         XCTAssertEqual(
             ReviewTeamsSettingsLayout.headerTrailingInset(for: groups, scrollerStyle: .legacy),
@@ -155,9 +156,9 @@ final class SettingsViewTests: XCTestCase {
         let zeta = TeamReference(id: "T_ZETA", organization: "zeta", slug: "ops")
         let platform = TeamReference(id: "T_PLATFORM", organization: "zeta", slug: "platform")
         let rows = [
-            DashboardController.ReviewTeamRow(team: acme, inheritedVia: nil, isCounting: true, pullRequestCount: 1),
-            DashboardController.ReviewTeamRow(team: zeta, inheritedVia: platform, isCounting: false, pullRequestCount: 0),
-            DashboardController.ReviewTeamRow(team: platform, inheritedVia: nil, isCounting: true, pullRequestCount: 3),
+            DashboardController.ReviewTeamRow(team: acme, depth: 0, isCounting: true, pullRequestCount: 1),
+            DashboardController.ReviewTeamRow(team: platform, depth: 0, isCounting: true, pullRequestCount: 3),
+            DashboardController.ReviewTeamRow(team: zeta, depth: 1, isCounting: false, pullRequestCount: 0),
         ]
         XCTAssertEqual(
             ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: rows),
@@ -192,7 +193,7 @@ final class SettingsViewTests: XCTestCase {
     func testReviewTeamsBlockIsHiddenSignedOutAndReportsNoTeamsSignedIn() {
         let row = DashboardController.ReviewTeamRow(
             team: TeamReference(id: "T", organization: "acme", slug: "reviewers"),
-            inheritedVia: nil,
+            depth: 0,
             isCounting: true,
             pullRequestCount: 0
         )

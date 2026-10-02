@@ -199,14 +199,14 @@ final class DashboardControllerXCTests: XCTestCase {
         let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
         let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
 
-        let plm = TeamReference(id: "T_MOCK_PLM", organization: "mergehawk-labs", slug: "plm-team")
         XCTAssertEqual(first.viewerTeams.map(\.team.displayName), [
             "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
             "@mergehawk-labs/secret-squad"
         ])
-        XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "developers" }?.inheritedVia, plm)
-        XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "engineering" }?.inheritedVia, plm)
-        XCTAssertNil(first.viewerTeams.first { $0.team.slug == "plm-team" }?.inheritedVia)
+        XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "developers" }?.parentTeamID, "T_MOCK_ENGINEERING")
+        XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "plm-team" }?.parentTeamID, "T_MOCK_DEVELOPERS")
+        XCTAssertNil(first.viewerTeams.first { $0.team.slug == "engineering" }?.parentTeamID)
+        XCTAssertNil(first.viewerTeams.first { $0.team.slug == "secret-squad" }?.parentTeamID)
         XCTAssertFalse(first.viewerTeams.contains { $0.team.slug == "security" })
         let firstTeams = Dictionary(uniqueKeysWithValues: first.activePullRequests.map { ($0.id, $0.requestedTeams.map(\.slug)) })
         XCTAssertEqual(firstTeams["PR_TEAMS_DEVELOPERS"], ["developers"])
@@ -231,9 +231,9 @@ final class DashboardControllerXCTests: XCTestCase {
     private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
     private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
     private static let nestedViewerTeams = [
-        ViewerTeam(team: developers, inheritedVia: plmTeam),
-        ViewerTeam(team: engineering, inheritedVia: plmTeam),
-        ViewerTeam(team: plmTeam)
+        ViewerTeam(team: developers, parentTeamID: engineering.id),
+        ViewerTeam(team: engineering),
+        ViewerTeam(team: plmTeam, parentTeamID: developers.id)
     ]
 
     private static func teamPR(
@@ -356,7 +356,10 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
-    func testTeamRowsReportInheritanceCountingAndPRCountsAcrossAllFetchedPRs() throws {
+    func testTeamRowsFormATreeWithCountingStateAndPRCountsAcrossAllFetchedPRs() throws {
+        let api = TeamReference(id: "T_API", organization: "acme", slug: "api")
+        let secret = TeamReference(id: "T_SECRET", organization: "acme", slug: "secret-squad")
+        let ops = TeamReference(id: "T_OPS", organization: "zeta", slug: "ops")
         let suiteName = "review-teams-rows-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -367,21 +370,26 @@ final class DashboardControllerXCTests: XCTestCase {
                 Self.teamPR("PR_DIRECT", [Self.plmTeam], direct: true),
                 Self.teamPR("PR_TEAM", [Self.developers])
             ],
-            viewerTeams: Self.nestedViewerTeams
+            viewerTeams: Self.nestedViewerTeams + [
+                // Its parent is not one of the viewer's teams, so it is top level.
+                ViewerTeam(team: secret, parentTeamID: "T_NOT_A_VIEWER_TEAM"),
+                ViewerTeam(team: api, parentTeamID: Self.engineering.id),
+                ViewerTeam(team: ops)
+            ]
         ))
         let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
         waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
 
         controller.setReviewTeam(Self.developers.id, counting: false)
 
+        typealias Row = DashboardController.ReviewTeamRow
         XCTAssertEqual(controller.reviewTeamRows, [
-            DashboardController.ReviewTeamRow(
-                team: Self.developers, inheritedVia: Self.plmTeam, isCounting: false, pullRequestCount: 3
-            ),
-            DashboardController.ReviewTeamRow(
-                team: Self.engineering, inheritedVia: Self.plmTeam, isCounting: true, pullRequestCount: 0
-            ),
-            DashboardController.ReviewTeamRow(team: Self.plmTeam, inheritedVia: nil, isCounting: true, pullRequestCount: 2)
+            Row(team: Self.engineering, depth: 0, isCounting: true, pullRequestCount: 0),
+            Row(team: api, depth: 1, isCounting: true, pullRequestCount: 0),
+            Row(team: Self.developers, depth: 1, isCounting: false, pullRequestCount: 3),
+            Row(team: Self.plmTeam, depth: 2, isCounting: true, pullRequestCount: 2),
+            Row(team: secret, depth: 0, isCounting: true, pullRequestCount: 0),
+            Row(team: ops, depth: 0, isCounting: true, pullRequestCount: 0),
         ])
     }
 
@@ -403,7 +411,7 @@ final class DashboardControllerXCTests: XCTestCase {
         let renamed = TeamReference(id: Self.developers.id, organization: "acme", slug: "all-developers")
         provider.result = CompletePullRequestFetchResult(
             activePullRequests: [],
-            viewerTeams: [ViewerTeam(team: renamed, inheritedVia: Self.plmTeam), ViewerTeam(team: Self.plmTeam)]
+            viewerTeams: [ViewerTeam(team: renamed), ViewerTeam(team: Self.plmTeam, parentTeamID: renamed.id)]
         )
         Self.refreshAndWait(controller, provider)
         let renamedRow = try XCTUnwrap(controller.reviewTeamRows.first { $0.id == Self.developers.id })

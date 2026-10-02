@@ -427,9 +427,9 @@ public final class MockPullRequestSource {
     static let securityTeam = TeamReference(id: "T_MOCK_SECURITY", organization: "mergehawk-labs", slug: "security")
     /// `engineering` -> `developers` -> `plm-team`, with the viewer directly in `plm-team` and a secret team.
     static let reviewTeamViewerTeams = [
-        ViewerTeam(team: developersTeam, inheritedVia: plmTeam),
-        ViewerTeam(team: engineeringTeam, inheritedVia: plmTeam),
-        ViewerTeam(team: plmTeam),
+        ViewerTeam(team: developersTeam, parentTeamID: engineeringTeam.id),
+        ViewerTeam(team: engineeringTeam),
+        ViewerTeam(team: plmTeam, parentTeamID: developersTeam.id),
         ViewerTeam(team: secretSquadTeam)
     ]
 

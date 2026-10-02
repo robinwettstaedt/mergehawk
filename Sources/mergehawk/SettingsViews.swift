@@ -1143,8 +1143,7 @@ enum ReviewTeamsSettingsPresentation {
     /// Secondary lines under the team name. The inherited-via label gets its own line so neither truncates.
     static func detailLines(for row: DashboardController.ReviewTeamRow) -> [String] {
         let count = "\(row.pullRequestCount) \(row.pullRequestCount == 1 ? "PR" : "PRs") requesting this team"
-        guard let inheritedVia = row.inheritedVia else { return [count] }
-        return ["via \(inheritedVia.displayName)", count]
+        return [count]
     }
 }
 

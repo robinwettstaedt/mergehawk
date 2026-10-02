@@ -171,7 +171,8 @@ final class DashboardController: ObservableObject {
 
     struct ReviewTeamRow: Identifiable, Equatable {
         let team: TeamReference
-        let inheritedVia: TeamReference?
+        /// Nesting level under the team's top-level ancestor among the viewer's teams.
+        let depth: Int
         let isCounting: Bool
         /// Fetched PRs requesting this team, whatever relationship brought them in.
         let pullRequestCount: Int
@@ -508,22 +509,36 @@ final class DashboardController: ObservableObject {
         TeamReviewCounting(viewerTeams: state.viewerTeams, turnedOffTeamIDs: turnedOffReviewTeamIDs)
     }
 
-    /// The viewer's teams from the last complete PR refresh, ordered by organization and then slug.
+    /// The viewer's teams from the last complete PR refresh as a tree like GitHub's team list: organizations in
+    /// order, each team followed by its child teams, siblings by slug. A team whose parent is not one of the
+    /// viewer's teams is top level.
     var reviewTeamRows: [ReviewTeamRow] {
-        state.viewerTeams
-            .map { viewerTeam in
-                ReviewTeamRow(
-                    team: viewerTeam.team,
-                    inheritedVia: viewerTeam.inheritedVia,
-                    isCounting: !turnedOffReviewTeamIDs.contains(viewerTeam.team.id),
-                    pullRequestCount: state.pullRequests.filter { pr in
-                        pr.requestedTeams.contains { $0.id == viewerTeam.team.id }
-                    }.count
-                )
+        let viewerTeams = state.viewerTeams
+        let viewerTeamIDs = Set(viewerTeams.map(\.team.id))
+        let bySlug: (ViewerTeam, ViewerTeam) -> Bool = {
+            ($0.team.organization, $0.team.slug, $0.team.id) < ($1.team.organization, $1.team.slug, $1.team.id)
+        }
+        let childrenByParentID = Dictionary(grouping: viewerTeams.filter {
+            $0.parentTeamID.map(viewerTeamIDs.contains) == true
+        }) { $0.parentTeamID! }
+        let roots = viewerTeams.filter { $0.parentTeamID.map(viewerTeamIDs.contains) != true }.sorted(by: bySlug)
+
+        var rows: [ReviewTeamRow] = []
+        func append(_ viewerTeam: ViewerTeam, depth: Int) {
+            rows.append(ReviewTeamRow(
+                team: viewerTeam.team,
+                depth: depth,
+                isCounting: !turnedOffReviewTeamIDs.contains(viewerTeam.team.id),
+                pullRequestCount: state.pullRequests.filter { pr in
+                    pr.requestedTeams.contains { $0.id == viewerTeam.team.id }
+                }.count
+            ))
+            for child in (childrenByParentID[viewerTeam.team.id] ?? []).sorted(by: bySlug) {
+                append(child, depth: depth + 1)
             }
-            .sorted {
-                ($0.team.organization, $0.team.slug, $0.team.id) < ($1.team.organization, $1.team.slug, $1.team.id)
-            }
+        }
+        roots.forEach { append($0, depth: 0) }
+        return rows
     }
 
     func setReviewTeam(_ id: String, counting: Bool) {

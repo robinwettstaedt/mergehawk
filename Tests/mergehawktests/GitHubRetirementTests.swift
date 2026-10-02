@@ -141,8 +141,11 @@ final class GitHubRetirementTests: XCTestCase {
             let query = Self.graphQLQuery(request)
             if query.contains("query ViewerTeams") {
                 return Self.response(Self.viewerTeams([[
-                    "id": "T_PLM", "slug": "plm-team",
-                    "ancestors": ["pageInfo": ["hasNextPage": false], "nodes": [["id": "T_DEV", "slug": "developers"]]]
+                    "id": "T_PLM", "slug": "plm-team", "parentTeam": ["id": "T_DEV"],
+                    "ancestors": [
+                        "pageInfo": ["hasNextPage": false],
+                        "nodes": [["id": "T_DEV", "slug": "developers", "parentTeam": NSNull()]]
+                    ]
                 ]]), request)
             }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
@@ -157,11 +160,10 @@ final class GitHubRetirementTests: XCTestCase {
         let result = try await GitHubClient(token: "token", session: Self.session())
             .fetchCompletePullRequests(login: "rw", previousState: previous)
 
-        let plm = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
         XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_1"])
         XCTAssertEqual(result.viewerTeams, [
-            ViewerTeam(team: TeamReference(id: "T_DEV", organization: "acme", slug: "developers"), inheritedVia: plm),
-            ViewerTeam(team: plm)
+            ViewerTeam(team: TeamReference(id: "T_DEV", organization: "acme", slug: "developers")),
+            ViewerTeam(team: TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team"), parentTeamID: "T_DEV")
         ])
     }
 

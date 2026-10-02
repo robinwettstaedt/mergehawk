@@ -1282,7 +1282,7 @@ final class AtomicRefreshTests: XCTestCase {
 
     private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
     private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
-    private static let viewerTeams = [ViewerTeam(team: developers, inheritedVia: plmTeam), ViewerTeam(team: plmTeam)]
+    private static let viewerTeams = [ViewerTeam(team: developers), ViewerTeam(team: plmTeam, parentTeamID: developers.id)]
 
     private static func teamPullRequest(
         _ teams: [TeamReference],
