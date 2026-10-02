@@ -805,7 +805,7 @@ final class VisualVerificationXCTests: XCTestCase {
             id: id, title: archived ? "Archived repository PR" : "Active repository PR", number: archived ? 68 : 69,
             url: URL(string: "https://github.com/\(repo)/pull/\(archived ? 68 : 69)")!,
             repo: repo, repositoryIsArchived: archived,
-            ciState: .passing, reviewDecision: .noReviewYet,
+            ciState: .passing, reviewDecision: .reviewRequired,
             commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
             mergeable: .mergeable, draft: false,
             createdAt: Date().addingTimeInterval(archived ? -7200 : -86_400),

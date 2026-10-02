@@ -46,7 +46,7 @@ struct Runner {
         let previous = PullRequest.fixture(
             id: "PR_1",
             ciState: .passing,
-            reviewDecision: .noReviewYet,
+            reviewDecision: .reviewRequired,
             commentCount: 1,
             reviewCount: 0,
             isMine: true
@@ -903,7 +903,7 @@ private extension PullRequest {
         url: URL = URL(string: "https://github.com/acme/mergehawk/pull/1")!,
         repo: String = "acme/mergehawk",
         ciState: CIState = .passing,
-        reviewDecision: ReviewDecision = .noReviewYet,
+        reviewDecision: ReviewDecision = .reviewRequired,
         commentCount: Int = 0,
         commentActivityCount: Int? = nil,
         recentCommentActivities: [PullRequestCommentActivity] = [],

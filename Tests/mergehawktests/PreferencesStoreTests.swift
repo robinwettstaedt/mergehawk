@@ -182,7 +182,7 @@ final class PreferencesStoreTests: XCTestCase {
                 url: URL(string: "https://github.com/example/app/pull/42")!,
                 repo: "example/app",
                 ciState: .passing,
-                reviewDecision: .noReviewYet,
+                reviewDecision: .reviewRequired,
                 commentCount: 0,
                 reviewCount: 0,
                 isMine: true,
