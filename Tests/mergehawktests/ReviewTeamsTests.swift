@@ -9,7 +9,12 @@ final class ReviewTeamsTests: XCTestCase {
     static let security = TeamReference(id: "T_security", organization: "acme", slug: "security")
 
     static let viewerTeams = [
-        ViewerTeam(team: plmTeam, parentTeamID: developers.id),
+        ViewerTeam(
+            team: plmTeam,
+            parentTeamID: developers.id,
+            avatarURL: URL(string: "https://avatars.githubusercontent.com/t/1?s=64&v=4"),
+            organizationAvatarURL: URL(string: "https://avatars.githubusercontent.com/u/9?v=4")
+        ),
         ViewerTeam(team: developers, parentTeamID: engineering.id),
         ViewerTeam(team: engineering)
     ]

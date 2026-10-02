@@ -22,10 +22,19 @@ public struct ViewerTeam: Codable, Equatable, Sendable {
     public let team: TeamReference
     /// The node ID of the team's parent team, or nil for a top-level team.
     public let parentTeamID: String?
+    public let avatarURL: URL?
+    public let organizationAvatarURL: URL?
 
-    public init(team: TeamReference, parentTeamID: String? = nil) {
+    public init(
+        team: TeamReference,
+        parentTeamID: String? = nil,
+        avatarURL: URL? = nil,
+        organizationAvatarURL: URL? = nil
+    ) {
         self.team = team
         self.parentTeamID = parentTeamID
+        self.avatarURL = avatarURL
+        self.organizationAvatarURL = organizationAvatarURL
     }
 }
 

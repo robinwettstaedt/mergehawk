@@ -24,9 +24,50 @@ final class GitHubViewerTeamsTests: XCTestCase {
         ])
         XCTAssertEqual(transport.queries.count, 1)
         XCTAssertTrue(transport.queries[0].query.contains("userLogins: [$login]"))
-        XCTAssertTrue(transport.queries[0].query.contains("id slug parentTeam { id }"))
+        XCTAssertTrue(transport.queries[0].query.contains("id slug avatarUrl(size: 64) parentTeam { id }"))
         XCTAssertEqual(transport.queries[0].variables["login"], .string("rw"))
         XCTAssertEqual(transport.queries[0].variables["orgCursor"], .null)
+    }
+
+    func testTeamAncestorAndOrganizationAvatarsAreKeptOnEveryViewerTeam() async throws {
+        let transport = ViewerTeamsTransport { query, _ in
+            if query.contains("OrganizationViewerTeams") {
+                var web = Self.team("T_web", "web")
+                web["avatarUrl"] = "https://avatars.githubusercontent.com/t/3?s=64&v=4"
+                return Self.json(["data": ["organization": ["teams": Self.teamConnection([web])]]])
+            }
+            var plm = Self.team("T_plm", "plm-team", parent: "T_dev", ancestors: [("T_dev", "developers", nil)])
+            plm["avatarUrl"] = "https://avatars.githubusercontent.com/t/1?s=64&v=4"
+            var ancestors = plm["ancestors"] as! [String: Any]
+            ancestors["nodes"] = [[
+                "id": "T_dev", "slug": "developers", "parentTeam": NSNull(),
+                "avatarUrl": "https://avatars.githubusercontent.com/t/2?s=64&v=4"
+            ]]
+            plm["ancestors"] = ancestors
+            return Self.viewerPage(organizations: [
+                Self.organization(
+                    "acme",
+                    teams: [plm],
+                    nextTeamCursor: "acme-teams-1",
+                    avatarURL: "https://avatars.githubusercontent.com/u/9?v=4"
+                ),
+                Self.organization("zeta", teams: [Self.team("T_ops", "ops")])
+            ])
+        }
+
+        let teams = try await Self.fetcher(transport).fetchViewerTeams(login: "rw")
+
+        let byID = Dictionary(uniqueKeysWithValues: teams.map { ($0.team.id, $0) })
+        XCTAssertEqual(byID["T_plm"]?.avatarURL?.absoluteString, "https://avatars.githubusercontent.com/t/1?s=64&v=4")
+        XCTAssertEqual(byID["T_dev"]?.avatarURL?.absoluteString, "https://avatars.githubusercontent.com/t/2?s=64&v=4")
+        XCTAssertEqual(byID["T_web"]?.avatarURL?.absoluteString, "https://avatars.githubusercontent.com/t/3?s=64&v=4")
+        for id in ["T_plm", "T_dev", "T_web"] {
+            XCTAssertEqual(byID[id]?.organizationAvatarURL?.absoluteString, "https://avatars.githubusercontent.com/u/9?v=4", id)
+        }
+        XCTAssertNil(byID["T_ops"]?.avatarURL)
+        XCTAssertNil(byID["T_ops"]?.organizationAvatarURL)
+        // Organizations, direct teams, and ancestors each select an avatar.
+        XCTAssertEqual(transport.queries[0].query.components(separatedBy: "avatarUrl(size: 64)").count - 1, 3)
     }
 
     func testSecretTeamWithoutParentIsOneTopLevelEntry() async throws {
@@ -196,9 +237,14 @@ final class GitHubViewerTeamsTests: XCTestCase {
     private static func organization(
         _ login: String,
         teams: [[String: Any]],
-        nextTeamCursor: String? = nil
+        nextTeamCursor: String? = nil,
+        avatarURL: String? = nil
     ) -> [String: Any] {
-        ["login": login, "teams": teamConnection(teams, nextCursor: nextTeamCursor)]
+        [
+            "login": login,
+            "avatarUrl": avatarURL.map { $0 as Any } ?? NSNull(),
+            "teams": teamConnection(teams, nextCursor: nextTeamCursor)
+        ]
     }
 
     private static func teamConnection(_ teams: [[String: Any]], nextCursor: String? = nil) -> [String: Any] {

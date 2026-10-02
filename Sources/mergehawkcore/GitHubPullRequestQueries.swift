@@ -135,8 +135,11 @@ enum GitHubPullRequestQueries {
     static let viewerTeamConnectionFields = """
       pageInfo { hasNextPage endCursor }
       nodes {
-        id slug parentTeam { id }
-        ancestors(first: \(teamAncestorsPageSize)) { pageInfo { hasNextPage } nodes { id slug parentTeam { id } } }
+        id slug avatarUrl(size: 64) parentTeam { id }
+        ancestors(first: \(teamAncestorsPageSize)) {
+          pageInfo { hasNextPage }
+          nodes { id slug avatarUrl(size: 64) parentTeam { id } }
+        }
       }
     """
 
@@ -147,6 +150,7 @@ enum GitHubPullRequestQueries {
             pageInfo { hasNextPage endCursor }
             nodes {
               login
+              avatarUrl(size: 64)
               teams(first: \(viewerTeamsPerOrganizationPageSize), userLogins: [$login]) { \(viewerTeamConnectionFields) }
             }
           }

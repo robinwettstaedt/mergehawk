@@ -135,6 +135,7 @@ struct GitHubForwardPageInfo: Decodable, Equatable, Sendable {
 struct GitHubPayloadTeamIdentity: Decodable, Equatable, Sendable {
     let id: String
     let slug: String
+    let avatarUrl: URL?
     let parentTeam: ParentTeam?
 
     struct ParentTeam: Decodable, Equatable, Sendable {
@@ -145,6 +146,7 @@ struct GitHubPayloadTeamIdentity: Decodable, Equatable, Sendable {
 struct GitHubPayloadViewerTeam: Decodable, Equatable, Sendable {
     let id: String
     let slug: String
+    let avatarUrl: URL?
     let parentTeam: GitHubPayloadTeamIdentity.ParentTeam?
     let ancestors: Ancestors
 
@@ -173,6 +175,7 @@ struct GitHubViewerTeamsPayload: Decodable, Equatable, Sendable {
 
     struct Organization: Decodable, Equatable, Sendable {
         let login: String
+        let avatarUrl: URL?
         let teams: GitHubPayloadViewerTeamConnection
     }
 }

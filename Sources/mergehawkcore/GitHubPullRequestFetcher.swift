@@ -1124,7 +1124,7 @@ struct GitHubPullRequestFetcher: Sendable {
     /// Reads every team the viewer belongs to in every org, plus each team's ancestors, which GitHub also
     /// treats as the viewer's teams for review requests.
     func fetchViewerTeams(login: String) async throws -> [ViewerTeam] {
-        var directTeams: [(organization: String, team: GitHubPayloadViewerTeam)] = []
+        var directTeams: [(organization: String, organizationAvatarURL: URL?, team: GitHubPayloadViewerTeam)] = []
         var orgCursor: String?
         repeat {
             let page = try await readValidated(
@@ -1135,7 +1135,7 @@ struct GitHubPullRequestFetcher: Sendable {
             let organizations = page.viewer.organizations
             for organization in organizations.nodes {
                 var teams = organization.teams
-                directTeams += teams.nodes.map { (organization.login, $0) }
+                directTeams += teams.nodes.map { (organization.login, organization.avatarUrl, $0) }
                 while teams.pageInfo.hasNextPage {
                     guard let cursor = teams.pageInfo.endCursor else { throw GitHubReadError.invalidPayload }
                     teams = try await readValidated(
@@ -1147,7 +1147,7 @@ struct GitHubPullRequestFetcher: Sendable {
                             "cursor": .string(cursor)
                         ]
                     ).organization.teams
-                    directTeams += teams.nodes.map { (organization.login, $0) }
+                    directTeams += teams.nodes.map { (organization.login, organization.avatarUrl, $0) }
                 }
             }
             guard organizations.pageInfo.hasNextPage else { break }
@@ -1163,12 +1163,18 @@ struct GitHubPullRequestFetcher: Sendable {
                     "More than \(GitHubPullRequestQueries.teamAncestorsPageSize) ancestors of team @\(organization)/\(direct.team.slug)"
                 )
             }
-            let identities = [GitHubPayloadTeamIdentity(id: direct.team.id, slug: direct.team.slug, parentTeam: direct.team.parentTeam)]
-                + direct.team.ancestors.nodes
+            let identities = [GitHubPayloadTeamIdentity(
+                id: direct.team.id,
+                slug: direct.team.slug,
+                avatarUrl: direct.team.avatarUrl,
+                parentTeam: direct.team.parentTeam
+            )] + direct.team.ancestors.nodes
             for identity in identities {
                 teamsByID[identity.id] = ViewerTeam(
                     team: TeamReference(id: identity.id, organization: organization, slug: identity.slug),
-                    parentTeamID: identity.parentTeam?.id
+                    parentTeamID: identity.parentTeam?.id,
+                    avatarURL: identity.avatarUrl,
+                    organizationAvatarURL: direct.organizationAvatarURL
                 )
             }
         }
