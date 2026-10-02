@@ -1140,25 +1140,44 @@ enum ReviewTeamsSettingsPresentation {
         return .teams(groups)
     }
 
-    static func detail(for row: DashboardController.ReviewTeamRow) -> String {
+    /// Secondary lines under the team name. The inherited-via label gets its own line so neither truncates.
+    static func detailLines(for row: DashboardController.ReviewTeamRow) -> [String] {
         let count = "\(row.pullRequestCount) \(row.pullRequestCount == 1 ? "PR" : "PRs") requesting this team"
-        guard let inheritedVia = row.inheritedVia else { return count }
-        return "via \(inheritedVia.displayName) · \(count)"
+        guard let inheritedVia = row.inheritedVia else { return [count] }
+        return ["via \(inheritedVia.displayName)", count]
     }
 }
 
-private enum ReviewTeamsSettingsLayout {
+enum ReviewTeamsSettingsLayout {
     static let organizationRowHeight: CGFloat = 26
-    static let teamRowHeight: CGFloat = 38
+    static let teamRowBaseHeight: CGFloat = 24
+    static let detailLineHeight: CGFloat = 14
     static let toggleColumnWidth: CGFloat = 132
     /// Keeps the repository list below with most of the pane height; more teams scroll inside the block.
     static let maximumListHeight: CGFloat = 150
 
-    static func listHeight(for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup]) -> CGFloat {
-        let contentHeight = groups.reduce(0) { height, group in
-            height + organizationRowHeight + teamRowHeight * CGFloat(group.rows.count)
+    static func rowHeight(for row: DashboardController.ReviewTeamRow) -> CGFloat {
+        teamRowBaseHeight + detailLineHeight * CGFloat(ReviewTeamsSettingsPresentation.detailLines(for: row).count)
+    }
+
+    static func contentHeight(for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup]) -> CGFloat {
+        groups.reduce(0) { height, group in
+            height + organizationRowHeight + group.rows.map(rowHeight(for:)).reduce(0, +)
         }
-        return min(contentHeight, maximumListHeight)
+    }
+
+    static func listHeight(for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup]) -> CGFloat {
+        min(contentHeight(for: groups), maximumListHeight)
+    }
+
+    /// A legacy (always visible) scroll bar takes width inside the list, so the header outside it moves its
+    /// toggle column by the same amount to stay centered over the toggles.
+    static func headerTrailingInset(
+        for groups: [ReviewTeamsSettingsPresentation.OrganizationGroup],
+        scrollerStyle: NSScroller.Style = NSScroller.preferredScrollerStyle
+    ) -> CGFloat {
+        guard contentHeight(for: groups) > maximumListHeight, scrollerStyle == .legacy else { return 0 }
+        return NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
     }
 }
 
@@ -1174,14 +1193,14 @@ private struct ReviewTeamsSettingsSection: View {
             EmptyView()
         case .noTeams:
             VStack(alignment: .leading, spacing: 6) {
-                header
+                header(trailingInset: 0)
                 Text(ReviewTeamsSettingsPresentation.noTeamsText)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
         case .teams(let groups):
             VStack(alignment: .leading, spacing: 6) {
-                header
+                header(trailingInset: ReviewTeamsSettingsLayout.headerTrailingInset(for: groups))
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(groups) { group in
@@ -1201,7 +1220,7 @@ private struct ReviewTeamsSettingsSection: View {
         }
     }
 
-    private var header: some View {
+    private func header(trailingInset: CGFloat) -> some View {
         HStack(spacing: 8) {
             Text(ReviewTeamsSettingsPresentation.title)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1210,7 +1229,7 @@ private struct ReviewTeamsSettingsSection: View {
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
-        .padding(.trailing, 4)
+        .padding(.trailing, trailingInset)
     }
 }
 
@@ -1224,10 +1243,12 @@ private struct ReviewTeamSettingsRow: View {
                 Text(row.team.displayName)
                     .font(.callout)
                     .lineLimit(1)
-                Text(ReviewTeamsSettingsPresentation.detail(for: row))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                ForEach(ReviewTeamsSettingsPresentation.detailLines(for: row), id: \.self) { line in
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Toggle("", isOn: Binding {
@@ -1240,7 +1261,7 @@ private struct ReviewTeamSettingsRow: View {
             .frame(width: ReviewTeamsSettingsLayout.toggleColumnWidth)
         }
         .padding(.leading, 12)
-        .frame(height: ReviewTeamsSettingsLayout.teamRowHeight)
+        .frame(height: ReviewTeamsSettingsLayout.rowHeight(for: row))
     }
 }
 

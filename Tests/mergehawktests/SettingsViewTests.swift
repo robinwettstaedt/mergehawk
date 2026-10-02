@@ -1,3 +1,4 @@
+import AppKit
 @testable import mergehawk
 import mergehawkcore
 import XCTest
@@ -132,12 +133,23 @@ final class SettingsViewTests: XCTestCase {
             "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
             "@mergehawk-labs/secret-squad"
         ])
-        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsPresentation.detail(for:)), [
-            "via @mergehawk-labs/plm-team · 4 PRs requesting this team",
-            "via @mergehawk-labs/plm-team · 1 PR requesting this team",
-            "2 PRs requesting this team",
-            "0 PRs requesting this team",
+        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsPresentation.detailLines(for:)), [
+            ["via @mergehawk-labs/plm-team", "4 PRs requesting this team"],
+            ["via @mergehawk-labs/plm-team", "1 PR requesting this team"],
+            ["2 PRs requesting this team"],
+            ["0 PRs requesting this team"],
         ])
+        // Inherited rows get room for their extra line; four rows here overflow the cap and scroll.
+        XCTAssertEqual(groups[0].rows.map(ReviewTeamsSettingsLayout.rowHeight(for:)), [52, 52, 38, 38])
+        XCTAssertEqual(ReviewTeamsSettingsLayout.listHeight(for: groups), ReviewTeamsSettingsLayout.maximumListHeight)
+        XCTAssertEqual(
+            ReviewTeamsSettingsLayout.headerTrailingInset(for: groups, scrollerStyle: .legacy),
+            NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+        )
+        XCTAssertEqual(ReviewTeamsSettingsLayout.headerTrailingInset(for: groups, scrollerStyle: .overlay), 0)
+        let singleGroup = [ReviewTeamsSettingsPresentation.OrganizationGroup(organization: "mergehawk-labs", rows: [groups[0].rows[2]])]
+        XCTAssertEqual(ReviewTeamsSettingsLayout.listHeight(for: singleGroup), 64)
+        XCTAssertEqual(ReviewTeamsSettingsLayout.headerTrailingInset(for: singleGroup, scrollerStyle: .legacy), 0)
 
         let acme = TeamReference(id: "T_ACME", organization: "acme", slug: "reviewers")
         let zeta = TeamReference(id: "T_ZETA", organization: "zeta", slug: "ops")
