@@ -196,7 +196,10 @@ MergeHawk signs in through a GitHub App user access token. Before validating rea
     - Issues: Read-only
     - Checks: Read-only
     - Commit statuses: Read-only
-11. Leave organization permissions empty.
+11. Use this organization permission:
+    - Members: Read-only
+
+    MergeHawk needs it to read your teams for per-team review request filtering.
 12. Register the app. No client secret is required.
 13. For local development overrides, save the credentials in `.env.local`:
 
@@ -246,6 +249,8 @@ history keeps the newest 100 notifications.
 1. Create a GitHub fine-grained or classic personal access token for PR data.
 2. Grant repository access for the repositories MergeHawk should monitor.
 3. Include read permissions for metadata, pull requests, issues, and actions where applicable.
+   A fine-grained token also needs the organization permission **Members: Read-only** so
+   MergeHawk can read your teams; a classic token's `read:org` scope already covers it.
 4. Launch the app with `swift run mergehawk`.
 5. Open Settings, then the GitHub pane.
 6. Paste only the token value, for example `github_pat_...`, with no surrounding text.

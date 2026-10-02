@@ -1331,7 +1331,7 @@ private struct PATAccessNotes: View {
             noteRow(
                 icon: "key.viewfinder",
                 title: "Fine-grained PAT",
-                scopes: ["Metadata: Read-only", "Pull requests: Read-only", "Issues: Read-only", "Commit statuses: Read-only", "Checks: Read-only"],
+                scopes: ["Metadata: Read-only", "Pull requests: Read-only", "Issues: Read-only", "Commit statuses: Read-only", "Checks: Read-only", "Members: Read-only (organization)"],
                 footer: "Limit access to selected repositories"
             )
         }
