@@ -374,7 +374,11 @@ final class DashboardControllerXCTests: XCTestCase {
                 // Its parent is not one of the viewer's teams, so it is top level.
                 ViewerTeam(team: secret, parentTeamID: "T_NOT_A_VIEWER_TEAM"),
                 ViewerTeam(team: api, parentTeamID: Self.engineering.id),
-                ViewerTeam(team: ops)
+                ViewerTeam(
+                    team: ops,
+                    avatarURL: URL(string: "https://avatars.githubusercontent.com/t/7?s=64&v=4"),
+                    organizationAvatarURL: URL(string: "https://avatars.githubusercontent.com/u/8?v=4")
+                )
             ]
         ))
         let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
@@ -389,7 +393,11 @@ final class DashboardControllerXCTests: XCTestCase {
             Row(team: Self.developers, depth: 1, isCounting: false, pullRequestCount: 3),
             Row(team: Self.plmTeam, depth: 2, isCounting: true, pullRequestCount: 2),
             Row(team: secret, depth: 0, isCounting: true, pullRequestCount: 0),
-            Row(team: ops, depth: 0, isCounting: true, pullRequestCount: 0),
+            Row(
+                team: ops, depth: 0, isCounting: true, pullRequestCount: 0,
+                avatarURL: URL(string: "https://avatars.githubusercontent.com/t/7?s=64&v=4"),
+                organizationAvatarURL: URL(string: "https://avatars.githubusercontent.com/u/8?v=4")
+            ),
         ])
     }
 

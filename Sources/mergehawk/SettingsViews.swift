@@ -1117,6 +1117,7 @@ enum ReviewTeamsSettingsPresentation {
         let rows: [DashboardController.ReviewTeamRow]
 
         var id: String { organization }
+        var avatarURL: URL? { rows.lazy.compactMap(\.organizationAvatarURL).first }
     }
 
     enum Content: Equatable {
@@ -1127,7 +1128,7 @@ enum ReviewTeamsSettingsPresentation {
 
     static let signedOutText = "Sign in to GitHub to manage teams."
     static let noTeamsText = "You're not in any GitHub teams."
-    static let footnote = "Unchecked teams' review requests don't show under Requested or notify you."
+    static let listLabel = "Show review requests from these teams:"
 
     /// Shows the last complete PR refresh's teams, grouped by organization in the controller's tree order.
     static func content(authStatus: AuthStatus, rows: [DashboardController.ReviewTeamRow]) -> Content {
@@ -1173,22 +1174,23 @@ private struct TeamsSettingsView: View {
         case .teams(let groups):
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    Text(ReviewTeamsSettingsPresentation.listLabel)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 6)
                     ForEach(groups) { group in
-                        Text(group.organization)
-                            .font(.callout.weight(.medium))
-                            .lineLimit(1)
-                            .frame(height: ReviewTeamsSettingsLayout.organizationRowHeight)
+                        HStack(spacing: 6) {
+                            TeamSettingsAvatar(url: group.avatarURL, placeholderSystemImage: "building.2")
+                            Text(group.organization)
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                        }
+                        .frame(height: ReviewTeamsSettingsLayout.organizationRowHeight)
                         ForEach(group.rows) { row in
                             ReviewTeamSettingsRow(row: row, controller: controller)
                         }
                         Divider()
                             .padding(.vertical, 6)
                     }
-                    Text(ReviewTeamsSettingsPresentation.footnote)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 2)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
@@ -1209,9 +1211,12 @@ private struct ReviewTeamSettingsRow: View {
             } set: { counting in
                 controller.setReviewTeam(row.team.id, counting: counting)
             }) {
-                Text(row.team.slug)
-                    .font(.callout)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    TeamSettingsAvatar(url: row.avatarURL, placeholderSystemImage: "person.3")
+                    Text(row.team.slug)
+                        .font(.callout)
+                        .lineLimit(1)
+                }
             }
             .toggleStyle(.checkbox)
             .accessibilityLabel("Show review requests from \(row.team.displayName)")
@@ -1220,6 +1225,43 @@ private struct ReviewTeamSettingsRow: View {
         }
         .padding(.leading, CGFloat(row.depth) * ReviewTeamsSettingsLayout.indentPerLevel)
         .frame(height: ReviewTeamsSettingsLayout.teamRowHeight)
+    }
+}
+
+/// A team or organization avatar as a small rounded square, like GitHub shows them.
+private struct TeamSettingsAvatar: View {
+    let url: URL?
+    let placeholderSystemImage: String
+
+    static let size: CGFloat = 16
+
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    if case let .success(image) = phase {
+                        image.resizable().scaledToFill()
+                    } else {
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: Self.size, height: Self.size)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    private var placeholder: some View {
+        Image(systemName: placeholderSystemImage)
+            .resizable()
+            .scaledToFit()
+            .padding(2)
+            .foregroundStyle(.secondary)
+            .frame(width: Self.size, height: Self.size)
+            .background(Color.secondary.opacity(0.15))
     }
 }
 

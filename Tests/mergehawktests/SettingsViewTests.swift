@@ -138,22 +138,33 @@ final class SettingsViewTests: XCTestCase {
             "1 PR", "4 PRs", "2 PRs", "0 PRs",
         ])
         XCTAssertTrue(groups[0].rows.allSatisfy(\.isCounting))
+        // Mock teams have no avatar URLs, so the Teams tab shows placeholders and never loads images.
+        XCTAssertTrue(groups[0].rows.allSatisfy { $0.avatarURL == nil && $0.organizationAvatarURL == nil })
 
         let acme = TeamReference(id: "T_ACME", organization: "acme", slug: "reviewers")
         let zeta = TeamReference(id: "T_ZETA", organization: "zeta", slug: "ops")
         let platform = TeamReference(id: "T_PLATFORM", organization: "zeta", slug: "platform")
+        let zetaAvatar = URL(string: "https://avatars.githubusercontent.com/u/9?v=4")
+        let platformAvatar = URL(string: "https://avatars.githubusercontent.com/t/1?s=64&v=4")
         let rows = [
             DashboardController.ReviewTeamRow(team: acme, depth: 0, isCounting: true, pullRequestCount: 1),
-            DashboardController.ReviewTeamRow(team: platform, depth: 0, isCounting: true, pullRequestCount: 3),
-            DashboardController.ReviewTeamRow(team: zeta, depth: 1, isCounting: false, pullRequestCount: 0),
+            DashboardController.ReviewTeamRow(
+                team: platform, depth: 0, isCounting: true, pullRequestCount: 3,
+                avatarURL: platformAvatar, organizationAvatarURL: zetaAvatar
+            ),
+            DashboardController.ReviewTeamRow(
+                team: zeta, depth: 1, isCounting: false, pullRequestCount: 0, organizationAvatarURL: zetaAvatar
+            ),
         ]
-        XCTAssertEqual(
-            ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: rows),
-            .teams([
-                .init(organization: "acme", rows: [rows[0]]),
-                .init(organization: "zeta", rows: [rows[1], rows[2]]),
-            ])
-        )
+        let content = ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: rows)
+        XCTAssertEqual(content, .teams([
+            .init(organization: "acme", rows: [rows[0]]),
+            .init(organization: "zeta", rows: [rows[1], rows[2]]),
+        ]))
+        guard case .teams(let builtGroups) = content else { return XCTFail("Expected team rows") }
+        XCTAssertEqual(builtGroups.map(\.avatarURL), [nil, zetaAvatar])
+        XCTAssertEqual(builtGroups[1].rows.map(\.avatarURL), [platformAvatar, nil])
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.listLabel, "Show review requests from these teams:")
     }
 
     @MainActor

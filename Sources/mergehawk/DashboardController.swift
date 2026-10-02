@@ -176,6 +176,8 @@ final class DashboardController: ObservableObject {
         let isCounting: Bool
         /// Fetched PRs requesting this team, whatever relationship brought them in.
         let pullRequestCount: Int
+        var avatarURL: URL? = nil
+        var organizationAvatarURL: URL? = nil
 
         var id: String { team.id }
     }
@@ -531,7 +533,9 @@ final class DashboardController: ObservableObject {
                 isCounting: !turnedOffReviewTeamIDs.contains(viewerTeam.team.id),
                 pullRequestCount: state.pullRequests.filter { pr in
                     pr.requestedTeams.contains { $0.id == viewerTeam.team.id }
-                }.count
+                }.count,
+                avatarURL: viewerTeam.avatarURL,
+                organizationAvatarURL: viewerTeam.organizationAvatarURL
             ))
             for child in (childrenByParentID[viewerTeam.team.id] ?? []).sorted(by: bySlug) {
                 append(child, depth: depth + 1)
