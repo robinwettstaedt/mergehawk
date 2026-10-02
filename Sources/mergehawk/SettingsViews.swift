@@ -1214,7 +1214,7 @@ private struct ReviewTeamSettingsRow: View {
                     .lineLimit(1)
             }
             .toggleStyle(.checkbox)
-            .accessibilityLabel("Count review requests for \(row.team.displayName)")
+            .accessibilityLabel("Show review requests from \(row.team.displayName)")
             CountBubble(text: ReviewTeamsSettingsPresentation.countLabel(for: row))
             Spacer(minLength: 0)
         }
