@@ -84,6 +84,19 @@ public struct CompletePullRequestFetchResult: Equatable, Sendable {
     }
 }
 
+/// The provider read of one complete PR refresh, before detection runs.
+public struct FetchedPullRequestRefresh: Equatable, Sendable {
+    public let login: String
+    public let account: GitHubAccount
+    public let fetchResult: CompletePullRequestFetchResult
+
+    public init(login: String, account: GitHubAccount, fetchResult: CompletePullRequestFetchResult) {
+        self.login = login
+        self.account = account
+        self.fetchResult = fetchResult
+    }
+}
+
 public struct PreparedPullRequestEvent: Equatable, Sendable {
     public let event: PullRequestEvent
     public let filteringContext: PullRequest

@@ -22,35 +22,61 @@ public final class SyncEngine {
         previousState: PullRequestSyncState?,
         fetchResult: CompletePullRequestFetchResult
     ) async throws -> PreparedPullRequestRefresh {
-        try await prepare(
+        let login = try await loginProvider()
+        return try prepare(
             previousState: previousState,
-            fetchResult: fetchResult,
-            login: try await loginProvider()
+            fetched: FetchedPullRequestRefresh(
+                login: login,
+                account: try await resolveAccount(login: login, previousState: previousState),
+                fetchResult: fetchResult
+            ),
+            turnedOffTeamIDs: []
         )
     }
 
     public func prepare(previousState: PullRequestSyncState?) async throws -> PreparedPullRequestRefresh {
+        try prepare(
+            previousState: previousState,
+            fetched: try await fetchRefresh(previousState: previousState),
+            turnedOffTeamIDs: []
+        )
+    }
+
+    /// The asynchronous half of a refresh: everything that reads the provider or the account.
+    public func fetchRefresh(previousState: PullRequestSyncState?) async throws -> FetchedPullRequestRefresh {
         let login = try await loginProvider()
         let fetchResult = try await source.fetchCompletePullRequests(
             login: login,
             previousState: previousState
         )
-        return try await prepare(previousState: previousState, fetchResult: fetchResult, login: login)
+        return FetchedPullRequestRefresh(
+            login: login,
+            account: try await resolveAccount(login: login, previousState: previousState),
+            fetchResult: fetchResult
+        )
     }
 
     /// Identity always comes from the login the fetch ran as, so another account's state is never trusted.
-    private func prepare(
-        previousState: PullRequestSyncState?,
-        fetchResult: CompletePullRequestFetchResult,
-        login: String
-    ) async throws -> PreparedPullRequestRefresh {
-        let account = [try await accountProvider(), previousState?.account]
+    private func resolveAccount(login: String, previousState: PullRequestSyncState?) async throws -> GitHubAccount {
+        [try await accountProvider(), previousState?.account]
             .compactMap { $0 }
             .first { $0.login.caseInsensitiveCompare(login) == .orderedSame }
             ?? GitHubAccount(login: login)
+    }
+
+    /// The synchronous half of a refresh. Previous and current PRs are both counted with the current team
+    /// membership and turned-off teams, so a settings or membership change alone never looks like a new request.
+    public func prepare(
+        previousState: PullRequestSyncState?,
+        fetched: FetchedPullRequestRefresh,
+        turnedOffTeamIDs: Set<String>
+    ) throws -> PreparedPullRequestRefresh {
+        let account = fetched.account
+        let fetchResult = fetched.fetchResult
+        let counting = TeamReviewCounting(viewerTeams: fetchResult.viewerTeams, turnedOffTeamIDs: turnedOffTeamIDs)
         let trustedPrevious = previousState?.trusted(for: account.login)
         let previousByID = Dictionary(
-            uniqueKeysWithValues: (trustedPrevious?.dashboard.pullRequests ?? []).map { ($0.id, $0) }
+            uniqueKeysWithValues: (trustedPrevious?.dashboard.pullRequests ?? []).map { ($0.id, counting.applied(to: $0)) }
         )
         let activeIDs = fetchResult.activePullRequests.map(\.id)
         guard Set(activeIDs).count == activeIDs.count else {
@@ -67,18 +93,19 @@ public final class SyncEngine {
         var processed: [String: ProcessedPullRequestActivity] = [:]
         var events: [PreparedPullRequestEvent] = []
         for current in fetchResult.activePullRequests {
+            let counted = counting.applied(to: current)
             let previousRecord = trustedPrevious?.processedActivityByPullRequestID[current.id]
             // Without a trusted previous state this refresh is the baseline, so no transition is new.
             let transitions = trustedPrevious == nil ? [] : PRActivityDetector.detectTransitions(
                 previous: previousByID[current.id],
-                current: current
+                current: counted
             )
             let detected = transitions + PRActivityDetector.detectProcessedPeopleActivity(
                 previous: previousRecord,
                 current: current
             )
             events.append(contentsOf: detected.map {
-                PreparedPullRequestEvent(event: $0, filteringContext: current)
+                PreparedPullRequestEvent(event: $0, filteringContext: counted)
             })
             processed[current.id] = PRActivityDetector.processedActivity(for: current)
         }
@@ -91,7 +118,7 @@ public final class SyncEngine {
             )
             let context = previousByID[current.id].map {
                 Self.retirementFilteringContext(current: current, previous: $0)
-            } ?? current
+            } ?? counting.applied(to: current)
             events.append(contentsOf: peopleEvents.map {
                 PreparedPullRequestEvent(event: $0, filteringContext: context)
             })
