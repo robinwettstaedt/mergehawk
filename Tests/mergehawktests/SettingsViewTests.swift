@@ -108,6 +108,13 @@ final class SettingsViewTests: XCTestCase {
     func testBothNotificationTablesShareARowHeightThatFitsATwoLineLabel() {
         // Both tables lay out every row at this height, so rows sit evenly spaced whether or not a label wraps.
         XCTAssertEqual(NotificationMatrixLayout.rowHeight, 32)
+        XCTAssertEqual(NotificationMatrixLayout.rowSpacing, 8)
+        // The radio groups span the comment label column: three rows and the two gaps between them.
+        XCTAssertEqual(
+            NotificationMatrixLayout.commentModeColumnHeight,
+            3 * NotificationMatrixLayout.rowHeight + 2 * NotificationMatrixLayout.rowSpacing
+        )
+        XCTAssertEqual(NotificationMatrixLayout.commentModeColumnHeight, 112)
         let bodyFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         XCTAssertLessThanOrEqual(2 * NSLayoutManager().defaultLineHeight(for: bodyFont), NotificationMatrixLayout.rowHeight)
     }
@@ -115,11 +122,12 @@ final class SettingsViewTests: XCTestCase {
     @MainActor
     func testCommentRadioGroupStacksModesTopToBottomInTheRelationshipColumn() {
         let rowHeight = NotificationMatrixLayout.rowHeight
+        let rowPitch = rowHeight + NotificationMatrixLayout.rowSpacing
         let group = CommentModeRadioGroup.RadioGroupView(frame: CGRect(
             x: 0,
             y: 0,
             width: NotificationMatrixLayout.relationshipColumnWidth,
-            height: rowHeight * CGFloat(CommentNotificationMode.allCases.count)
+            height: NotificationMatrixLayout.commentModeColumnHeight
         ))
         // Added out of order so placement follows the tag, not the subview order.
         for tag in [2, 0, 1] {
@@ -133,7 +141,7 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(buttons.map(\.tag), [0, 1, 2])
         for button in buttons {
             XCTAssertEqual(button.frame.midX, group.bounds.midX, accuracy: 1, "tag \(button.tag)")
-            XCTAssertEqual(button.frame.midY, (CGFloat(button.tag) + 0.5) * rowHeight, accuracy: 1, "tag \(button.tag)")
+            XCTAssertEqual(button.frame.midY, CGFloat(button.tag) * rowPitch + rowHeight / 2, accuracy: 1, "tag \(button.tag)")
         }
         // Flipped, so tag 0 sits in the top slot.
         XCTAssertTrue(group.isFlipped)
@@ -153,7 +161,7 @@ final class SettingsViewTests: XCTestCase {
                 x: 0,
                 y: 0,
                 width: NotificationMatrixLayout.relationshipColumnWidth,
-                height: NotificationMatrixLayout.rowHeight * CGFloat(CommentNotificationMode.allCases.count)
+                height: NotificationMatrixLayout.commentModeColumnHeight
             )
             host.layoutSubtreeIfNeeded()
 

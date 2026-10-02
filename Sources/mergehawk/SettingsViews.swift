@@ -674,7 +674,7 @@ struct NotificationSettingsView: View {
 
                     Divider()
 
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: NotificationMatrixLayout.rowSpacing) {
                         ForEach(PullRequestNotificationActivity.allCases, id: \.self) { activity in
                             HStack(spacing: NotificationMatrixLayout.columnSpacing) {
                                 Text(activity.rowTitle)
@@ -711,7 +711,7 @@ struct NotificationSettingsView: View {
                     Divider()
 
                     HStack(alignment: .top, spacing: NotificationMatrixLayout.columnSpacing) {
-                        VStack(alignment: .leading, spacing: 0) {
+                        VStack(alignment: .leading, spacing: NotificationMatrixLayout.rowSpacing) {
                             ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
                                 HStack(spacing: 4) {
                                     Text(mode.title)
@@ -737,7 +737,7 @@ struct NotificationSettingsView: View {
                             )
                             .frame(
                                 width: NotificationMatrixLayout.relationshipColumnWidth,
-                                height: NotificationMatrixLayout.rowHeight * CGFloat(CommentNotificationMode.allCases.count)
+                                height: NotificationMatrixLayout.commentModeColumnHeight
                             )
                         }
                     }
@@ -863,11 +863,12 @@ struct CommentModeRadioGroup: NSViewRepresentable {
         override func layout() {
             super.layout()
             let rowHeight = NotificationMatrixLayout.rowHeight
+            let rowPitch = rowHeight + NotificationMatrixLayout.rowSpacing
             for case let button as NSButton in subviews {
                 let size = button.fittingSize
                 button.frame = CGRect(
                     x: ((bounds.width - size.width) / 2).rounded(),
-                    y: (CGFloat(button.tag) * rowHeight + (rowHeight - size.height) / 2).rounded(),
+                    y: (CGFloat(button.tag) * rowPitch + (rowHeight - size.height) / 2).rounded(),
                     width: size.width,
                     height: size.height
                 )
@@ -882,6 +883,14 @@ enum NotificationMatrixLayout {
     static let columnSpacing: CGFloat = 10
     /// Every row in both tables: tall enough for a label that wraps to two lines, so rows sit evenly spaced.
     static let rowHeight: CGFloat = 32
+    /// The gap between rows in both tables, so a two-line label never touches its neighbours.
+    static let rowSpacing: CGFloat = 8
+
+    /// The comment table's label column and each relationship's radio group: every mode row and the gaps between them.
+    static var commentModeColumnHeight: CGFloat {
+        let rowCount = CGFloat(CommentNotificationMode.allCases.count)
+        return rowCount * rowHeight + (rowCount - 1) * rowSpacing
+    }
 
     /// The label column and the four relationship columns with the spacing before each.
     static var tableWidth: CGFloat {
