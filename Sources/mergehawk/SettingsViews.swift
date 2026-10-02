@@ -713,13 +713,21 @@ struct NotificationSettingsView: View {
                     HStack(alignment: .top, spacing: NotificationMatrixLayout.columnSpacing) {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(CommentNotificationMode.allCases, id: \.self) { mode in
-                                Text(mode.title)
-                                    .lineLimit(2)
-                                    .frame(
-                                        width: NotificationMatrixLayout.labelColumnWidth,
-                                        height: NotificationMatrixLayout.rowHeight,
-                                        alignment: .leading
-                                    )
+                                HStack(spacing: 4) {
+                                    Text(mode.title)
+                                        .lineLimit(2)
+                                    if let help = mode.help {
+                                        Image(systemName: "info.circle")
+                                            .foregroundStyle(.secondary)
+                                            .help(help)
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                                .frame(
+                                    width: NotificationMatrixLayout.labelColumnWidth,
+                                    height: NotificationMatrixLayout.rowHeight,
+                                    alignment: .leading
+                                )
                             }
                         }
                         ForEach(PullRequestNotificationRelationship.allCases, id: \.self) { relationship in
@@ -738,8 +746,6 @@ struct NotificationSettingsView: View {
                 .padding(.vertical, 4)
             } header: {
                 Text("Comment notifications")
-            } footer: {
-                Text("Mentions & threads you joined covers direct mentions of you and new comments in review threads where your published comments are still present.")
             }
         }
         .formStyle(.grouped)
@@ -820,6 +826,10 @@ struct CommentModeRadioGroup: NSViewRepresentable {
             button.tag = index
             button.setAccessibilityLabel(mode.title)
             button.toolTip = "\(relationship.title): \(mode.title)"
+            if let help = mode.help {
+                // The label's info icon is hidden from accessibility, so the radio button carries its explanation.
+                button.setAccessibilityHelp(help)
+            }
             group.addSubview(button)
         }
         return group
@@ -948,6 +958,13 @@ extension PullRequestNotificationRelationship {
 }
 
 extension CommentNotificationMode {
+    static let mentionsAndThreadsHelp = "Mentions & threads you joined covers direct mentions of you and new comments in review threads where your published comments are still present."
+
+    /// The explanation behind a mode's info icon, if it has one.
+    var help: String? {
+        self == .mentionsAndThreads ? Self.mentionsAndThreadsHelp : nil
+    }
+
     var title: String {
         switch self {
         case .all:

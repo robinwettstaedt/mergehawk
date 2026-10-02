@@ -140,6 +140,43 @@ final class SettingsViewTests: XCTestCase {
     }
 
     @MainActor
+    func testMentionsRadioButtonsCarryTheCommentModeExplanation() {
+        XCTAssertEqual(
+            CommentNotificationMode.mentionsAndThreadsHelp,
+            "Mentions & threads you joined covers direct mentions of you and new comments in review threads where your published comments are still present."
+        )
+        XCTAssertEqual(CommentNotificationMode.allCases.map(\.help), [nil, CommentNotificationMode.mentionsAndThreadsHelp, nil])
+
+        for relationship in PullRequestNotificationRelationship.allCases {
+            let host = NSHostingView(rootView: CommentModeRadioGroup(relationship: relationship, selection: .constant(.all)))
+            host.frame = CGRect(
+                x: 0,
+                y: 0,
+                width: NotificationMatrixLayout.relationshipColumnWidth,
+                height: NotificationMatrixLayout.rowHeight * CGFloat(CommentNotificationMode.allCases.count)
+            )
+            host.layoutSubtreeIfNeeded()
+
+            let buttons = radioButtons(in: host).sorted { $0.tag < $1.tag }
+            XCTAssertEqual(buttons.count, CommentNotificationMode.allCases.count, "\(relationship)")
+            let tooltips = CommentNotificationMode.allCases.map { "\(relationship.title): \($0.title)" }
+            XCTAssertEqual(buttons.map(\.toolTip), tooltips, "\(relationship)")
+            // AppKit reads a button's tooltip as its accessibility help unless the help is set explicitly.
+            XCTAssertEqual(
+                buttons.map { $0.accessibilityHelp() },
+                zip(CommentNotificationMode.allCases, tooltips).map { mode, tooltip in mode.help ?? tooltip },
+                "\(relationship)"
+            )
+        }
+    }
+
+    private func radioButtons(in view: NSView) -> [NSButton] {
+        view.subviews.flatMap { subview -> [NSButton] in
+            (subview as? NSButton).map { [$0] } ?? radioButtons(in: subview)
+        }
+    }
+
+    @MainActor
     func testCommentRadioGroupSelectsTheModeMatchingTheButtonTag() {
         var selection = CommentNotificationMode.off
         let coordinator = CommentModeRadioGroup.Coordinator(selection: Binding(get: { selection }, set: { selection = $0 }))
