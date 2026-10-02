@@ -1558,6 +1558,12 @@ private final class AtomicRateLimitTransport: @unchecked Sendable {
             )
         }
         let query = Self.graphQLQuery(request)
+        if query.contains("query ViewerTeams") {
+            return response(Self.json(["data": ["viewer": ["organizations": [
+                "pageInfo": ["hasNextPage": false, "endCursor": NSNull()],
+                "nodes": []
+            ]]]]), request)
+        }
         if query.contains("DiscoveryBounds") {
             var data: [String: Any] = [:]
             for lane in GitHubDiscoveryLane.allCases {
