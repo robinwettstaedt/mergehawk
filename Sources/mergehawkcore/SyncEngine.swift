@@ -104,6 +104,7 @@ public final class SyncEngine {
             retiringPullRequests: fetchResult.retiringPullRequests,
             processedActivityByPullRequestID: processed,
             events: events,
+            viewerTeams: fetchResult.viewerTeams,
             syncedAt: now()
         )
     }
@@ -130,6 +131,7 @@ public final class SyncEngine {
             recentReviews: current.recentReviews,
             headRefOid: current.headRefOid,
             reviewRequestKind: previous.reviewRequestKind,
+            requestedTeams: previous.requestedTeams,
             isAssignedToViewer: previous.isAssignedToViewer,
             isMine: previous.isMine,
             author: current.author,

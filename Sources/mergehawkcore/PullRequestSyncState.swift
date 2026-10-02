@@ -69,15 +69,18 @@ public struct CompletePullRequestFetchResult: Equatable, Sendable {
     public let activePullRequests: [PullRequest]
     public let retiringPullRequests: [PullRequest]
     public let quietlyRetiredPullRequestIDs: Set<String>
+    public let viewerTeams: [ViewerTeam]
 
     public init(
         activePullRequests: [PullRequest],
         retiringPullRequests: [PullRequest] = [],
-        quietlyRetiredPullRequestIDs: Set<String> = []
+        quietlyRetiredPullRequestIDs: Set<String> = [],
+        viewerTeams: [ViewerTeam] = []
     ) {
         self.activePullRequests = activePullRequests
         self.retiringPullRequests = retiringPullRequests
         self.quietlyRetiredPullRequestIDs = quietlyRetiredPullRequestIDs
+        self.viewerTeams = viewerTeams
     }
 }
 
@@ -98,6 +101,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
     public let retiringPullRequests: [PullRequest]
     public let processedActivityByPullRequestID: [String: ProcessedPullRequestActivity]
     public let events: [PreparedPullRequestEvent]
+    public let viewerTeams: [ViewerTeam]
     public let syncedAt: Date
 
     public init(
@@ -107,6 +111,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         retiringPullRequests: [PullRequest],
         processedActivityByPullRequestID: [String: ProcessedPullRequestActivity],
         events: [PreparedPullRequestEvent],
+        viewerTeams: [ViewerTeam],
         syncedAt: Date
     ) {
         self.account = account
@@ -115,6 +120,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         self.retiringPullRequests = retiringPullRequests
         self.processedActivityByPullRequestID = processedActivityByPullRequestID
         self.events = events
+        self.viewerTeams = viewerTeams
         self.syncedAt = syncedAt
     }
 }
