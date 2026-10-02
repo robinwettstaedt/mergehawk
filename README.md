@@ -296,6 +296,7 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario quiet-access-loss -
 scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario comment-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario long-lists --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario review-teams --ui menu --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
@@ -313,6 +314,11 @@ nothing.
 The `long-lists` scenario has 20 authored and 20 review-request pull requests so the
 Authored and Requested lists overflow the menu; the first refresh adds a comment to
 each, which fills the Notifications list past its visible height.
+The `review-teams` scenario has nested teams (`engineering` → `developers` →
+`plm-team`, with the viewer directly in `plm-team`) and pull requests requesting
+each of them, a team the viewer is not in, and combinations. Turn teams off in
+Settings › Sources › Teams to see the Requested tab change; the first refresh adds
+`plm-team` to the pull request that only requested `developers`.
 
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL

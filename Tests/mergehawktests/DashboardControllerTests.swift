@@ -9,13 +9,14 @@ private func archiveFixturePR(
     archived: Bool? = nil,
     isMine: Bool = false,
     assigned: Bool = false,
-    request: ReviewRequestKind = .none
+    request: ReviewRequestKind = .none,
+    requestedTeams: [TeamReference] = []
 ) -> PullRequest {
     PullRequest(
         id: id, title: id, number: 1,
         url: URL(string: "https://github.com/\(repo)/pull/1")!, repo: repo,
         repositoryIsArchived: archived, ciState: .passing, reviewDecision: .reviewRequired,
-        commentCount: 0, reviewCount: 0, reviewRequestKind: request,
+        commentCount: 0, reviewCount: 0, reviewRequestKind: request, requestedTeams: requestedTeams,
         isAssignedToViewer: assigned, isMine: isMine, author: isMine ? "rw" : "teammate",
         mergeable: .mergeable, draft: false
     )
@@ -24,15 +25,19 @@ private func archiveFixturePR(
 private final class ArchiveFixtureGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     let pullRequests: [PullRequest]
+    let viewerTeams: [ViewerTeam]
     private(set) var fetchCount = 0
 
-    init(pullRequests: [PullRequest]) { self.pullRequests = pullRequests }
+    init(pullRequests: [PullRequest], viewerTeams: [ViewerTeam] = []) {
+        self.pullRequests = pullRequests
+        self.viewerTeams = viewerTeams
+    }
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
 
     func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
-        return CompletePullRequestFetchResult(activePullRequests: pullRequests)
+        return CompletePullRequestFetchResult(activePullRequests: pullRequests, viewerTeams: viewerTeams)
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -56,7 +61,11 @@ final class DashboardControllerXCTests: XCTestCase {
         let authored = archiveFixturePR("A", repo: archivedRepo, archived: true, isMine: true)
         let assigned = archiveFixturePR("R1", repo: archivedRepo, archived: true, assigned: true)
         let direct = archiveFixturePR("R2", repo: archivedRepo, archived: true, request: .direct)
-        let team = archiveFixturePR("R3", repo: archivedRepo, archived: true, request: .team)
+        let reviewers = TeamReference(id: "T_REVIEWERS", organization: "archive", slug: "reviewers")
+        let viewerTeams = [ViewerTeam(team: reviewers)]
+        let team = archiveFixturePR(
+            "R3", repo: archivedRepo, archived: true, request: .team, requestedTeams: [reviewers]
+        )
         let active = archiveFixturePR("B", repo: "active/app", archived: false, isMine: true)
         let unknown = archiveFixturePR("U", repo: "unknown/app", request: .direct)
         let pullRequests = [authored, assigned, direct, team, active, unknown]
@@ -87,13 +96,13 @@ final class DashboardControllerXCTests: XCTestCase {
             account: account,
             dashboard: DashboardState(
                 pullRequests: pullRequests, events: [], syncedAt: Date(timeIntervalSince1970: 10),
-                source: .github, account: account, authStatus: .signedIn
+                source: .github, account: account, authStatus: .signedIn, viewerTeams: viewerTeams
             ),
             processedActivityByPullRequestID: [:],
             notificationHistory: [archivedHistory, activeHistory, orphanHistory]
         )
         try store.storePullRequestSyncState(state)
-        let provider = ArchiveFixtureGitHubProvider(pullRequests: pullRequests)
+        let provider = ArchiveFixtureGitHubProvider(pullRequests: pullRequests, viewerTeams: viewerTeams)
         let controller = DashboardController(
             tokenStore: InMemoryTokenStore(token: "pat"),
             preferencesStore: PreferencesStore(defaults: defaults),
@@ -130,6 +139,61 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertEqual(store.pullRequestSyncState, committed)
         XCTAssertEqual(provider.fetchCount, 1)
     }
+    func testEveryMockScenarioReturnsViewerTeamsNamedByItsTeamRequestedPRs() async throws {
+        for scenario in MockPullRequestScenario.allCases {
+            let source = MockPullRequestSource(scenario: scenario)
+            var fetchedPullRequests = source.firstRefreshPullRequests
+            for _ in 0..<3 {
+                guard let result = try? await source.fetchCompletePullRequests(
+                    login: "agent-fixture",
+                    previousState: nil
+                ) else { break }
+                XCTAssertFalse(result.viewerTeams.isEmpty, scenario.rawValue)
+                XCTAssertEqual(result.viewerTeams, source.viewerTeams, scenario.rawValue)
+                fetchedPullRequests += result.activePullRequests + result.retiringPullRequests
+            }
+            let viewerTeamIDs = Set(source.viewerTeams.map(\.team.id))
+            for pullRequest in fetchedPullRequests where pullRequest.reviewRequestKind.includesTeam {
+                XCTAssertTrue(
+                    pullRequest.requestedTeams.contains { viewerTeamIDs.contains($0.id) },
+                    "\(scenario.rawValue) \(pullRequest.id)"
+                )
+            }
+        }
+    }
+
+    func testReviewTeamsScenarioHasNestedTeamsAndSecondRefreshAddsPlmTeam() async throws {
+        let source = MockPullRequestSource(scenario: .reviewTeams)
+
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+
+        let plm = TeamReference(id: "T_MOCK_PLM", organization: "mergehawk-labs", slug: "plm-team")
+        XCTAssertEqual(first.viewerTeams.map(\.team.displayName), [
+            "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
+            "@mergehawk-labs/secret-squad"
+        ])
+        XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "developers" }?.inheritedVia, plm)
+        XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "engineering" }?.inheritedVia, plm)
+        XCTAssertNil(first.viewerTeams.first { $0.team.slug == "plm-team" }?.inheritedVia)
+        XCTAssertFalse(first.viewerTeams.contains { $0.team.slug == "security" })
+        let firstTeams = Dictionary(uniqueKeysWithValues: first.activePullRequests.map { ($0.id, $0.requestedTeams.map(\.slug)) })
+        XCTAssertEqual(firstTeams["PR_TEAMS_DEVELOPERS"], ["developers"])
+        XCTAssertEqual(firstTeams["PR_TEAMS_SECURITY"], ["security"])
+        XCTAssertEqual(firstTeams["PR_TEAMS_DEVELOPERS_SECURITY"], ["developers", "security"])
+        XCTAssertEqual(firstTeams["PR_TEAMS_DEVELOPERS_PLM"], ["developers", "plm-team"])
+        XCTAssertEqual(
+            first.activePullRequests.first { $0.id == "PR_TEAMS_DIRECT_DEVELOPERS" }?.reviewRequestKind,
+            .directAndTeam
+        )
+        let secondTeams = Dictionary(uniqueKeysWithValues: second.activePullRequests.map { ($0.id, $0.requestedTeams.map(\.slug)) })
+        XCTAssertEqual(secondTeams["PR_TEAMS_DEVELOPERS"], ["developers", "plm-team"])
+        XCTAssertEqual(
+            secondTeams.filter { $0.key != "PR_TEAMS_DEVELOPERS" },
+            firstTeams.filter { $0.key != "PR_TEAMS_DEVELOPERS" }
+        )
+    }
+
     @MainActor
     func testChangeSizeSortUsesTotalCountsAndTreatsUnknownAsZeroWithinPins() {
         func pullRequest(

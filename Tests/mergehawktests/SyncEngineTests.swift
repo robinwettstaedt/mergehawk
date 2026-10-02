@@ -213,12 +213,18 @@ final class SyncEngineTests: XCTestCase {
         let current = [
             Self.pullRequest(id: "PR_ASSIGNED", isAssigned: true, isMine: false),
             Self.pullRequest(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false),
-            Self.pullRequest(id: "PR_TEAM", ci: .failing, reviewRequestKind: .team, isMine: false)
+            Self.pullRequest(
+                id: "PR_TEAM", ci: .failing, reviewRequestKind: .team, requestedTeams: [Self.reviewersTeam],
+                isMine: false
+            )
         ]
 
         let prepared = try await Self.engine().prepare(
             previousState: nil,
-            fetchResult: CompletePullRequestFetchResult(activePullRequests: current)
+            fetchResult: CompletePullRequestFetchResult(
+                activePullRequests: current,
+                viewerTeams: [ViewerTeam(team: Self.reviewersTeam)]
+            )
         )
 
         XCTAssertTrue(prepared.events.isEmpty)
@@ -333,6 +339,8 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertTrue(prepared.events.isEmpty)
     }
 
+    private static let reviewersTeam = TeamReference(id: "T_REVIEWERS", organization: "acme", slug: "reviewers")
+
     private static func engine() -> SyncEngine {
         SyncEngine(
             source: EmptyPullRequestSource(),
@@ -388,6 +396,7 @@ final class SyncEngineTests: XCTestCase {
         reviewCount: Int? = nil,
         reviews: [PullRequestReview] = [],
         reviewRequestKind: ReviewRequestKind = .none,
+        requestedTeams: [TeamReference] = [],
         isAssigned: Bool = false,
         isMine: Bool = true
     ) -> PullRequest {
@@ -406,6 +415,7 @@ final class SyncEngineTests: XCTestCase {
             reviewCount: reviewCount ?? reviews.count,
             recentReviews: reviews,
             reviewRequestKind: reviewRequestKind,
+            requestedTeams: requestedTeams,
             isAssignedToViewer: isAssigned,
             isMine: isMine,
             author: isMine ? "rw" : "author",

@@ -1181,7 +1181,8 @@ final class DashboardController: ObservableObject {
                 syncedAt: nil,
                 source: .mock,
                 account: account,
-                authStatus: .signedIn
+                authStatus: .signedIn,
+                viewerTeams: source.viewerTeams
             )
             committedSyncState = PullRequestSyncState(
                 account: account,
