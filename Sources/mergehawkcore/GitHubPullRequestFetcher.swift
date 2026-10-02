@@ -1008,6 +1008,7 @@ struct GitHubPullRequestFetcher: Sendable {
             recentReviews: reviews,
             headRefOid: payload.headRefOid,
             reviewRequestKind: reviewRequestKind(for: value, login: login),
+            requestedTeams: try requestedTeams(for: value),
             isAssignedToViewer: value.assignees.values.contains { $0.login.caseInsensitiveCompare(login) == .orderedSame },
             isMine: value.discovery.isAuthored || payload.author?.login.caseInsensitiveCompare(login) == .orderedSame,
             author: payload.author?.login ?? "unknown",
@@ -1104,6 +1105,20 @@ struct GitHubPullRequestFetcher: Sendable {
             $0.requestedReviewer?.typename == "Team"
         }
         return ReviewRequestKind(direct: direct, team: team)
+    }
+
+    private func requestedTeams(for value: HydrationAccumulator) throws -> [TeamReference] {
+        let teams = try value.reviewRequests.values.compactMap { request -> TeamReference? in
+            guard let reviewer = request.requestedReviewer, reviewer.typename == "Team" else { return nil }
+            guard let id = reviewer.id, let slug = reviewer.slug, let organization = reviewer.organization else {
+                throw GitHubReadError.invalidPayload
+            }
+            return TeamReference(id: id, organization: organization.login, slug: slug)
+        }
+        var seenIDs: Set<String> = []
+        return teams
+            .sorted { ($0.organization, $0.slug, $0.id) < ($1.organization, $1.slug, $1.id) }
+            .filter { seenIDs.insert($0.id).inserted }
     }
 
     private struct LeafResult {
