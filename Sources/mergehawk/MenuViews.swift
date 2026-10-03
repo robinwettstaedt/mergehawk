@@ -2300,12 +2300,7 @@ struct RequestedSectionHeading: View {
                         .frame(width: 12, alignment: .leading)
                     Text(section.title)
                         .font(.body.weight(.semibold))
-                    Text("\(count)")
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
+                    CountBubble(text: "\(count)")
                     Spacer(minLength: 0)
                 }
                 .frame(height: PullRequestColumnLayout.headerHeight)
@@ -3148,12 +3143,27 @@ extension ReviewDecisionIndicator.Kind {
     }
 }
 
-private struct EmptyMenuState: View {
+/// The small capsule count used by the Requested section headings.
+struct CountBubble: View {
     let text: String
 
     var body: some View {
+        Text(text)
+            .font(.caption2.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
+    }
+}
+
+struct EmptyMenuState: View {
+    let text: String
+    var systemImage = "tray"
+
+    var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "tray")
+            Image(systemName: systemImage)
                 .font(.title2)
                 .foregroundStyle(.secondary)
             Text(text)

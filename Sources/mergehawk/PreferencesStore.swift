@@ -299,6 +299,16 @@ struct PreferencesStore {
         }
     }
 
+    /// Teams whose review requests the viewer turned off, kept even while the viewer is not in the team.
+    var turnedOffReviewTeamIDs: Set<String> {
+        get {
+            normalizedPullRequestIds(for: "reviewTeams.turnedOffIds")
+        }
+        set {
+            defaults.set(newValue.sorted(), forKey: "reviewTeams.turnedOffIds")
+        }
+    }
+
     private func migratedPullRequestFilters() -> Set<DashboardController.PullRequestFilterOption> {
         guard
             let rawValue = defaults.string(forKey: "pullRequests.filterOption"),
