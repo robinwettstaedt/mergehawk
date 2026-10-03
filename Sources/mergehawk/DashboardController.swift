@@ -1264,7 +1264,7 @@ final class DashboardController: ObservableObject {
                 account: account,
                 authStatus: .signedIn,
                 viewerTeams: source.viewerTeams,
-                pullRequestStacks: []
+                pullRequestStacks: source.stacks
             )
             committedSyncState = PullRequestSyncState(
                 account: account,

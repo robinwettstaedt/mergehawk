@@ -933,6 +933,66 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testPRStacksScenarioFirstRefreshCommitsItsStacks() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        let expected = MockPullRequestSource(scenario: .prStacks).stacks
+        XCTAssertEqual(expected.count, 5)
+        XCTAssertEqual(controller.state.pullRequestStacks, expected)
+    }
+
+    func testEveryOtherMockScenarioReturnsNoStacks() async throws {
+        for scenario in MockPullRequestScenario.allCases where scenario != .prStacks {
+            let source = MockPullRequestSource(scenario: scenario)
+            XCTAssertEqual(source.stacks, [], scenario.rawValue)
+            let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+            XCTAssertEqual(result.stacks, [], scenario.rawValue)
+        }
+    }
+
+    @MainActor
+    func testEveryRequestedPRStacksMemberNamesAStackThatListsIt() async throws {
+        let source = MockPullRequestSource(scenario: .prStacks)
+        let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let stacksByID = Dictionary(uniqueKeysWithValues: result.stacks.map { ($0.id, $0) })
+        let stacked = result.activePullRequests.filter { $0.stackID != nil }
+
+        XCTAssertFalse(stacked.isEmpty)
+        for pullRequest in stacked {
+            let stack = try XCTUnwrap(stacksByID[pullRequest.stackID!], pullRequest.id)
+            XCTAssertTrue(stack.entries.contains { $0.pullRequestID == pullRequest.id }, pullRequest.id)
+        }
+        XCTAssertTrue(result.activePullRequests.contains {
+            $0.stackID == nil && DashboardController.isRequestedPullRequest($0)
+        })
+    }
+
+    func testPRStacksUnreadableEntryStackKeepsItsSizeAndGitHubPositions() throws {
+        let stack = try XCTUnwrap(MockPullRequestSource(scenario: .prStacks).stacks.first { $0.id == "STACK_MOCK_UNREADABLE" })
+
+        XCTAssertEqual(stack.size, 4)
+        XCTAssertEqual(stack.entries.map(\.position), [1, 2, 4])
+    }
+
+    @MainActor
+    private func makePRStacksController() -> DashboardController {
+        let suite = "pr-stacks-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true,
+                suppressesMacOSNotifications: true,
+                mockPullRequestScenario: .prStacks
+            ),
+            automaticRefreshInterval: 0
+        )
+    }
+
+    @MainActor
     private func makeMockController(suiteName: String, now: @escaping () -> Date) -> DashboardController {
         let suite = "\(suiteName)-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

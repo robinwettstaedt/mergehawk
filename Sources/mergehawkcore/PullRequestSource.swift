@@ -47,6 +47,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case newReviewRequest = "new-review-request"
     case reviewTeams = "review-teams"
     case draftReadyForReview = "draft-ready-for-review"
+    case prStacks = "pr-stacks"
 }
 
 public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
@@ -399,6 +400,8 @@ public final class MockPullRequestSource {
             Self.reviewTeamPullRequests(stage: 0)
         case .draftReadyForReview:
             Self.draftReadyForReviewPullRequests(stage: 0)
+        case .prStacks:
+            Self.prStackPullRequests
         case .refreshFailure, .mergedFinalActivity, .quietAccessLoss:
             [Self.scenarioBaselinePullRequest]
         }
@@ -410,9 +413,14 @@ public final class MockPullRequestSource {
         case .reviewTeams:
             Self.reviewTeamViewerTeams
         case .standard, .botNotifications, .commentNotifications, .delayedRefresh, .refreshFailure,
-             .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview:
+             .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview, .prStacks:
             Self.standardViewerTeams
         }
+    }
+
+    /// The PR stacks every refresh of this scenario returns.
+    public var stacks: [PullRequestStack] {
+        scenario == .prStacks ? Self.prStackStacks : []
     }
 
     static let reviewersTeam = TeamReference(id: "T_MOCK_REVIEWERS", organization: "mergehawk-labs", slug: "reviewers")
@@ -724,6 +732,134 @@ public final class MockPullRequestSource {
                 request: .direct, assigned: true, author: "design-systems-amy"
             ),
         ]
+    }
+
+    private struct PRStackMember {
+        enum Role {
+            case direct, team, assigned, mine
+            /// Exists only as a stack entry, never as a fetched PR.
+            case context(PullRequestStackEntry.State)
+        }
+
+        let position: Int
+        let number: Int
+        let title: String
+        let role: Role
+        var draft = false
+        var author = "platform-nora"
+    }
+
+    private struct PRStackFixture {
+        let id: String
+        let repo: String
+        let size: Int
+        let members: [PRStackMember]
+    }
+
+    /// Stacks for Review requests grouping. Requested members are fetched PRs; context-only members exist only
+    /// as stack entries. The unreadable stack has no entry at position 3, as when GitHub returns no PR there.
+    private static let prStackFixtures: [PRStackFixture] = [
+        PRStackFixture(id: "STACK_MOCK_SPREAD", repo: "mergehawk-labs/mergehawk", size: 4, members: [
+            PRStackMember(position: 1, number: 201, title: "Extract the stack entry model", role: .context(.open), author: "docs-lee"),
+            PRStackMember(position: 2, number: 202, title: "Read stack metadata during hydration", role: .direct),
+            PRStackMember(position: 3, number: 203, title: "Group requested PRs by stack", role: .team, author: "backend-mateo"),
+            PRStackMember(position: 4, number: 204, title: "Show the stack chip on cards", role: .mine)
+        ]),
+        PRStackFixture(id: "STACK_MOCK_ASSIGNED", repo: "mergehawk-labs/desktop-app", size: 3, members: [
+            PRStackMember(position: 1, number: 301, title: "Add the release channel setting", role: .context(.merged)),
+            PRStackMember(position: 2, number: 302, title: "Read the release channel at launch", role: .team, author: "design-systems-amy"),
+            PRStackMember(position: 3, number: 303, title: "Switch update feeds by channel", role: .assigned, draft: true, author: "design-systems-amy")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_LAST_OPEN", repo: "mergehawk-labs/review-router", size: 2, members: [
+            PRStackMember(position: 1, number: 401, title: "Route reviews by code owner", role: .context(.merged), author: "backend-mateo"),
+            PRStackMember(position: 2, number: 402, title: "Fall back to the team when no owner matches", role: .direct, author: "backend-mateo")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_UNREADABLE", repo: "mergehawk-labs/mergehawk", size: 4, members: [
+            PRStackMember(position: 1, number: 211, title: "Try a separate stack cache", role: .context(.closed), author: "docs-lee"),
+            PRStackMember(position: 2, number: 212, title: "Keep stack positions as GitHub reports them", role: .direct, author: "docs-lee"),
+            PRStackMember(position: 4, number: 214, title: "Explain skipped stack entries", role: .context(.open), draft: true, author: "docs-lee")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_FILTER", repo: "mergehawk-labs/desktop-app", size: 3, members: [
+            PRStackMember(position: 1, number: 311, title: "Sketch the onboarding window", role: .direct, draft: true, author: "platform-nora"),
+            PRStackMember(position: 2, number: 312, title: "Build the onboarding window", role: .direct, author: "platform-nora"),
+            PRStackMember(position: 3, number: 313, title: "Animate onboarding steps", role: .context(.open), author: "backend-mateo")
+        ])
+    ]
+
+    private static let prStackBaseDate = Date(timeIntervalSince1970: 1_778_100_000)
+
+    private static func prStackPullRequest(
+        id: String, number: Int, title: String, repo: String, role: PRStackMember.Role, draft: Bool, author: String,
+        stackID: String?
+    ) -> PullRequest {
+        let request: ReviewRequestKind = switch role {
+        case .direct: .direct
+        case .team: .team
+        case .assigned, .mine, .context: .none
+        }
+        let mine = if case .mine = role { true } else { false }
+        let assigned = if case .assigned = role { true } else { false }
+        return PullRequest(
+            id: id, title: title, number: number,
+            url: URL(string: "https://github.com/\(repo)/pull/\(number)")!,
+            repo: repo, ciState: .passing, reviewDecision: .reviewRequired,
+            additions: 10 + number % 90, deletions: number % 13, commentCount: 0, reviewCount: 0,
+            headRefOid: "pr-stacks-fixture", reviewRequestKind: request,
+            requestedTeams: request.includesTeam ? [Self.reviewersTeam] : [], isAssignedToViewer: assigned,
+            isMine: mine, author: mine ? "agent-fixture" : author,
+            headRefName: "MER-64-stack-\(number)", mergeable: .mergeable, draft: draft,
+            createdAt: prStackBaseDate.addingTimeInterval(-86_400 - Double(number) * 60),
+            updatedAt: prStackBaseDate.addingTimeInterval(-Double(number) * 60),
+            stackID: stackID
+        )
+    }
+
+    private static func prStackMemberID(_ fixture: PRStackFixture, _ member: PRStackMember) -> String {
+        "PR_\(fixture.id)_\(member.position)"
+    }
+
+    /// Requested stack members, the viewer's own stack member, and one unstacked requested PR per section.
+    private static var prStackPullRequests: [PullRequest] {
+        let members = prStackFixtures.flatMap { fixture in
+            fixture.members.compactMap { member -> PullRequest? in
+                if case .context = member.role { return nil }
+                return prStackPullRequest(
+                    id: prStackMemberID(fixture, member), number: member.number, title: member.title,
+                    repo: fixture.repo, role: member.role, draft: member.draft, author: member.author,
+                    stackID: fixture.id
+                )
+            }
+        }
+        let unstacked: [(String, Int, String, PRStackMember.Role)] = [
+            ("PR_STACKS_UNSTACKED_ASSIGNED", 230, "Tidy the settings window layout", .assigned),
+            ("PR_STACKS_UNSTACKED_DIRECT", 231, "Cache avatars between refreshes", .direct),
+            ("PR_STACKS_UNSTACKED_TEAM", 232, "Document the review team settings", .team)
+        ]
+        return members + unstacked.map { id, number, title, role in
+            prStackPullRequest(
+                id: id, number: number, title: title, repo: "mergehawk-labs/mergehawk", role: role, draft: false,
+                author: "backend-mateo", stackID: nil
+            )
+        }
+    }
+
+    private static var prStackStacks: [PullRequestStack] {
+        prStackFixtures.map { fixture in
+            PullRequestStack(id: fixture.id, size: fixture.size, entries: fixture.members.map { member in
+                let state: PullRequestStackEntry.State = if case .context(let state) = member.role { state } else { .open }
+                let author = if case .mine = member.role { "agent-fixture" } else { member.author }
+                return PullRequestStackEntry(
+                    position: member.position,
+                    pullRequestID: prStackMemberID(fixture, member),
+                    number: member.number,
+                    title: member.title,
+                    url: URL(string: "https://github.com/\(fixture.repo)/pull/\(member.number)")!,
+                    state: state,
+                    isDraft: member.draft,
+                    author: author
+                )
+            })
+        }
     }
 
     /// Stage 0 is a quiet baseline with a direct-requested, a team-requested, and an authored draft. Stage 1 marks
@@ -1122,7 +1258,8 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             activePullRequests: result.activePullRequests,
             retiringPullRequests: result.retiringPullRequests,
             quietlyRetiredPullRequestIDs: result.quietlyRetiredPullRequestIDs,
-            viewerTeams: viewerTeams
+            viewerTeams: viewerTeams,
+            stacks: stacks
         )
     }
 
@@ -1159,6 +1296,8 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             return CompletePullRequestFetchResult(
                 activePullRequests: Self.draftReadyForReviewPullRequests(stage: stage)
             )
+        case .prStacks:
+            return CompletePullRequestFetchResult(activePullRequests: Self.prStackPullRequests)
         case .standard, .delayedRefresh:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:
