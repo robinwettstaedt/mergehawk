@@ -572,27 +572,33 @@ enum MenuPanelSize {
     /// Screen-space gap between the panel and the usable screen edges; not a panel size, so it never scales.
     static let margin: CGFloat = 12
 
+    /// macOS limits a menu's width to 60% of the screen width (observed on macOS 27.0: 907 pt on a
+    /// 1512 pt screen, 1536 pt on a 2560 pt screen); wider custom menu views are clipped.
+    static let menuWidthShare: CGFloat = 0.6
+
     static func resolve(availableFrame: CGRect, menuSize: MenuSize) -> MenuPanelLayout {
-        let metrics = MenuMetrics(scale: appliedFactor(availableFrame: availableFrame, menuSize: menuSize))
+        let budget = widthBudget(for: availableFrame)
+        let metrics = MenuMetrics(scale: appliedFactor(widthBudget: budget, menuSize: menuSize))
         return MenuPanelLayout(
             metrics: metrics,
             size: CGSize(
-                width: min(metrics.panel.width, max(0, availableFrame.width - margin * 2)),
+                width: min(metrics.panel.width, budget),
                 height: min(metrics.panelHeight, max(0, availableFrame.height - margin * 2))
             )
         )
     }
 
-    /// Small and Default always use their own factor. Large and Larger shrink toward the factor whose
-    /// panel fits the usable width, but never below Default, which keeps today's clamping on narrow screens.
-    private static func appliedFactor(availableFrame: CGRect, menuSize: MenuSize) -> CGFloat {
-        switch menuSize {
-        case .small, .standard:
-            return menuSize.factor
-        case .large, .larger:
-            let fittingFactor = (availableFrame.width - margin * 2) / MenuMetrics.standard.panel.width
-            return min(menuSize.factor, max(1, fittingFactor))
-        }
+    /// The widest panel that macOS shows unclipped and that keeps the margins on the usable screen.
+    /// The 60% share is applied to the usable width (visible frame) on purpose, not the full screen width:
+    /// with a side Dock it is narrower, so the panel can only end up slightly narrower than needed, never clipped.
+    static func widthBudget(for availableFrame: CGRect) -> CGFloat {
+        max(0, min((availableFrame.width * menuWidthShare).rounded(.down), availableFrame.width - margin * 2))
+    }
+
+    /// Every size uses its own factor when its panel fits the width budget; otherwise it shrinks
+    /// uniformly to the factor whose panel width equals the budget.
+    private static func appliedFactor(widthBudget: CGFloat, menuSize: MenuSize) -> CGFloat {
+        min(menuSize.factor, widthBudget / MenuMetrics.standard.panel.width)
     }
 }
 

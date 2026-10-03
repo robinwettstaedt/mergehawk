@@ -47,8 +47,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         isMenuOpen = false
     }
 
-    func rebuildMenuForTesting() -> [NSMenuItem] {
-        rebuildMenu()
+    func rebuildMenuForTesting(availableFrame: CGRect? = nil) -> [NSMenuItem] {
+        rebuildMenu(availableFrame: availableFrame)
         return menu.items
     }
 
@@ -103,12 +103,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         return menu.items
     }
 
-    private func rebuildMenu() {
+    private func rebuildMenu(availableFrame: CGRect? = nil) {
         updateStatusButton()
         menu.removeAllItems()
 
         let item = NSMenuItem()
-        item.view = makeMenuContentView()
+        item.view = makeMenuContentView(availableFrame: availableFrame)
         menu.addItem(item)
         menu.addItem(makeKeyEquivalentTrapItem(
             title: "Settings",
