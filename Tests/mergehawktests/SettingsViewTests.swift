@@ -475,6 +475,21 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(counting(), ["engineering": true, "developers": true, "plm-team": true, "secret-squad": true])
     }
 
+    @MainActor
+    func testTeamSwitchTogglesThroughItsAccessibilityPressAction() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: .reviewTeams)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+        let developersSwitch = "Show review requests from @mergehawk-labs/developers"
+
+        try pressAccessibilityElement(labeled: developersSwitch, role: .checkBox, in: host)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, ["T_MOCK_DEVELOPERS"])
+
+        try pressAccessibilityElement(labeled: developersSwitch, role: .checkBox, in: host)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, [])
+    }
+
     /// A controller signed in to a synced mock scenario, or signed out when `scenario` is nil.
     @MainActor
     private func makeSettingsController(
@@ -523,6 +538,40 @@ final class SettingsViewTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
+        try withAccessibilityElement(labeled: label, role: role, in: host, file: file, line: line) { element in
+            let screenFrame = element.accessibilityFrame()
+            try host.click(at: host.window.convertPoint(fromScreen: CGPoint(x: screenFrame.midX, y: screenFrame.midY)))
+        }
+    }
+
+    /// Performs the press action of the one accessibility element with this label and role, as VoiceOver does.
+    @MainActor
+    private func pressAccessibilityElement(
+        labeled label: String,
+        role: NSAccessibility.Role,
+        in host: OffScreenHost,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withAccessibilityElement(labeled: label, role: role, in: host, file: file, line: line) { element in
+            let actions = (element as AnyObject).accessibilityActionNames?() ?? []
+            XCTAssertTrue(actions.contains(.press), "\(label) actions \(actions)", file: file, line: line)
+            // SwiftUI reports a switch press as unhandled even when it toggles, so callers assert the outcome.
+            _ = (element as AnyObject).accessibilityPerformPress?()
+            host.settle()
+        }
+    }
+
+    /// Finds the one accessibility element with this label and role while the pane's accessibility tree exists.
+    @MainActor
+    private func withAccessibilityElement(
+        labeled label: String,
+        role: NSAccessibility.Role,
+        in host: OffScreenHost,
+        file: StaticString,
+        line: UInt,
+        _ body: (NSAccessibilityElementProtocol) throws -> Void
+    ) throws {
         // SwiftUI builds its accessibility tree only once an assistive client asks for it.
         let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
@@ -538,10 +587,7 @@ final class SettingsViewTests: XCTestCase {
         }
         let found = matches(in: root)
         XCTAssertEqual(found.count, 1, "accessibility elements labeled \(label)", file: file, line: line)
-        let element = try XCTUnwrap(found.first, file: file, line: line)
-        let screenFrame = element.accessibilityFrame()
-        let point = host.window.convertPoint(fromScreen: CGPoint(x: screenFrame.midX, y: screenFrame.midY))
-        try host.click(at: point)
+        try body(try XCTUnwrap(found.first, file: file, line: line))
     }
 
     @MainActor

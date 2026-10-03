@@ -135,8 +135,22 @@ private struct ReviewTeamSettingsRow: View {
     @ObservedObject var controller: DashboardController
 
     var body: some View {
+        // The row is the switch's label: in a grouped Form, a switch beside its row content with a hidden label
+        // exposes no press action to assistive tools, so VoiceOver could not toggle it.
+        Toggle(isOn: Binding {
+            row.isCounting
+        } set: { counting in
+            controller.setReviewTeam(row.team.id, counting: counting)
+        }) {
+            rowContent
+        }
+        .toggleStyle(.switch)
+        .accessibilityLabel("Show review requests from \(row.team.displayName)")
+    }
+
+    private var rowContent: some View {
         let indent = ReviewTeamsSettingsLayout.indentPerLevel
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             if row.depth > 0 {
                 // The marker sits at the parent's inset, so every child of one parent lines up below it.
                 Text("└")
@@ -158,15 +172,6 @@ private struct ReviewTeamSettingsRow: View {
                     .foregroundStyle(row.isCounting ? .secondary : .tertiary)
                     .fixedSize()
                     .help(ReviewTeamsSettingsPresentation.countHelp(for: row))
-                Spacer(minLength: 8)
-                Toggle("Show review requests from \(row.team.displayName)", isOn: Binding {
-                    row.isCounting
-                } set: { counting in
-                    controller.setReviewTeam(row.team.id, counting: counting)
-                })
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .fixedSize()
             }
         }
     }
