@@ -154,6 +154,30 @@ final class AgentModeXCTests: XCTestCase {
     }
 
     @MainActor
+    func testDraftReadyForReviewScenarioNotifiesForRequestedDraftsThatBecomeReady() async {
+        let suite = "draft-ready-for-review-scenario-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let notifications = RecordingNotificationClient()
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), preferencesStore: PreferencesStore(defaults: defaults), launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .draftReadyForReview), notificationClient: notifications, automaticRefreshInterval: 0)
+        await waitUntil(timeout: 1) { await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing } }
+        XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+        XCTAssertTrue(notifications.records.isEmpty)
+        XCTAssertTrue(controller.state.pullRequests.allSatisfy(\.draft))
+
+        controller.refresh()
+        await waitUntil(timeout: 1) { await MainActor.run { !controller.state.pullRequests.contains(where: \.draft) && !controller.isRefreshing } }
+        let history = controller.pullRequestNotificationHistory
+        XCTAssertEqual(history.count, 3)
+        XCTAssertEqual(
+            Set(history.map { "\($0.prNumber) \(PullRequestNotificationTitlePresentation.title(for: $0))" }),
+            ["96 Ready for review", "97 Ready for review", "97 Assigned to you"]
+        )
+        XCTAssertEqual(notifications.records.count, 3)
+        XCTAssertFalse(notifications.records.contains { $0.pullRequestId == "PR_DRAFT_READY_AUTHORED" })
+    }
+
+    @MainActor
     func testFreshBotScenarioRunsRespectMuteAndRecordedPayloads() async {
         for muted in [false, true] {
             let suite = "bot-scenario-\(UUID().uuidString)"
@@ -581,6 +605,7 @@ final class AgentModeXCTests: XCTestCase {
                 Set(controller.visiblePullRequestNotifications.map(\.eventType)),
                 [
                     .relationshipAdded,
+                    .readyForReview,
                     .newComment,
                     .reviewApproved,
                     .reviewCommented,
@@ -589,7 +614,7 @@ final class AgentModeXCTests: XCTestCase {
                     .newReview
                 ]
             )
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 8)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 9)
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
@@ -604,6 +629,11 @@ final class AgentModeXCTests: XCTestCase {
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
                     .contains("Assigned to you")
+            )
+            XCTAssertTrue(
+                controller.visiblePullRequestNotifications
+                    .map { PullRequestNotificationTitlePresentation.title(for: $0) }
+                    .contains("Ready for review")
             )
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
@@ -890,6 +920,23 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertEqual(records[0].relationshipChanges, ["assigned"])
         XCTAssertEqual(records[1].relationshipChanges, ["direct_review_request"])
         XCTAssertEqual(records[2].relationshipChanges, ["assigned", "team_review_request"])
+    }
+
+    func testReadyForReviewTitleAppearsInNotificationContentAndHistory() {
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        let event = PullRequestEvent(type: .readyForReview, prId: "PR_1")
+
+        XCTAssertEqual(
+            NotificationContentBuilder.records(events: [event], pullRequests: [pullRequest]).map(\.title),
+            ["Ready for review"]
+        )
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event]), "Ready for review")
+        XCTAssertEqual(
+            PullRequestNotificationTitlePresentation.title(
+                for: PullRequestNotification(event: event, pullRequest: pullRequest)
+            ),
+            "Ready for review"
+        )
     }
 
     func testRecordingNotificationClientWritesJsonLines() throws {

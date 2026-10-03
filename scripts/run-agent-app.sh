@@ -29,6 +29,7 @@ Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario bot-notifications --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario comment-notifications --ui settings --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario new-review-request --ui menu --open
+  scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario draft-ready-for-review --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
   # Native handoff for a run verified with long-lists and notification type fixtures:
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-review --ui native --mock --mock-scenario long-lists --notification-type-fixtures --open
@@ -101,9 +102,9 @@ if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" && "$UI_SURFACE" !=
   exit 2
 fi
 case "$MOCK_SCENARIO" in
-  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications|long-lists|new-review-request|review-teams) ;;
+  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications|long-lists|new-review-request|review-teams|draft-ready-for-review) ;;
   *)
-    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications, comment-notifications, long-lists, new-review-request or review-teams" >&2
+    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications, comment-notifications, long-lists, new-review-request, review-teams or draft-ready-for-review" >&2
     exit 2
     ;;
 esac

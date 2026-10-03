@@ -185,18 +185,45 @@ final class PreferencesStoreTests: XCTestCase {
                 ),
                 assigned: PullRequestNotificationActivityPreferences(
                     reviewActivity: true,
-                    ciFailures: false
+                    ciFailures: false,
+                    relationshipChanges: false,
+                    readyForReview: true
                 ),
                 directReviewRequests: PullRequestNotificationActivityPreferences(
                     reviewActivity: true,
-                    ciFailures: false
+                    ciFailures: false,
+                    relationshipChanges: true,
+                    readyForReview: false
                 ),
-                teamReviewRequests: .disabled
+                teamReviewRequests: .disabled,
+                commentModes: CommentNotificationPreferences(
+                    authored: .off, assigned: .mentionsAndThreads, directReviewRequests: .all, teamReviewRequests: .off
+                )
             )
             store.notificationPreferences = preferences
+            let stored = defaults.data(forKey: "notifications.prMatrix")
 
             XCTAssertEqual(PreferencesStore(defaults: defaults).notificationPreferences, preferences)
-            XCTAssertNotNil(defaults.data(forKey: "notifications.prMatrix"))
+            XCTAssertEqual(PreferencesStore(defaults: defaults).loadAndPersistNotificationPreferences(), preferences)
+            XCTAssertNotNil(stored)
+            XCTAssertEqual(defaults.data(forKey: "notifications.prMatrix"), stored)
+        }
+    }
+
+    func testNotificationDefaultsEnableReadyForReviewForRequestedRelationshipsOnly() {
+        withStore { store, _ in
+            let preferences = store.loadAndPersistNotificationPreferences()
+
+            XCTAssertEqual(preferences, .defaults)
+            XCTAssertEqual(preferences.authored, PullRequestNotificationActivityPreferences(
+                reviewActivity: true, ciFailures: true, relationshipChanges: false, readyForReview: false
+            ))
+            for requested in [preferences.assigned, preferences.directReviewRequests, preferences.teamReviewRequests] {
+                XCTAssertEqual(requested, PullRequestNotificationActivityPreferences(
+                    reviewActivity: false, ciFailures: false, relationshipChanges: true, readyForReview: true
+                ))
+            }
+            XCTAssertEqual(preferences.commentModes, .defaults)
         }
     }
 

@@ -321,6 +321,63 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(reentered.events.first?.event.relationshipChanges, [.directReviewRequest])
     }
 
+    func testBaselineWithReadyRequestedPRIsQuiet() async throws {
+        let ready = Self.pullRequest(id: "PR_READY", reviewRequestKind: .direct, isMine: false, draft: false)
+
+        let prepared = try await Self.engine().prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [ready])
+        )
+
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testRequestedDraftBecomingReadyAfterBaselineEmitsOneReadyForReview() async throws {
+        let engine = Self.engine()
+        let draft = Self.pullRequest(id: "PR_DRAFT", reviewRequestKind: .direct, isMine: false, draft: true)
+        let ready = Self.pullRequest(id: "PR_DRAFT", reviewRequestKind: .direct, isMine: false, draft: false)
+        let baseline = try await engine.prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [draft])
+        )
+        XCTAssertTrue(baseline.events.isEmpty)
+
+        let next = try await engine.prepare(
+            previousState: Self.state(from: baseline),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [ready])
+        )
+
+        XCTAssertEqual(next.events.map(\.event.type), [.readyForReview])
+        XCTAssertEqual(next.events.first?.event.prId, ready.id)
+    }
+
+    func testReadyDraftReadyAcrossRefreshesEmitsTwoReadyForReviewUpdates() async throws {
+        let engine = Self.engine()
+        let draft = Self.pullRequest(
+            id: "PR_TOGGLE", reviewRequestKind: .team, requestedTeams: [Self.reviewersTeam], isMine: false, draft: true
+        )
+        let ready = Self.pullRequest(
+            id: "PR_TOGGLE", reviewRequestKind: .team, requestedTeams: [Self.reviewersTeam], isMine: false, draft: false
+        )
+        let viewerTeams = [ViewerTeam(team: Self.reviewersTeam)]
+        var state = Self.state(from: try await engine.prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [draft], viewerTeams: viewerTeams)
+        ))
+
+        var readyCount = 0
+        for pullRequest in [ready, draft, ready] {
+            let prepared = try await engine.prepare(
+                previousState: state,
+                fetchResult: CompletePullRequestFetchResult(activePullRequests: [pullRequest], viewerTeams: viewerTeams)
+            )
+            readyCount += prepared.events.filter { $0.event.type == .readyForReview }.count
+            state = Self.state(from: prepared)
+        }
+
+        XCTAssertEqual(readyCount, 2)
+    }
+
     func testNewlySeenAuthoredPREmitsNothing() async throws {
         let authored = Self.pullRequest(
             id: "PR_AUTHORED",
@@ -578,7 +635,8 @@ final class SyncEngineTests: XCTestCase {
         reviewRequestKind: ReviewRequestKind = .none,
         requestedTeams: [TeamReference] = [],
         isAssigned: Bool = false,
-        isMine: Bool = true
+        isMine: Bool = true,
+        draft: Bool = false
     ) -> PullRequest {
         PullRequest(
             id: id,
@@ -600,7 +658,7 @@ final class SyncEngineTests: XCTestCase {
             isMine: isMine,
             author: isMine ? "rw" : "author",
             mergeable: .mergeable,
-            draft: false
+            draft: draft
         )
     }
 

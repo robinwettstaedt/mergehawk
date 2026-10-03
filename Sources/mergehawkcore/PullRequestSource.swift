@@ -46,6 +46,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case longLists = "long-lists"
     case newReviewRequest = "new-review-request"
     case reviewTeams = "review-teams"
+    case draftReadyForReview = "draft-ready-for-review"
 }
 
 public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
@@ -396,6 +397,8 @@ public final class MockPullRequestSource {
             Self.newReviewRequestPullRequests(stage: 0)
         case .reviewTeams:
             Self.reviewTeamPullRequests(stage: 0)
+        case .draftReadyForReview:
+            Self.draftReadyForReviewPullRequests(stage: 0)
         case .refreshFailure, .mergedFinalActivity, .quietAccessLoss:
             [Self.scenarioBaselinePullRequest]
         }
@@ -407,7 +410,7 @@ public final class MockPullRequestSource {
         case .reviewTeams:
             Self.reviewTeamViewerTeams
         case .standard, .botNotifications, .commentNotifications, .delayedRefresh, .refreshFailure,
-             .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest:
+             .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview:
             Self.standardViewerTeams
         }
     }
@@ -723,6 +726,39 @@ public final class MockPullRequestSource {
         ]
     }
 
+    /// Stage 0 is a quiet baseline with a direct-requested, a team-requested, and an authored draft. Stage 1 marks
+    /// all three ready and also assigns the team-requested one. Later refreshes repeat stage 1.
+    private static func draftReadyForReviewPullRequests(stage: Int) -> [PullRequest] {
+        let base = Date(timeIntervalSince1970: 1_777_960_000)
+        func pullRequest(
+            _ id: String, number: Int, title: String, request: ReviewRequestKind = .none, assigned: Bool = false,
+            author: String = "platform-nora", mine: Bool = false
+        ) -> PullRequest {
+            PullRequest(
+                id: id, title: title, number: number,
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(number)")!,
+                repo: "mergehawk-labs/mergehawk", ciState: .passing, reviewDecision: .reviewRequired,
+                additions: 48, deletions: 12, commentCount: 0, commentActivityCount: 0,
+                recentCommentActivities: [], reviewCount: 0, recentReviews: [],
+                headRefOid: "draft-ready-for-review-fixture", reviewRequestKind: request,
+                requestedTeams: request.includesTeam ? [Self.reviewersTeam] : [], isAssignedToViewer: assigned,
+                isMine: mine, author: mine ? "agent-fixture" : author,
+                headRefName: "MER-35-draft-ready-\(number)", mergeable: .mergeable, draft: stage == 0,
+                createdAt: base.addingTimeInterval(-86_400), updatedAt: base.addingTimeInterval(-3_600)
+            )
+        }
+        return [
+            pullRequest(
+                "PR_DRAFT_READY_DIRECT", number: 96, title: "Mark the direct-requested draft ready", request: .direct
+            ),
+            pullRequest(
+                "PR_DRAFT_READY_TEAM", number: 97, title: "Mark the team-requested draft ready and assign it",
+                request: .team, assigned: stage >= 1, author: "docs-lee"
+            ),
+            pullRequest("PR_DRAFT_READY_AUTHORED", number: 98, title: "Mark my own draft ready", mine: true),
+        ]
+    }
+
     private static let scenarioBaselinePullRequest = PullRequest(
         id: "PR_SCENARIO",
         title: "Preserve final pull request activity",
@@ -799,6 +835,11 @@ public final class MockPullRequestSource {
                 ),
                 pullRequest: notificationFixtureRelationshipPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_813_200)
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(type: .readyForReview, prId: notificationFixtureReadyForReviewPullRequest.id),
+                pullRequest: notificationFixtureReadyForReviewPullRequest,
+                createdAt: Date(timeIntervalSince1970: 1_777_812_300)
             ),
             PullRequestNotification(
                 event: PullRequestEvent(
@@ -893,6 +934,25 @@ public final class MockPullRequestSource {
         mergeable: .unknown,
         draft: false,
         updatedAt: Date(timeIntervalSince1970: 1_777_813_200)
+    )
+
+    private static let notificationFixtureReadyForReviewPullRequest = PullRequest(
+        id: "PR_NOTIFICATION_READY_FOR_REVIEW",
+        title: "Review the draft now that it is ready",
+        number: 38,
+        url: URL(string: "https://github.com/example/review-router/pull/38")!,
+        repo: "example/review-router",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        reviewRequestKind: .direct,
+        isMine: false,
+        author: "docs-lee",
+        headRefName: "ready-draft-review",
+        mergeable: .mergeable,
+        draft: false,
+        updatedAt: Date(timeIntervalSince1970: 1_777_812_300)
     )
 
     private static let notificationFixtureAssignedPullRequest = PullRequest(
@@ -1093,6 +1153,12 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             let stage = min(index, 1)
             index += 1
             return CompletePullRequestFetchResult(activePullRequests: Self.newReviewRequestPullRequests(stage: stage))
+        case .draftReadyForReview:
+            let stage = min(index, 1)
+            index += 1
+            return CompletePullRequestFetchResult(
+                activePullRequests: Self.draftReadyForReviewPullRequests(stage: stage)
+            )
         case .standard, .delayedRefresh:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:

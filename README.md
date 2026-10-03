@@ -231,7 +231,9 @@ authored, PRs assigned to you, and PRs where your review is requested directly o
 through a team. Comment settings never add PRs to that set.
 
 - **Pull request notifications** covers review decisions (approvals and changes
-  requested), failed CI, and becoming assigned or requested.
+  requested), failed CI, becoming assigned or requested, and Ready for review: a draft
+  PR you are assigned to or asked to review becoming ready for review. Ready for review
+  updates are never produced for PRs you authored.
 - **Comment notifications** chooses one mode per relationship: **All comments**,
   **Mentions & threads you joined**, or **Off**. Authored and assigned PRs default to
   All comments; direct and team review requests default to Mentions & threads you joined.

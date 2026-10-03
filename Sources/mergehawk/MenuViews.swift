@@ -95,6 +95,8 @@ enum PullRequestNotificationTitlePresentation {
             actorText(for: notification).map { "Changes requested by \($0)" } ?? "Changes requested"
         case .relationshipAdded:
             RelationshipChangeTitlePresentation.title(for: notification.relationshipChanges)
+        case .readyForReview:
+            "Ready for review"
         }
     }
 
@@ -120,6 +122,8 @@ enum PullRequestNotificationIconPresentation {
             "exclamationmark.triangle"
         case .relationshipAdded:
             "person.badge.plus"
+        case .readyForReview:
+            "eye"
         }
     }
 
@@ -133,6 +137,8 @@ enum PullRequestNotificationIconPresentation {
             .blue
         case .relationshipAdded:
             .purple
+        case .readyForReview:
+            .orange
         }
     }
 }

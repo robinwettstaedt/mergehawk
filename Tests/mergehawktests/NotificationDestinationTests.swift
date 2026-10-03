@@ -72,7 +72,7 @@ final class NotificationDestinationTests: XCTestCase {
 
     func testMockNotificationTypesUsePreciseDestinationsOnlyForPeopleActivity() {
         let notifications = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
-        XCTAssertEqual(notifications.count, 8)
+        XCTAssertEqual(notifications.count, 9)
         for notification in notifications {
             switch notification.eventType {
             case .newComment, .reviewApproved, .reviewCommented, .changesRequested:
@@ -111,6 +111,30 @@ final class NotificationDestinationTests: XCTestCase {
         XCTAssertEqual(NotificationClickRoute(userInfo: malformed), .openNotifications)
         XCTAssertEqual(NotificationClickRoute.route(events: [event, event], pullRequests: [pullRequest]), .openNotifications)
         XCTAssertEqual(NotificationClickRoute.route(events: [event], pullRequests: []), .openNotifications)
+    }
+
+    func testReadyForReviewOpensThePRAloneAndNotificationsWithOtherUpdates() {
+        let base = URL(string: "https://github.com/acme/app/pull/1")!
+        let pullRequest = PullRequest(
+            id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
+            reviewCount: 0, reviewRequestKind: .direct, isAssignedToViewer: true,
+            isMine: false, author: "teammate", mergeable: .mergeable, draft: false
+        )
+        let ready = PullRequestEvent(type: .readyForReview, prId: pullRequest.id)
+        let assigned = PullRequestEvent(type: .relationshipAdded, prId: pullRequest.id, relationshipChanges: [.assigned])
+
+        XCTAssertNil(ready.destinationURL)
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [ready]), "Ready for review")
+        XCTAssertEqual(
+            NotificationClickRoute.route(events: [ready], pullRequests: [pullRequest]),
+            .openPullRequest(PullRequestOpenRequest(pullRequestURL: base))
+        )
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [assigned, ready]), "2 MergeHawk updates")
+        XCTAssertEqual(
+            NotificationClickRoute.route(events: [assigned, ready], pullRequests: [pullRequest]),
+            .openNotifications
+        )
     }
 
     @MainActor

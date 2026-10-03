@@ -639,6 +639,7 @@ public enum PullRequestEventType: String, Codable, Equatable, Sendable {
     case ciFailed = "ci_failed"
     case changesRequested = "changes_requested"
     case relationshipAdded = "relationship_added"
+    case readyForReview = "ready_for_review"
 }
 
 public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
@@ -784,6 +785,7 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
     case reviewActivity = "review_activity"
     case ciFailures = "ci_failures"
     case relationshipChanges = "relationship_changes"
+    case readyForReview = "ready_for_review"
 
     /// Nil for comment updates, which follow the comment modes.
     public init?(eventType: PullRequestEventType) {
@@ -796,6 +798,8 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
             self = .ciFailures
         case .relationshipAdded:
             self = .relationshipChanges
+        case .readyForReview:
+            self = .readyForReview
         }
     }
 }
@@ -804,49 +808,43 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
     public var reviewActivity: Bool
     public var ciFailures: Bool
     public var relationshipChanges: Bool
+    public var readyForReview: Bool
 
     public static let authoredDefaults = PullRequestNotificationActivityPreferences(
         reviewActivity: true,
         ciFailures: true,
-        relationshipChanges: false
+        relationshipChanges: false,
+        readyForReview: false
     )
     public static let enabled = PullRequestNotificationActivityPreferences(
         reviewActivity: true,
         ciFailures: true,
-        relationshipChanges: true
+        relationshipChanges: true,
+        readyForReview: true
     )
     public static let disabled = PullRequestNotificationActivityPreferences(
         reviewActivity: false,
         ciFailures: false,
-        relationshipChanges: false
+        relationshipChanges: false,
+        readyForReview: false
     )
-    public static let relationshipChangesOnly = PullRequestNotificationActivityPreferences(
+    public static let requestedDefaults = PullRequestNotificationActivityPreferences(
         reviewActivity: false,
         ciFailures: false,
-        relationshipChanges: true
+        relationshipChanges: true,
+        readyForReview: true
     )
-
-    enum CodingKeys: String, CodingKey {
-        case reviewActivity
-        case ciFailures
-        case relationshipChanges
-    }
 
     public init(
         reviewActivity: Bool,
         ciFailures: Bool,
-        relationshipChanges: Bool = false
+        relationshipChanges: Bool = false,
+        readyForReview: Bool = false
     ) {
         self.reviewActivity = reviewActivity
         self.ciFailures = ciFailures
         self.relationshipChanges = relationshipChanges
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.reviewActivity = try container.decode(Bool.self, forKey: .reviewActivity)
-        self.ciFailures = try container.decode(Bool.self, forKey: .ciFailures)
-        self.relationshipChanges = try container.decodeIfPresent(Bool.self, forKey: .relationshipChanges) ?? false
+        self.readyForReview = readyForReview
     }
 
     public func allows(_ activity: PullRequestNotificationActivity) -> Bool {
@@ -857,6 +855,8 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
             ciFailures
         case .relationshipChanges:
             relationshipChanges
+        case .readyForReview:
+            readyForReview
         }
     }
 }
@@ -942,18 +942,10 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
 
     public static let defaults = NotificationPreferences(
         authored: .authoredDefaults,
-        assigned: .relationshipChangesOnly,
-        directReviewRequests: .relationshipChangesOnly,
-        teamReviewRequests: .relationshipChangesOnly
+        assigned: .requestedDefaults,
+        directReviewRequests: .requestedDefaults,
+        teamReviewRequests: .requestedDefaults
     )
-
-    enum CodingKeys: String, CodingKey {
-        case authored
-        case assigned
-        case directReviewRequests
-        case teamReviewRequests
-        case commentModes
-    }
 
     public init(
         authored: PullRequestNotificationActivityPreferences,
@@ -967,25 +959,6 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         self.directReviewRequests = directReviewRequests
         self.teamReviewRequests = teamReviewRequests
         self.commentModes = commentModes
-    }
-
-    /// Comment modes are independent of the upper matrix, so a value saved before they existed gets their defaults.
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.authored = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .authored)
-        self.assigned = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .assigned)
-        self.directReviewRequests = try container.decode(
-            PullRequestNotificationActivityPreferences.self,
-            forKey: .directReviewRequests
-        )
-        self.teamReviewRequests = try container.decode(
-            PullRequestNotificationActivityPreferences.self,
-            forKey: .teamReviewRequests
-        )
-        self.commentModes = try container.decodeIfPresent(
-            CommentNotificationPreferences.self,
-            forKey: .commentModes
-        ) ?? .defaults
     }
 
     public func preferences(for relationship: PullRequestNotificationRelationship) -> PullRequestNotificationActivityPreferences {

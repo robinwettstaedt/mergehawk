@@ -16,12 +16,16 @@ struct Runner {
         try testDetectsIncomingRelationshipAddedTransitions()
         try testDetectsRelationshipsOnPRsFirstSeenAfterBaseline()
         try testNewlySeenPRKeepsCIBaselined()
+        try testDetectsReadyForReviewOnTrackedRequestedDrafts()
+        try testReadyForReviewIgnoresOtherDraftChanges()
+        try testReadyForReviewAndRelationshipChangeInOneComparison()
         try testRelationshipAddedFilteringUsesChangedRelationships()
         try testNotificationPreferencesDefaultCommentModes()
         try testPreferencesFilterEvents()
         try testNotificationPreferencesAllowEachRelationshipAndActivity()
         try testNotificationPreferencesSeparateDecisionsFromComments()
         try testNotificationPreferencesAllowOverlappingRelationshipOnce()
+        try testReadyForReviewDefaultsAndAnyRelationshipAllows()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
         try await testPreparedRefreshUsesDurableProcessedActivity()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
@@ -554,6 +558,67 @@ struct Runner {
         try expect(failing.map(\.type) == [.relationshipAdded])
     }
 
+    private static func testDetectsReadyForReviewOnTrackedRequestedDrafts() throws {
+        let cases: [(String, ReviewRequestKind, Bool)] = [
+            ("PR_READY_DIRECT", .direct, false),
+            ("PR_READY_ASSIGNED", .none, true),
+            ("PR_READY_TEAM", .team, false),
+        ]
+        for (id, kind, assigned) in cases {
+            let events = PRActivityDetector.detectTransitions(
+                previous: .fixture(id: id, reviewRequestKind: kind, isAssignedToViewer: assigned, isMine: false, draft: true),
+                current: .fixture(id: id, reviewRequestKind: kind, isAssignedToViewer: assigned, isMine: false, draft: false)
+            )
+            try expect(events.map(\.type) == [.readyForReview])
+            try expect(events[0].prId == id)
+            try expect(events[0].happenedAt == nil)
+            try expect(events[0].relationshipChanges.isEmpty)
+        }
+
+        let authored = PRActivityDetector.detectTransitions(
+            previous: .fixture(id: "PR_READY_AUTHORED", isMine: true, draft: true),
+            current: .fixture(id: "PR_READY_AUTHORED", isMine: true, draft: false)
+        )
+        try expect(authored.isEmpty)
+    }
+
+    private static func testReadyForReviewIgnoresOtherDraftChanges() throws {
+        let firstSeen = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(id: "PR_FIRST_READY", reviewRequestKind: .direct, isMine: false, draft: false)
+        )
+        try expect(firstSeen.map(\.type) == [.relationshipAdded])
+
+        for (wasDraft, isDraft) in [(false, false), (true, true), (false, true)] {
+            let events = PRActivityDetector.detectTransitions(
+                previous: .fixture(id: "PR_DRAFT_STATE", reviewRequestKind: .direct, isMine: false, draft: wasDraft),
+                current: .fixture(id: "PR_DRAFT_STATE", reviewRequestKind: .direct, isMine: false, draft: isDraft)
+            )
+            try expect(events.isEmpty)
+        }
+    }
+
+    private static func testReadyForReviewAndRelationshipChangeInOneComparison() throws {
+        let readyAndRequested = PRActivityDetector.detectTransitions(
+            previous: .fixture(id: "PR_READY_REQUESTED", isAssignedToViewer: true, isMine: false, draft: true),
+            current: .fixture(
+                id: "PR_READY_REQUESTED", ciState: .failing, reviewRequestKind: .direct,
+                isAssignedToViewer: true, isMine: false, draft: false
+            )
+        )
+        try expect(readyAndRequested.map(\.type) == [.relationshipAdded, .readyForReview, .ciFailed])
+        try expect(readyAndRequested[0].relationshipChanges == [.directReviewRequest])
+
+        let stillDraft = PRActivityDetector.detectTransitions(
+            previous: .fixture(id: "PR_DRAFT_REQUESTED", isAssignedToViewer: true, isMine: false, draft: true),
+            current: .fixture(
+                id: "PR_DRAFT_REQUESTED", reviewRequestKind: .direct, isAssignedToViewer: true, isMine: false, draft: true
+            )
+        )
+        try expect(stillDraft.map(\.type) == [.relationshipAdded])
+        try expect(stillDraft[0].relationshipChanges == [.directReviewRequest])
+    }
+
     private static func testRelationshipAddedFilteringUsesChangedRelationships() throws {
         let pullRequest = PullRequest.fixture(
             id: "PR_OVERLAP_RELATIONSHIP",
@@ -704,6 +769,35 @@ struct Runner {
         try expect(!preferences.allows(event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id), for: pullRequest))
     }
 
+    private static func testReadyForReviewDefaultsAndAnyRelationshipAllows() throws {
+        let defaults = NotificationPreferences.defaults
+        try expect(!defaults.authored.readyForReview)
+        try expect(defaults.assigned.readyForReview)
+        try expect(defaults.directReviewRequests.readyForReview)
+        try expect(defaults.teamReviewRequests.readyForReview)
+
+        let pullRequest = PullRequest.fixture(
+            id: "PR_READY_OVERLAP",
+            reviewRequestKind: .directAndTeam,
+            isAssignedToViewer: true,
+            isMine: false
+        )
+        let event = PullRequestEvent(type: .readyForReview, prId: pullRequest.id)
+        let allOff = NotificationPreferences(
+            authored: .enabled,
+            assigned: .disabled,
+            directReviewRequests: .disabled,
+            teamReviewRequests: .disabled
+        )
+        try expect(!allOff.allows(event: event, for: pullRequest))
+
+        for relationship in [PullRequestNotificationRelationship.assigned, .directReviewRequest, .teamReviewRequest] {
+            var preferences = allOff
+            preferences.set(activityPreferences(enabling: .readyForReview), for: relationship)
+            try expect(preferences.allows(event: event, for: pullRequest))
+        }
+    }
+
     private static func testNotificationPreferencesAllowOverlappingRelationshipOnce() throws {
         let preferences = NotificationPreferences(
             authored: .disabled,
@@ -826,7 +920,8 @@ struct Runner {
         PullRequestNotificationActivityPreferences(
             reviewActivity: activity == .reviewActivity,
             ciFailures: activity == .ciFailures,
-            relationshipChanges: activity == .relationshipChanges
+            relationshipChanges: activity == .relationshipChanges,
+            readyForReview: activity == .readyForReview
         )
     }
 
@@ -838,6 +933,8 @@ struct Runner {
             .ciFailed
         case .relationshipChanges:
             .relationshipAdded
+        case .readyForReview:
+            .readyForReview
         }
     }
 
