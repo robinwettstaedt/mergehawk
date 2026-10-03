@@ -14,11 +14,14 @@ HEALTH_TIMEOUT_SECONDS=10
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--stage <unique-name>] [--mock] [--mock-scenario <name>] [--notification-type-fixtures] [--open|--no-open] [--ui settings|menu]
+Usage: scripts/run-agent-app.sh [--slot <name>] [--run-dir <absolute-path>] [--stage <unique-name>] [--mock] [--mock-scenario <name>] [--notification-type-fixtures] [--open|--no-open] [--ui settings|menu|native]
 
 Launches a run-bound, mock-only MergeHawk app bundle without replacing the
 normal installed app. Opens Settings by default for unattended computer use.
+Use --ui native for normal menu bar presentation during human review.
 Starts a fresh verification run when --run-dir is omitted.
+When reusing a run, preserve its recorded --mock-scenario and replay
+--notification-type-fixtures when the packaged verified bundle used it.
 
 Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --open
@@ -28,7 +31,8 @@ Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario new-review-request --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario draft-ready-for-review --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
-  scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --mock --open
+  # Native handoff for a run verified with long-lists and notification type fixtures:
+  scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-review --ui native --mock --mock-scenario long-lists --notification-type-fixtures --open
 USAGE
 }
 
@@ -93,8 +97,8 @@ if [[ ! "$LAUNCH_STAGE" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "--stage must contain only letters, numbers, dots, underscores or hyphens" >&2
   exit 2
 fi
-if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
-  echo "--ui must be settings or menu" >&2
+if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" && "$UI_SURFACE" != "native" ]]; then
+  echo "--ui must be settings, menu or native" >&2
   exit 2
 fi
 case "$MOCK_SCENARIO" in
@@ -196,7 +200,7 @@ stop_owned_runtime() {
   rm -f "$PID_PATH"
 }
 
-"$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command "$LAUNCH_STAGE"
+"$HELPER" --root "$ROOT_DIR" start --slot "$SLOT" --run-dir "$RUN_DIR" --command "$LAUNCH_STAGE" --app-launch
 
 set +e
 (
@@ -247,10 +251,11 @@ set +e
     $FIXTURE_OPTION
 
   if [[ "$OPEN_APP" == "1" ]]; then
-    open -g -n "$RUNTIME_APP" --args \
-      --verification-ui "$UI_SURFACE" \
-      --mock-scenario "$MOCK_SCENARIO" \
-      --notification-log "$NOTIFICATION_PATH"
+    launch_args=(--mock-scenario "$MOCK_SCENARIO" --notification-log "$NOTIFICATION_PATH")
+    if [[ "$UI_SURFACE" != "native" ]]; then
+      launch_args=(--verification-ui "$UI_SURFACE" "${launch_args[@]}")
+    fi
+    open -g -n "$RUNTIME_APP" --args "${launch_args[@]}"
     deadline=$(/usr/bin/python3 - "$HEALTH_TIMEOUT_SECONDS" <<'PY'
 import sys, time
 print(time.monotonic() + float(sys.argv[1]))

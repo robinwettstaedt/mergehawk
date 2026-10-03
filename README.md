@@ -275,6 +275,19 @@ Build the app:
 swift build --product mergehawk
 ```
 
+Isolated mock launches default to the Settings verification surface for unattended
+agent testing:
+
+```sh
+scripts/run-agent-app.sh --slot local --mock --open
+```
+
+The explicit `--ui settings` and `--ui menu` verification surfaces are agent testing
+aids. Human review uses `--ui native`, which starts the normal menu bar app without
+automatically opening Settings or a persistent Verification Menu. Presentation is
+independent of fixture data: all three choices keep the slot in mock mode with
+isolated app identity and suppressed macOS local notifications.
+
 Isolated mock launches support deterministic complete-refresh scenarios:
 
 ```sh
@@ -306,3 +319,19 @@ each, which fills the Notifications list past its visible height.
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL
 immutable while the default first launch remains the `app` stage.
+
+For human review of the same verified source and bundle, reuse the printed run
+directory and slot with a native review stage. Preserve the recorded
+`--mock-scenario` and replay `--notification-type-fixtures` when the packaged
+verified bundle used it. For example, a run verified with the `long-lists`
+scenario and notification type fixtures uses this matching handoff:
+
+```sh
+scripts/run-agent-app.sh --slot local --run-dir "$RUN_DIR" --stage app-review --ui native --mock --mock-scenario long-lists --notification-type-fixtures --open
+```
+
+This replaces the slot's running process while preserving its packaged app and
+prior verification evidence. Record the exact review stage name for validation;
+use an unused suffix such as `app-review-2` for another same-source launch. Source
+changes require a fresh verification run. Open Settings from the native menu or
+with Command-comma; explicit Settings actions bring its shared window forward.
