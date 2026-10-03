@@ -1514,18 +1514,18 @@ struct PullRequestListView: View {
             requestedSectionDisclosure(content)
 
             if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
-                ForEach(content.visible) { pr in
-                    pullRequestRow(pr)
-                        .id("visible-\(pr.id)")
+                ForEach(content.visible) { row in
+                    requestedRow(row)
+                        .id("visible-\(row.id)")
                 }
 
                 if !content.hidden.isEmpty {
                     requestedHiddenDisclosure(content)
 
                     if expandedRequestedHiddenSections.contains(content.section) {
-                        ForEach(content.hidden) { pr in
-                            pullRequestRow(pr)
-                                .id("hidden-\(pr.id)")
+                        ForEach(content.hidden) { row in
+                            requestedRow(row)
+                                .id("hidden-\(row.id)")
                         }
                     }
                 }
@@ -1559,7 +1559,7 @@ struct PullRequestListView: View {
             HStack(spacing: metrics.prList.disclosureSpacing) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(metrics.type.disclosureChevron.font)
-                Text(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
+                Text(HiddenPullRequestsDisclosurePresentation.title(count: content.hiddenCount))
                     .font(metrics.type.disclosureTitle.font)
                 Spacer(minLength: 0)
             }
@@ -1570,9 +1570,30 @@ struct PullRequestListView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
-            count: content.hidden.count,
+            count: content.hiddenCount,
             isExpanded: isExpanded
         ))
+    }
+
+    /// A requested row shows its representative; a stack group's actions apply to every requested member.
+    private func requestedRow(_ row: ReviewRequestRow) -> some View {
+        let pullRequest = row.representative
+        return PullRequestRow(
+            pullRequest: pullRequest,
+            isAttention: row.isUnread,
+            isPinned: row.isPinned,
+            isHidden: row.isHidden,
+            isActionsOpen: dropdownState.openMenu == .actions(pullRequest.id),
+            toggleActions: { dropdownState.toggle(.actions(pullRequest.id)) },
+            toggleHide: {
+                controller.setHidden(row, hidden: !row.isHidden)
+            },
+            togglePin: {
+                controller.setPinned(row, pinned: !row.isPinned)
+            }
+        ) {
+            controller.openPullRequest(pullRequest)
+        }
     }
 
     private func pullRequestRow(_ pullRequest: PullRequest) -> some View {

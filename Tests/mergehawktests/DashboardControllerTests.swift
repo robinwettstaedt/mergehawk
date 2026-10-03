@@ -975,11 +975,306 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertEqual(stack.entries.map(\.position), [1, 2, 4])
     }
 
+    private static let spreadRepresentative = "PR_STACK_MOCK_SPREAD_2"
+    private static let spreadTeamMember = "PR_STACK_MOCK_SPREAD_3"
+    private static let spreadOwnMember = "PR_STACK_MOCK_SPREAD_4"
+    private static let assignedStackTeamMember = "PR_STACK_MOCK_ASSIGNED_2"
+    private static let filterDraftMember = "PR_STACK_MOCK_FILTER_1"
+    private static let filterReadyMember = "PR_STACK_MOCK_FILTER_2"
+
     @MainActor
-    private func makePRStacksController() -> DashboardController {
-        let suite = "pr-stacks-\(UUID().uuidString)"
+    private static func rowIDs(_ controller: DashboardController) -> [DashboardController.RequestedSection: [String]] {
+        Dictionary(uniqueKeysWithValues: controller.requestedSections.map {
+            ($0.section, ($0.visible + $0.hidden).map(\.id).sorted())
+        })
+    }
+
+    @MainActor
+    private static func row(_ id: String, in controller: DashboardController) throws -> ReviewRequestRow {
+        try XCTUnwrap(controller.requestedSections.flatMap { $0.visible + $0.hidden }.first { $0.id == id }, id)
+    }
+
+    @MainActor
+    func testPRStacksShowEachStackAsOneRowInItsSectionWithMatchingRequestCounts() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        XCTAssertEqual(Self.rowIDs(controller), [
+            .assigned: [Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_ASSIGNED"].sorted(),
+            .direct: [
+                Self.filterDraftMember, "PR_STACKS_UNSTACKED_DIRECT", "PR_STACK_MOCK_LAST_OPEN_2",
+                Self.spreadRepresentative, "PR_STACK_MOCK_UNREADABLE_2"
+            ].sorted(),
+            .team: ["PR_STACKS_UNSTACKED_TEAM"]
+        ])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [3, 7, 1])
+        let stackIDs = controller.requestedSections.flatMap { $0.visible + $0.hidden }.compactMap(\.stack?.stack.id)
+        XCTAssertEqual(stackIDs.sorted(), controller.state.pullRequestStacks.map(\.id).sorted())
+    }
+
+    @MainActor
+    func testReadyFilterMovesTheAssignedAboveTeamGroupFromAssignedToTeam() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        controller.selectedReviewRequestFilters = [.ready]
+
+        let ids = Self.rowIDs(controller)
+        XCTAssertEqual(ids[.assigned], ["PR_STACKS_UNSTACKED_ASSIGNED"])
+        XCTAssertEqual(ids[.team], [Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_TEAM"].sorted())
+        XCTAssertTrue(ids[.direct]?.contains(Self.filterReadyMember) == true)
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 6, 2])
+    }
+
+    @MainActor
+    func testHidingAGroupHidesAndUnpinsEveryRequestedMemberAndUnhidingClearsIt() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+        controller.pinnedPullRequestIds = [Self.spreadTeamMember]
+
+        controller.setHidden(try Self.row(Self.spreadRepresentative, in: controller), hidden: true)
+
+        XCTAssertTrue(controller.hiddenPullRequestIds.isSuperset(of: [Self.spreadRepresentative, Self.spreadTeamMember]))
+        XCTAssertTrue(controller.pinnedPullRequestIds.isDisjoint(with: [Self.spreadRepresentative, Self.spreadTeamMember]))
+        let direct = try XCTUnwrap(controller.requestedSections.first { $0.section == .direct })
+        XCTAssertEqual(direct.hidden.map(\.id), [Self.spreadRepresentative])
+        XCTAssertFalse(direct.visible.contains { $0.id == Self.spreadRepresentative })
+        XCTAssertEqual(direct.hiddenCount, 2)
+        XCTAssertEqual(direct.count, 7)
+
+        controller.setHidden(try Self.row(Self.spreadRepresentative, in: controller), hidden: false)
+
+        XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: [Self.spreadRepresentative, Self.spreadTeamMember]))
+        XCTAssertTrue(controller.requestedSections.first { $0.section == .direct }?.visible.contains {
+            $0.id == Self.spreadRepresentative
+        } == true)
+    }
+
+    @MainActor
+    func testPinningAGroupPinsAndUnhidesEveryRequestedMemberAndSortsItWithPinnedRows() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+        controller.hiddenPullRequestIds = [Self.spreadTeamMember]
+
+        controller.setPinned(try Self.row(Self.spreadRepresentative, in: controller), pinned: true)
+
+        XCTAssertTrue(controller.pinnedPullRequestIds.isSuperset(of: [Self.spreadRepresentative, Self.spreadTeamMember]))
+        XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: [Self.spreadRepresentative, Self.spreadTeamMember]))
+        let direct = try XCTUnwrap(controller.requestedSections.first { $0.section == .direct })
+        XCTAssertEqual(direct.visible.first?.id, Self.spreadRepresentative)
+        XCTAssertEqual(direct.visible.first?.isPinned, true)
+        XCTAssertEqual(direct.visible.dropFirst().map(\.isPinned), Array(repeating: false, count: direct.visible.count - 1))
+    }
+
+    @MainActor
+    func testGroupActionsSetEveryRequestedMemberIncludingFilterExcludedOnesAndRepeatHarmlessly() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+        controller.selectedReviewRequestFilters = [.ready]
+        let members: Set<String> = [Self.filterDraftMember, Self.filterReadyMember]
+        typealias Expected = (pinned: Set<String>, hidden: Set<String>)
+        let actions: [(String, (DashboardController, ReviewRequestRow) -> Void, Expected)] = [
+            ("Hide", { $0.setHidden($1, hidden: true) }, ([], members)),
+            ("Unhide", { $0.setHidden($1, hidden: false) }, ([Self.filterDraftMember], [])),
+            ("Pin", { $0.setPinned($1, pinned: true) }, (members, [])),
+            ("Unpin", { $0.setPinned($1, pinned: false) }, ([], [Self.filterReadyMember]))
+        ]
+
+        for (name, action, expected) in actions {
+            // Mixed states: the filter-excluded Draft is pinned, the only matching member is hidden.
+            controller.pinnedPullRequestIds = [Self.filterDraftMember, Self.spreadOwnMember]
+            controller.hiddenPullRequestIds = [Self.filterReadyMember]
+            let row = try Self.row(Self.filterReadyMember, in: controller)
+            XCTAssertEqual(row.stack?.requestedMemberIDs, members, name)
+
+            for attempt in 1...2 {
+                action(controller, row)
+                XCTAssertEqual(controller.pinnedPullRequestIds.intersection(members), expected.pinned, "\(name) \(attempt)")
+                XCTAssertEqual(controller.hiddenPullRequestIds.intersection(members), expected.hidden, "\(name) \(attempt)")
+                XCTAssertTrue(controller.pinnedPullRequestIds.contains(Self.spreadOwnMember), "\(name) \(attempt)")
+                XCTAssertFalse(controller.hiddenPullRequestIds.contains(Self.spreadOwnMember), "\(name) \(attempt)")
+            }
+        }
+    }
+
+    @MainActor
+    func testTurningOffTheRequestingTeamRemovesItsMemberFromTheGroupAndTurningItOnRestoresIt() throws {
+        let suiteName = "stack-team-toggle-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let direct = Self.stackPR("PR_A", stack: "S", direct: true)
+        let team = Self.stackPR("PR_B", stack: "S", teams: [Self.developers])
+        let both = Self.stackPR("PR_C", stack: "S", direct: true, teams: [Self.developers])
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [direct, team, both],
+            viewerTeams: Self.nestedViewerTeams,
+            stacks: [Self.stack("S", [direct, team, both])]
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        XCTAssertEqual(try Self.row("PR_A", in: controller).stack?.requestedMemberIDs, ["PR_A", "PR_B", "PR_C"])
+
+        controller.setReviewTeam(Self.developers.id, counting: false)
+
+        let reduced = try XCTUnwrap(try Self.row("PR_A", in: controller).stack)
+        XCTAssertEqual(reduced.requestedMemberIDs, ["PR_A", "PR_C"])
+        XCTAssertEqual(reduced.additionalRequestCount, 1)
+        XCTAssertEqual(reduced.members.map { if case .requested = $0 { true } else { false } }, [true, false, true])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 2, 0])
+
+        controller.setReviewTeam(Self.developers.id, counting: true)
+
+        XCTAssertEqual(try Self.row("PR_A", in: controller).stack?.requestedMemberIDs, ["PR_A", "PR_B", "PR_C"])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 3, 0])
+    }
+
+    @MainActor
+    func testExcludingTheStacksRepositoryThroughSourcesRemovesTheWholeGroup() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        controller.setRepositoryPreferences(
+            repo: "mergehawk-labs/desktop-app",
+            preferences: RepositorySourcePreferences(notifications: .inherit, myPullRequests: .inherit, reviewRequests: .disabled)
+        )
+
+        let rows = controller.requestedSections.flatMap { $0.visible + $0.hidden }
+        XCTAssertFalse(rows.contains { $0.representative.repo == "mergehawk-labs/desktop-app" })
+        XCTAssertFalse(rows.contains { ["STACK_MOCK_ASSIGNED", "STACK_MOCK_FILTER"].contains($0.stack?.stack.id) })
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 5, 1])
+    }
+
+    @MainActor
+    func testViewersOwnStackMemberIsAContextMemberAndStaysUnchangedInMyPRs() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        let group = try XCTUnwrap(try Self.row(Self.spreadRepresentative, in: controller).stack)
+        guard case .context(let entry) = try XCTUnwrap(group.members.last) else {
+            return XCTFail("The viewer's own member should be a context member")
+        }
+        XCTAssertEqual(entry.pullRequestID, Self.spreadOwnMember)
+        XCTAssertFalse(group.requestedMemberIDs.contains(Self.spreadOwnMember))
+        let own = try XCTUnwrap(controller.state.pullRequests.first { $0.id == Self.spreadOwnMember })
+        XCTAssertEqual(controller.sortedMyPullRequests.first { $0.id == own.id }, own)
+    }
+
+    @MainActor
+    func testStackExpansionTogglesPerStackStartsCollapsedAndIsNotSaved() async throws {
+        let suite = "pr-stacks-expansion-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = makePRStacksController(defaults: defaults)
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+        XCTAssertTrue(controller.expandedStackIDs.isEmpty)
+        let before = defaults.dictionaryRepresentation().keys.sorted()
+
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+
+        XCTAssertTrue(controller.isStackExpanded("STACK_MOCK_SPREAD"))
+        XCTAssertFalse(controller.isStackExpanded("STACK_MOCK_FILTER"))
+        XCTAssertEqual(defaults.dictionaryRepresentation().keys.sorted(), before)
+        XCTAssertFalse(makePRStacksController(defaults: defaults).isStackExpanded("STACK_MOCK_SPREAD"))
+
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+
+        XCTAssertFalse(controller.isStackExpanded("STACK_MOCK_SPREAD"))
+    }
+
+    @MainActor
+    func testOpeningAContextMemberOpensItsURLWithoutMarkingNotificationsRead() throws {
+        let suiteName = "stack-open-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let requested = Self.stackPR("PR_REQUESTED", stack: "S", direct: true)
+        let stack = PullRequestStack(id: "S", size: 2, entries: [
+            PullRequestStackEntry(
+                position: 1, pullRequestID: "PR_CONTEXT", number: 900, title: "Context",
+                url: URL(string: "https://github.com/acme/app/pull/900")!, state: .open, isDraft: false, author: "other"
+            ),
+            PullRequestStackEntry(
+                position: 2, pullRequestID: requested.id, number: requested.number, title: requested.title,
+                url: requested.url, state: .open, isDraft: false, author: requested.author
+            )
+        ])
+        let account = GitHubAccount(login: "rw")
+        let notification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: requested.id, activityId: "COMMENT_1"),
+            pullRequest: requested
+        )
+        var store = PreferencesStore(defaults: defaults)
+        store.authMethod = .pat
+        try store.storePullRequestSyncState(PullRequestSyncState(
+            account: account,
+            dashboard: DashboardState(
+                pullRequests: [requested], events: [], syncedAt: Date(timeIntervalSince1970: 10), source: .github,
+                account: account, authStatus: .signedIn, pullRequestStacks: [stack]
+            ),
+            processedActivityByPullRequestID: [requested.id: ProcessedPullRequestActivity(pullRequestID: requested.id)],
+            notificationHistory: [notification]
+        ))
+        var opened: [URL] = []
+        let provider = ReviewTeamGitHubProvider(result: nil)
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: store,
+            launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider },
+            urlOpener: { opened.append($0) }
+        )
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        let group = try XCTUnwrap(try Self.row(requested.id, in: controller).stack)
+
+        controller.openStackMember(group.members[0])
+
+        XCTAssertEqual(opened, [stack.entries[0].url])
+        XCTAssertEqual(controller.pullRequestNotificationHistory.map(\.read), [false])
+
+        controller.openStackMember(group.members[1])
+
+        XCTAssertEqual(opened, [stack.entries[0].url, requested.url])
+        XCTAssertEqual(controller.pullRequestNotificationHistory.map(\.read), [true])
+    }
+
+    private static func stackPR(
+        _ id: String,
+        stack: String,
+        direct: Bool = false,
+        teams: [TeamReference] = []
+    ) -> PullRequest {
+        let base = archiveFixturePR(
+            id, repo: "acme/app", request: ReviewRequestKind(direct: direct, team: !teams.isEmpty), requestedTeams: teams
+        )
+        return PullRequest(
+            id: base.id, title: base.title, number: base.number, url: base.url, repo: base.repo,
+            ciState: base.ciState, reviewDecision: base.reviewDecision, commentCount: base.commentCount,
+            reviewCount: base.reviewCount, reviewRequestKind: base.reviewRequestKind, requestedTeams: base.requestedTeams,
+            isAssignedToViewer: base.isAssignedToViewer, isMine: base.isMine, author: base.author,
+            mergeable: base.mergeable, draft: base.draft, createdAt: base.createdAt, updatedAt: base.updatedAt,
+            stackID: stack
+        )
+    }
+
+    private static func stack(_ id: String, _ members: [PullRequest]) -> PullRequestStack {
+        PullRequestStack(id: id, size: members.count, entries: members.enumerated().map { index, pr in
+            PullRequestStackEntry(
+                position: index + 1, pullRequestID: pr.id, number: pr.number, title: pr.title, url: pr.url,
+                state: .open, isDraft: pr.draft, author: pr.author
+            )
+        })
+    }
+
+    @MainActor
+    private func makePRStacksController(defaults providedDefaults: UserDefaults? = nil) -> DashboardController {
+        let defaults: UserDefaults
+        if let providedDefaults {
+            defaults = providedDefaults
+        } else {
+            let suite = "pr-stacks-\(UUID().uuidString)"
+            defaults = UserDefaults(suiteName: suite)!
+            addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        }
         return DashboardController(
             tokenStore: InMemoryTokenStore(),
             preferencesStore: PreferencesStore(defaults: defaults),

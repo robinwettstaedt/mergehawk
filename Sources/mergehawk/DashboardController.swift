@@ -182,13 +182,7 @@ final class DashboardController: ObservableObject {
         var id: String { team.id }
     }
 
-    struct RequestedSectionContent {
-        let section: RequestedSection
-        let visible: [PullRequest]
-        let hidden: [PullRequest]
-
-        var count: Int { visible.count + hidden.count }
-    }
+    typealias RequestedSectionContent = ReviewRequestSectionContent
 
     @Published private var presentation: PublishedPresentation
     var state: DashboardState { presentation.dashboard }
@@ -253,6 +247,8 @@ final class DashboardController: ObservableObject {
         }
     }
     @Published private(set) var collapsedRequestedSections: Set<RequestedSection> = []
+    /// Expanded Review requests stack groups, in memory only like collapsed sections.
+    @Published private(set) var expandedStackIDs: Set<String> = []
     @Published var pinnedPullRequestIds: Set<String> {
         didSet {
             preferencesStore.pinnedPullRequestIds = pinnedPullRequestIds
@@ -599,14 +595,27 @@ final class DashboardController: ObservableObject {
     }
 
     var requestedSections: [RequestedSectionContent] {
-        let visible = sortedReviewRequests
-        let hidden = hiddenReviewRequests
-        return RequestedSection.allCases.map { section in
-            RequestedSectionContent(
-                section: section,
-                visible: visible.filter { RequestedSection.section(for: $0) == section },
-                hidden: hidden.filter { RequestedSection.section(for: $0) == section }
-            )
+        ReviewRequestStacks.sections(
+            requested: sourceFilteredReviewRequests.filter(Self.isRequestedPullRequest),
+            matching: filteredReviewRequests,
+            stacks: state.pullRequestStacks,
+            hiddenIDs: hiddenPullRequestIds,
+            pinnedIDs: pinnedPullRequestIds,
+            unreadIDs: unreadPullRequestNotificationIds,
+            sortOption: reviewRequestSortOption,
+            sortDirection: reviewRequestSortDirection
+        )
+    }
+
+    func isStackExpanded(_ stackID: String) -> Bool {
+        expandedStackIDs.contains(stackID)
+    }
+
+    func toggleStackExpanded(_ stackID: String) {
+        if expandedStackIDs.contains(stackID) {
+            expandedStackIDs.remove(stackID)
+        } else {
+            expandedStackIDs.insert(stackID)
         }
     }
 
@@ -1030,6 +1039,42 @@ final class DashboardController: ObservableObject {
         } else {
             pinnedPullRequestIds.remove(pullRequest.id)
             hiddenPullRequestIds.insert(pullRequest.id)
+        }
+    }
+
+    /// Group actions set state on every requested member of a stack group, or on the standalone PR.
+    /// Hiding also unpins, and pinning also unhides.
+    func setHidden(_ row: ReviewRequestRow, hidden: Bool) {
+        let ids = Self.actionIDs(for: row)
+        if hidden {
+            pinnedPullRequestIds.subtract(ids)
+            hiddenPullRequestIds.formUnion(ids)
+        } else {
+            hiddenPullRequestIds.subtract(ids)
+        }
+    }
+
+    func setPinned(_ row: ReviewRequestRow, pinned: Bool) {
+        let ids = Self.actionIDs(for: row)
+        if pinned {
+            hiddenPullRequestIds.subtract(ids)
+            pinnedPullRequestIds.formUnion(ids)
+        } else {
+            pinnedPullRequestIds.subtract(ids)
+        }
+    }
+
+    private static func actionIDs(for row: ReviewRequestRow) -> Set<String> {
+        row.stack?.requestedMemberIDs ?? [row.representative.id]
+    }
+
+    /// A requested member opens like any PR; a context member only has its stack entry URL.
+    func openStackMember(_ member: StackGroup.Member) {
+        switch member {
+        case .requested(let pullRequest):
+            openPullRequest(pullRequest)
+        case .context(let entry):
+            openPullRequest(PullRequestOpenRequest(pullRequestURL: entry.url))
         }
     }
 

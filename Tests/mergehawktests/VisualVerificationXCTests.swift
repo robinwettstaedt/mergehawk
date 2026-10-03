@@ -719,7 +719,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     )
                 }
             }
-            let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.first?.visible.first)
+            let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.first?.visible.first?.representative)
             try renderHeaderTooltips(
                 pullRequest: tooltipPullRequest,
                 to: outputURL.appendingPathComponent("menu-header-tooltips.png")
