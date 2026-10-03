@@ -936,6 +936,32 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testHydratedPRWithAStackGetsThatStackID() async throws {
+        var node = Self.pullRequest()
+        node["stack"] = ["id": "STACK_1"]
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+        XCTAssertEqual(hydrated[0].pullRequest.stackID, "STACK_1")
+    }
+
+    func testHydratedPRWithNullOrMissingStackHasNoStackID() async throws {
+        var nullStack = Self.pullRequest()
+        nullStack["stack"] = NSNull()
+        for node in [nullStack, Self.pullRequest()] {
+            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+            let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+            XCTAssertNil(hydrated[0].pullRequest.stackID)
+        }
+    }
+
+    func testHydrationQuerySelectsOnlyTheStackID() {
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("stack { id }"))
+    }
+
     func testCompleteHydrationNormalizesEveryMergeableState() async throws {
         let cases: [(Any, MergeableState)] = [
             ("MERGEABLE", .mergeable),

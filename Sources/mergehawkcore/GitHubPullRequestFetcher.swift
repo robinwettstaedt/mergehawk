@@ -1017,7 +1017,8 @@ struct GitHubPullRequestFetcher: Sendable {
             mergeable: mergeable,
             draft: payload.isDraft,
             createdAt: try parseDate(payload.createdAt),
-            updatedAt: try parseDate(payload.updatedAt)
+            updatedAt: try parseDate(payload.updatedAt),
+            stackID: payload.stack?.id
         )
     }
 

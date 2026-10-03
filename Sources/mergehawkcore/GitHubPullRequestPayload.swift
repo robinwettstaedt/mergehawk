@@ -120,10 +120,16 @@ struct GitHubCompletePullRequestPayload: Decodable, Equatable, Sendable {
     let reviewThreads: GitHubStrictConnection<GitHubPayloadReviewThread>
     let assignees: GitHubStrictConnection<GitHubPayloadUser>
     let reviewRequests: GitHubStrictConnection<GitHubPayloadReviewRequest>
+    /// Only the stack's identity; its size and entries come from the per-stack read.
+    let stack: StackReference?
 
     struct Repository: Decodable, Equatable, Sendable {
         let nameWithOwner: String
         let isArchived: Bool
+    }
+
+    struct StackReference: Decodable, Equatable, Sendable {
+        let id: String
     }
 }
 

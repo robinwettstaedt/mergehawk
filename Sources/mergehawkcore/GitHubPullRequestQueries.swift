@@ -41,6 +41,7 @@ enum GitHubPullRequestQueries {
       statusCheckRollup { state }
       author { login avatarUrl(size: 64) }
       repository { nameWithOwner isArchived }
+      stack { id }
       comments(last: 10) { \(conversationCommentConnectionFields) }
       reviews(last: 10) { \(fullReviewConnectionFields) }
       latestOpinionatedReviews(last: 20) { \(opinionatedReviewConnectionFields) }
