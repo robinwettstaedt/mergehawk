@@ -327,7 +327,7 @@ final class MenuViewTests: XCTestCase {
     // MER-58 regression: during NSMenu tracking, key equivalents are matched against the open
     // menu's native items first and then the app's main menu — the hosted view hierarchy is never
     // consulted. Hidden native trap items are required so ⌘, and ⌘Q do not fall through to the
-    // SwiftUI Settings scene's auto-generated main-menu items.
+    // native main-menu items.
     @MainActor
     func testStatusMenuAddsHiddenKeyEquivalentTrapItems() {
         let controller = DashboardController(
@@ -351,9 +351,9 @@ final class MenuViewTests: XCTestCase {
         XCTAssertTrue(quitTrapItem.isHidden)
         XCTAssertTrue(quitTrapItem.allowsKeyEquivalentWhenHidden)
 
-        var settingsSelections: [SettingsTab] = []
-        controller.openSettingsWindow = { selection in
-            settingsSelections.append(selection)
+        var keyboardSettingsCount = 0
+        controller.openSettingsWindowPreservingSelection = {
+            keyboardSettingsCount += 1
         }
         var quitInvocationCount = 0
         statusBarController.setQuitActionForTesting {
@@ -361,7 +361,7 @@ final class MenuViewTests: XCTestCase {
         }
 
         _ = settingsTrapItem.target?.perform(settingsTrapItem.action, with: settingsTrapItem)
-        XCTAssertEqual(settingsSelections, [.general])
+        XCTAssertEqual(keyboardSettingsCount, 1)
         _ = quitTrapItem.target?.perform(quitTrapItem.action, with: quitTrapItem)
         XCTAssertEqual(quitInvocationCount, 1)
     }
@@ -382,9 +382,9 @@ final class MenuViewTests: XCTestCase {
         XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: "r", modifiers: [])))
         XCTAssertEqual(statusBarController.refreshFlashCountForTesting(), 1)
 
-        var settingsSelections: [SettingsTab] = []
-        controller.openSettingsWindow = { selection in
-            settingsSelections.append(selection)
+        var keyboardSettingsCount = 0
+        controller.openSettingsWindowPreservingSelection = {
+            keyboardSettingsCount += 1
         }
         var quitInvocationCount = 0
         statusBarController.setQuitActionForTesting {
@@ -392,10 +392,10 @@ final class MenuViewTests: XCTestCase {
         }
         XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: ",", modifiers: [])))
         XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: "q", modifiers: [])))
-        XCTAssertEqual(settingsSelections, [])
+        XCTAssertEqual(keyboardSettingsCount, 0)
         XCTAssertEqual(quitInvocationCount, 0)
         XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: ",", modifiers: .command)))
-        XCTAssertEqual(settingsSelections, [.general])
+        XCTAssertEqual(keyboardSettingsCount, 1)
         XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: "q", modifiers: .command)))
         XCTAssertEqual(quitInvocationCount, 1)
     }
@@ -623,8 +623,7 @@ final class MenuViewTests: XCTestCase {
     precondition(statusMenuItems.count == 3)
     precondition(statusMenuItems[0].view != nil)
     // Hidden native key-equivalent trap items: during NSMenu tracking only native items of the
-    // open menu outrank the app's main menu, so these keep ⌘, and ⌘Q from reaching the SwiftUI
-    // Settings scene's auto-generated main-menu items (MER-58 regression).
+    // open menu outrank the app's native main menu, so these dismiss tracking before Settings or Quit (MER-58 regression).
     precondition(statusMenuItems[1].title == "Settings")
     precondition(statusMenuItems[1].keyEquivalent == ",")
     precondition(statusMenuItems[1].isHidden)
