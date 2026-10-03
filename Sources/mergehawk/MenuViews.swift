@@ -20,12 +20,6 @@ struct PullRequestMenuDropdownState: Equatable {
     }
 }
 
-struct CountSearchPresentation {
-    static func countLabel(for count: Int, singular: String, plural: String) -> String {
-        count == 1 ? "1 \(singular)" : "\(count) \(plural)"
-    }
-}
-
 struct NotificationTimestampPresentation {
     static func label(for date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
@@ -143,341 +137,36 @@ enum PullRequestNotificationIconPresentation {
     }
 }
 
-struct ExpandableSearchState: Equatable {
-    var isExpanded = false
-    var query = ""
-
-    var trimmedQuery: String {
-        query.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var hasActiveQuery: Bool {
-        !trimmedQuery.isEmpty
-    }
-
-    mutating func expand() {
-        isExpanded = true
-    }
-
-    mutating func blur() {
-        if !hasActiveQuery {
-            isExpanded = false
-        }
-    }
-
-    mutating func handleEscape() {
-        if hasActiveQuery {
-            query = ""
-        } else {
-            isExpanded = false
-        }
-    }
-}
-
-struct CountSearchControl: View {
-    @Binding var searchState: ExpandableSearchState
-    let countLabel: String
-    let placeholder: String
-    let help: String
-    var isAlwaysExpanded = false
-    var showsInlineCount = true
-    var expandedWidth: CGFloat?
-    @State private var searchFieldFocused = false
-    @State private var searchFocusRequest = 0
-
-    var body: some View {
-        HStack(spacing: 7) {
-            if isSearchExpanded {
-                expandedSearchControls
-            } else {
-                MenuControlButton(
-                    symbolName: "magnifyingglass",
-                    title: countLabel,
-                    isOpen: false,
-                    help: help
-                ) {
-                    searchState.expand()
-                    DispatchQueue.main.async {
-                        searchFocusRequest += 1
-                    }
-                }
-            }
-        }
-        .animation(.easeInOut(duration: 0.16), value: isSearchExpanded)
-        .onExitCommand {
-            searchState.handleEscape()
-            if !isSearchExpanded {
-                searchFieldFocused = false
-            }
-        }
-    }
-
-    private var isSearchExpanded: Bool {
-        isAlwaysExpanded || searchState.isExpanded
-    }
-
-    private var expandedSearchControls: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            TransparentSearchTextField(
-                text: $searchState.query,
-                placeholder: placeholder,
-                isFocused: $searchFieldFocused,
-                focusRequest: searchFocusRequest
-            ) {
-                if !isAlwaysExpanded {
-                    searchState.blur()
-                }
-            }
-            .accessibilityLabel(help)
-            .frame(height: 16)
-            .onChange(of: searchState.isExpanded) { _, isExpanded in
-                if !isExpanded && !isAlwaysExpanded {
-                    searchFieldFocused = false
-                }
-            }
-            if searchState.hasActiveQuery, showsInlineCount {
-                Text(countLabel)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            if searchState.hasActiveQuery {
-                clearSearchButton
-            }
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 24)
-        .frame(width: expandedWidth)
-        .frame(maxWidth: expandedWidth == nil ? .infinity : nil)
-        .background(.ultraThinMaterial)
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-        .onTapGesture {
-            searchState.expand()
-            searchFocusRequest += 1
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(
-                    searchFieldFocused ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor).opacity(0.55),
-                    lineWidth: 1
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private var clearSearchButton: some View {
-        Button {
-            searchState.query = ""
-            searchState.expand()
-            DispatchQueue.main.async {
-                searchFieldFocused = false
-            }
-        } label: {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 14, height: 14)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .help("Clear search")
-        .accessibilityLabel("Clear search")
-    }
-}
-
-private struct TransparentSearchTextField: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var isFocused: Bool
-    let placeholder: String
-    let focusRequest: Int
-    let onBlur: () -> Void
-
-    init(
-        text: Binding<String>,
-        placeholder: String,
-        isFocused: Binding<Bool>,
-        focusRequest: Int,
-        onBlur: @escaping () -> Void
-    ) {
-        _text = text
-        _isFocused = isFocused
-        self.placeholder = placeholder
-        self.focusRequest = focusRequest
-        self.onBlur = onBlur
-    }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = SearchTextField()
-        field.delegate = context.coordinator
-        Self.configure(field)
-        field.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-        field.textColor = .labelColor
-        field.placeholderString = placeholder
-        field.cell?.usesSingleLineMode = true
-        field.cell?.lineBreakMode = .byTruncatingTail
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        Self.configure(field)
-        context.coordinator.text = $text
-        context.coordinator.isFocused = $isFocused
-        context.coordinator.onBlur = onBlur
-        let shouldRequestFocus = context.coordinator.focusRequest != focusRequest
-        context.coordinator.focusRequest = focusRequest
-
-        if field.stringValue != text {
-            field.stringValue = text
-        }
-        if field.placeholderString != placeholder {
-            field.placeholderString = placeholder
-        }
-
-        if shouldRequestFocus || (isFocused && field.window?.firstResponder !== field.currentEditor()) {
-            Self.focus(field)
-        } else if !isFocused, field.window?.firstResponder === field.currentEditor() {
-            DispatchQueue.main.async {
-                field.window?.makeFirstResponder(nil)
-            }
-        } else {
-            Self.configureEditor(for: field)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, isFocused: $isFocused, onBlur: onBlur)
-    }
-
-    private static func configure(_ field: NSTextField) {
-        field.isBordered = false
-        field.isBezeled = false
-        field.drawsBackground = false
-        field.backgroundColor = .clear
-        field.focusRingType = .none
-        field.wantsLayer = true
-        field.layer?.backgroundColor = NSColor.clear.cgColor
-        if let cell = field.cell as? NSTextFieldCell {
-            cell.drawsBackground = false
-            cell.backgroundColor = .clear
-            cell.focusRingType = .none
-        }
-    }
-
-    private static func focus(_ field: NSTextField, attemptsRemaining: Int = 3) {
-        DispatchQueue.main.async {
-            guard field.window != nil else {
-                if attemptsRemaining > 0 {
-                    focus(field, attemptsRemaining: attemptsRemaining - 1)
-                }
-                return
-            }
-            field.window?.makeFirstResponder(field)
-            configureEditor(for: field)
-        }
-    }
-
-    private static func configureEditor(for field: NSTextField) {
-        guard let editor = field.currentEditor() as? NSTextView else {
-            return
-        }
-        editor.drawsBackground = false
-        editor.backgroundColor = .clear
-        editor.insertionPointColor = .controlAccentColor
-        editor.enclosingScrollView?.drawsBackground = false
-        editor.superview?.wantsLayer = true
-        editor.superview?.layer?.backgroundColor = NSColor.clear.cgColor
-    }
-
-    private final class SearchTextField: NSTextField {
-        override func becomeFirstResponder() -> Bool {
-            let becameFirstResponder = super.becomeFirstResponder()
-            if becameFirstResponder {
-                TransparentSearchTextField.configure(self)
-                DispatchQueue.main.async {
-                    TransparentSearchTextField.configureEditor(for: self)
-                }
-            }
-            return becameFirstResponder
-        }
-
-        override func draw(_ dirtyRect: NSRect) {
-            TransparentSearchTextField.configure(self)
-            super.draw(dirtyRect)
-        }
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var text: Binding<String>
-        var isFocused: Binding<Bool>
-        var onBlur: () -> Void
-        var focusRequest = 0
-
-        init(text: Binding<String>, isFocused: Binding<Bool>, onBlur: @escaping () -> Void) {
-            self.text = text
-            self.isFocused = isFocused
-            self.onBlur = onBlur
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else {
-                return
-            }
-            text.wrappedValue = field.stringValue
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            if let field = notification.object as? NSTextField {
-                TransparentSearchTextField.configureEditor(for: field)
-                DispatchQueue.main.async {
-                    TransparentSearchTextField.configureEditor(for: field)
-                }
-            }
-            isFocused.wrappedValue = true
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            isFocused.wrappedValue = false
-            onBlur()
-        }
-    }
-}
-
 struct MenuControlButton: View {
-    enum Layout {
-        static let height: CGFloat = 24
-    }
-
     let symbolName: String
     let title: String
     let isOpen: Bool
     let help: String
     let action: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6)
+        let controls = metrics.controls
+        let shape = RoundedRectangle(cornerRadius: controls.cornerRadius)
 
         Button {
             action()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: controls.contentSpacing) {
                 Image(systemName: symbolName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(metrics.type.controlLabel.font)
                 if !title.isEmpty {
                     Text(title)
                         .lineLimit(1)
                 }
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(metrics.type.controlLabel.font)
             .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, title.isEmpty ? 0 : 10)
-            .frame(width: title.isEmpty ? Self.Layout.height : nil, height: Self.Layout.height)
+            .padding(.horizontal, title.isEmpty ? 0 : controls.horizontalPadding)
+            .frame(width: title.isEmpty ? controls.height : nil, height: controls.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -509,19 +198,21 @@ struct SortControlButton: View {
     let toggleDirection: () -> Void
     let openMenu: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
     @State private var directionHovered = false
     @State private var menuHovered = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6)
+        let controls = metrics.controls
+        let shape = RoundedRectangle(cornerRadius: controls.cornerRadius)
 
         HStack(spacing: 0) {
             Button(action: toggleDirection) {
                 Image(systemName: directionSymbolName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(metrics.type.controlLabel.font)
                     .foregroundStyle(Color.secondary)
-                    .frame(width: 26, height: MenuControlButton.Layout.height)
+                    .frame(width: controls.sortDirectionWidth, height: controls.height)
                     .background(HoverFillPresentation.fill(isHovered: directionHovered, colorScheme: colorScheme))
                     .contentShape(Rectangle())
             }
@@ -532,19 +223,19 @@ struct SortControlButton: View {
 
             Rectangle()
                 .fill(MenuControlBorderPresentation.color(colorScheme: colorScheme))
-                .frame(width: 1, height: MenuControlButton.Layout.height - 10)
+                .frame(width: 1, height: controls.sortDividerHeight)
 
             Button(action: openMenu) {
-                HStack(spacing: 6) {
+                HStack(spacing: controls.contentSpacing) {
                     Text(title)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(metrics.type.controlChevron.font)
                 }
-                .font(.system(size: 11, weight: .semibold))
+                .font(metrics.type.controlLabel.font)
                 .foregroundStyle(isMenuOpen ? Color.accentColor : Color.secondary)
-                .padding(.horizontal, 10)
-                .frame(height: MenuControlButton.Layout.height)
+                .padding(.horizontal, controls.horizontalPadding)
+                .frame(height: controls.height)
                 .background(HoverFillPresentation.fill(isHovered: menuHovered, colorScheme: colorScheme))
                 .contentShape(Rectangle())
             }
@@ -628,7 +319,7 @@ enum PullRequestAgePresentation {
         }
     }
 
-    static func shortText(for date: Date, now: Date = Date()) -> String {
+    static func shortText(for date: Date, now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         switch seconds {
         case ..<60:
@@ -648,32 +339,29 @@ enum PullRequestAgePresentation {
         }
     }
 
-    static func label(for date: Date, field: Field, now: Date = Date()) -> String {
+    static func label(for date: Date, field: Field, now: Date) -> String {
         let text = shortText(for: date, now: now)
         return text == "now" ? "\(field.title) just now" : "\(field.title) \(text) ago"
     }
 }
 
-struct MenuRootView: View {
-    enum Layout {
-        static let width: CGFloat = 820
-        static let contentHeight: CGFloat = 650
-        static let footerRowCount: CGFloat = 4
-        static let footerHeight: CGFloat = FooterSeparatorLayout.height + footerRowCount * FooterActionLayout.rowHeight
-            + FooterActionLayout.footerBottomPadding
-        static let height: CGFloat = contentHeight + footerHeight
-        static let topBarHeight: CGFloat = 45
-        static let tabSwitcherWidth: CGFloat = 320
-        static let tabSwitcherLeadingInset: CGFloat = 5
-        static let topBarTrailingInset: CGFloat = 12
-        static let notificationTabSegmentWidth: CGFloat = 64
-        static let topBarControlHeight: CGFloat = 24
-        static let refreshStatusWidth: CGFloat = 58
-        static let textTabSegmentWidth: CGFloat = (tabSwitcherWidth - notificationTabSegmentWidth) / 2
-    }
+private struct MenuNowKey: EnvironmentKey {
+    static var defaultValue: Date { Date() }
+}
 
+extension EnvironmentValues {
+    /// The date relative times are shown against. The menu root sets it from the controller's clock;
+    /// views outside the menu root use the current time.
+    var menuNow: Date {
+        get { self[MenuNowKey.self] }
+        set { self[MenuNowKey.self] = newValue }
+    }
+}
+
+struct MenuRootView: View {
     @ObservedObject var controller: DashboardController
     @ObservedObject var footerModel: MenuFooterModel
+    let metrics: MenuMetrics
     let resolvedSize: CGSize
     let dismissMenu: () -> Void
     let showSettings: () -> Void
@@ -685,7 +373,8 @@ struct MenuRootView: View {
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
-        resolvedSize: CGSize = CGSize(width: Layout.width, height: Layout.height),
+        metrics: MenuMetrics = .standard,
+        resolvedSize: CGSize = MenuMetrics.standard.panelSize,
         initialDropdown: PullRequestMenuDropdown? = nil,
         dismissMenu: @escaping () -> Void = {},
         showSettings: @escaping () -> Void = {},
@@ -694,6 +383,7 @@ struct MenuRootView: View {
     ) {
         self.controller = controller
         self.footerModel = footerModel
+        self.metrics = metrics
         self.resolvedSize = resolvedSize
         self.dismissMenu = dismissMenu
         self.showSettings = showSettings
@@ -724,12 +414,14 @@ struct MenuRootView: View {
                 }
             footer
         }
+        .environment(\.menuNow, controller.currentDate())
         .frame(width: resolvedSize.width, height: resolvedSize.height)
         .background(menuSurface)
         .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { anchors in
             if let menu = anchors.openMenu {
                 GeometryReader { geometry in
                     let anchor = geometry[menu.bounds]
+                    let actionsMenu = metrics.actionsMenu
                     PullRequestActionsMenu(
                         url: menu.url,
                         isHidden: menu.isHidden,
@@ -739,10 +431,10 @@ struct MenuRootView: View {
                         dismiss: { dropdownState.dismiss() }
                     )
                     .offset(
-                        x: max(0, anchor.maxX - PullRequestActionsMenu.width),
-                        y: anchor.maxY + PullRequestActionsMenu.height + 4 <= geometry.size.height
-                            ? anchor.maxY + 4
-                            : max(0, anchor.minY - PullRequestActionsMenu.height - 4)
+                        x: max(0, anchor.maxX - actionsMenu.width),
+                        y: anchor.maxY + actionsMenu.height + actionsMenu.anchorGap <= geometry.size.height
+                            ? anchor.maxY + actionsMenu.anchorGap
+                            : max(0, anchor.minY - actionsMenu.height - actionsMenu.anchorGap)
                     )
                 }
             }
@@ -757,6 +449,7 @@ struct MenuRootView: View {
         .onChange(of: controller.selectedTab) { _, _ in
             dropdownState.dismiss()
         }
+        .environment(\.menuMetrics, metrics)
     }
 
     private var footer: some View {
@@ -784,7 +477,7 @@ struct MenuRootView: View {
                 quit()
             }
         }
-        .padding(.bottom, FooterActionLayout.footerBottomPadding)
+        .padding(.bottom, metrics.footer.bottomPadding)
     }
 
     private var menuSurface: some View {
@@ -802,14 +495,14 @@ struct MenuRootView: View {
                 tabSwitcher
             } else {
                 Text("MergeHawk")
-                    .font(.headline)
+                    .font(metrics.type.panelTitle.font)
             }
             Spacer(minLength: 0)
                 .contentShape(Rectangle())
                 .onTapGesture { dropdownState.dismiss() }
             if let mode = activePullRequestMode, controller.state.authStatus == .signedIn {
                 PullRequestHeaderControls(controller: controller, mode: mode, dropdownState: $dropdownState)
-                    .padding(.trailing, 8)
+                    .padding(.trailing, metrics.topBar.headerControlsTrailingSpacing)
             }
             RefreshStatusControl(
                 indicatorColor: controller.hasAttention ? .red : .green,
@@ -824,14 +517,15 @@ struct MenuRootView: View {
                 help: "Refresh",
                 accessibilityLabel: "Refresh",
                 timestampPrefix: "",
-                width: Self.Layout.refreshStatusWidth,
-                displayMode: .horizontalButton(height: Self.Layout.topBarControlHeight),
+                width: metrics.topBar.refreshStatusWidth,
+                // Same height as the filter and sort controls beside it, so the top bar lines up.
+                displayMode: .horizontalButton(height: metrics.controls.height),
                 showsIndicator: false
             )
         }
-        .padding(.leading, 8)
-        .padding(.trailing, Self.Layout.topBarTrailingInset)
-        .frame(height: Self.Layout.topBarHeight)
+        .padding(.leading, metrics.topBar.leadingInset)
+        .padding(.trailing, metrics.topBar.trailingInset)
+        .frame(height: metrics.topBar.height)
     }
 
     private var activePullRequestMode: PullRequestListView.Mode? {
@@ -847,8 +541,8 @@ struct MenuRootView: View {
             selection: $controller.selectedTab,
             attentionCount: controller.attentionCount
         )
-        .frame(width: Self.Layout.tabSwitcherWidth)
-        .padding(.leading, Self.Layout.tabSwitcherLeadingInset)
+        .frame(width: metrics.tabSwitcher.width)
+        .padding(.leading, metrics.tabSwitcher.leadingInset)
     }
 
     @ViewBuilder
@@ -869,12 +563,13 @@ struct MenuRootView: View {
 }
 
 enum MenuPanelSize {
+    /// Screen-space gap between the panel and the usable screen edges; not a panel size, so it never scales.
     static let margin: CGFloat = 12
 
-    static func resolve(availableFrame: CGRect) -> CGSize {
+    static func resolve(availableFrame: CGRect, metrics: MenuMetrics) -> CGSize {
         CGSize(
-            width: min(MenuRootView.Layout.width, max(0, availableFrame.width - margin * 2)),
-            height: min(MenuRootView.Layout.height, max(0, availableFrame.height - margin * 2))
+            width: min(metrics.panel.width, max(0, availableFrame.width - margin * 2)),
+            height: min(metrics.panelHeight, max(0, availableFrame.height - margin * 2))
         )
     }
 }
@@ -884,6 +579,7 @@ final class MenuFooterModel: ObservableObject {
     @Published private(set) var refreshFlashCount: Int = 0
     @Published fileprivate var isFlashing: Bool = false
 
+    private static let keyboardSelectionDuration: TimeInterval = 0.1
     private var flashResetWorkItem: DispatchWorkItem?
 
     func flashRefresh() {
@@ -895,42 +591,21 @@ final class MenuFooterModel: ObservableObject {
         }
         flashResetWorkItem = resetWorkItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + FooterActionLayout.keyboardSelectionDuration,
+            deadline: .now() + Self.keyboardSelectionDuration,
             execute: resetWorkItem
         )
     }
 }
 
-enum FooterSeparatorLayout {
-    static let horizontalPadding: CGFloat = 10
-    static let verticalPadding: CGFloat = 6
-    static let height: CGFloat = 13
-}
-
-enum FooterActionLayout {
-    static let rowHeight: CGFloat = 24
-    // Breathing room between the last footer row and the menu's bottom rounded corner,
-    // intentionally mirroring the separator gap above the first footer row.
-    static let footerBottomPadding: CGFloat = FooterSeparatorLayout.verticalPadding
-    static let selectionInsetX: CGFloat = 5
-    static let selectionInsetY: CGFloat = 1
-    static let selectionCornerRadius: CGFloat = 5
-    static let titleLeading: CGFloat = 14
-    static let shortcutTrailing: CGFloat = 9
-    static let shortcutColumnSpacing: CGFloat = 2
-    // Reserve one key column so every shortcut has the same width and each ⌘ aligns.
-    static let shortcutKeyColumnWidth: CGFloat = 12
-    static let keyboardSelectionDuration: TimeInterval = 0.1
-    static let mouseClickFeedbackDuration: TimeInterval = 0.12
-}
-
 struct FooterSeparatorView: View {
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
-            .frame(height: 1)
-            .padding(.horizontal, FooterSeparatorLayout.horizontalPadding)
-            .padding(.vertical, FooterSeparatorLayout.verticalPadding)
+            .frame(height: MenuMetrics.hairline)
+            .padding(.horizontal, metrics.footer.separatorHorizontalPadding)
+            .padding(.vertical, metrics.footer.separatorVerticalPadding)
     }
 }
 
@@ -940,35 +615,36 @@ struct MenuFooterActionRow: View {
     var isFlashed = false
     let action: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
     @State private var isHovering = false
     @StateObject private var clickFeedback = MenuFooterClickFeedback()
 
     var body: some View {
         HStack(spacing: 0) {
             Text(title)
-                .font(.menuFont())
+                .font(metrics.footer.itemFont.font)
                 .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .labelColor))
-                .padding(.leading, FooterActionLayout.titleLeading)
+                .padding(.leading, metrics.footer.titleLeading)
             Spacer(minLength: 0)
             if let shortcutKey {
-                HStack(spacing: FooterActionLayout.shortcutColumnSpacing) {
+                HStack(spacing: metrics.footer.shortcutColumnSpacing) {
                     Text("⌘")
                     Text(shortcutKey)
-                        .frame(width: FooterActionLayout.shortcutKeyColumnWidth, alignment: .leading)
+                        .frame(width: metrics.footer.shortcutKeyColumnWidth, alignment: .leading)
                 }
-                .font(.menuFont())
+                .font(metrics.footer.itemFont.font)
                 .foregroundStyle(isSelected ? Color(nsColor: .selectedMenuItemTextColor) : Color(nsColor: .tertiaryLabelColor))
-                .padding(.trailing, FooterActionLayout.shortcutTrailing)
+                .padding(.trailing, metrics.footer.shortcutTrailing)
             }
         }
-        .frame(height: FooterActionLayout.rowHeight)
+        .frame(height: metrics.footer.rowHeight)
         .contentShape(Rectangle())
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: FooterActionLayout.selectionCornerRadius)
+                RoundedRectangle(cornerRadius: metrics.footer.selectionCornerRadius)
                     .fill(Color(nsColor: .selectedContentBackgroundColor))
-                    .padding(.horizontal, FooterActionLayout.selectionInsetX)
-                    .padding(.vertical, FooterActionLayout.selectionInsetY)
+                    .padding(.horizontal, metrics.footer.selectionInsetX)
+                    .padding(.vertical, metrics.footer.selectionInsetY)
             }
         }
         .onHover { isHovering = $0 }
@@ -984,6 +660,7 @@ struct MenuFooterActionRow: View {
 
 @MainActor
 final class MenuFooterClickFeedback: ObservableObject {
+    private static let mouseClickFeedbackDuration: TimeInterval = 0.12
     @Published private(set) var suppressesSelection = false
     private(set) var isActive = false
 
@@ -994,7 +671,7 @@ final class MenuFooterClickFeedback: ObservableObject {
 
         isActive = true
         suppressesSelection = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + FooterActionLayout.mouseClickFeedbackDuration) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.mouseClickFeedbackDuration) {
             self.suppressesSelection = false
             DispatchQueue.main.async {
                 self.isActive = false
@@ -1004,24 +681,10 @@ final class MenuFooterClickFeedback: ObservableObject {
     }
 }
 
-private extension Font {
-    static func menuFont() -> Font {
-        Font(NSFont.menuFont(ofSize: 0))
-    }
-}
-
 struct RefreshStatusControl: View {
     enum DisplayMode {
         case vertical
         case horizontalButton(height: CGFloat)
-    }
-
-    enum Layout {
-        static let width: CGFloat = 82
-        static let refreshIconSize: CGFloat = 22
-        static let horizontalIconSize: CGFloat = 15
-        static let horizontalSpacing: CGFloat = 5
-        static let horizontalHorizontalPadding: CGFloat = 3
     }
 
     let indicatorColor: Color
@@ -1034,10 +697,12 @@ struct RefreshStatusControl: View {
     let accessibilityLabel: String
     var keyboardShortcut: KeyboardShortcut?
     var timestampPrefix = "updated "
-    var width = Layout.width
+    /// Defaults to the vertical layout's width.
+    var width: CGFloat?
     var displayMode = DisplayMode.vertical
     var showsIndicator = true
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
@@ -1051,47 +716,52 @@ struct RefreshStatusControl: View {
     }
 
     private var verticalBody: some View {
-        VStack(alignment: .center, spacing: 3) {
-            HStack(spacing: 7) {
+        VStack(alignment: .center, spacing: metrics.refreshStatus.verticalSpacing) {
+            HStack(spacing: metrics.refreshStatus.indicatorSpacing) {
                 if showsIndicator {
                     Circle()
                         .fill(indicatorColor)
-                        .frame(width: 10, height: 10)
+                        .frame(width: metrics.refreshStatus.indicatorSize, height: metrics.refreshStatus.indicatorSize)
                 }
                 refreshControl
             }
             Text("\(timestampPrefix)\(updatedText)")
-                .font(.caption2)
+                .font(metrics.type.refreshTimestamp.font)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .frame(width: width, alignment: .center)
+        .frame(width: resolvedWidth, alignment: .center)
+    }
+
+    private var resolvedWidth: CGFloat {
+        width ?? metrics.refreshStatus.verticalWidth
     }
 
     @ViewBuilder
     private func horizontalButton(height: CGFloat) -> some View {
         let presentation = statusPresentation
-        let shape = RoundedRectangle(cornerRadius: 6)
+        let refreshStatus = metrics.refreshStatus
+        let shape = RoundedRectangle(cornerRadius: refreshStatus.cornerRadius)
         let button = Button(action: action) {
-            HStack(spacing: Layout.horizontalSpacing) {
+            HStack(spacing: refreshStatus.horizontalSpacing) {
                 if isRefreshing {
                     ProgressView()
                         .controlSize(.small)
-                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                        .frame(width: refreshStatus.horizontalIconFrame, height: refreshStatus.horizontalIconFrame)
                 } else {
                     Image(systemName: presentation.symbolName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(metrics.type.refreshSymbol.font)
                         .foregroundStyle(presentation.state == .failed ? Color.red : Color.secondary)
-                        .frame(width: Layout.horizontalIconSize, height: Layout.horizontalIconSize)
+                        .frame(width: refreshStatus.horizontalIconFrame, height: refreshStatus.horizontalIconFrame)
                 }
                 Text("\(timestampPrefix)\(compactUpdatedText)")
-                    .font(.caption2)
+                    .font(metrics.type.refreshTimestamp.font)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .padding(.horizontal, Layout.horizontalHorizontalPadding)
-            .frame(width: width, height: height)
+            .padding(.horizontal, refreshStatus.horizontalPadding)
+            .frame(width: resolvedWidth, height: height)
             .contentShape(shape)
         }
         .buttonStyle(.plain)
@@ -1125,14 +795,14 @@ struct RefreshStatusControl: View {
         if isRefreshing {
             ProgressView()
                 .controlSize(.small)
-                .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
+                .frame(width: metrics.refreshStatus.iconFrame, height: metrics.refreshStatus.iconFrame)
         } else {
             let presentation = statusPresentation
             let button = Button(action: action) {
                 Image(systemName: presentation.symbolName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(metrics.type.refreshSymbol.font)
                     .foregroundStyle(presentation.state == .failed ? Color.red : Color.secondary)
-                    .frame(width: Layout.refreshIconSize, height: Layout.refreshIconSize)
+                    .frame(width: metrics.refreshStatus.iconFrame, height: metrics.refreshStatus.iconFrame)
             }
             .buttonStyle(.plain)
             .disabled(!isRefreshEnabled)
@@ -1180,23 +850,27 @@ struct SaveErrorBanner: View {
     let message: String
     let dismiss: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.banner.spacing) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .font(metrics.type.bannerSymbol.font)
                 .foregroundStyle(.red)
             Text("Couldn't save your changes: \(message)")
-                .font(.callout)
+                .font(metrics.type.bannerMessage.font)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button(action: dismiss) {
                 Image(systemName: "xmark")
+                    .font(metrics.type.bannerSymbol.font)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .accessibilityLabel("Dismiss save error")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, metrics.banner.horizontalPadding)
+        .padding(.vertical, metrics.banner.verticalPadding)
     }
 }
 
@@ -1253,14 +927,14 @@ struct MenuSegmentedControl<Value: Hashable>: View {
 
     @Binding var selection: Value
     let segments: [Segment]
-    var height: CGFloat = 28
-    var font: Font = .system(size: 13, weight: .medium)
-    var iconPointSize: CGFloat = 12
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
 
+    private var height: CGFloat { metrics.controls.segmentedHeight }
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: metrics.controls.segmentedCornerRadius, style: .continuous)
 
         HStack(spacing: 0) {
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
@@ -1283,14 +957,14 @@ struct MenuSegmentedControl<Value: Hashable>: View {
                 selection = segment.value
             }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: metrics.controls.segmentedContentSpacing) {
                 if let name = segment.systemImageName {
                     Image(systemName: name)
-                        .font(.system(size: iconPointSize, weight: .semibold))
+                        .font(metrics.type.segmentIcon.font)
                 }
                 if !segment.title.isEmpty {
                     Text(segment.title)
-                        .font(font)
+                        .font(metrics.type.segmentLabel.font)
                         .lineLimit(1)
                 }
             }
@@ -1298,20 +972,24 @@ struct MenuSegmentedControl<Value: Hashable>: View {
             .frame(width: segment.width, height: height)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    let selectedShape = RoundedRectangle(
+                        cornerRadius: metrics.controls.segmentSelectionCornerRadius,
+                        style: .continuous
+                    )
+                    selectedShape
                         .fill(selectedFill)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            selectedShape
                                 .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
                         )
-                        .padding(2)
+                        .padding(metrics.controls.segmentSelectionInset)
                 }
             }
             .overlay(alignment: .leading) {
                 if showsDivider {
                     Rectangle()
                         .fill(MenuControlBorderPresentation.color(colorScheme: colorScheme))
-                        .frame(width: 1, height: height - 14)
+                        .frame(width: 1, height: metrics.controls.segmentDividerHeight)
                 }
             }
             .contentShape(Rectangle())
@@ -1333,6 +1011,7 @@ struct MenuSegmentedControl<Value: Hashable>: View {
 private struct MenuTabSegmentedControl: View {
     @Binding var selection: DashboardController.MenuTab
     let attentionCount: Int
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         MenuSegmentedControl(selection: $selection, segments: segments)
@@ -1346,14 +1025,14 @@ private struct MenuTabSegmentedControl: View {
                     value: tab,
                     title: MenuNotificationTabPresentation.label(for: attentionCount),
                     systemImageName: "bell",
-                    width: MenuRootView.Layout.notificationTabSegmentWidth,
+                    width: metrics.tabSwitcher.notificationSegmentWidth,
                     help: MenuTabShortcutHint.title(for: tab)
                 )
             case .myPRs, .reviewRequests:
                 MenuSegmentedControl.Segment(
                     value: tab,
                     title: tab.rawValue,
-                    width: MenuRootView.Layout.textTabSegmentWidth,
+                    width: metrics.tabSwitcher.textSegmentWidth,
                     help: MenuTabShortcutHint.title(for: tab)
                 )
             }
@@ -1388,9 +1067,12 @@ enum MenuNotificationTabPresentation {
 private struct NotificationListView: View {
     @ObservedObject var controller: DashboardController
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
+        let list = metrics.notificationList
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: list.headerSpacing) {
                 Spacer()
 
                 if !controller.visiblePullRequestNotifications.isEmpty {
@@ -1404,9 +1086,9 @@ private struct NotificationListView: View {
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+            .padding(.horizontal, list.headerHorizontalPadding)
+            .padding(.top, list.headerTopPadding)
+            .padding(.bottom, list.headerBottomPadding)
 
             if controller.showsGitHubAppRepositoryAccessPrompt {
                 GitHubAppRepositoryAccessPrompt(controller: controller)
@@ -1414,7 +1096,7 @@ private struct NotificationListView: View {
                 EmptyMenuState(text: "No PR notifications.")
             } else {
                 ScrollView(.vertical) {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: list.rowSpacing) {
                         ForEach(controller.visiblePullRequestNotifications) { notification in
                             PullRequestNotificationRow(notification: notification) {
                                 controller.openPullRequestNotification(notification)
@@ -1423,9 +1105,9 @@ private struct NotificationListView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 5)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, list.horizontalPadding)
+                    .padding(.top, list.topPadding)
+                    .padding(.bottom, list.bottomPadding)
                 }
             }
         }
@@ -1450,6 +1132,7 @@ struct GitHubSignInView: View {
     }
 
     @ObservedObject var controller: DashboardController
+    @Environment(\.menuMetrics) private var metrics
     @State private var isHoveringSignIn: Bool = false
     @State private var isHoveringPAT: Bool = false
 
@@ -1465,32 +1148,32 @@ struct GitHubSignInView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 20) {
+            VStack(spacing: metrics.signIn.contentSpacing) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: 88, height: 88)
+                    .frame(width: metrics.signIn.appIconSize, height: metrics.signIn.appIconSize)
 
-                HStack(spacing: 8) {
+                HStack(spacing: metrics.signIn.buttonRowSpacing) {
                     Button {
                         connect()
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: metrics.gitHubButton.contentSpacing) {
                             if let mark = Self.gitHubMarkImage {
                                 Image(nsImage: mark)
                                     .resizable()
                                     .renderingMode(.template)
-                                    .frame(width: 14, height: 14)
+                                    .frame(width: metrics.gitHubButton.markSize, height: metrics.gitHubButton.markSize)
                             }
                             Text(Self.Copy.buttonTitle)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(metrics.type.gitHubButtonTitle.font)
                         }
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .frame(height: 30)
+                        .padding(.horizontal, metrics.gitHubButton.horizontalPadding)
+                        .frame(height: metrics.gitHubButton.height)
                         .background(
                             Color.accentColor.opacity(isHoveringSignIn ? 0.8 : 1.0),
-                            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            in: RoundedRectangle(cornerRadius: metrics.gitHubButton.cornerRadius, style: .continuous)
                         )
                     }
                     .buttonStyle(.plain)
@@ -1508,7 +1191,7 @@ struct GitHubSignInView: View {
 
                 if let error = controller.errorMessage {
                     Text(error)
-                        .font(.caption)
+                        .font(metrics.type.signInError.font)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1517,7 +1200,7 @@ struct GitHubSignInView: View {
                     controller.showGitHubSettings(patMode: true)
                 }
                 .buttonStyle(.plain)
-                .font(.subheadline)
+                .font(metrics.type.signInLink.font)
                 .foregroundStyle(isHoveringPAT ? Color.secondary : Color(nsColor: .tertiaryLabelColor))
                 .underline(isHoveringPAT)
                 .onHover { hovering in
@@ -1528,7 +1211,7 @@ struct GitHubSignInView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(24)
+        .padding(metrics.signIn.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
@@ -1549,13 +1232,14 @@ struct GitHubSignInView: View {
 struct DeviceFlowPendingSignInView: View {
     @ObservedObject var controller: DashboardController
     let challenge: DeviceFlowChallenge
+    @Environment(\.menuMetrics) private var metrics
     @State private var expiryTimeRemaining: String = ""
     @State private var justCopied: Bool = false
     @State private var isHoveringCopy: Bool = false
     private let expiryTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: metrics.signIn.pendingSpacing) {
             Spacer(minLength: 0)
 
             if controller.deviceFlowPhase == .loadingApp {
@@ -1566,36 +1250,39 @@ struct DeviceFlowPendingSignInView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(24)
+        .padding(metrics.signIn.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .onAppear { updateExpiryLabel(challenge: challenge) }
         .onReceive(expiryTimer) { _ in updateExpiryLabel(challenge: challenge) }
     }
 
     private var enterCodeContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: metrics.signIn.enterCodeSpacing) {
             HStack(spacing: 0) {
                 Text("Enter code on ")
-                    .font(.headline)
+                    .font(metrics.type.signInTitle.font)
                 Link(destination: challenge.verificationURI) {
-                    HStack(spacing: 3) {
+                    HStack(spacing: metrics.signIn.linkSpacing) {
                         Text("GitHub")
                         Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(metrics.type.signInLinkArrow.font)
                     }
-                    .font(.headline)
+                    .font(metrics.type.signInTitle.font)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: metrics.signIn.codeRowSpacing) {
                 Text(challenge.userCode)
-                    .font(.system(.title2, design: .monospaced).weight(.semibold))
-                    .tracking(2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .font(metrics.type.deviceCode.font)
+                    .tracking(metrics.signIn.codeTracking)
+                    .padding(.horizontal, metrics.signIn.codeHorizontalPadding)
+                    .padding(.vertical, metrics.signIn.codeVerticalPadding)
+                    .background(
+                        .quaternary,
+                        in: RoundedRectangle(cornerRadius: metrics.signIn.codeCornerRadius, style: .continuous)
+                    )
 
                 Button {
                     controller.copyDeviceFlowUserCode()
@@ -1605,9 +1292,9 @@ struct DeviceFlowPendingSignInView: View {
                     }
                 } label: {
                     Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(metrics.type.copySymbol.font)
                         .foregroundStyle(justCopied ? Color.green : (isHoveringCopy ? Color.primary : Color.secondary))
-                        .frame(width: 22, height: 22)
+                        .frame(width: metrics.signIn.copyButtonSize, height: metrics.signIn.copyButtonSize)
                         .scaleEffect(isHoveringCopy && !justCopied ? 1.2 : 1.0)
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -1617,13 +1304,13 @@ struct DeviceFlowPendingSignInView: View {
                 }
             }
 
-            HStack(spacing: 5) {
+            HStack(spacing: metrics.signIn.expirySpacing) {
                 Image(systemName: "clock")
-                    .font(.system(size: 11))
+                    .font(metrics.type.expirySymbol.font)
                     .foregroundStyle(.tertiary)
                 if !expiryTimeRemaining.isEmpty {
                     Text(expiryTimeRemaining)
-                        .font(.caption)
+                        .font(metrics.type.expiry.font)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -1632,26 +1319,26 @@ struct DeviceFlowPendingSignInView: View {
                 controller.cancelDeviceFlowSignIn()
             }
             .buttonStyle(.plain)
-            .font(.subheadline)
+            .font(metrics.type.signInLink.font)
             .foregroundStyle(.tertiary)
         }
     }
 
     private var loadingAppContent: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: metrics.signIn.loadingSpacing) {
             ProgressView()
                 .controlSize(.regular)
             Text(GitHubSignInView.Copy.loadingTitle)
-                .font(.headline)
+                .font(metrics.type.signInTitle.font)
             Text(GitHubSignInView.Copy.loadingDetail)
-                .font(.subheadline)
+                .font(metrics.type.signInDetail.font)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func updateExpiryLabel(challenge: DeviceFlowChallenge) {
-        let remaining = challenge.expiresAt.timeIntervalSinceNow
+        let remaining = challenge.expiresAt.timeIntervalSince(controller.currentDate())
         if remaining <= 0 {
             expiryTimeRemaining = ""
         } else {
@@ -1678,6 +1365,7 @@ struct PullRequestListView: View {
     @Binding var dropdownState: PullRequestMenuDropdownState
     @State private var isHiddenExpanded: Bool
     @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
+    @Environment(\.menuMetrics) private var metrics
 
     init(
         controller: DashboardController,
@@ -1742,7 +1430,7 @@ struct PullRequestListView: View {
             EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
         } else {
             ScrollView(.vertical) {
-                LazyVStack(spacing: PullRequestColumnLayout.rowSpacing) {
+                LazyVStack(spacing: metrics.prColumns.rowSpacing) {
                     PullRequestColumnHeader()
 
                     ForEach(visiblePullRequests) { pr in
@@ -1761,28 +1449,28 @@ struct PullRequestListView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 5)
-                .padding(.bottom, 12)
+                .padding(.horizontal, metrics.prList.horizontalPadding)
+                .padding(.top, metrics.prList.topPadding)
+                .padding(.bottom, metrics.prList.bottomPadding)
             }
         }
     }
 
     private var requestedContent: some View {
         ScrollView(.vertical) {
-            LazyVStack(spacing: 20) {
+            LazyVStack(spacing: metrics.prList.sectionSpacing) {
                 ForEach(controller.requestedSections, id: \.section) { content in
                     requestedSection(content)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 5)
-            .padding(.bottom, 12)
+            .padding(.horizontal, metrics.prList.horizontalPadding)
+            .padding(.top, metrics.prList.topPadding)
+            .padding(.bottom, metrics.prList.bottomPadding)
         }
     }
 
     private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
-        VStack(spacing: PullRequestColumnLayout.rowSpacing) {
+        VStack(spacing: metrics.prColumns.rowSpacing) {
             requestedSectionDisclosure(content)
 
             if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
@@ -1828,16 +1516,16 @@ struct PullRequestListView: View {
                 expandedRequestedHiddenSections.insert(content.section)
             }
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: metrics.prList.disclosureSpacing) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(metrics.type.disclosureChevron.font)
                 Text(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
-                    .font(.caption.weight(.semibold))
+                    .font(metrics.type.disclosureTitle.font)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .padding(.horizontal, metrics.prList.disclosureHorizontalPadding)
+            .frame(height: metrics.prList.disclosureHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1871,16 +1559,16 @@ struct PullRequestListView: View {
         Button {
             isHiddenExpanded.toggle()
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: metrics.prList.disclosureSpacing) {
                 Image(systemName: isHiddenExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(metrics.type.disclosureChevron.font)
                 Text(HiddenPullRequestsDisclosurePresentation.title(count: hiddenPullRequests.count))
-                    .font(.caption.weight(.semibold))
+                    .font(metrics.type.disclosureTitle.font)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .padding(.horizontal, metrics.prList.disclosureHorizontalPadding)
+            .frame(height: metrics.prList.disclosureHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1915,19 +1603,21 @@ struct PullRequestHeaderControls: View {
     let mode: PullRequestListView.Mode
     @Binding var dropdownState: PullRequestMenuDropdownState
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.dropdown.headerControlsSpacing) {
             filterButton
                 .overlay(alignment: .topTrailing) {
                     if dropdownState.openMenu == .filter {
-                        filterMenu.offset(y: 34)
+                        filterMenu.offset(y: metrics.dropdownOffset)
                     }
                 }
                 .zIndex(dropdownState.openMenu == .filter ? 1 : 0)
             sortButton
                 .overlay(alignment: .topTrailing) {
                     if dropdownState.openMenu == .sort {
-                        sortMenu.offset(y: 34)
+                        sortMenu.offset(y: metrics.dropdownOffset)
                     }
                 }
                 .zIndex(dropdownState.openMenu == .sort ? 1 : 0)
@@ -2023,24 +1713,24 @@ struct PullRequestHeaderControls: View {
     private var filterMenu: some View {
         switch mode {
         case .authored:
-            optionMenu(width: 156) {
+            optionMenu(width: metrics.dropdown.authoredFilterWidth) {
                 ForEach(DashboardController.PullRequestFilterOption.allCases) { option in
                     optionMenuButton(
                         title: option.label,
                         isSelected: pullRequestFilterIsSelected(option),
-                        width: 156
+                        width: metrics.dropdown.authoredFilterWidth
                     ) {
                         togglePullRequestFilter(option)
                     }
                 }
             }
         case .reviewRequests:
-            optionMenu(width: 112) {
+            optionMenu(width: metrics.dropdown.requestedFilterWidth) {
                 ForEach(DashboardController.ReviewRequestFilterOption.allCases) { option in
                     optionMenuButton(
                         title: option.label,
                         isSelected: reviewRequestFilterIsSelected(option),
-                        width: 112
+                        width: metrics.dropdown.requestedFilterWidth
                     ) {
                         toggleReviewRequestFilter(option)
                     }
@@ -2088,12 +1778,12 @@ struct PullRequestHeaderControls: View {
     }
 
     private var sortMenu: some View {
-        optionMenu(width: 132) {
+        optionMenu(width: metrics.dropdown.sortWidth) {
             ForEach(DashboardController.PullRequestSortOption.allCases) { option in
                 optionMenuButton(
                     title: option.label,
                     isSelected: sortOption == option,
-                    width: 132
+                    width: metrics.dropdown.sortWidth
                 ) {
                     setSortOption(option)
                     dropdownState.dismiss()
@@ -2103,17 +1793,18 @@ struct PullRequestHeaderControls: View {
     }
 
     private func optionMenu<Content: View>(width: CGFloat, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let dropdown = metrics.dropdown
+        return VStack(alignment: .leading, spacing: dropdown.itemSpacing) {
             content()
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, dropdown.verticalPadding)
         .background(.ultraThinMaterial)
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: dropdown.cornerRadius)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .shadow(radius: 8, y: 3)
+        .clipShape(RoundedRectangle(cornerRadius: dropdown.cornerRadius))
+        .shadow(radius: dropdown.shadowRadius, y: dropdown.shadowOffsetY)
         .zIndex(1)
     }
 
@@ -2124,18 +1815,18 @@ struct PullRequestHeaderControls: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: metrics.dropdown.itemContentSpacing) {
                 Image(systemName: isSelected ? "checkmark" : "")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 12)
+                    .font(metrics.type.dropdownCheckmark.font)
+                    .frame(width: metrics.dropdown.checkmarkWidth)
                 Text(title)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(metrics.type.dropdownItem.font)
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, 8)
-            .frame(width: width, height: 24, alignment: .leading)
+            .padding(.horizontal, metrics.dropdown.itemHorizontalPadding)
+            .frame(width: width, height: metrics.dropdown.itemHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2148,24 +1839,25 @@ private struct PullRequestNotificationRow: View {
     let onMarkRead: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Button(action: action) {
-                HStack(alignment: .center, spacing: PullRequestColumnLayout.identitySpacing) {
+                HStack(alignment: .center, spacing: metrics.prColumns.identitySpacing) {
                     Image(systemName: PullRequestNotificationIconPresentation.symbolName(for: notification.eventType))
-                        .font(.system(size: 17, weight: .medium))
+                        .font(metrics.type.notificationIcon.font)
                         .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
-                        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
-                    VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
+                    VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
+                        HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
                             Text(title)
-                                .font(.subheadline.weight(.semibold))
+                                .font(metrics.type.cardTitle.font)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
-                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                .font(metrics.type.notificationTimestamp.font)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
@@ -2174,8 +1866,8 @@ private struct PullRequestNotificationRow: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-                .padding(.vertical, PullRequestColumnLayout.verticalInset)
+                .padding(.horizontal, metrics.prColumns.horizontalInset)
+                .padding(.vertical, metrics.prColumns.verticalInset)
                 .transparentCardStyle(
                     accentColor: notification.read ? nil : .accentColor,
                     isHovered: isHovered
@@ -2186,18 +1878,18 @@ private struct PullRequestNotificationRow: View {
             if isHovered && !notification.read {
                 Button(action: onMarkRead) {
                     Image(systemName: NotificationReadPresentation.symbolName)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(metrics.type.markReadSymbol.font)
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22)
+                        .frame(width: row.markReadButtonSize, height: row.markReadButtonSize)
                         .background(.regularMaterial, in: Circle())
                         .overlay(
                             Circle()
                                 .stroke(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
                         )
-                        .shadow(color: .black.opacity(0.16), radius: 4, y: 1)
+                        .shadow(color: .black.opacity(0.16), radius: row.markReadShadowRadius, y: row.markReadShadowOffsetY)
                 }
                 .buttonStyle(.plain)
-                .offset(x: -6, y: -6)
+                .offset(x: -row.markReadOffset, y: -row.markReadOffset)
                 .help(NotificationReadPresentation.markOneHelp)
                 .accessibilityLabel(NotificationReadPresentation.markPRAccessibilityLabel)
             }
@@ -2209,9 +1901,11 @@ private struct PullRequestNotificationRow: View {
         PullRequestNotificationTitlePresentation.title(for: notification)
     }
 
+    private var row: MenuMetrics.NotificationRow { metrics.notificationRow }
+
     private var pullRequestLine: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 4) {
+            HStack(spacing: row.pullRequestLineSpacing) {
                 Text(notification.repo)
                     .fixedSize(horizontal: true, vertical: false)
                 Text(verbatim: "#\(notification.prNumber)")
@@ -2221,7 +1915,7 @@ private struct PullRequestNotificationRow: View {
                 Text(verbatim: notification.prTitle)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            HStack(spacing: 4) {
+            HStack(spacing: row.pullRequestLineSpacing) {
                 Text(notification.repo)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -2233,13 +1927,13 @@ private struct PullRequestNotificationRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(
-                        minWidth: Self.minimumPRTitleWidth,
-                        idealWidth: Self.minimumPRTitleWidth,
+                        minWidth: row.minimumPRTitleWidth,
+                        idealWidth: row.minimumPRTitleWidth,
                         maxWidth: .infinity,
                         alignment: .leading
                     )
             }
-            HStack(spacing: 4) {
+            HStack(spacing: row.pullRequestLineSpacing) {
                 Text(notification.repo)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -2249,7 +1943,7 @@ private struct PullRequestNotificationRow: View {
                     .layoutPriority(2)
             }
         }
-        .font(.caption2.weight(.medium))
+        .font(metrics.type.cardMetadata.font)
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(pullRequestHelp)
@@ -2264,24 +1958,6 @@ private struct PullRequestNotificationRow: View {
     private var pullRequestAccessibilityLabel: String {
         "\(notification.repo)#\(notification.prNumber), \(notification.prTitle)"
     }
-
-    private static let minimumPRTitleWidth: CGFloat = 40
-}
-
-enum PullRequestColumnLayout {
-    static let spacing: CGFloat = 6
-    static let rowSpacing: CGFloat = 7
-    static let headerHeight: CGFloat = 32
-    static let horizontalInset: CGFloat = 10
-    static let verticalInset: CGFloat = 8
-    static let avatarSize: CGFloat = 22
-    static let identitySpacing: CGFloat = 7
-    static let identityLineSpacing: CGFloat = 4
-    static let commentsWidth: CGFloat = 30
-    static let statusWidth: CGFloat = 30
-    static let changesWidth: CGFloat = 49
-    static let ageWidth: CGFloat = 30
-    static let actionsWidth: CGFloat = PullRequestActionButtonLayout.hitSize
 }
 
 struct RequestedSectionHeading: View {
@@ -2291,19 +1967,21 @@ struct RequestedSectionHeading: View {
     var previewHoveredColumn: PullRequestColumnLegend.Column? = nil
     let action: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             Button(action: action) {
-                HStack(spacing: 8) {
+                HStack(spacing: metrics.prList.sectionHeadingSpacing) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 12, alignment: .leading)
+                        .font(metrics.type.sectionChevron.font)
+                        .frame(width: metrics.prList.sectionChevronWidth, alignment: .leading)
                     Text(section.title)
-                        .font(.body.weight(.semibold))
+                        .font(metrics.type.sectionHeading.font)
                     CountBubble(text: "\(count)")
                     Spacer(minLength: 0)
                 }
-                .frame(height: PullRequestColumnLayout.headerHeight)
+                .frame(height: metrics.prColumns.headerHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -2315,20 +1993,22 @@ struct RequestedSectionHeading: View {
                 PullRequestColumnLegend(previewHoveredColumn: previewHoveredColumn)
             }
         }
-        .padding(.trailing, PullRequestColumnLayout.horizontalInset)
-        .frame(height: PullRequestColumnLayout.headerHeight)
+        .padding(.trailing, metrics.prColumns.horizontalInset)
+        .frame(height: metrics.prColumns.headerHeight)
         .zIndex(1)
     }
 }
 
 struct PullRequestColumnHeader: View {
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             Color.clear.frame(maxWidth: .infinity).accessibilityHidden(true)
             PullRequestColumnLegend()
         }
-        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .frame(height: PullRequestColumnLayout.headerHeight)
+        .padding(.horizontal, metrics.prColumns.horizontalInset)
+        .frame(height: metrics.prColumns.headerHeight)
         .zIndex(1)
     }
 }
@@ -2345,15 +2025,15 @@ struct PullRequestColumnLegend: View {
         var id: Self { self }
 
         @ViewBuilder
-        var icon: some View {
+        func icon(in legend: MenuMetrics.Legend) -> some View {
             switch self {
             case .comments: Image(systemName: "bubble.left")
             case .review: Image(systemName: "person.crop.circle.badge.checkmark")
             case .ci: Image(systemName: "checkmark.circle")
             case .mergeStatus:
                 MergeStatusSymbol()
-                    .stroke(style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
-                    .frame(width: 14, height: 14)
+                    .stroke(style: StrokeStyle(lineWidth: legend.mergeStatusStrokeWidth, lineCap: .round, lineJoin: .round))
+                    .frame(width: legend.mergeStatusSymbolSize, height: legend.mergeStatusSymbolSize)
             case .changes: Image(systemName: "plusminus")
             case .time: Image(systemName: "clock.arrow.circlepath")
             }
@@ -2370,38 +2050,40 @@ struct PullRequestColumnLegend: View {
             }
         }
 
-        var width: CGFloat {
+        func width(in columns: MenuMetrics.PRColumns) -> CGFloat {
             switch self {
-            case .comments: PullRequestColumnLayout.commentsWidth
-            case .review, .ci, .mergeStatus: PullRequestColumnLayout.statusWidth
-            case .changes: PullRequestColumnLayout.changesWidth
-            case .time: PullRequestColumnLayout.ageWidth
+            case .comments: columns.commentsWidth
+            case .review, .ci, .mergeStatus: columns.statusWidth
+            case .changes: columns.changesWidth
+            case .time: columns.ageWidth
             }
         }
     }
 
     var previewHoveredColumn: Column? = nil
     @State private var hoveredColumn: Column?
+    @Environment(\.menuMetrics) private var metrics
 
     private var activeColumn: Column? { previewHoveredColumn ?? hoveredColumn }
 
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             ForEach(Column.allCases) { column in
                 columnHeader(column)
             }
-            Color.clear.frame(width: PullRequestColumnLayout.actionsWidth, height: 1)
+            Color.clear.frame(width: metrics.prColumns.actionsWidth, height: 1)
                 .accessibilityHidden(true)
         }
-        .font(.caption2.weight(.semibold))
+        .font(metrics.type.legendLabel.font)
         .foregroundStyle(.secondary)
-        .frame(height: 22)
+        .frame(height: metrics.legend.height)
     }
 
     private func columnHeader(_ column: Column) -> some View {
-        column.icon
-            .font(.system(size: 13, weight: .semibold))
-            .frame(width: column.width, height: 22)
+        let legend = metrics.legend
+        return column.icon(in: legend)
+            .font(metrics.type.legendIcon.font)
+            .frame(width: column.width(in: metrics.prColumns), height: legend.height)
             .contentShape(Rectangle())
             .onHover { isHovered in
                 if isHovered {
@@ -2413,18 +2095,18 @@ struct PullRequestColumnLegend: View {
             .overlay(alignment: .top) {
                 if activeColumn == column {
                     Text(column.label)
-                        .font(.caption.weight(.medium))
+                        .font(metrics.type.legendTooltip.font)
                         .foregroundStyle(Color(nsColor: .labelColor))
                         .fixedSize()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(.horizontal, legend.tooltipHorizontalPadding)
+                        .padding(.vertical, legend.tooltipVerticalPadding)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: legend.tooltipCornerRadius))
                         .overlay {
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: legend.tooltipCornerRadius)
                                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                         }
-                        .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
-                        .offset(y: 26)
+                        .shadow(color: .black.opacity(0.16), radius: legend.tooltipShadowRadius, y: legend.tooltipShadowOffsetY)
+                        .offset(y: legend.tooltipOffset)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -2444,34 +2126,36 @@ struct PullRequestRow: View {
     let togglePin: () -> Void
     let action: () -> Void
 
+    @Environment(\.menuNow) private var menuNow
     @State private var isHovered = false
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
-        HStack(spacing: PullRequestColumnLayout.spacing) {
+        HStack(spacing: metrics.prColumns.spacing) {
             Button(action: action) {
-                HStack(spacing: PullRequestColumnLayout.spacing) {
-                    HStack(spacing: PullRequestColumnLayout.identitySpacing) {
+                HStack(spacing: metrics.prColumns.spacing) {
+                    HStack(spacing: metrics.prColumns.identitySpacing) {
                         PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
                         identity
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
-                        .frame(width: PullRequestColumnLayout.changesWidth)
+                        .frame(width: metrics.prColumns.changesWidth)
                     CommentCountIndicator(count: pullRequest.commentCount)
-                        .frame(width: PullRequestColumnLayout.commentsWidth)
+                        .frame(width: metrics.prColumns.commentsWidth)
                     CIStatusIndicator(ciState: pullRequest.ciState)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
+                        .frame(width: metrics.prColumns.statusWidth)
                     MergeConflictIndicator(mergeable: pullRequest.mergeable)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
+                        .frame(width: metrics.prColumns.statusWidth)
                     ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                        .frame(width: PullRequestColumnLayout.statusWidth)
+                        .frame(width: metrics.prColumns.statusWidth)
                     VStack(alignment: .trailing, spacing: 0) {
                         ageCell(pullRequest.updatedAt, field: .updated)
                         ageCell(pullRequest.createdAt, field: .opened)
                     }
                     .fixedSize(horizontal: true, vertical: false)
-                    .frame(width: PullRequestColumnLayout.ageWidth, height: 30)
+                    .frame(width: metrics.prColumns.ageWidth, height: metrics.prRow.valueColumnHeight)
                 }
                 .contentShape(Rectangle())
             }
@@ -2479,9 +2163,9 @@ struct PullRequestRow: View {
 
             Button(action: toggleActions) {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(metrics.type.actionsSymbol.font)
                     .rotationEffect(.degrees(90))
-                    .frame(width: PullRequestActionButtonLayout.hitSize, height: PullRequestActionButtonLayout.hitSize)
+                    .frame(width: metrics.prColumns.actionButtonHitSize, height: metrics.prColumns.actionButtonHitSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -2501,29 +2185,29 @@ struct PullRequestRow: View {
                     ) : nil
                 )
             }
-            .frame(width: PullRequestColumnLayout.actionsWidth)
+            .frame(width: metrics.prColumns.actionsWidth)
         }
-        .padding(.horizontal, PullRequestColumnLayout.horizontalInset)
-        .padding(.vertical, PullRequestColumnLayout.verticalInset)
+        .padding(.horizontal, metrics.prColumns.horizontalInset)
+        .padding(.vertical, metrics.prColumns.verticalInset)
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
     }
 
     private func ageCell(_ date: Date, field: PullRequestAgePresentation.Field) -> some View {
-        Text(PullRequestAgePresentation.shortText(for: date))
-            .font(.caption2.monospacedDigit().weight(.medium))
+        Text(PullRequestAgePresentation.shortText(for: date, now: menuNow))
+            .font(metrics.type.ageValue.font)
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .help(PullRequestAgePresentation.label(for: date, field: field))
-            .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field))
+            .help(PullRequestAgePresentation.label(for: date, field: field, now: menuNow))
+            .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field, now: menuNow))
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: PullRequestColumnLayout.identityLineSpacing) {
-            HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
+            HStack(spacing: metrics.prRow.identityItemSpacing) {
                 if pullRequest.draft { DraftPullRequestIndicator() }
                 Text(pullRequest.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(metrics.type.cardTitle.font)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(pullRequest.title)
@@ -2531,7 +2215,7 @@ struct PullRequestRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 4) {
+            HStack(spacing: metrics.prRow.identityItemSpacing) {
                 Text(pullRequest.author)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -2552,7 +2236,7 @@ struct PullRequestRow: View {
                     .help("Pull request #\(pullRequest.number)")
                     .accessibilityLabel("Pull request number \(pullRequest.number)")
             }
-            .font(.caption2.weight(.medium))
+            .font(metrics.type.cardMetadata.font)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2562,6 +2246,8 @@ struct PullRequestRow: View {
 private struct PullRequestAuthorAvatar: View {
     let author: String
     let url: URL?
+
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         Group {
@@ -2577,7 +2263,7 @@ private struct PullRequestAuthorAvatar: View {
                 placeholder
             }
         }
-        .frame(width: PullRequestColumnLayout.avatarSize, height: PullRequestColumnLayout.avatarSize)
+        .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
         .clipShape(Circle())
         .help("Author: \(author)")
         .accessibilityLabel("Author: \(author)")
@@ -2593,19 +2279,17 @@ private struct PullRequestAuthorAvatar: View {
     }
 }
 
-private enum PullRequestActionButtonLayout {
-    static let hitSize: CGFloat = 28
-}
-
 private struct DraftPullRequestIndicator: View {
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Text("Draft")
-            .font(.system(size: 9, weight: .semibold))
+            .font(metrics.type.draftBadge.font)
             .foregroundStyle(.primary)
             .lineLimit(1)
             .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, metrics.prRow.draftBadgeHorizontalPadding)
+            .padding(.vertical, metrics.prRow.draftBadgeVerticalPadding)
             .background(Color.secondary.opacity(0.2), in: Capsule())
             .help("Draft PR")
             .accessibilityLabel("Draft PR")
@@ -2616,22 +2300,24 @@ private struct TransparentCardStyle: ViewModifier {
     let accentColor: Color?
     let isHovered: Bool
 
+    @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        content
+        let shape = RoundedRectangle(cornerRadius: metrics.card.cornerRadius, style: .continuous)
+        return content
             .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                shape
                     .fill(restFill)
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                shape
                     .fill(hoverFill)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                shape
                     .stroke(borderColor, lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(shape)
+            .contentShape(shape)
     }
 
     private var restFill: Color {
@@ -2732,9 +2418,6 @@ private struct PullRequestActionsAnchorKey: PreferenceKey {
 }
 
 struct PullRequestActionsMenu: View {
-    static let width: CGFloat = 156
-    static let height: CGFloat = 94
-
     let url: URL
     let isHidden: Bool
     let isPinned: Bool
@@ -2742,25 +2425,28 @@ struct PullRequestActionsMenu: View {
     let togglePin: () -> Void
     let dismiss: () -> Void
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        VStack(spacing: 2) {
+        let actionsMenu = metrics.actionsMenu
+        VStack(spacing: actionsMenu.itemSpacing) {
             menuItem(PullRequestHidePresentation.label(isHidden: isHidden), symbol: PullRequestHidePresentation.symbolName, action: toggleHide)
             menuItem(PullRequestPinPresentation.label(isPinned: isPinned), symbol: PullRequestPinPresentation.symbolName(isPinned: isPinned), action: togglePin)
             menuItem("Copy link", symbol: "doc.on.doc") {
                 copyToPasteboard(url)
             }
         }
-        .padding(6)
-        .frame(width: Self.width, height: Self.height)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        .padding(actionsMenu.padding)
+        .frame(width: actionsMenu.width, height: actionsMenu.height)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: actionsMenu.cornerRadius))
         // Padding belongs to the open menu, not the outside-click dismiss area.
         .contentShape(Rectangle())
         .onTapGesture {}
         .overlay {
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: actionsMenu.cornerRadius)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+        .shadow(color: .black.opacity(0.2), radius: actionsMenu.shadowRadius, y: actionsMenu.shadowOffsetY)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("PR actions")
     }
@@ -2787,21 +2473,26 @@ private struct PullRequestActionMenuItem: View {
     let title: String
     let symbol: String
     let action: () -> Void
+    @Environment(\.menuMetrics) private var metrics
     @State private var isHovered = false
 
     var body: some View {
+        let actionsMenu = metrics.actionsMenu
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: actionsMenu.itemContentSpacing) {
                 Image(systemName: symbol)
-                    .frame(width: 16)
+                    .frame(width: actionsMenu.itemIconWidth)
                 Text(title)
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 12))
-            .padding(.horizontal, 6)
-            .frame(height: 26)
+            .font(metrics.type.actionsMenuItem.font)
+            .padding(.horizontal, actionsMenu.itemHorizontalPadding)
+            .frame(height: actionsMenu.itemHeight)
             .foregroundStyle(isHovered ? Color.white : Color.primary)
-            .background(isHovered ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+            .background(
+                isHovered ? Color.accentColor : Color.clear,
+                in: RoundedRectangle(cornerRadius: actionsMenu.itemCornerRadius)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2812,9 +2503,11 @@ private struct PullRequestActionMenuItem: View {
 struct CommentCountIndicator: View {
     let count: Int
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Text("\(count)")
-            .font(.caption2.monospacedDigit().weight(.semibold))
+            .font(metrics.type.metricValue.font)
             .foregroundStyle(.secondary)
             .accessibilityLabel(Self.label(for: count))
             .help(Self.label(for: count))
@@ -2848,10 +2541,12 @@ struct CIStatusIndicator: View {
 
     let ciState: CIState
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Circle()
             .fill(kind.color.opacity(0.65))
-            .frame(width: 8, height: 8)
+            .frame(width: metrics.indicators.ciDotSize, height: metrics.indicators.ciDotSize)
             .accessibilityLabel(kind.label)
             .help(kind.label)
     }
@@ -2899,24 +2594,26 @@ struct PullRequestSignalIndicator: View {
     let kind: Kind
     let label: String
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Group {
             switch kind {
             case .positive:
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(metrics.type.signalSymbol.font)
                     .foregroundStyle(.green)
             case .negative:
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(metrics.type.signalSymbol.font)
                     .foregroundStyle(.red)
             case .unavailable:
                 Text("—")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .font(metrics.type.metricValue.font)
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 17, height: 17)
+        .frame(width: metrics.indicators.signalSize, height: metrics.indicators.signalSize)
         .help(label)
         .accessibilityLabel(label)
     }
@@ -3010,6 +2707,8 @@ struct PullRequestChangesIndicator: View {
     let additions: Int?
     let deletions: Int?
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Group {
             if let additions, let deletions {
@@ -3025,10 +2724,10 @@ struct PullRequestChangesIndicator: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .font(.caption2.monospacedDigit().weight(.semibold))
+        .font(metrics.type.metricValue.font)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
-        .frame(width: PullRequestColumnLayout.changesWidth, height: 30)
+        .frame(width: metrics.prColumns.changesWidth, height: metrics.prRow.valueColumnHeight)
         .contentShape(Rectangle())
         .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
         .accessibilityElement(children: .ignore)
@@ -3102,12 +2801,15 @@ struct ReviewDecisionIndicator: View {
 
     let reviewDecision: ReviewDecision
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
+        let indicators = metrics.indicators
         if kind == .changesRequested {
             ChangesRequestedSymbol()
-                .stroke(.red, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
-                .frame(width: 13, height: 15)
-                .frame(width: 17, height: 17)
+                .stroke(.red, style: StrokeStyle(lineWidth: indicators.changesRequestedStrokeWidth, lineCap: .round, lineJoin: .round))
+                .frame(width: indicators.changesRequestedSymbolWidth, height: indicators.changesRequestedSymbolHeight)
+                .frame(width: indicators.signalSize, height: indicators.signalSize)
                 .help(kind.label)
                 .accessibilityLabel(kind.label)
         } else {
@@ -3147,12 +2849,14 @@ extension ReviewDecisionIndicator.Kind {
 struct CountBubble: View {
     let text: String
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         Text(text)
-            .font(.caption2.monospacedDigit().weight(.semibold))
+            .font(metrics.type.sectionCount.font)
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, metrics.prList.sectionCountHorizontalPadding)
+            .padding(.vertical, metrics.prList.sectionCountVerticalPadding)
             .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
     }
 }
@@ -3161,13 +2865,15 @@ struct EmptyMenuState: View {
     let text: String
     var systemImage = "tray"
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: metrics.emptyState.spacing) {
             Image(systemName: systemImage)
-                .font(.title2)
+                .font(metrics.type.emptyStateIcon.font)
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.subheadline)
+                .font(metrics.type.emptyStateText.font)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3178,6 +2884,8 @@ struct GitHubAppRepositoryAccessPrompt: View {
     @ObservedObject var controller: DashboardController
     var minHeight: CGFloat? = nil
 
+    @Environment(\.menuMetrics) private var metrics
+
     private struct ContextRow {
         let icon: String
         let text: String
@@ -3187,42 +2895,46 @@ struct GitHubAppRepositoryAccessPrompt: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 20) {
-                VStack(spacing: 10) {
+            VStack(spacing: metrics.accessPrompt.contentSpacing) {
+                VStack(spacing: metrics.accessPrompt.headerSpacing) {
                     Image(systemName: headerIconName)
-                        .font(.system(size: 34, weight: .light))
+                        .font(metrics.type.accessPromptIcon.font)
                         .foregroundStyle(.secondary)
                     Text(GitHubAppRepositoryAccessCopy.title(for: controller.gitHubAppRepositoryAccessStatus))
-                        .font(.headline)
+                        .font(metrics.type.accessPromptTitle.font)
                         .multilineTextAlignment(.center)
                 }
 
-                VStack(spacing: 12) {
+                VStack(spacing: metrics.accessPrompt.actionsSpacing) {
                     contextBox
 
                     Button { controller.openGitHubAppInstallation() } label: {
-                        HStack(spacing: 6) {
+                        let button = metrics.gitHubButton
+                        HStack(spacing: button.contentSpacing) {
                             if let mark = GitHubSignInView.gitHubMarkImage {
                                 Image(nsImage: mark)
                                     .resizable()
                                     .renderingMode(.template)
-                                    .frame(width: 14, height: 14)
+                                    .frame(width: button.markSize, height: button.markSize)
                             }
                             Text(GitHubAppRepositoryAccessCopy.buttonTitle)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(metrics.type.gitHubButtonTitle.font)
                         }
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, button.horizontalPadding)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .frame(height: 30)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .frame(height: button.height)
+                        .background(
+                            Color.accentColor,
+                            in: RoundedRectangle(cornerRadius: button.cornerRadius, style: .continuous)
+                        )
                     }
                     .buttonStyle(.plain)
                 }
-                .frame(maxWidth: 340)
+                .frame(maxWidth: metrics.accessPrompt.maxContentWidth)
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, metrics.accessPrompt.horizontalPadding)
 
             Spacer(minLength: 0)
         }
@@ -3263,23 +2975,29 @@ struct GitHubAppRepositoryAccessPrompt: View {
                 noteRow(icon: row.icon, text: row.text)
             }
         }
-        .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.gray.opacity(0.22), lineWidth: 1))
+        .background(
+            Color.gray.opacity(0.14),
+            in: RoundedRectangle(cornerRadius: metrics.accessPrompt.noteBoxCornerRadius, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: metrics.accessPrompt.noteBoxCornerRadius, style: .continuous)
+                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
+        )
     }
 
     private func noteRow(icon: String, text: String) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: metrics.accessPrompt.noteSpacing) {
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(metrics.type.accessPromptNoteIcon.font)
                 .foregroundStyle(.secondary)
-                .frame(width: 22, alignment: .center)
+                .frame(width: metrics.accessPrompt.noteIconWidth, alignment: .center)
             Text(text)
-                .font(.callout)
+                .font(metrics.type.accessPromptNote.font)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, metrics.accessPrompt.noteHorizontalPadding)
+        .padding(.vertical, metrics.accessPrompt.noteVerticalPadding)
     }
 }

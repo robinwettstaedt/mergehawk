@@ -123,17 +123,23 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     // Reuse the actual menu content in a persistent mock verification window.
-    func makeMenuContentView(availableFrame: CGRect? = nil) -> NSView {
+    func makeMenuContentView(
+        availableFrame: CGRect? = nil,
+        initialDropdown: PullRequestMenuDropdown? = nil
+    ) -> NSView {
         let screenFrame = availableFrame
             ?? statusItem.button?.window?.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSScreen.screens.first?.visibleFrame
-            ?? CGRect(x: 0, y: 0, width: MenuRootView.Layout.width, height: MenuRootView.Layout.height)
-        let resolvedSize = MenuPanelSize.resolve(availableFrame: screenFrame)
+            ?? CGRect(origin: .zero, size: MenuMetrics.standard.panelSize)
+        let metrics = MenuMetrics.standard
+        let resolvedSize = MenuPanelSize.resolve(availableFrame: screenFrame, metrics: metrics)
         let hostingView = MenuRootHostingView(
             controller: controller,
             footerModel: footerModel,
+            metrics: metrics,
             resolvedSize: resolvedSize,
+            initialDropdown: initialDropdown,
             refreshKeyHandler: { [weak self] in
                 self?.performKeyboardRefresh()
             },
@@ -242,7 +248,9 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
     init(
         controller: DashboardController,
         footerModel: MenuFooterModel,
+        metrics: MenuMetrics,
         resolvedSize: CGSize,
+        initialDropdown: PullRequestMenuDropdown?,
         refreshKeyHandler: @escaping () -> Void,
         tabShortcutHandler: @escaping (DashboardController.MenuTab) -> Bool,
         dismissMenu: @escaping () -> Void,
@@ -264,7 +272,9 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         super.init(rootView: MenuRootView(
             controller: controller,
             footerModel: footerModel,
+            metrics: metrics,
             resolvedSize: resolvedSize,
+            initialDropdown: initialDropdown,
             dismissMenu: dismissMenu,
             showSettings: showSettings,
             showAbout: showAbout,

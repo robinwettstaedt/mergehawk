@@ -904,6 +904,49 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testMockRefreshRecordsTheInjectedClockAsSyncTime() {
+        let clock = Date(timeIntervalSince1970: 1_790_000_000)
+        let controller = makeMockController(suiteName: "mock-clock-sync", now: { clock })
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
+        XCTAssertEqual(controller.state.syncedAt, clock)
+
+        controller.refresh()
+        waitUntil(timeout: 1.0) { !controller.state.events.isEmpty && !controller.isRefreshing }
+        XCTAssertEqual(controller.state.syncedAt, clock)
+    }
+
+    @MainActor
+    func testMockSourceCatalogSyncTimeUsesTheInjectedClock() {
+        let clock = Date(timeIntervalSince1970: 1_790_000_000)
+        let controller = makeMockController(suiteName: "mock-clock-catalog", now: { clock })
+        XCTAssertEqual(controller.sourceCatalogSyncedAt, clock)
+    }
+
+    @MainActor
+    func testMockFixtureDatesAreRelativeToTheInjectedClock() throws {
+        let clock = Date(timeIntervalSince1970: 1_790_000_000)
+        let controller = makeMockController(suiteName: "mock-clock-fixtures", now: { clock })
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
+        let draft = try XCTUnwrap(controller.state.pullRequests.first { $0.id == "PR_1" })
+        XCTAssertEqual(draft.updatedAt, clock.addingTimeInterval(-3 * 3_600))
+        XCTAssertEqual(draft.createdAt, clock.addingTimeInterval(-150 * 86_400))
+    }
+
+    @MainActor
+    private func makeMockController(suiteName: String, now: @escaping () -> Date) -> DashboardController {
+        let suite = "\(suiteName)-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0,
+            now: now
+        )
+    }
+
+    @MainActor
     private func waitUntilAsync(condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(1)
         while Date() < deadline {
