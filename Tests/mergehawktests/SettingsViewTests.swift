@@ -9,6 +9,11 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(GeneralMenuSizeCopy.reductionNote, "The menu may be reduced to fit smaller displays.")
     }
 
+    func testGeneralFooterShortcutHintEndsAtTheLastSettingsTab() {
+        XCTAssertEqual(GeneralShortcutHintCopy.lastTabShortcut, "⌘6")
+        XCTAssertEqual(GeneralShortcutHintCopy.lastTabShortcut, "⌘\(SettingsTab.allCases.count)")
+    }
+
     func testSourceCatalogSearchTrimsAndMatchesOwnerRepositoryOrCombinedName() {
         let catalog = makeCatalog()
 

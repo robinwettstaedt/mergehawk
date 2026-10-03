@@ -288,7 +288,7 @@ private struct GeneralSettingsView: View {
                     Text("Try pressing ")
                         + Text("⌘1").foregroundColor(.accentColor).fontWeight(.semibold)
                         + Text("–").foregroundColor(.accentColor).fontWeight(.semibold)
-                        + Text("⌘5").foregroundColor(.accentColor).fontWeight(.semibold)
+                        + Text(GeneralShortcutHintCopy.lastTabShortcut).foregroundColor(.accentColor).fontWeight(.semibold)
                         + Text(" to switch tabs in MergeHawk!")
                 }
             }
@@ -301,6 +301,11 @@ private struct GeneralSettingsView: View {
 
 enum GeneralMenuSizeCopy {
     static let reductionNote = "The menu may be reduced to fit smaller displays."
+}
+
+enum GeneralShortcutHintCopy {
+    /// The shortcut of the last Settings tab, so the footer's ⌘1–⌘N range follows the tab count.
+    static let lastTabShortcut = "⌘\(SettingsTab.allCases.count)"
 }
 
 enum GeneralUpdateCopy {
