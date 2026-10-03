@@ -731,6 +731,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     to: menuSizeURL(size, "header-tooltips")
                 )
             }
+            try renderTooltipPlacements(to: outputURL.appendingPathComponent("menu-tooltips.png"))
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-laptop.png"),
@@ -1150,6 +1151,7 @@ final class VisualVerificationXCTests: XCTestCase {
                             action: {}
                         )
                     }
+                    .menuTooltipHost(MenuTooltipController())
                 }
             }
             .padding(.top, 12)
@@ -1237,6 +1239,77 @@ final class VisualVerificationXCTests: XCTestCase {
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.copyItem(at: largerURL.appendingPathComponent(file), to: destination)
         }
+    }
+
+    // Each panel renders the tooltip layout and bubble directly with an explicit anchor
+    // (outlined) so wrapping, flipping, clamping, and truncation are readable in one capture.
+    @MainActor
+    private func renderTooltipPlacements(to url: URL) throws {
+        let width = MenuMetrics.standard.panel.width
+        let refreshError = "Refresh failed: The provider returned an unexpected response while fetching pull request "
+            + "activity for 14 repositories. The request was retried three times and every attempt timed out after "
+            + "30 seconds. Check your network connection and the provider's status page, then try again. If the "
+            + "problem persists, sign out and sign in again to renew your authorization."
+        let newlines = (1...8).map { "Line \($0): mergehawk-labs/review-router#\(40 + $0) needs attention" }
+            .joined(separator: "\n")
+        let unbroken = String(repeating: "3f9a1c7e5b2d8f4a6c0e", count: 40)
+        let panels: [(title: String, height: CGFloat, anchor: CGRect, text: String)] = [
+            (
+                "Wraps at 320pt, placed below",
+                130,
+                CGRect(x: 60, y: 16, width: 380, height: 18),
+                "feat(MER-36): Handle assigned incoming PRs from teams and individual reviewers across every "
+                    + "connected repository without duplicating rows"
+            ),
+            (
+                "Anchor at the bottom edge: flipped above",
+                110,
+                CGRect(x: 300, y: 86, width: 120, height: 18),
+                "mergehawk-labs/review-router"
+            ),
+            (
+                "Anchor at the right edge: clamped",
+                70,
+                CGRect(x: width - 34, y: 12, width: 28, height: 22),
+                "Author: platform-nora-with-a-long-handle"
+            ),
+            ("Oversized refresh error: truncated", 90, CGRect(x: 740, y: 10, width: 58, height: 24), refreshError),
+            ("Explicit newlines: truncated", 90, CGRect(x: 60, y: 10, width: 200, height: 18), newlines),
+            ("Long unbroken string: truncated", 90, CGRect(x: 360, y: 36, width: 120, height: 18), unbroken),
+        ]
+
+        let view = VStack(alignment: .leading, spacing: 6) {
+            ForEach(panels.indices, id: \.self) { index in
+                let panel = panels[index]
+                Text(panel.title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 8)
+                    .padding(.top, index == 0 ? 8 : 6)
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .stroke(Color.accentColor.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                        .frame(width: panel.anchor.width, height: panel.anchor.height)
+                        .offset(x: panel.anchor.minX, y: panel.anchor.minY)
+                    MenuTooltipLayout(anchor: panel.anchor, metrics: MenuMetrics.standard.tooltip) {
+                        MenuTooltipBubble(text: panel.text)
+                    }
+                }
+                .frame(width: width, height: panel.height, alignment: .topLeading)
+                .background(.regularMaterial)
+                .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+            }
+            Spacer(minLength: 0)
+        }
+        let size = CGSize(width: width, height: 776)
+        let framed = view
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .background(Color(nsColor: .windowBackgroundColor))
+
+        try render(framed, size: size, appearance: .darkAqua, to: url)
+        let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
+        let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
+        try render(framed, size: size, appearance: .aqua, to: lightURL)
     }
 
     @MainActor
@@ -1479,6 +1552,7 @@ private struct VisualCaptureSelection {
         "menu-my-prs",
         "menu-my-prs-actions-open",
         "menu-header-tooltips",
+        "menu-tooltips",
         "menu-my-prs-laptop",
         "menu-my-prs-header-filter-open",
         "menu-my-prs-header-sort-open",

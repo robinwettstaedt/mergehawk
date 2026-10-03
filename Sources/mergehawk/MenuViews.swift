@@ -142,6 +142,8 @@ struct MenuControlButton: View {
     let title: String
     let isOpen: Bool
     let help: String
+    // Off for buttons whose visible title already says the same thing.
+    var showsTooltip = true
     let action: () -> Void
 
     @Environment(\.menuMetrics) private var metrics
@@ -180,7 +182,7 @@ struct MenuControlButton: View {
         )
         .clipShape(shape)
         .onHover { isHovered = $0 }
-        .help(help)
+        .menuTooltip(showsTooltip ? help : "")
         .accessibilityLabel(help)
     }
 
@@ -218,7 +220,7 @@ struct SortControlButton: View {
             }
             .buttonStyle(.plain)
             .onHover { directionHovered = $0 }
-            .help(directionHelp)
+            .menuTooltip(directionHelp)
             .accessibilityLabel(directionHelp)
 
             Rectangle()
@@ -241,7 +243,6 @@ struct SortControlButton: View {
             }
             .buttonStyle(.plain)
             .onHover { menuHovered = $0 }
-            .help(menuHelp)
             .accessibilityLabel(menuHelp)
         }
         .overlay(
@@ -362,6 +363,7 @@ struct MenuRootView: View {
     @ObservedObject var controller: DashboardController
     @ObservedObject var footerModel: MenuFooterModel
     let metrics: MenuMetrics
+    let tooltipController: MenuTooltipController
     let resolvedSize: CGSize
     let dismissMenu: () -> Void
     let showSettings: () -> Void
@@ -374,6 +376,7 @@ struct MenuRootView: View {
         controller: DashboardController,
         footerModel: MenuFooterModel,
         metrics: MenuMetrics = .standard,
+        tooltipController: MenuTooltipController? = nil,
         resolvedSize: CGSize = MenuMetrics.standard.panelSize,
         initialDropdown: PullRequestMenuDropdown? = nil,
         dismissMenu: @escaping () -> Void = {},
@@ -384,6 +387,7 @@ struct MenuRootView: View {
         self.controller = controller
         self.footerModel = footerModel
         self.metrics = metrics
+        self.tooltipController = tooltipController ?? MenuTooltipController()
         self.resolvedSize = resolvedSize
         self.dismissMenu = dismissMenu
         self.showSettings = showSettings
@@ -448,7 +452,14 @@ struct MenuRootView: View {
         }
         .onChange(of: controller.selectedTab) { _, _ in
             dropdownState.dismiss()
+            tooltipController.dismiss()
         }
+        .onChange(of: dropdownState.openMenu) { _, openMenu in
+            if openMenu != nil {
+                tooltipController.dismiss()
+            }
+        }
+        .menuTooltipHost(tooltipController)
         .environment(\.menuMetrics, metrics)
     }
 
@@ -804,7 +815,7 @@ struct RefreshStatusControl: View {
         .clipShape(shape)
         .onHover { isHovered = $0 }
         .disabled(!isRefreshEnabled)
-        .help(presentation.help)
+        .menuTooltip(presentation.help)
         .accessibilityLabel(presentation.accessibilityLabel)
 
         if let keyboardShortcut {
@@ -834,7 +845,7 @@ struct RefreshStatusControl: View {
             }
             .buttonStyle(.plain)
             .disabled(!isRefreshEnabled)
-            .help(presentation.help)
+            .menuTooltip(presentation.help)
             .accessibilityLabel(presentation.accessibilityLabel)
 
             if let keyboardShortcut {
@@ -1023,7 +1034,7 @@ struct MenuSegmentedControl<Value: Hashable>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(segment.help ?? "")
+        .menuTooltip(segment.help ?? "")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
@@ -1108,7 +1119,8 @@ private struct NotificationListView: View {
                         symbolName: NotificationReadPresentation.symbolName,
                         title: NotificationReadPresentation.markAllTitle,
                         isOpen: false,
-                        help: NotificationReadPresentation.markAllHelp
+                        help: NotificationReadPresentation.markAllHelp,
+                        showsTooltip: false
                     ) {
                         controller.markAllNotificationsRead()
                     }
@@ -1557,7 +1569,6 @@ struct PullRequestListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(HiddenPullRequestsDisclosurePresentation.title(count: content.hidden.count))
         .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
             count: content.hidden.count,
             isExpanded: isExpanded
@@ -1600,7 +1611,6 @@ struct PullRequestListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(HiddenPullRequestsDisclosurePresentation.title(count: hiddenPullRequests.count))
         .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
             count: hiddenPullRequests.count,
             isExpanded: isHiddenExpanded
@@ -1918,7 +1928,6 @@ private struct PullRequestNotificationRow: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: -row.markReadOffset, y: -row.markReadOffset)
-                .help(NotificationReadPresentation.markOneHelp)
                 .accessibilityLabel(NotificationReadPresentation.markPRAccessibilityLabel)
             }
         }
@@ -1974,7 +1983,6 @@ private struct PullRequestNotificationRow: View {
         .font(metrics.type.cardMetadata.font)
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .help(pullRequestHelp)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(pullRequestAccessibilityLabel)
     }
@@ -2014,7 +2022,6 @@ struct RequestedSectionHeading: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help("\(section.title): \(count) PRs")
             .accessibilityLabel("\(section.title), \(count) PRs, \(isExpanded ? "expanded" : "collapsed")")
 
             if isExpanded {
@@ -2089,10 +2096,7 @@ struct PullRequestColumnLegend: View {
     }
 
     var previewHoveredColumn: Column? = nil
-    @State private var hoveredColumn: Column?
     @Environment(\.menuMetrics) private var metrics
-
-    private var activeColumn: Column? { previewHoveredColumn ?? hoveredColumn }
 
     var body: some View {
         HStack(spacing: metrics.prColumns.spacing) {
@@ -2113,32 +2117,7 @@ struct PullRequestColumnLegend: View {
             .font(metrics.type.legendIcon.font)
             .frame(width: column.width(in: metrics.prColumns), height: legend.height)
             .contentShape(Rectangle())
-            .onHover { isHovered in
-                if isHovered {
-                    hoveredColumn = column
-                } else if hoveredColumn == column {
-                    hoveredColumn = nil
-                }
-            }
-            .overlay(alignment: .top) {
-                if activeColumn == column {
-                    Text(column.label)
-                        .font(metrics.type.legendTooltip.font)
-                        .foregroundStyle(Color(nsColor: .labelColor))
-                        .fixedSize()
-                        .padding(.horizontal, legend.tooltipHorizontalPadding)
-                        .padding(.vertical, legend.tooltipVerticalPadding)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: legend.tooltipCornerRadius))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: legend.tooltipCornerRadius)
-                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                        }
-                        .shadow(color: .black.opacity(0.16), radius: legend.tooltipShadowRadius, y: legend.tooltipShadowOffsetY)
-                        .offset(y: legend.tooltipOffset)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
+            .menuTooltip(column.label, forcesVisible: previewHoveredColumn == column, providesAccessibilityHint: false)
             .accessibilityLabel(column.label)
     }
 }
@@ -2198,7 +2177,7 @@ struct PullRequestRow: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(isActionsOpen ? Color.accentColor : Color.secondary)
-            .help("PR actions")
+            .menuTooltip("PR actions")
             .accessibilityLabel("PR actions")
             .anchorPreference(key: PullRequestActionsAnchorKey.self, value: .bounds) { bounds in
                 PullRequestActionsAnchors(
@@ -2226,7 +2205,6 @@ struct PullRequestRow: View {
             .font(metrics.type.ageValue.font)
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .help(PullRequestAgePresentation.label(for: date, field: field, now: menuNow))
             .accessibilityLabel(PullRequestAgePresentation.label(for: date, field: field, now: menuNow))
     }
 
@@ -2238,7 +2216,6 @@ struct PullRequestRow: View {
                     .font(metrics.type.cardTitle.font)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(pullRequest.title)
                     .accessibilityLabel(pullRequest.title)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2248,7 +2225,6 @@ struct PullRequestRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
-                    .help("Author: \(pullRequest.author)")
                     .accessibilityLabel("Author: \(pullRequest.author)")
                 Text("·")
                     .fixedSize()
@@ -2256,12 +2232,10 @@ struct PullRequestRow: View {
                 Text(pullRequest.repo)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(pullRequest.repo)
                     .accessibilityLabel(pullRequest.repo)
                 Text("#\(pullRequest.number)")
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(1)
-                    .help("Pull request #\(pullRequest.number)")
                     .accessibilityLabel("Pull request number \(pullRequest.number)")
             }
             .font(metrics.type.cardMetadata.font)
@@ -2293,7 +2267,6 @@ private struct PullRequestAuthorAvatar: View {
         }
         .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
         .clipShape(Circle())
-        .help("Author: \(author)")
         .accessibilityLabel("Author: \(author)")
     }
 
@@ -2319,7 +2292,6 @@ private struct DraftPullRequestIndicator: View {
             .padding(.horizontal, metrics.prRow.draftBadgeHorizontalPadding)
             .padding(.vertical, metrics.prRow.draftBadgeVerticalPadding)
             .background(Color.secondary.opacity(0.2), in: Capsule())
-            .help("Draft PR")
             .accessibilityLabel("Draft PR")
     }
 }
@@ -2538,7 +2510,7 @@ struct CommentCountIndicator: View {
             .font(metrics.type.metricValue.font)
             .foregroundStyle(.secondary)
             .accessibilityLabel(Self.label(for: count))
-            .help(Self.label(for: count))
+            .menuTooltip(Self.label(for: count))
     }
 
     static func label(for count: Int) -> String {
@@ -2576,7 +2548,7 @@ struct CIStatusIndicator: View {
             .fill(kind.color.opacity(0.65))
             .frame(width: metrics.indicators.ciDotSize, height: metrics.indicators.ciDotSize)
             .accessibilityLabel(kind.label)
-            .help(kind.label)
+            .menuTooltip(kind.label)
     }
 
     private var kind: Kind {
@@ -2642,7 +2614,7 @@ struct PullRequestSignalIndicator: View {
             }
         }
         .frame(width: metrics.indicators.signalSize, height: metrics.indicators.signalSize)
-        .help(label)
+        .menuTooltip(label)
         .accessibilityLabel(label)
     }
 }
@@ -2757,7 +2729,7 @@ struct PullRequestChangesIndicator: View {
         .minimumScaleFactor(0.8)
         .frame(width: metrics.prColumns.changesWidth, height: metrics.prRow.valueColumnHeight)
         .contentShape(Rectangle())
-        .help(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
+        .menuTooltip(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PullRequestChangesPresentation.label(additions: additions, deletions: deletions))
     }
@@ -2838,7 +2810,7 @@ struct ReviewDecisionIndicator: View {
                 .stroke(.red, style: StrokeStyle(lineWidth: indicators.changesRequestedStrokeWidth, lineCap: .round, lineJoin: .round))
                 .frame(width: indicators.changesRequestedSymbolWidth, height: indicators.changesRequestedSymbolHeight)
                 .frame(width: indicators.signalSize, height: indicators.signalSize)
-                .help(kind.label)
+                .menuTooltip(kind.label)
                 .accessibilityLabel(kind.label)
         } else {
             PullRequestSignalIndicator(kind: kind.signal, label: kind.label)

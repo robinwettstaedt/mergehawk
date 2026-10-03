@@ -8,12 +8,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let menu = StatusBarMenu()
     private let controller: DashboardController
     private let footerModel = MenuFooterModel()
+    private let tooltipController: MenuTooltipController
     private var quitAction: () -> Void = { NSApp.terminate(nil) }
     private var cancellables: Set<AnyCancellable> = []
     private var isMenuOpen = false
 
-    init(controller: DashboardController) {
+    init(controller: DashboardController, tooltipController: MenuTooltipController? = nil) {
         self.controller = controller
+        self.tooltipController = tooltipController ?? MenuTooltipController()
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         menu.delegate = self
@@ -45,6 +47,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func menuDidClose(_ menu: NSMenu) {
         isMenuOpen = false
+        tooltipController.dismiss()
     }
 
     func rebuildMenuForTesting(availableFrame: CGRect? = nil) -> [NSMenuItem] {
@@ -139,6 +142,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             controller: controller,
             footerModel: footerModel,
             metrics: metrics,
+            tooltipController: tooltipController,
             resolvedSize: resolvedSize,
             initialDropdown: initialDropdown,
             refreshKeyHandler: { [weak self] in
@@ -250,6 +254,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         controller: DashboardController,
         footerModel: MenuFooterModel,
         metrics: MenuMetrics,
+        tooltipController: MenuTooltipController,
         resolvedSize: CGSize,
         initialDropdown: PullRequestMenuDropdown?,
         refreshKeyHandler: @escaping () -> Void,
@@ -274,6 +279,7 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
             controller: controller,
             footerModel: footerModel,
             metrics: metrics,
+            tooltipController: tooltipController,
             resolvedSize: resolvedSize,
             initialDropdown: initialDropdown,
             dismissMenu: dismissMenu,

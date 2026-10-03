@@ -59,7 +59,7 @@ struct MenuMetrics: Equatable {
         var markReadSymbol: FontToken
         var legendLabel: FontToken
         var legendIcon: FontToken
-        var legendTooltip: FontToken
+        var tooltip: FontToken
         var actionsSymbol: FontToken
         var ageValue: FontToken
         /// Comment counts, change counts and other numeric column values.
@@ -236,15 +236,21 @@ struct MenuMetrics: Equatable {
         var height: CGFloat
         var mergeStatusSymbolSize: CGFloat
         var mergeStatusStrokeWidth: CGFloat
-        var tooltipHorizontalPadding: CGFloat
-        var tooltipVerticalPadding: CGFloat
-        var tooltipCornerRadius: CGFloat
-        var tooltipShadowRadius: CGFloat
-        var tooltipShadowOffsetY: CGFloat
-        /// Gap between a column heading and its tooltip.
-        var tooltipGap: CGFloat
+    }
 
-        var tooltipOffset: CGFloat { height + tooltipGap }
+    /// The single MergeHawk-drawn hover tooltip (`MenuTooltip.swift`).
+    struct Tooltip: Equatable {
+        var horizontalPadding: CGFloat
+        var verticalPadding: CGFloat
+        var cornerRadius: CGFloat
+        var shadowRadius: CGFloat
+        var shadowOffsetY: CGFloat
+        /// Gap between the hovered element and its tooltip.
+        var gap: CGFloat
+        /// Closest the tooltip comes to the menu's edges.
+        var edgeMargin: CGFloat
+        /// Longer text wraps at this width.
+        var maxWidth: CGFloat
     }
 
     struct ActionsMenu: Equatable {
@@ -359,6 +365,7 @@ struct MenuMetrics: Equatable {
     var prRow: PRRow
     var card: Card
     var legend: Legend
+    var tooltip: Tooltip
     var actionsMenu: ActionsMenu
     var indicators: Indicators
     var gitHubButton: GitHubButton
@@ -415,7 +422,7 @@ struct MenuMetrics: Equatable {
             markReadSymbol: FontToken(size: s(caption), weight: .medium),
             legendLabel: FontToken(size: s(caption), weight: .semibold),
             legendIcon: FontToken(size: s(title), weight: .semibold),
-            legendTooltip: FontToken(size: s(caption), weight: .medium),
+            tooltip: FontToken(size: s(caption), weight: .medium),
             actionsSymbol: FontToken(size: s(body), weight: .semibold),
             ageValue: FontToken(size: s(caption), weight: .medium, monospacedDigits: true),
             metricValue: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
@@ -547,13 +554,17 @@ struct MenuMetrics: Equatable {
         legend = Legend(
             height: s(22),
             mergeStatusSymbolSize: s(14),
-            mergeStatusStrokeWidth: s(1.4),
-            tooltipHorizontalPadding: s(8),
-            tooltipVerticalPadding: s(4),
-            tooltipCornerRadius: s(6),
-            tooltipShadowRadius: s(4),
-            tooltipShadowOffsetY: s(2),
-            tooltipGap: s(4)
+            mergeStatusStrokeWidth: s(1.4)
+        )
+        tooltip = Tooltip(
+            horizontalPadding: s(8),
+            verticalPadding: s(4),
+            cornerRadius: s(6),
+            shadowRadius: s(4),
+            shadowOffsetY: s(2),
+            gap: s(4),
+            edgeMargin: s(4),
+            maxWidth: s(320)
         )
         actionsMenu = ActionsMenu(
             width: s(156),
