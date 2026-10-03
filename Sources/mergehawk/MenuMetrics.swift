@@ -384,53 +384,60 @@ struct MenuMetrics: Equatable {
         self.scale = scale
         func s(_ value: CGFloat) -> CGFloat { value * scale }
 
+        // One type size per role; each font token picks its role, weight and design.
+        let caption: CGFloat = 10
+        let body: CGFloat = 11
+        let title: CGFloat = 13
+        let display: CGFloat = 17
+        let displayLarge: CGFloat = 34
+
         type = TypeScale(
-            panelTitle: FontToken(size: s(13), weight: .bold),
-            controlLabel: FontToken(size: s(11), weight: .semibold),
-            controlChevron: FontToken(size: s(9), weight: .semibold),
-            segmentLabel: FontToken(size: s(13), weight: .medium),
-            segmentIcon: FontToken(size: s(12), weight: .semibold),
-            refreshSymbol: FontToken(size: s(13), weight: .semibold),
-            refreshTimestamp: FontToken(size: s(10), weight: .medium),
-            bannerMessage: FontToken(size: s(12)),
-            bannerSymbol: FontToken(size: s(13)),
-            disclosureChevron: FontToken(size: s(9), weight: .semibold),
-            disclosureTitle: FontToken(size: s(10), weight: .semibold),
-            dropdownItem: FontToken(size: s(11), weight: .semibold),
-            dropdownCheckmark: FontToken(size: s(11), weight: .semibold),
-            sectionChevron: FontToken(size: s(12), weight: .semibold),
-            sectionHeading: FontToken(size: s(13), weight: .semibold),
-            sectionCount: FontToken(size: s(10), weight: .semibold, monospacedDigits: true),
-            cardTitle: FontToken(size: s(11), weight: .semibold),
-            cardMetadata: FontToken(size: s(10), weight: .medium),
-            notificationIcon: FontToken(size: s(17), weight: .medium),
-            notificationTimestamp: FontToken(size: s(10), weight: .semibold, monospacedDigits: true),
-            markReadSymbol: FontToken(size: s(9), weight: .medium),
-            legendLabel: FontToken(size: s(10), weight: .semibold),
-            legendIcon: FontToken(size: s(13), weight: .semibold),
-            legendTooltip: FontToken(size: s(10), weight: .medium),
-            actionsSymbol: FontToken(size: s(12), weight: .semibold),
-            ageValue: FontToken(size: s(10), weight: .medium, monospacedDigits: true),
-            metricValue: FontToken(size: s(10), weight: .semibold, monospacedDigits: true),
-            signalSymbol: FontToken(size: s(12), weight: .semibold),
-            draftBadge: FontToken(size: s(9), weight: .semibold),
-            actionsMenuItem: FontToken(size: s(12)),
-            gitHubButtonTitle: FontToken(size: s(13), weight: .semibold),
-            signInTitle: FontToken(size: s(13), weight: .bold),
-            signInDetail: FontToken(size: s(11)),
-            signInLink: FontToken(size: s(11)),
-            signInLinkArrow: FontToken(size: s(10), weight: .bold),
-            signInError: FontToken(size: s(10)),
-            deviceCode: FontToken(size: s(17), weight: .semibold, design: .monospaced),
-            copySymbol: FontToken(size: s(13), weight: .medium),
-            expirySymbol: FontToken(size: s(11)),
-            expiry: FontToken(size: s(10)),
-            emptyStateIcon: FontToken(size: s(17)),
-            emptyStateText: FontToken(size: s(11)),
-            accessPromptIcon: FontToken(size: s(34), weight: .light),
-            accessPromptTitle: FontToken(size: s(13), weight: .bold),
-            accessPromptNoteIcon: FontToken(size: s(13)),
-            accessPromptNote: FontToken(size: s(12))
+            panelTitle: FontToken(size: s(title), weight: .bold),
+            controlLabel: FontToken(size: s(body), weight: .semibold),
+            controlChevron: FontToken(size: s(caption), weight: .semibold),
+            segmentLabel: FontToken(size: s(title), weight: .medium),
+            segmentIcon: FontToken(size: s(body), weight: .semibold),
+            refreshSymbol: FontToken(size: s(title), weight: .semibold),
+            refreshTimestamp: FontToken(size: s(caption), weight: .medium),
+            bannerMessage: FontToken(size: s(body)),
+            bannerSymbol: FontToken(size: s(title)),
+            disclosureChevron: FontToken(size: s(caption), weight: .semibold),
+            disclosureTitle: FontToken(size: s(caption), weight: .semibold),
+            dropdownItem: FontToken(size: s(body), weight: .semibold),
+            dropdownCheckmark: FontToken(size: s(body), weight: .semibold),
+            sectionChevron: FontToken(size: s(body), weight: .semibold),
+            sectionHeading: FontToken(size: s(title), weight: .semibold),
+            sectionCount: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
+            cardTitle: FontToken(size: s(body), weight: .semibold),
+            cardMetadata: FontToken(size: s(caption), weight: .medium),
+            notificationIcon: FontToken(size: s(display), weight: .medium),
+            notificationTimestamp: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
+            markReadSymbol: FontToken(size: s(caption), weight: .medium),
+            legendLabel: FontToken(size: s(caption), weight: .semibold),
+            legendIcon: FontToken(size: s(title), weight: .semibold),
+            legendTooltip: FontToken(size: s(caption), weight: .medium),
+            actionsSymbol: FontToken(size: s(body), weight: .semibold),
+            ageValue: FontToken(size: s(caption), weight: .medium, monospacedDigits: true),
+            metricValue: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
+            signalSymbol: FontToken(size: s(body), weight: .semibold),
+            draftBadge: FontToken(size: s(caption), weight: .semibold),
+            actionsMenuItem: FontToken(size: s(body)),
+            gitHubButtonTitle: FontToken(size: s(title), weight: .semibold),
+            signInTitle: FontToken(size: s(title), weight: .bold),
+            signInDetail: FontToken(size: s(body)),
+            signInLink: FontToken(size: s(body)),
+            signInLinkArrow: FontToken(size: s(caption), weight: .bold),
+            signInError: FontToken(size: s(caption)),
+            deviceCode: FontToken(size: s(display), weight: .semibold, design: .monospaced),
+            copySymbol: FontToken(size: s(title), weight: .medium),
+            expirySymbol: FontToken(size: s(body)),
+            expiry: FontToken(size: s(caption)),
+            emptyStateIcon: FontToken(size: s(display)),
+            emptyStateText: FontToken(size: s(body)),
+            accessPromptIcon: FontToken(size: s(displayLarge), weight: .light),
+            accessPromptTitle: FontToken(size: s(title), weight: .bold),
+            accessPromptNoteIcon: FontToken(size: s(title)),
+            accessPromptNote: FontToken(size: s(body))
         )
         panel = Panel(width: s(820), contentHeight: s(650))
         topBar = TopBar(
@@ -440,29 +447,29 @@ struct MenuMetrics: Equatable {
             headerControlsTrailingSpacing: s(8),
             refreshStatusWidth: s(58)
         )
-        tabSwitcher = TabSwitcher(width: s(320), leadingInset: s(5), notificationSegmentWidth: s(64))
+        tabSwitcher = TabSwitcher(width: s(320), leadingInset: s(4), notificationSegmentWidth: s(64))
         controls = Controls(
             height: s(24),
             cornerRadius: s(6),
             contentSpacing: s(6),
-            horizontalPadding: s(10),
+            horizontalPadding: s(8),
             sortDirectionWidth: s(26),
             sortDividerVerticalInset: s(5),
             segmentedHeight: s(28),
             segmentedCornerRadius: s(6),
-            segmentedContentSpacing: s(5),
+            segmentedContentSpacing: s(4),
             segmentSelectionInset: s(2),
-            segmentSelectionCornerRadius: s(5),
+            segmentSelectionCornerRadius: s(4),
             segmentDividerVerticalInset: s(7)
         )
         prColumns = PRColumns(
             spacing: s(6),
-            rowSpacing: s(7),
+            rowSpacing: s(6),
             headerHeight: s(32),
-            horizontalInset: s(10),
+            horizontalInset: s(8),
             verticalInset: s(8),
             avatarSize: s(22),
-            identitySpacing: s(7),
+            identitySpacing: s(6),
             identityLineSpacing: s(4),
             commentsWidth: s(30),
             statusWidth: s(30),
@@ -472,23 +479,23 @@ struct MenuMetrics: Equatable {
         )
         refreshStatus = RefreshStatus(
             verticalWidth: s(82),
-            verticalSpacing: s(3),
-            indicatorSpacing: s(7),
+            verticalSpacing: s(2),
+            indicatorSpacing: s(6),
             indicatorSize: s(10),
             iconFrame: s(22),
             horizontalIconFrame: s(15),
-            horizontalSpacing: s(5),
-            horizontalPadding: s(3),
+            horizontalSpacing: s(4),
+            horizontalPadding: s(2),
             cornerRadius: s(6)
         )
         banner = Banner(spacing: s(8), horizontalPadding: s(12), verticalPadding: s(8))
         prList = PRList(
             horizontalPadding: s(12),
-            topPadding: s(5),
+            topPadding: s(4),
             bottomPadding: s(12),
             sectionSpacing: s(20),
-            disclosureSpacing: s(7),
-            disclosureHorizontalPadding: s(10),
+            disclosureSpacing: s(6),
+            disclosureHorizontalPadding: s(8),
             disclosureHeight: s(30),
             sectionHeadingSpacing: s(8),
             sectionChevronWidth: s(12),
@@ -497,13 +504,13 @@ struct MenuMetrics: Equatable {
         )
         dropdown = Dropdown(
             headerControlsSpacing: s(8),
-            gap: s(10),
+            gap: s(8),
             authoredFilterWidth: s(156),
             requestedFilterWidth: s(112),
             sortWidth: s(132),
             itemSpacing: s(2),
             verticalPadding: s(6),
-            cornerRadius: s(7),
+            cornerRadius: s(6),
             shadowRadius: s(8),
             shadowOffsetY: s(3),
             itemContentSpacing: s(8),
@@ -514,11 +521,11 @@ struct MenuMetrics: Equatable {
         notificationList = NotificationList(
             headerSpacing: s(8),
             headerHorizontalPadding: s(12),
-            headerTopPadding: s(10),
+            headerTopPadding: s(8),
             headerBottomPadding: s(6),
             rowSpacing: s(8),
             horizontalPadding: s(12),
-            topPadding: s(5),
+            topPadding: s(4),
             bottomPadding: s(12)
         )
         notificationRow = NotificationRow(
@@ -542,7 +549,7 @@ struct MenuMetrics: Equatable {
             mergeStatusSymbolSize: s(14),
             mergeStatusStrokeWidth: s(1.4),
             tooltipHorizontalPadding: s(8),
-            tooltipVerticalPadding: s(5),
+            tooltipVerticalPadding: s(4),
             tooltipCornerRadius: s(6),
             tooltipShadowRadius: s(4),
             tooltipShadowOffsetY: s(2),
@@ -557,7 +564,7 @@ struct MenuMetrics: Equatable {
             itemIconWidth: s(16),
             itemHorizontalPadding: s(6),
             itemCornerRadius: s(4),
-            cornerRadius: s(7),
+            cornerRadius: s(6),
             shadowRadius: s(8),
             shadowOffsetY: s(3),
             anchorGap: s(4)
@@ -574,37 +581,37 @@ struct MenuMetrics: Equatable {
             markSize: s(14),
             horizontalPadding: s(16),
             height: s(30),
-            cornerRadius: s(7)
+            cornerRadius: s(6)
         )
         signIn = SignIn(
             padding: s(24),
             contentSpacing: s(20),
             appIconSize: s(88),
             buttonRowSpacing: s(8),
-            pendingSpacing: s(14),
+            pendingSpacing: s(12),
             enterCodeSpacing: s(16),
-            linkSpacing: s(3),
+            linkSpacing: s(2),
             codeRowSpacing: s(8),
             codeTracking: s(2),
             codeHorizontalPadding: s(12),
-            codeVerticalPadding: s(10),
+            codeVerticalPadding: s(8),
             codeCornerRadius: s(8),
             copyButtonSize: s(22),
-            expirySpacing: s(5),
-            loadingSpacing: s(10)
+            expirySpacing: s(4),
+            loadingSpacing: s(8)
         )
         emptyState = EmptyState(spacing: s(8))
         accessPrompt = AccessPrompt(
             contentSpacing: s(20),
-            headerSpacing: s(10),
+            headerSpacing: s(8),
             actionsSpacing: s(12),
             maxContentWidth: s(340),
             horizontalPadding: s(24),
             noteBoxCornerRadius: s(8),
-            noteSpacing: s(10),
+            noteSpacing: s(8),
             noteIconWidth: s(22),
             noteHorizontalPadding: s(12),
-            noteVerticalPadding: s(10)
+            noteVerticalPadding: s(8)
         )
         footer = Footer(
             itemFont: NativeMenuFontToken(size: s(NSFont.menuFont(ofSize: 0).pointSize)),
