@@ -1035,6 +1035,8 @@ extension PullRequestNotificationActivity {
 }
 
 private struct SourcesSettingsView: View {
+    private static let hideArchivedRepositoriesHelp = "Hides PRs and notifications from repositories archived on GitHub."
+
     @ObservedObject var controller: DashboardController
     @State private var sourceSearchState = ExpandableSearchState()
 
@@ -1054,7 +1056,22 @@ private struct SourcesSettingsView: View {
 
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("Hide PRs from archived repositories", isOn: $controller.hideArchivedRepositories)
+                // The info icon stays outside the Toggle label: its tooltip never showed from inside the label.
+                HStack(spacing: 4) {
+                    Text("Hide archived repositories")
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .help(Self.hideArchivedRepositoriesHelp)
+                        .accessibilityHidden(true)
+                    Spacer()
+                    Toggle("Hide archived repositories", isOn: $controller.hideArchivedRepositories)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        // Matches the switch size grouped Forms use in the other settings tabs.
+                        .controlSize(.mini)
+                        .accessibilityHint(Self.hideArchivedRepositoriesHelp)
+                }
+                Divider()
                 HStack(spacing: 8) {
                     sourceCount(for: filteredCatalog)
                     CountSearchControl(
