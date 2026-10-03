@@ -597,6 +597,165 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
+    func testMenuCloseDismissesTooltipsAndReopenShowsNone() {
+        let clock = ManualTooltipClock()
+        let tooltips = clock.makeController()
+        let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
+        let statusBarController = StatusBarController(controller: controller, tooltipController: tooltips)
+        let menu = NSMenu()
+
+        assertHookDismissesTooltips(tooltips, clock: clock) {
+            statusBarController.menuDidClose(menu)
+        }
+
+        clock.moveMouse()
+        tooltips.hovering(id: UUID())
+        clock.advance(by: MenuTooltipMetrics.showDelay)
+        XCTAssertNotNil(tooltips.visibleID)
+        statusBarController.menuDidClose(menu)
+        statusBarController.menuWillOpen(menu)
+        XCTAssertNil(tooltips.visibleID)
+    }
+
+    @MainActor
+    func testTabSwitchDismissesTooltips() {
+        let clock = ManualTooltipClock()
+        let tooltips = clock.makeController()
+        let controller = signedInMockController()
+        controller.selectedTab = .notifications
+        let (window, _) = hostMenuRoot(controller: controller, tooltips: tooltips)
+        defer { window.orderOut(nil) }
+
+        let tabs: [DashboardController.MenuTab] = [.myPRs, .reviewRequests, .notifications]
+        var nextTab = tabs.makeIterator()
+        assertHookDismissesTooltips(tooltips, clock: clock) {
+            let tab = nextTab.next() ?? .myPRs
+            controller.selectedTab = tab
+            settleRunLoop()
+        }
+    }
+
+    @MainActor
+    func testOpeningADropdownDismissesTooltips() throws {
+        let clock = ManualTooltipClock()
+        let tooltips = clock.makeController()
+        let controller = signedInMockController()
+        controller.selectedTab = .myPRs
+        let (window, size) = hostMenuRoot(controller: controller, tooltips: tooltips)
+        defer { window.orderOut(nil) }
+        let delay = MenuTooltipMetrics.showDelay
+
+        // The sort menu button ends just left of the refresh control at the trailing edge of the top bar.
+        let topBar = MenuMetrics.standard.topBar
+        let sortMenuPoint = CGPoint(
+            x: size.width - topBar.trailingInset - topBar.refreshStatusWidth - topBar.headerControlsTrailingSpacing - 12,
+            y: size.height - topBar.height / 2
+        )
+        // The button acts on mouse up; a click's mouse down already dismisses through the event
+        // observer, so show a tooltip in between to isolate the dropdown-open hook. Synthesized
+        // events do not drive SwiftUI hover here, so the test reports hover and pointer movement.
+        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
+        let visible = UUID()
+        clock.moveMouse()
+        tooltips.hovering(id: visible)
+        clock.advance(by: delay)
+        XCTAssertEqual(tooltips.visibleID, visible)
+        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
+        XCTAssertNil(tooltips.visibleID, "visible tooltip hidden")
+
+        // Close the sort menu again, then open it with a tooltip pending.
+        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
+        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
+        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
+        let pending = UUID()
+        clock.moveMouse()
+        tooltips.hovering(id: pending)
+        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
+        clock.advance(by: 2)
+        XCTAssertNil(tooltips.visibleID, "pending tooltip cancelled")
+
+        // After leaving and re-entering, the next hover waits the full delay (grace ended).
+        tooltips.hoverEnded(id: pending)
+        clock.moveMouse()
+        tooltips.hovering(id: pending)
+        XCTAssertNil(tooltips.visibleID)
+        clock.advance(by: delay)
+        XCTAssertEqual(tooltips.visibleID, pending)
+    }
+
+    // Checks that `hook` hides a visible tooltip, cancels a pending one, and ends the grace window.
+    @MainActor
+    private func assertHookDismissesTooltips(
+        _ tooltips: MenuTooltipController,
+        clock: ManualTooltipClock,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        hook: () -> Void
+    ) {
+        let delay = MenuTooltipMetrics.showDelay
+        let visible = UUID()
+        clock.moveMouse()
+        tooltips.hovering(id: visible)
+        clock.advance(by: delay)
+        XCTAssertEqual(tooltips.visibleID, visible, file: file, line: line)
+        hook()
+        XCTAssertNil(tooltips.visibleID, "visible tooltip hidden", file: file, line: line)
+
+        tooltips.hoverEnded(id: visible)
+        let next = UUID()
+        clock.moveMouse()
+        tooltips.hovering(id: next)
+        XCTAssertNil(tooltips.visibleID, "grace window ended", file: file, line: line)
+        hook()
+        clock.advance(by: 2)
+        XCTAssertNil(tooltips.visibleID, "pending tooltip cancelled", file: file, line: line)
+
+        tooltips.hoverEnded(id: next)
+        clock.moveMouse()
+        tooltips.hovering(id: next)
+        clock.advance(by: delay)
+        XCTAssertEqual(tooltips.visibleID, next, file: file, line: line)
+        tooltips.hoverEnded(id: next)
+    }
+
+    @MainActor
+    private func hostMenuRoot(controller: DashboardController, tooltips: MenuTooltipController) -> (NSWindow, CGSize) {
+        let size = MenuMetrics.standard.panelSize
+        let hostingView = NSHostingView(rootView: MenuRootView(
+            controller: controller,
+            footerModel: MenuFooterModel(),
+            tooltipController: tooltips
+        ))
+        hostingView.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = hostingView
+        // SwiftUI buttons only receive synthesized clicks in an ordered-in window; keep it off screen.
+        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
+        window.orderFrontRegardless()
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        return (window, size)
+    }
+
+    @MainActor
+    private func send(_ window: NSWindow, _ event: NSEvent) {
+        window.sendEvent(event)
+        settleRunLoop()
+    }
+
+    @MainActor
+    private func settleRunLoop() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    private func mouseEvent(_ type: NSEvent.EventType, at point: CGPoint, in window: NSWindow) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.mouseEvent(
+            with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+    }
+
+    @MainActor
     func testEveryMenuListShowsTheNativeVerticalScrollIndicator() throws {
         let suite = "menu-list-scrollbars-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

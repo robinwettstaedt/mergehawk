@@ -148,7 +148,6 @@ struct CountSearchControl: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .help("Clear search")
         .accessibilityLabel("Clear search")
     }
 }
