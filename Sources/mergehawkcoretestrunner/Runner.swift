@@ -16,6 +16,9 @@ struct Runner {
         try testDetectsIncomingRelationshipAddedTransitions()
         try testDetectsRelationshipsOnPRsFirstSeenAfterBaseline()
         try testNewlySeenPRKeepsCIBaselined()
+        try testDetectsReadyForReviewOnTrackedRequestedDrafts()
+        try testReadyForReviewIgnoresOtherDraftChanges()
+        try testReadyForReviewAndRelationshipChangeInOneComparison()
         try testRelationshipAddedFilteringUsesChangedRelationships()
         try testNotificationPreferencesDefaultCommentModes()
         try testPreferencesFilterEvents()
@@ -553,6 +556,67 @@ struct Runner {
             current: .fixture(id: "PR_NEW_FAILING", ciState: .failing, reviewRequestKind: .direct, isMine: false)
         )
         try expect(failing.map(\.type) == [.relationshipAdded])
+    }
+
+    private static func testDetectsReadyForReviewOnTrackedRequestedDrafts() throws {
+        let cases: [(String, ReviewRequestKind, Bool)] = [
+            ("PR_READY_DIRECT", .direct, false),
+            ("PR_READY_ASSIGNED", .none, true),
+            ("PR_READY_TEAM", .team, false),
+        ]
+        for (id, kind, assigned) in cases {
+            let events = PRActivityDetector.detectTransitions(
+                previous: .fixture(id: id, reviewRequestKind: kind, isAssignedToViewer: assigned, isMine: false, draft: true),
+                current: .fixture(id: id, reviewRequestKind: kind, isAssignedToViewer: assigned, isMine: false, draft: false)
+            )
+            try expect(events.map(\.type) == [.readyForReview])
+            try expect(events[0].prId == id)
+            try expect(events[0].happenedAt == nil)
+            try expect(events[0].relationshipChanges.isEmpty)
+        }
+
+        let authored = PRActivityDetector.detectTransitions(
+            previous: .fixture(id: "PR_READY_AUTHORED", isMine: true, draft: true),
+            current: .fixture(id: "PR_READY_AUTHORED", isMine: true, draft: false)
+        )
+        try expect(authored.isEmpty)
+    }
+
+    private static func testReadyForReviewIgnoresOtherDraftChanges() throws {
+        let firstSeen = PRActivityDetector.detectTransitions(
+            previous: nil,
+            current: .fixture(id: "PR_FIRST_READY", reviewRequestKind: .direct, isMine: false, draft: false)
+        )
+        try expect(firstSeen.map(\.type) == [.relationshipAdded])
+
+        for (wasDraft, isDraft) in [(false, false), (true, true), (false, true)] {
+            let events = PRActivityDetector.detectTransitions(
+                previous: .fixture(id: "PR_DRAFT_STATE", reviewRequestKind: .direct, isMine: false, draft: wasDraft),
+                current: .fixture(id: "PR_DRAFT_STATE", reviewRequestKind: .direct, isMine: false, draft: isDraft)
+            )
+            try expect(events.isEmpty)
+        }
+    }
+
+    private static func testReadyForReviewAndRelationshipChangeInOneComparison() throws {
+        let readyAndRequested = PRActivityDetector.detectTransitions(
+            previous: .fixture(id: "PR_READY_REQUESTED", isAssignedToViewer: true, isMine: false, draft: true),
+            current: .fixture(
+                id: "PR_READY_REQUESTED", ciState: .failing, reviewRequestKind: .direct,
+                isAssignedToViewer: true, isMine: false, draft: false
+            )
+        )
+        try expect(readyAndRequested.map(\.type) == [.relationshipAdded, .readyForReview, .ciFailed])
+        try expect(readyAndRequested[0].relationshipChanges == [.directReviewRequest])
+
+        let stillDraft = PRActivityDetector.detectTransitions(
+            previous: .fixture(id: "PR_DRAFT_REQUESTED", isAssignedToViewer: true, isMine: false, draft: true),
+            current: .fixture(
+                id: "PR_DRAFT_REQUESTED", reviewRequestKind: .direct, isAssignedToViewer: true, isMine: false, draft: true
+            )
+        )
+        try expect(stillDraft.map(\.type) == [.relationshipAdded])
+        try expect(stillDraft[0].relationshipChanges == [.directReviewRequest])
     }
 
     private static func testRelationshipAddedFilteringUsesChangedRelationships() throws {
