@@ -563,6 +563,73 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testHydrationKeepsEveryRequestedTeamWithItsIdentity() async throws {
+        let node = Self.pullRequest(requests: Self.connection(total: 3, nodes: [
+            Self.request("Q_PLM", typeName: "Team", teamSlug: "plm-team"),
+            Self.request("Q_USER", typeName: "User", login: "teammate"),
+            Self.request("Q_DEV", typeName: "Team", teamSlug: "developers")
+        ]))
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.requestedTeams, [
+            TeamReference(id: "TEAM_Q_DEV", organization: "acme", slug: "developers"),
+            TeamReference(id: "TEAM_Q_PLM", organization: "acme", slug: "plm-team")
+        ])
+    }
+
+    func testHydrationKeepsRequestedTeamsFromLaterReviewRequestPages() async throws {
+        let initial = Self.pullRequest(requests: Self.connection(
+            total: 2,
+            nodes: [Self.request("Q_DEV", typeName: "Team", teamSlug: "developers")],
+            previous: "requests-before"
+        ))
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            XCTAssertTrue(query.contains("reviewRequests(last:"))
+            return Self.json(["data": [
+                "c0": ["reviewRequests": Self.connection(total: 2, nodes: [
+                    Self.request("Q_ENG", typeName: "Team", teamSlug: "engineering")
+                ])]
+            ]])
+        }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.requestedTeams.map(\.slug), ["developers", "engineering"])
+        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 1)
+    }
+
+    func testRequestedTeamMissingSlugOrOrganizationFailsHydrationAsInvalidPayload() async throws {
+        for missingKey in ["slug", "organization", "id"] {
+            var team = Self.request("Q_TEAM", typeName: "Team")
+            var reviewer = team["requestedReviewer"] as! [String: Any]
+            reviewer.removeValue(forKey: missingKey)
+            team["requestedReviewer"] = reviewer
+            let node = Self.pullRequest(requests: Self.connection(total: 1, nodes: [team]))
+            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+            do {
+                _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+                XCTFail("Expected a team request without \(missingKey) to fail hydration")
+            } catch {
+                XCTAssertEqual(error as? GitHubReadError, .invalidPayload, missingKey)
+            }
+        }
+    }
+
+    func testHydrationWithoutTeamRequestsKeepsNoRequestedTeams() async throws {
+        let node = Self.pullRequest(requests: Self.connection(total: 1, nodes: [Self.request("Q_USER")]))
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.requestedTeams, [])
+    }
+
     func testKnownChangesRequestedWinsOverUncertainOpinionatedReviewsInAnyOrder() async throws {
         var deletedAuthor = Self.review("DELETED", state: "APPROVED")
         deletedAuthor["author"] = NSNull()
@@ -1280,14 +1347,16 @@ final class GitHubPaginationTests: XCTestCase {
     private static func request(
         _ id: String,
         typeName: String = "User",
-        login: String = "rw"
+        login: String = "rw",
+        teamSlug: String = "developers",
+        teamOrganization: String = "acme"
     ) -> [String: Any] {
         if typeName == "Team" {
             return [
                 "id": id,
                 "requestedReviewer": [
-                    "__typename": "Team", "id": "TEAM_\(id)", "slug": "developers",
-                    "organization": ["login": "acme"]
+                    "__typename": "Team", "id": "TEAM_\(id)", "slug": teamSlug,
+                    "organization": ["login": teamOrganization]
                 ]
             ]
         }

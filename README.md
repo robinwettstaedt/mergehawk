@@ -196,7 +196,10 @@ MergeHawk signs in through a GitHub App user access token. Before validating rea
     - Issues: Read-only
     - Checks: Read-only
     - Commit statuses: Read-only
-11. Leave organization permissions empty.
+11. Use this organization permission:
+    - Members: Read-only
+
+    MergeHawk needs it to read your teams for per-team review request filtering.
 12. Register the app. No client secret is required.
 13. For local development overrides, save the credentials in `.env.local`:
 
@@ -246,6 +249,8 @@ history keeps the newest 100 notifications.
 1. Create a GitHub fine-grained or classic personal access token for PR data.
 2. Grant repository access for the repositories MergeHawk should monitor.
 3. Include read permissions for metadata, pull requests, issues, and actions where applicable.
+   A fine-grained token also needs the organization permission **Members: Read-only** so
+   MergeHawk can read your teams; a classic token's `read:org` scope already covers it.
 4. Launch the app with `swift run mergehawk`.
 5. Open Settings, then the GitHub pane.
 6. Paste only the token value, for example `github_pat_...`, with no surrounding text.
@@ -296,6 +301,7 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario quiet-access-loss -
 scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario comment-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario long-lists --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario review-teams --ui menu --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
@@ -313,6 +319,11 @@ nothing.
 The `long-lists` scenario has 20 authored and 20 review-request pull requests so the
 Authored and Requested lists overflow the menu; the first refresh adds a comment to
 each, which fills the Notifications list past its visible height.
+The `review-teams` scenario has nested teams (`engineering` → `developers` →
+`plm-team`, with the viewer directly in `plm-team`) and pull requests requesting
+each of them, a team the viewer is not in, and combinations. Turn teams off in
+Settings › Teams to see the Requested tab change; the first refresh adds
+`plm-team` to the pull request that only requested `developers`.
 
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL

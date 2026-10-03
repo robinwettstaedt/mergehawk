@@ -102,6 +102,33 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTurnedOffReviewTeamIDsPersistAcrossStoresAndControllers() {
+        let suiteName = "mergehawk-review-teams-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var store = PreferencesStore(defaults: defaults)
+        XCTAssertEqual(store.turnedOffReviewTeamIDs, [])
+        store.turnedOffReviewTeamIDs = ["T_PLM", "T_DEV"]
+        XCTAssertEqual(defaults.stringArray(forKey: "reviewTeams.turnedOffIds"), ["T_DEV", "T_PLM"])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).turnedOffReviewTeamIDs, ["T_DEV", "T_PLM"])
+
+        func makeController() -> DashboardController {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: defaults),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+        }
+        let controller = makeController()
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, ["T_DEV", "T_PLM"])
+        controller.setReviewTeam("T_PLM", counting: true)
+        controller.setReviewTeam("T_ENG", counting: false)
+
+        XCTAssertEqual(makeController().turnedOffReviewTeamIDs, ["T_DEV", "T_ENG"])
+    }
+
     func testSourcePreferencesAndCatalogRoundTripThroughSerializedDefaults() {
         withStore { store, defaults in
             let preferences = SourcePreferences(

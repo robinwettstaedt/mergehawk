@@ -49,6 +49,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             guard let self else { throw CancellationError() }
             return try await self.completeGraphQL(query: query, variables: variables)
         }
+        let viewerTeams = try await fetcher.fetchViewerTeams(login: login)
         let discovery = try await fetcher.discover(login: login)
         let discoveredIDs = Set(discovery.pullRequests.map(\.id))
         let previousPullRequests = previousState?.trusted(for: login)?.dashboard.pullRequests ?? []
@@ -123,7 +124,8 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         return CompletePullRequestFetchResult(
             activePullRequests: active.sorted { $0.id < $1.id },
             retiringPullRequests: retiring.sorted { $0.id < $1.id },
-            quietlyRetiredPullRequestIDs: quietlyRetiredIDs
+            quietlyRetiredPullRequestIDs: quietlyRetiredIDs,
+            viewerTeams: viewerTeams
         )
     }
 

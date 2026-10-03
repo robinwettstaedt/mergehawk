@@ -127,6 +127,72 @@ struct GitHubCompletePullRequestPayload: Decodable, Equatable, Sendable {
     }
 }
 
+struct GitHubForwardPageInfo: Decodable, Equatable, Sendable {
+    let hasNextPage: Bool
+    let endCursor: String?
+}
+
+struct GitHubPayloadTeamIdentity: Decodable, Equatable, Sendable {
+    let id: String
+    let slug: String
+    let avatarUrl: URL?
+    let parentTeam: ParentTeam?
+
+    struct ParentTeam: Decodable, Equatable, Sendable {
+        let id: String
+    }
+}
+
+struct GitHubPayloadViewerTeam: Decodable, Equatable, Sendable {
+    let id: String
+    let slug: String
+    let avatarUrl: URL?
+    let parentTeam: GitHubPayloadTeamIdentity.ParentTeam?
+    let ancestors: Ancestors
+
+    struct Ancestors: Decodable, Equatable, Sendable {
+        let pageInfo: GitHubForwardPageInfo
+        let nodes: [GitHubPayloadTeamIdentity]
+    }
+}
+
+struct GitHubPayloadViewerTeamConnection: Decodable, Equatable, Sendable {
+    let pageInfo: GitHubForwardPageInfo
+    let nodes: [GitHubPayloadViewerTeam]
+}
+
+struct GitHubViewerTeamsPayload: Decodable, Equatable, Sendable {
+    let viewer: Viewer
+
+    struct Viewer: Decodable, Equatable, Sendable {
+        let organizations: Organizations
+    }
+
+    struct Organizations: Decodable, Equatable, Sendable {
+        let pageInfo: GitHubForwardPageInfo
+        let nodes: [Organization]
+    }
+
+    struct Organization: Decodable, Equatable, Sendable {
+        let login: String
+        let avatarUrl: URL?
+        let teams: GitHubPayloadViewerTeamConnection
+    }
+}
+
+struct GitHubOrganizationViewerTeamsPayload: Decodable, Equatable, Sendable {
+    let organization: Organization
+
+    struct Organization: Decodable, Equatable, Sendable {
+        let teams: GitHubPayloadViewerTeamConnection
+    }
+}
+
+/// Reads only the errors of a GraphQL response, so they are classified before the data shape is checked.
+struct GitHubGraphQLErrorEnvelope: Decodable {
+    let errors: [GitHubGraphQLErrorPayload]?
+}
+
 struct GitHubGraphQLErrorPayload: Decodable, Equatable, Sendable {
     let message: String
     let type: String?

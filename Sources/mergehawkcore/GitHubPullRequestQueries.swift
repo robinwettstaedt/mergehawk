@@ -124,6 +124,51 @@ enum GitHubPullRequestQueries {
       }
     """
 
+    /// Page sizes for the viewer-teams queries. GitHub multiplies nested `first` values when it checks a query
+    /// against its 500,000 node limit, so these stay small enough for the nested selection to pass.
+    static let viewerOrganizationPageSize = 20
+    static let viewerTeamsPerOrganizationPageSize = 50
+    static let organizationViewerTeamsPageSize = 100
+    static let teamAncestorsPageSize = 20
+
+    /// The viewer's direct teams in one org page, with each team's full ancestor chain.
+    static let viewerTeamConnectionFields = """
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id slug avatarUrl(size: 64) parentTeam { id }
+        ancestors(first: \(teamAncestorsPageSize)) {
+          pageInfo { hasNextPage }
+          nodes { id slug avatarUrl(size: 64) parentTeam { id } }
+        }
+      }
+    """
+
+    static let viewerTeams = """
+      query ViewerTeams($login: String!, $orgCursor: String) {
+        viewer {
+          organizations(first: \(viewerOrganizationPageSize), after: $orgCursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              login
+              avatarUrl(size: 64)
+              teams(first: \(viewerTeamsPerOrganizationPageSize), userLogins: [$login]) { \(viewerTeamConnectionFields) }
+            }
+          }
+        }
+      }
+    """
+
+    /// Only used for an org whose first page of the viewer's teams in `viewerTeams` has more pages.
+    static let organizationViewerTeams = """
+      query OrganizationViewerTeams($org: String!, $login: String!, $cursor: String) {
+        organization(login: $org) {
+          teams(first: \(organizationViewerTeamsPageSize), after: $cursor, userLogins: [$login]) {
+            \(viewerTeamConnectionFields)
+          }
+        }
+      }
+    """
+
     static let searchPage = """
       query SearchPullRequests($query: String!, $cursor: String) {
         search(query: $query, type: ISSUE, first: 100, after: $cursor) {

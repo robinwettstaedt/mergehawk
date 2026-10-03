@@ -235,6 +235,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public var recentReviews: [PullRequestReview]
     public let headRefOid: String
     public var reviewRequestKind: ReviewRequestKind
+    /// Every team this PR requests a review from, whether or not the viewer belongs to it.
+    public let requestedTeams: [TeamReference]
     public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String
@@ -263,6 +265,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         recentReviews: [PullRequestReview] = [],
         headRefOid: String = "",
         reviewRequestKind: ReviewRequestKind = .none,
+        requestedTeams: [TeamReference] = [],
         isAssignedToViewer: Bool = false,
         isMine: Bool,
         author: String,
@@ -290,6 +293,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.recentReviews = recentReviews
         self.headRefOid = headRefOid
         self.reviewRequestKind = reviewRequestKind
+        self.requestedTeams = requestedTeams
         self.isAssignedToViewer = isAssignedToViewer
         self.isMine = isMine
         self.author = author
@@ -326,6 +330,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case recentReviews
         case headRefOid
         case reviewRequestKind
+        case requestedTeams
         case isAssignedToViewer
         case isMine
         case author
@@ -359,6 +364,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.recentReviews = try container.decode([PullRequestReview].self, forKey: .recentReviews)
         self.headRefOid = try container.decodeIfPresent(String.self, forKey: .headRefOid) ?? ""
         self.reviewRequestKind = try container.decode(ReviewRequestKind.self, forKey: .reviewRequestKind)
+        self.requestedTeams = try container.decode([TeamReference].self, forKey: .requestedTeams)
         self.isAssignedToViewer = try container.decode(Bool.self, forKey: .isAssignedToViewer)
         self.isMine = try container.decode(Bool.self, forKey: .isMine)
         self.author = try container.decode(String.self, forKey: .author)
@@ -1085,6 +1091,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
     public var source: DashboardSource
     public var account: GitHubAccount?
     public var authStatus: AuthStatus
+    /// The viewer's teams as read by the complete PR refresh that produced `pullRequests`.
+    public var viewerTeams: [ViewerTeam]
 
     public static let empty = DashboardState(
         pullRequests: [],
@@ -1092,7 +1100,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
         syncedAt: nil,
         source: .none,
         account: nil,
-        authStatus: .signedOut
+        authStatus: .signedOut,
+        viewerTeams: []
     )
 
     public init(
@@ -1101,7 +1110,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
         syncedAt: Date?,
         source: DashboardSource,
         account: GitHubAccount?,
-        authStatus: AuthStatus
+        authStatus: AuthStatus,
+        viewerTeams: [ViewerTeam] = []
     ) {
         self.pullRequests = pullRequests
         self.events = events
@@ -1109,5 +1119,6 @@ public struct DashboardState: Codable, Equatable, Sendable {
         self.source = source
         self.account = account
         self.authStatus = authStatus
+        self.viewerTeams = viewerTeams
     }
 }
