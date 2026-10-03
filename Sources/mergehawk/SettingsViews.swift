@@ -15,7 +15,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
     var title: String {
         switch self {
         case .general: "General"
-        case .github: "GitHub"
+        case .github: "Auth"
         case .notifications: "Notifications"
         case .sources: "Sources"
         case .teams: "Teams"

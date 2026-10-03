@@ -341,6 +341,13 @@ final class SettingsViewTests: XCTestCase {
         )
     }
 
+    func testGitHubPaneIsTitledAuthAndKeepsItsSecondPosition() {
+        XCTAssertEqual(SettingsTab.github.title, "Auth")
+        // Still the second tab, so ⌘2 opens it.
+        XCTAssertEqual(SettingsTab.allCases, [.general, .github, .notifications, .sources, .teams, .about])
+        XCTAssertEqual(SettingsTab.allCases.firstIndex(of: .github).map { $0 + 1 }, 2)
+    }
+
     @MainActor
     func testSetReviewTeamFlipsTheTurnedOffSetBothWays() {
         let suite = "settings-review-team-toggle-\(UUID().uuidString)"
