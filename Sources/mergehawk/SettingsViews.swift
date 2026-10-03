@@ -35,6 +35,12 @@ enum SettingsTab: String, CaseIterable, Hashable {
     }
 }
 
+/// The button signed-out panes show to send the user to the Auth pane.
+enum OpenAuthSettingsLink {
+    static let title = "Open Auth settings"
+    static let destination = SettingsTab.github
+}
+
 struct SettingsRootView: View {
     @ObservedObject var controller: DashboardController
     @ObservedObject var settingsWindowState: SettingsWindowState
@@ -100,7 +106,7 @@ struct SettingsRootView: View {
                 initialSearchState: initialSourcesSearchState
             )
         case .teams:
-            TeamsSettingsView(controller: controller)
+            TeamsSettingsView(controller: controller, selection: $settingsWindowState.selection)
         case .about:
             AboutSettingsView()
         }

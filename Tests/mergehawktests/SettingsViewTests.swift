@@ -385,7 +385,21 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: []), .signedOut)
         XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: [row]), .signedOut)
         XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: []), .noTeams)
-        XCTAssertEqual(ReviewTeamsSettingsPresentation.noTeamsText, "You're not in any GitHub teams.")
+    }
+
+    func testTeamsSignedOutStateExplainsAndLinksToTheAuthPane() {
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.signedOutHeadline, "Sign in to see your teams")
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.signedOutDetail, "Then choose which teams' review requests show up.")
+        XCTAssertEqual(OpenAuthSettingsLink.title, "Open Auth settings")
+        XCTAssertEqual(OpenAuthSettingsLink.destination, .github)
+    }
+
+    func testTeamsNoTeamsStateExplainsWhenTeamsAppear() {
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.noTeamsHeadline, "No teams found")
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.noTeamsDetail,
+            "Your GitHub teams appear here after the next successful refresh."
+        )
     }
 
     @MainActor

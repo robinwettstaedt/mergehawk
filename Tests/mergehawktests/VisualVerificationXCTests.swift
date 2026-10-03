@@ -203,6 +203,14 @@ final class VisualVerificationXCTests: XCTestCase {
                 ),
                 to: outputURL.appendingPathComponent("settings-github-signed-out.png")
             )
+            try renderSettings(
+                SettingsRootView(
+                    controller: signedOutController,
+                    settingsWindowState: SettingsWindowState(selection: .teams),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-teams-signed-out.png")
+            )
         }
 
         try await MainActor.run {
@@ -1581,6 +1589,7 @@ private struct VisualCaptureSelection {
         "settings-sources-search-example",
         "settings-teams",
         "settings-teams-empty",
+        "settings-teams-signed-out",
         "settings-teams-multi-org",
     ]
 

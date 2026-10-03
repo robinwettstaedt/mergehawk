@@ -16,8 +16,10 @@ enum ReviewTeamsSettingsPresentation {
         case teams([OrganizationGroup])
     }
 
-    static let signedOutText = "Sign in to GitHub to manage teams."
-    static let noTeamsText = "You're not in any GitHub teams."
+    static let signedOutHeadline = "Sign in to see your teams"
+    static let signedOutDetail = "Then choose which teams' review requests show up."
+    static let noTeamsHeadline = "No teams found"
+    static let noTeamsDetail = "Your GitHub teams appear here after the next successful refresh."
     static let listLabel = "Show review requests from these teams:"
 
     /// Shows the last complete PR refresh's teams, grouped by organization in the controller's tree order.
@@ -48,6 +50,7 @@ private enum ReviewTeamsSettingsLayout {
 
 struct TeamsSettingsView: View {
     @ObservedObject var controller: DashboardController
+    @Binding var selection: SettingsTab
 
     var body: some View {
         switch ReviewTeamsSettingsPresentation.content(
@@ -55,12 +58,20 @@ struct TeamsSettingsView: View {
             rows: controller.reviewTeamRows
         ) {
         case .signedOut:
-            Text(ReviewTeamsSettingsPresentation.signedOutText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            EmptyMenuState(
+                text: ReviewTeamsSettingsPresentation.signedOutHeadline,
+                systemImage: "person.3",
+                detail: ReviewTeamsSettingsPresentation.signedOutDetail,
+                action: .init(title: OpenAuthSettingsLink.title) {
+                    selection = OpenAuthSettingsLink.destination
+                }
+            )
         case .noTeams:
-            EmptyMenuState(text: ReviewTeamsSettingsPresentation.noTeamsText, systemImage: "person.3")
+            EmptyMenuState(
+                text: ReviewTeamsSettingsPresentation.noTeamsHeadline,
+                systemImage: "person.3",
+                detail: ReviewTeamsSettingsPresentation.noTeamsDetail
+            )
         case .teams(let groups):
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
