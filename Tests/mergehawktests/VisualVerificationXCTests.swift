@@ -188,6 +188,12 @@ final class VisualVerificationXCTests: XCTestCase {
                     availableFrame: MenuSizeCaptures.stateFrame,
                     menuSize: size
                 )
+                try renderMenu(
+                    controller: signedOutController,
+                    to: menuSizeURL(size, "signed-out-\(MenuSizeCaptures.largerTextFrame.0)"),
+                    availableFrame: MenuSizeCaptures.largerTextFrame.1,
+                    menuSize: size
+                )
             }
             try renderSettings(
                 SettingsRootView(
@@ -361,6 +367,12 @@ final class VisualVerificationXCTests: XCTestCase {
                     controller: pendingSignInController,
                     to: menuSizeURL(size, "sign-in-pending"),
                     availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+                try renderMenu(
+                    controller: pendingSignInController,
+                    to: menuSizeURL(size, "sign-in-pending-\(MenuSizeCaptures.largerTextFrame.0)"),
+                    availableFrame: MenuSizeCaptures.largerTextFrame.1,
                     menuSize: size
                 )
             }
@@ -610,6 +622,12 @@ final class VisualVerificationXCTests: XCTestCase {
                     controller: saveErrorController,
                     to: menuSizeURL(size, "save-error"),
                     availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+                try renderMenu(
+                    controller: saveErrorController,
+                    to: menuSizeURL(size, "save-error-\(MenuSizeCaptures.largerTextFrame.0)"),
+                    availableFrame: MenuSizeCaptures.largerTextFrame.1,
                     menuSize: size
                 )
             }
@@ -1323,6 +1341,8 @@ private enum MenuSizeCaptures {
     /// The dropdown and actions states are also captured where the menu is reduced to fit the width limit.
     static let reducedStateFrames = [largerTextFrame, macBookPro14Frame]
     static let reducedStates = ["filter-open", "sort-open", "actions-open"]
+    /// The banner and sign-in states are also captured at the smallest scale, where every size is reduced to 614/820.
+    static let smallestScaleStates = ["save-error", "signed-out", "sign-in-pending"]
     static let states = [
         "filter-open",
         "sort-open",
@@ -1358,7 +1378,8 @@ private enum MenuSizeCaptures {
     static var allScenarios: Set<String> {
         let tabFrameNames = tabs.flatMap { tab in frames.map { frame in "\(tab.0)-\(frame.0)" } }
         let reducedStateNames = reducedStates.flatMap { state in reducedStateFrames.map { frame in "\(state)-\(frame.0)" } }
-        let menuNames = tabFrameNames + states + reducedStateNames + fragments
+        let smallestScaleStateNames = smallestScaleStates.map { "\($0)-\(largerTextFrame.0)" }
+        let menuNames = tabFrameNames + states + reducedStateNames + smallestScaleStateNames + fragments
         return Set(MenuSize.allCases.flatMap { size in menuNames.map { scenario(size, $0) } })
             .union((settingsIsolationTabs + settingsIsolationPendingSignInTabs).map { settingsIsolationScenario($0.0) })
     }
