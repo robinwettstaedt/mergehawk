@@ -1192,6 +1192,198 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testRequestedDraftBecomingReadyRecordsOneRowAndPostsOneUpdateThatOpensThePR() async throws {
+        let draft = makePullRequest(id: "PR_READY", title: "Ready", reviewRequestKind: .direct, isMine: false, draft: true)
+        let ready = makePullRequest(id: draft.id, title: draft.title, reviewRequestKind: .direct, isMine: false)
+        let provider = AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(activePullRequests: [ready])))
+        let fixture = try makeFixture(pullRequest: draft, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+
+        let added = fixture.addedHistory
+        XCTAssertEqual(added.map(\.eventType), [.readyForReview])
+        XCTAssertEqual(added.map(PullRequestNotificationTitlePresentation.title(for:)), ["Ready for review"])
+        XCTAssertEqual(added.first?.createdAt, fixture.controller.state.syncedAt)
+        XCTAssertEqual(fixture.notifications.records.map(\.title), ["Ready for review"])
+        XCTAssertEqual(fixture.notifications.records.map(\.clickAction), [NotificationClickRoute.openPullRequestAction])
+        XCTAssertEqual(fixture.notifications.records.first?.clickPullRequestURL, ready.url.absoluteString)
+        let posted = fixture.controller.state.events
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: posted), "Ready for review")
+        XCTAssertEqual(
+            NotificationClickRoute.route(events: posted, pullRequests: [ready]),
+            .openPullRequest(PullRequestOpenRequest(pullRequestURL: ready.url))
+        )
+    }
+
+    @MainActor
+    func testReadyAndNewAssignmentInOneRefreshFollowTheirOwnRows() async throws {
+        for (relationshipOn, readyOn) in [(true, true), (false, true), (true, false), (false, false)] {
+            let label = "relationship \(relationshipOn), ready \(readyOn)"
+            let draft = makePullRequest(
+                id: "PR_READY", title: "Ready", reviewRequestKind: .direct, isMine: false, draft: true
+            )
+            let readyAndAssigned = makePullRequest(
+                id: draft.id, title: draft.title, reviewRequestKind: .direct, isAssignedToViewer: true, isMine: false
+            )
+            let provider = AtomicGitHubProvider(result: .suspended)
+            let fixture = try makeFixture(pullRequest: draft, provider: provider)
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 }
+            let controller = fixture.controller
+            controller.preferences.assigned.relationshipChanges = relationshipOn
+            controller.preferences.assigned.readyForReview = readyOn
+            controller.preferences.directReviewRequests.readyForReview = readyOn
+            provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [readyAndAssigned]))
+            await waitUntil { !controller.isRefreshing }
+
+            let titles = Set(fixture.addedHistory.map(PullRequestNotificationTitlePresentation.title(for:)))
+            let records = fixture.notifications.records
+            let posted = controller.state.events
+            switch (relationshipOn, readyOn) {
+            case (true, true):
+                XCTAssertEqual(titles, ["Assigned to you", "Ready for review"], label)
+                XCTAssertEqual(records.count, 2, label)
+                XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: posted), "2 MergeHawk updates", label)
+                XCTAssertEqual(
+                    Set(records.map(\.clickAction)), [NotificationClickRoute.openNotificationsAction], label
+                )
+            case (false, true):
+                XCTAssertEqual(titles, ["Ready for review"], label)
+                XCTAssertEqual(records.map(\.title), ["Ready for review"], label)
+                XCTAssertEqual(records.map(\.clickAction), [NotificationClickRoute.openPullRequestAction], label)
+            case (true, false):
+                XCTAssertEqual(titles, ["Assigned to you"], label)
+                XCTAssertEqual(records.map(\.title), ["Assigned to you"], label)
+                XCTAssertEqual(records.map(\.clickAction), [NotificationClickRoute.openPullRequestAction], label)
+            case (false, false):
+                XCTAssertTrue(titles.isEmpty, label)
+                XCTAssertTrue(records.isEmpty, label)
+            }
+        }
+    }
+
+    @MainActor
+    func testRequestedDraftGainingAssignmentAndStayingDraftRecordsOnlyTheAssignment() async throws {
+        let draft = makePullRequest(id: "PR_DRAFT", title: "Draft", reviewRequestKind: .direct, isMine: false, draft: true)
+        let assigned = makePullRequest(
+            id: draft.id, title: draft.title, reviewRequestKind: .direct, isAssignedToViewer: true,
+            isMine: false, draft: true
+        )
+        let provider = AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(activePullRequests: [assigned])))
+        let fixture = try makeFixture(pullRequest: draft, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+
+        XCTAssertEqual(fixture.addedHistory.map(PullRequestNotificationTitlePresentation.title(for:)), ["Assigned to you"])
+        XCTAssertEqual(fixture.notifications.records.map(\.title), ["Assigned to you"])
+    }
+
+    @MainActor
+    func testReadyChangePlusCommentOnAnotherPRPostsOneSummaryOpeningNotifications() async throws {
+        let authored = makePullRequest(id: "PR_AUTHORED", title: "Authored")
+        let draft = makePullRequest(id: "PR_READY", title: "Ready", reviewRequestKind: .direct, isMine: false, draft: true)
+        let commented = makePullRequest(
+            id: authored.id, title: authored.title,
+            comments: authored.recentCommentActivities + [
+                PullRequestCommentActivity(
+                    id: "COMMENT_NEW",
+                    url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-COMMENT_NEW")!,
+                    author: "reviewer",
+                    createdAt: Date(timeIntervalSince1970: 20),
+                    source: .pullRequest
+                )
+            ]
+        )
+        let ready = makePullRequest(id: draft.id, title: draft.title, reviewRequestKind: .direct, isMine: false)
+        let provider = AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(
+            activePullRequests: [commented, ready]
+        )))
+        let fixture = try makeFixture(pullRequest: authored, additionalPullRequests: [draft], provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntilRefreshed(fixture)
+
+        XCTAssertEqual(Set(fixture.addedHistory.map(\.eventType)), [.newComment, .readyForReview])
+        XCTAssertEqual(fixture.notifications.records.count, 2)
+        XCTAssertEqual(
+            Set(fixture.notifications.records.map(\.clickAction)), [NotificationClickRoute.openNotificationsAction]
+        )
+        XCTAssertEqual(
+            NotificationContentBuilder.summaryTitle(for: fixture.controller.state.events), "2 MergeHawk updates"
+        )
+    }
+
+    @MainActor
+    func testSuppressedReadyForReviewIsConsumedAndNotReplayedWhenFilterIsReenabled() async throws {
+        enum Filter: CaseIterable { case readyPreference, repositoryNotifications, archivedRepository }
+        for filter in Filter.allCases {
+            let archived: Bool? = filter == .archivedRepository ? true : nil
+            let draft = makePullRequest(
+                id: "PR_READY", title: "Ready", archived: archived, reviewRequestKind: .team,
+                requestedTeams: [Self.developers], isMine: false, draft: true
+            )
+            let ready = makePullRequest(
+                id: draft.id, title: draft.title, archived: archived, reviewRequestKind: .team,
+                requestedTeams: [Self.developers], isMine: false
+            )
+            let provider = AtomicGitHubProvider(result: .suspended)
+            let fixture = try makeFixture(pullRequest: draft, viewerTeams: Self.viewerTeams, provider: provider)
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 }
+            let controller = fixture.controller
+            switch filter {
+            case .readyPreference:
+                controller.preferences.teamReviewRequests.readyForReview = false
+            case .repositoryNotifications:
+                controller.setRepositoryPreferences(
+                    repo: ready.repo,
+                    preferences: RepositorySourcePreferences(
+                        notifications: .disabled, myPullRequests: .inherit, reviewRequests: .inherit
+                    )
+                )
+            case .archivedRepository:
+                XCTAssertTrue(controller.hideArchivedRepositories)
+            }
+            provider.finish(with: CompletePullRequestFetchResult(
+                activePullRequests: [ready], viewerTeams: Self.viewerTeams
+            ))
+            await waitUntil { !controller.isRefreshing }
+
+            XCTAssertTrue(fixture.addedHistory.isEmpty, "\(filter)")
+            XCTAssertTrue(fixture.notifications.records.isEmpty, "\(filter)")
+
+            switch filter {
+            case .readyPreference:
+                controller.preferences.teamReviewRequests.readyForReview = true
+            case .repositoryNotifications:
+                controller.setRepositoryPreferences(repo: ready.repo, preferences: .defaults)
+            case .archivedRepository:
+                controller.hideArchivedRepositories = false
+            }
+            controller.refresh()
+            await waitUntil { provider.fetchCount == 2 && !controller.isRefreshing }
+
+            XCTAssertTrue(fixture.addedHistory.isEmpty, "\(filter)")
+            XCTAssertTrue(fixture.notifications.records.isEmpty, "\(filter)")
+        }
+    }
+
+    @MainActor
+    func testReadyForReviewKeepsHistoryRowWhenMacOSNotificationsAreOff() async throws {
+        let draft = makePullRequest(id: "PR_READY", title: "Ready", isAssignedToViewer: true, isMine: false, draft: true)
+        let ready = makePullRequest(id: draft.id, title: draft.title, isAssignedToViewer: true, isMine: false)
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(pullRequest: draft, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+        fixture.controller.macOSLocalNotificationsEnabled = false
+        provider.finish(with: CompletePullRequestFetchResult(activePullRequests: [ready]))
+        await waitUntil { !fixture.controller.isRefreshing }
+
+        XCTAssertEqual(fixture.addedHistory.map(\.eventType), [.readyForReview])
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+    }
+
+    @MainActor
     func testNewlySeenRequestedPRKeepsHistoryRowWhenMacOSNotificationsAreOff() async throws {
         let newPR = makePullRequest(id: "PR_NEW", title: "New", reviewRequestKind: .direct, isMine: false)
         let provider = AtomicGitHubProvider(result: .suspended)
@@ -1278,11 +1470,217 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertTrue(fixture.notifications.records.isEmpty)
     }
 
+    // MARK: Review teams
+
+    private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
+    private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
+    private static let viewerTeams = [ViewerTeam(team: developers), ViewerTeam(team: plmTeam, parentTeamID: developers.id)]
+
+    private static func teamPullRequest(
+        _ teams: [TeamReference],
+        id: String = "PR_TEAM",
+        direct: Bool = false,
+        comments: [PullRequestCommentActivity]? = nil
+    ) -> PullRequest {
+        let requested = makePullRequest(
+            id: id,
+            title: "Team review",
+            reviewRequestKind: ReviewRequestKind(direct: direct, team: true),
+            requestedTeams: teams,
+            isMine: false
+        )
+        guard let comments else { return requested }
+        return makePullRequest(
+            id: id,
+            title: "Team review",
+            comments: requested.recentCommentActivities + comments,
+            reviewRequestKind: requested.reviewRequestKind,
+            requestedTeams: teams,
+            isMine: false
+        )
+    }
+
+    @MainActor
+    func testTeamTurnedOffDuringSuspendedRefreshSuppressesItsRelationshipNotification() async throws {
+        let newPR = Self.teamPullRequest([Self.developers], id: "PR_NEW")
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(viewerTeams: Self.viewerTeams, provider: provider)
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+
+        fixture.controller.setReviewTeam(Self.developers.id, counting: false)
+        provider.finish(with: CompletePullRequestFetchResult(
+            activePullRequests: [fixture.pullRequest, newPR],
+            viewerTeams: Self.viewerTeams
+        ))
+        await waitUntilRefreshed(fixture)
+
+        XCTAssertTrue(fixture.addedHistory.isEmpty)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+    }
+
+    @MainActor
+    func testCountedTeamAddedAfterTeamTurnedOffDuringSuspendedRefreshNotifiesOnce() async throws {
+        let previousPR = Self.teamPullRequest([Self.developers])
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(
+            additionalPullRequests: [previousPR],
+            viewerTeams: Self.viewerTeams,
+            provider: provider
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+
+        fixture.controller.setReviewTeam(Self.developers.id, counting: false)
+        provider.finish(with: CompletePullRequestFetchResult(
+            activePullRequests: [fixture.pullRequest, Self.teamPullRequest([Self.developers, Self.plmTeam])],
+            viewerTeams: Self.viewerTeams
+        ))
+        await waitUntilRefreshed(fixture)
+
+        XCTAssertEqual(fixture.addedHistory.map(\.eventType), [.relationshipAdded])
+        XCTAssertEqual(fixture.addedHistory.first?.relationshipChanges, [.teamReviewRequest])
+        XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [previousPR.id])
+    }
+
+    @MainActor
+    func testTeamTurnedBackOnDuringSuspendedRefreshAddsNoRelationshipNotification() async throws {
+        let previousPR = Self.teamPullRequest([Self.developers])
+        let provider = AtomicGitHubProvider(result: .suspended)
+        let fixture = try makeFixture(
+            additionalPullRequests: [previousPR],
+            viewerTeams: Self.viewerTeams,
+            turnedOffReviewTeamIDs: [Self.developers.id],
+            provider: provider
+        )
+        defer { fixture.cleanup() }
+        await waitUntil { provider.fetchCount == 1 }
+
+        fixture.controller.setReviewTeam(Self.developers.id, counting: true)
+        provider.finish(with: CompletePullRequestFetchResult(
+            activePullRequests: [fixture.pullRequest, Self.teamPullRequest([Self.developers, Self.plmTeam])],
+            viewerTeams: Self.viewerTeams
+        ))
+        await waitUntilRefreshed(fixture)
+
+        XCTAssertTrue(fixture.addedHistory.isEmpty)
+        XCTAssertTrue(fixture.notifications.records.isEmpty)
+    }
+
+    @MainActor
+    func testNewDirectAndTurnedOffTeamRequestNotifiesOnlyUnderDirectSettings() async throws {
+        for directEnabled in [false, true] {
+            let newPR = Self.teamPullRequest([Self.developers], id: "PR_NEW", direct: true)
+            let provider = AtomicGitHubProvider(result: .suspended)
+            let fixture = try makeFixture(viewerTeams: Self.viewerTeams, provider: provider)
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 }
+
+            fixture.controller.preferences.directReviewRequests.relationshipChanges = directEnabled
+            fixture.controller.preferences.teamReviewRequests.relationshipChanges = true
+            fixture.controller.setReviewTeam(Self.developers.id, counting: false)
+            provider.finish(with: CompletePullRequestFetchResult(
+                activePullRequests: [fixture.pullRequest, newPR],
+                viewerTeams: Self.viewerTeams
+            ))
+            await waitUntilRefreshed(fixture)
+
+            if directEnabled {
+                XCTAssertEqual(fixture.addedHistory.map(\.relationshipChanges), [[.directReviewRequest]])
+                XCTAssertEqual(fixture.notifications.records.map(\.title), ["Review requested"])
+            } else {
+                XCTAssertTrue(fixture.addedHistory.isEmpty)
+                XCTAssertTrue(fixture.notifications.records.isEmpty)
+            }
+        }
+    }
+
+    @MainActor
+    func testCommentNotificationsOnTeamOnlyPRStopWhenTeamTurnedOffDuringSuspendedRefresh() async throws {
+        for developersCounting in [true, false] {
+            let previousPR = Self.teamPullRequest([Self.developers])
+            let provider = AtomicGitHubProvider(result: .suspended)
+            let fixture = try makeFixture(
+                additionalPullRequests: [previousPR],
+                viewerTeams: Self.viewerTeams,
+                provider: provider
+            )
+            defer { fixture.cleanup() }
+            await waitUntil { provider.fetchCount == 1 }
+
+            fixture.controller.preferences.commentModes.teamReviewRequests = .all
+            fixture.controller.setReviewTeam(Self.developers.id, counting: developersCounting)
+            let commented = Self.teamPullRequest([Self.developers], comments: [
+                PullRequestCommentActivity(
+                    id: "COMMENT_TEAM_NEW",
+                    url: URL(string: "https://github.com/acme/app/pull/42#issuecomment-team")!,
+                    author: "reviewer",
+                    createdAt: Date(timeIntervalSince1970: 30),
+                    source: .pullRequest
+                )
+            ])
+            provider.finish(with: CompletePullRequestFetchResult(
+                activePullRequests: [fixture.pullRequest, commented],
+                viewerTeams: Self.viewerTeams
+            ))
+            await waitUntilRefreshed(fixture)
+
+            XCTAssertEqual(
+                fixture.addedHistory.map(\.activityId),
+                developersCounting ? ["COMMENT_TEAM_NEW"] : [],
+                "developers counting: \(developersCounting)"
+            )
+            XCTAssertEqual(fixture.notifications.records.count, developersCounting ? 1 : 0)
+        }
+    }
+
+    @MainActor
+    func testFailedRefreshKeepsPublishedViewerTeamsAndRequestedSections() async throws {
+        let previousPR = Self.teamPullRequest([Self.developers])
+        let fixture = try makeFixture(
+            additionalPullRequests: [previousPR],
+            viewerTeams: Self.viewerTeams,
+            provider: AtomicGitHubProvider(result: .failure)
+        )
+        defer { fixture.cleanup() }
+
+        await waitUntil { fixture.controller.refreshErrorMessage != nil }
+
+        XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
+        XCTAssertEqual(fixture.controller.state.viewerTeams, Self.viewerTeams)
+        XCTAssertEqual(fixture.controller.requestedSections.first { $0.section == .team }?.visible.map(\.id), [previousPR.id])
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
+    }
+
+    @MainActor
+    func testFailedSyncStatePersistenceKeepsPreviousViewerTeamsAndRequestedSections() async throws {
+        let previousPR = Self.teamPullRequest([Self.developers])
+        let fixture = try makeFixture(
+            additionalPullRequests: [previousPR],
+            viewerTeams: Self.viewerTeams,
+            provider: AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(
+                activePullRequests: [makePullRequest(id: "PR_BASELINE", title: "Baseline"), Self.teamPullRequest([Self.plmTeam], id: "PR_PLM")],
+                viewerTeams: [ViewerTeam(team: Self.plmTeam)]
+            ))),
+            encoder: { _ in throw AtomicTestError.encodingFailed }
+        )
+        defer { fixture.cleanup() }
+
+        await waitUntil { fixture.controller.refreshErrorMessage != nil }
+
+        XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
+        XCTAssertEqual(fixture.controller.state.viewerTeams, Self.viewerTeams)
+        XCTAssertEqual(fixture.controller.requestedSections.first { $0.section == .team }?.visible.map(\.id), [previousPR.id])
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
+    }
+
     @MainActor
     private func makeFixture(
         pullRequest: PullRequest = makePullRequest(id: "PR_BASELINE", title: "Baseline"),
         additionalPullRequests: [PullRequest] = [],
         notificationHistory: [PullRequestNotification]? = nil,
+        viewerTeams: [ViewerTeam] = [],
+        turnedOffReviewTeamIDs: Set<String> = [],
         provider: AtomicGitHubProvider,
         encoder: @escaping (PullRequestSyncState) throws -> Data = { try JSONEncoder().encode($0) },
         urlOpener: @escaping @MainActor (URL) -> Void = { _ in },
@@ -1296,6 +1694,7 @@ final class AtomicRefreshTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suiteName)!
         var seedPreferences = PreferencesStore(defaults: defaults)
         seedPreferences.authMethod = .pat
+        seedPreferences.turnedOffReviewTeamIDs = turnedOffReviewTeamIDs
         if let sourceCatalog {
             seedPreferences.sourceCatalog = sourceCatalog
             seedPreferences.sourceCatalogSyncedAt = Date()
@@ -1314,7 +1713,8 @@ final class AtomicRefreshTests: XCTestCase {
                 syncedAt: Date(timeIntervalSince1970: 10),
                 source: .github,
                 account: GitHubAccount(login: "rw"),
-                authStatus: .signedIn
+                authStatus: .signedIn,
+                viewerTeams: viewerTeams
             ),
             processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues:
                 ([pullRequest] + additionalPullRequests).map { pr in
@@ -1558,6 +1958,12 @@ private final class AtomicRateLimitTransport: @unchecked Sendable {
             )
         }
         let query = Self.graphQLQuery(request)
+        if query.contains("query ViewerTeams") {
+            return response(Self.json(["data": ["viewer": ["organizations": [
+                "pageInfo": ["hasNextPage": false, "endCursor": NSNull()],
+                "nodes": []
+            ]]]]), request)
+        }
         if query.contains("DiscoveryBounds") {
             var data: [String: Any] = [:]
             for lane in GitHubDiscoveryLane.allCases {
@@ -1691,8 +2097,10 @@ private func makePullRequest(
     ],
     reviews: [PullRequestReview] = [],
     reviewRequestKind: ReviewRequestKind = .none,
+    requestedTeams: [TeamReference] = [],
     isAssignedToViewer: Bool = false,
     isMine: Bool = true,
+    draft: Bool = false,
     updatedAt: Date = Date(timeIntervalSince1970: 20)
 ) -> PullRequest {
     PullRequest(
@@ -1703,7 +2111,7 @@ private func makePullRequest(
         repo: "acme/app",
         repositoryIsArchived: archived,
         ciState: .passing,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: comments.count,
         commentActivityCount: comments.count,
         recentCommentActivities: comments,
@@ -1711,12 +2119,13 @@ private func makePullRequest(
         recentReviews: reviews,
         headRefOid: "abc",
         reviewRequestKind: reviewRequestKind,
+        requestedTeams: requestedTeams,
         isAssignedToViewer: isAssignedToViewer,
         isMine: isMine,
         author: isMine ? "rw" : "teammate",
         headRefName: "feature",
         mergeable: .mergeable,
-        draft: false,
+        draft: draft,
         createdAt: Date(timeIntervalSince1970: 1),
         updatedAt: updatedAt
     )

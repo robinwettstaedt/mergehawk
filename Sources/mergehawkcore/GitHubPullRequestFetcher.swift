@@ -996,7 +996,8 @@ struct GitHubPullRequestFetcher: Sendable {
             ciState: ciState,
             reviewDecision: normalizeReviewDecision(
                 Array(value.opinionatedReviews.values),
-                pullRequestAuthor: payload.author?.login
+                pullRequestAuthor: payload.author?.login,
+                gitHubDecision: payload.reviewDecision
             ),
             additions: payload.additions,
             deletions: payload.deletions,
@@ -1007,6 +1008,7 @@ struct GitHubPullRequestFetcher: Sendable {
             recentReviews: reviews,
             headRefOid: payload.headRefOid,
             reviewRequestKind: reviewRequestKind(for: value, login: login),
+            requestedTeams: try requestedTeams(for: value),
             isAssignedToViewer: value.assignees.values.contains { $0.login.caseInsensitiveCompare(login) == .orderedSame },
             isMine: value.discovery.isAuthored || payload.author?.login.caseInsensitiveCompare(login) == .orderedSame,
             author: payload.author?.login ?? "unknown",
@@ -1072,9 +1074,9 @@ struct GitHubPullRequestFetcher: Sendable {
 
     private func normalizeReviewDecision(
         _ reviews: [GitHubPayloadReview],
-        pullRequestAuthor: String?
+        pullRequestAuthor: String?,
+        gitHubDecision: String?
     ) -> ReviewDecision {
-        var approved = false
         var uncertain = false
         for review in reviews {
             let state = review.state.uppercased()
@@ -1086,12 +1088,12 @@ struct GitHubPullRequestFetcher: Sendable {
             if author.caseInsensitiveCompare(pullRequestAuthor) == .orderedSame { continue }
             switch state {
             case "CHANGES_REQUESTED": return .changesRequested
-            case "APPROVED": approved = true
+            case "APPROVED": continue
             default: uncertain = true
             }
         }
         if uncertain { return .unknown }
-        return approved ? .approved : .noReviewYet
+        return gitHubDecision == "APPROVED" ? .approved : .reviewRequired
     }
 
     private func reviewRequestKind(for value: HydrationAccumulator, login: String) -> ReviewRequestKind {
@@ -1103,6 +1105,95 @@ struct GitHubPullRequestFetcher: Sendable {
             $0.requestedReviewer?.typename == "Team"
         }
         return ReviewRequestKind(direct: direct, team: team)
+    }
+
+    private func requestedTeams(for value: HydrationAccumulator) throws -> [TeamReference] {
+        let teams = try value.reviewRequests.values.compactMap { request -> TeamReference? in
+            guard let reviewer = request.requestedReviewer, reviewer.typename == "Team" else { return nil }
+            guard let id = reviewer.id, let slug = reviewer.slug, let organization = reviewer.organization else {
+                throw GitHubReadError.invalidPayload
+            }
+            return TeamReference(id: id, organization: organization.login, slug: slug)
+        }
+        var seenIDs: Set<String> = []
+        return teams
+            .sorted { ($0.organization, $0.slug, $0.id) < ($1.organization, $1.slug, $1.id) }
+            .filter { seenIDs.insert($0.id).inserted }
+    }
+
+    /// Reads every team the viewer belongs to in every org, plus each team's ancestors, which GitHub also
+    /// treats as the viewer's teams for review requests.
+    func fetchViewerTeams(login: String) async throws -> [ViewerTeam] {
+        var directTeams: [(organization: String, organizationAvatarURL: URL?, team: GitHubPayloadViewerTeam)] = []
+        var orgCursor: String?
+        repeat {
+            let page = try await readValidated(
+                GitHubViewerTeamsPayload.self,
+                query: GitHubPullRequestQueries.viewerTeams,
+                variables: ["login": .string(login), "orgCursor": orgCursor.map(GitHubQueryValue.string) ?? .null]
+            )
+            let organizations = page.viewer.organizations
+            for organization in organizations.nodes {
+                var teams = organization.teams
+                directTeams += teams.nodes.map { (organization.login, organization.avatarUrl, $0) }
+                while teams.pageInfo.hasNextPage {
+                    guard let cursor = teams.pageInfo.endCursor else { throw GitHubReadError.invalidPayload }
+                    teams = try await readValidated(
+                        GitHubOrganizationViewerTeamsPayload.self,
+                        query: GitHubPullRequestQueries.organizationViewerTeams,
+                        variables: [
+                            "org": .string(organization.login),
+                            "login": .string(login),
+                            "cursor": .string(cursor)
+                        ]
+                    ).organization.teams
+                    directTeams += teams.nodes.map { (organization.login, organization.avatarUrl, $0) }
+                }
+            }
+            guard organizations.pageInfo.hasNextPage else { break }
+            guard let cursor = organizations.pageInfo.endCursor else { throw GitHubReadError.invalidPayload }
+            orgCursor = cursor
+        } while true
+
+        var teamsByID: [String: ViewerTeam] = [:]
+        for direct in directTeams {
+            let organization = direct.organization
+            guard !direct.team.ancestors.pageInfo.hasNextPage else {
+                throw GitHubReadError.incompleteCoverage(
+                    "More than \(GitHubPullRequestQueries.teamAncestorsPageSize) ancestors of team @\(organization)/\(direct.team.slug)"
+                )
+            }
+            let identities = [GitHubPayloadTeamIdentity(
+                id: direct.team.id,
+                slug: direct.team.slug,
+                avatarUrl: direct.team.avatarUrl,
+                parentTeam: direct.team.parentTeam
+            )] + direct.team.ancestors.nodes
+            for identity in identities {
+                teamsByID[identity.id] = ViewerTeam(
+                    team: TeamReference(id: identity.id, organization: organization, slug: identity.slug),
+                    parentTeamID: identity.parentTeam?.id,
+                    avatarURL: identity.avatarUrl,
+                    organizationAvatarURL: direct.organizationAvatarURL
+                )
+            }
+        }
+        return teamsByID.values.sorted {
+            ($0.team.organization, $0.team.slug, $0.team.id) < ($1.team.organization, $1.team.slug, $1.team.id)
+        }
+    }
+
+    private func readValidated<Payload: Decodable>(
+        _ type: Payload.Type,
+        query: String,
+        variables: [String: GitHubQueryValue]
+    ) async throws -> Payload {
+        let data = try await read(query, variables)
+        try validate(errors: try decoder.decode(GitHubGraphQLErrorEnvelope.self, from: data).errors)
+        guard let payload = try? decoder.decode(GitHubGraphQLPayload<Payload>.self, from: data).data else {
+            throw GitHubReadError.invalidPayload
+        }
+        return payload
     }
 
     private struct LeafResult {

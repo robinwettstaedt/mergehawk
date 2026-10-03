@@ -36,6 +36,7 @@ final class GitHubRequestTests: XCTestCase {
         let decoded = try JSONDecoder().decode(GitHubCompletePullRequestPayload.self, from: payload())
         XCTAssertNil(decoded.author)
         XCTAssertNil(decoded.statusCheckRollup)
+        XCTAssertNil(decoded.reviewDecision)
         XCTAssertEqual(decoded.comments.nodes.first?.author, nil)
     }
 
@@ -104,6 +105,7 @@ final class GitHubRequestTests: XCTestCase {
     func testQueryUsesDirectCIAndNoCommitHistory() {
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("statusCheckRollup"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("headRefOid"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("reviewDecision"))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("repository { nameWithOwner isArchived }"))
         XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("commits("))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("pageInfo"))
@@ -175,7 +177,7 @@ final class GitHubRequestTests: XCTestCase {
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
             "headRefName": "feature", "headRefOid": "abc", "isDraft": false,
             "mergeable": "MERGEABLE", "additions": 1, "deletions": 2,
-            "statusCheckRollup": NSNull(), "author": NSNull(),
+            "statusCheckRollup": NSNull(), "author": NSNull(), "reviewDecision": NSNull(),
             "repository": ["nameWithOwner": "acme/app", "isArchived": false]
         ]
         let connection: [String: Any] = [
