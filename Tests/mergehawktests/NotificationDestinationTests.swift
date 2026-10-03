@@ -52,7 +52,7 @@ final class NotificationDestinationTests: XCTestCase {
         let destination = URL(string: "https://github.com/acme/app/pull/1?view=comment#discussion_r99")!
         let pullRequest = PullRequest(
             id: "PR_1", title: "Retired", number: 1, url: base, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
             reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
         )
         let notification = PullRequestNotification(
@@ -89,7 +89,7 @@ final class NotificationDestinationTests: XCTestCase {
         let destination = URL(string: "https://github.com/acme/app/pull/1?view=comment#discussion_r7")!
         let pullRequest = PullRequest(
             id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
             reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
         )
         let event = PullRequestEvent(
@@ -113,6 +113,30 @@ final class NotificationDestinationTests: XCTestCase {
         XCTAssertEqual(NotificationClickRoute.route(events: [event], pullRequests: []), .openNotifications)
     }
 
+    func testReadyForReviewOpensThePRAloneAndNotificationsWithOtherUpdates() {
+        let base = URL(string: "https://github.com/acme/app/pull/1")!
+        let pullRequest = PullRequest(
+            id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
+            reviewCount: 0, reviewRequestKind: .direct, isAssignedToViewer: true,
+            isMine: false, author: "teammate", mergeable: .mergeable, draft: false
+        )
+        let ready = PullRequestEvent(type: .readyForReview, prId: pullRequest.id)
+        let assigned = PullRequestEvent(type: .relationshipAdded, prId: pullRequest.id, relationshipChanges: [.assigned])
+
+        XCTAssertNil(ready.destinationURL)
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [ready]), "Ready for review")
+        XCTAssertEqual(
+            NotificationClickRoute.route(events: [ready], pullRequests: [pullRequest]),
+            .openPullRequest(PullRequestOpenRequest(pullRequestURL: base))
+        )
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [assigned, ready]), "2 MergeHawk updates")
+        XCTAssertEqual(
+            NotificationClickRoute.route(events: [assigned, ready], pullRequests: [pullRequest]),
+            .openNotifications
+        )
+    }
+
     @MainActor
     func testControllerRoutesPRAndNotificationRequestsToInjectedCollaborator() async throws {
         let suite = "mergehawk-typed-open-\(UUID().uuidString)"
@@ -122,7 +146,7 @@ final class NotificationDestinationTests: XCTestCase {
         let destination = URL(string: "https://github.com/acme/app/pull/1#issuecomment-7")!
         let pullRequest = PullRequest(
             id: "PR_1", title: "Example", number: 1, url: base, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0,
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
             reviewCount: 0, isMine: true, author: "rw", mergeable: .mergeable, draft: false
         )
         let notification = PullRequestNotification(

@@ -102,6 +102,33 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTurnedOffReviewTeamIDsPersistAcrossStoresAndControllers() {
+        let suiteName = "mergehawk-review-teams-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var store = PreferencesStore(defaults: defaults)
+        XCTAssertEqual(store.turnedOffReviewTeamIDs, [])
+        store.turnedOffReviewTeamIDs = ["T_PLM", "T_DEV"]
+        XCTAssertEqual(defaults.stringArray(forKey: "reviewTeams.turnedOffIds"), ["T_DEV", "T_PLM"])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).turnedOffReviewTeamIDs, ["T_DEV", "T_PLM"])
+
+        func makeController() -> DashboardController {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: defaults),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+        }
+        let controller = makeController()
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, ["T_DEV", "T_PLM"])
+        controller.setReviewTeam("T_PLM", counting: true)
+        controller.setReviewTeam("T_ENG", counting: false)
+
+        XCTAssertEqual(makeController().turnedOffReviewTeamIDs, ["T_DEV", "T_ENG"])
+    }
+
     func testSourcePreferencesAndCatalogRoundTripThroughSerializedDefaults() {
         withStore { store, defaults in
             let preferences = SourcePreferences(
@@ -158,54 +185,45 @@ final class PreferencesStoreTests: XCTestCase {
                 ),
                 assigned: PullRequestNotificationActivityPreferences(
                     reviewActivity: true,
-                    ciFailures: false
+                    ciFailures: false,
+                    relationshipChanges: false,
+                    readyForReview: true
                 ),
                 directReviewRequests: PullRequestNotificationActivityPreferences(
                     reviewActivity: true,
-                    ciFailures: false
+                    ciFailures: false,
+                    relationshipChanges: true,
+                    readyForReview: false
                 ),
-                teamReviewRequests: .disabled
+                teamReviewRequests: .disabled,
+                commentModes: CommentNotificationPreferences(
+                    authored: .off, assigned: .mentionsAndThreads, directReviewRequests: .all, teamReviewRequests: .off
+                )
             )
             store.notificationPreferences = preferences
+            let stored = defaults.data(forKey: "notifications.prMatrix")
 
             XCTAssertEqual(PreferencesStore(defaults: defaults).notificationPreferences, preferences)
-            XCTAssertNotNil(defaults.data(forKey: "notifications.prMatrix"))
+            XCTAssertEqual(PreferencesStore(defaults: defaults).loadAndPersistNotificationPreferences(), preferences)
+            XCTAssertNotNil(stored)
+            XCTAssertEqual(defaults.data(forKey: "notifications.prMatrix"), stored)
         }
     }
 
-    func testRetiredCommitNotificationHistoryStillRoundTripsAndRenders() {
-        withStore { store, defaults in
-            let pullRequest = PullRequest(
-                id: "legacy-commit-pr",
-                title: "Legacy commit notification",
-                number: 42,
-                url: URL(string: "https://github.com/example/app/pull/42")!,
-                repo: "example/app",
-                ciState: .passing,
-                reviewDecision: .noReviewYet,
-                commentCount: 0,
-                reviewCount: 0,
-                isMine: true,
-                author: "rw",
-                mergeable: .mergeable,
-                draft: false
-            )
-            var notification = PullRequestNotification(
-                event: PullRequestEvent(
-                    type: .otherCommitAdded,
-                    prId: pullRequest.id,
-                    count: 1,
-                    actorLogin: "teammate"
-                ),
-                pullRequest: pullRequest
-            )
-            notification.read = true
-            store.pullRequestNotificationHistory = [notification]
+    func testNotificationDefaultsEnableReadyForReviewForRequestedRelationshipsOnly() {
+        withStore { store, _ in
+            let preferences = store.loadAndPersistNotificationPreferences()
 
-            let restored = PreferencesStore(defaults: defaults).pullRequestNotificationHistory
-            XCTAssertEqual(restored, [notification])
-            XCTAssertTrue(restored[0].read)
-            XCTAssertEqual(PullRequestNotificationTitlePresentation.title(for: restored[0]), "New commit by @teammate")
+            XCTAssertEqual(preferences, .defaults)
+            XCTAssertEqual(preferences.authored, PullRequestNotificationActivityPreferences(
+                reviewActivity: true, ciFailures: true, relationshipChanges: false, readyForReview: false
+            ))
+            for requested in [preferences.assigned, preferences.directReviewRequests, preferences.teamReviewRequests] {
+                XCTAssertEqual(requested, PullRequestNotificationActivityPreferences(
+                    reviewActivity: false, ciFailures: false, relationshipChanges: true, readyForReview: true
+                ))
+            }
+            XCTAssertEqual(preferences.commentModes, .defaults)
         }
     }
 

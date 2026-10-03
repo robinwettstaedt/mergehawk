@@ -213,12 +213,18 @@ final class SyncEngineTests: XCTestCase {
         let current = [
             Self.pullRequest(id: "PR_ASSIGNED", isAssigned: true, isMine: false),
             Self.pullRequest(id: "PR_DIRECT", reviewRequestKind: .direct, isMine: false),
-            Self.pullRequest(id: "PR_TEAM", ci: .failing, reviewRequestKind: .team, isMine: false)
+            Self.pullRequest(
+                id: "PR_TEAM", ci: .failing, reviewRequestKind: .team, requestedTeams: [Self.reviewersTeam],
+                isMine: false
+            )
         ]
 
         let prepared = try await Self.engine().prepare(
             previousState: nil,
-            fetchResult: CompletePullRequestFetchResult(activePullRequests: current)
+            fetchResult: CompletePullRequestFetchResult(
+                activePullRequests: current,
+                viewerTeams: [ViewerTeam(team: Self.reviewersTeam)]
+            )
         )
 
         XCTAssertTrue(prepared.events.isEmpty)
@@ -315,6 +321,63 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(reentered.events.first?.event.relationshipChanges, [.directReviewRequest])
     }
 
+    func testBaselineWithReadyRequestedPRIsQuiet() async throws {
+        let ready = Self.pullRequest(id: "PR_READY", reviewRequestKind: .direct, isMine: false, draft: false)
+
+        let prepared = try await Self.engine().prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [ready])
+        )
+
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testRequestedDraftBecomingReadyAfterBaselineEmitsOneReadyForReview() async throws {
+        let engine = Self.engine()
+        let draft = Self.pullRequest(id: "PR_DRAFT", reviewRequestKind: .direct, isMine: false, draft: true)
+        let ready = Self.pullRequest(id: "PR_DRAFT", reviewRequestKind: .direct, isMine: false, draft: false)
+        let baseline = try await engine.prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [draft])
+        )
+        XCTAssertTrue(baseline.events.isEmpty)
+
+        let next = try await engine.prepare(
+            previousState: Self.state(from: baseline),
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [ready])
+        )
+
+        XCTAssertEqual(next.events.map(\.event.type), [.readyForReview])
+        XCTAssertEqual(next.events.first?.event.prId, ready.id)
+    }
+
+    func testReadyDraftReadyAcrossRefreshesEmitsTwoReadyForReviewUpdates() async throws {
+        let engine = Self.engine()
+        let draft = Self.pullRequest(
+            id: "PR_TOGGLE", reviewRequestKind: .team, requestedTeams: [Self.reviewersTeam], isMine: false, draft: true
+        )
+        let ready = Self.pullRequest(
+            id: "PR_TOGGLE", reviewRequestKind: .team, requestedTeams: [Self.reviewersTeam], isMine: false, draft: false
+        )
+        let viewerTeams = [ViewerTeam(team: Self.reviewersTeam)]
+        var state = Self.state(from: try await engine.prepare(
+            previousState: nil,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [draft], viewerTeams: viewerTeams)
+        ))
+
+        var readyCount = 0
+        for pullRequest in [ready, draft, ready] {
+            let prepared = try await engine.prepare(
+                previousState: state,
+                fetchResult: CompletePullRequestFetchResult(activePullRequests: [pullRequest], viewerTeams: viewerTeams)
+            )
+            readyCount += prepared.events.filter { $0.event.type == .readyForReview }.count
+            state = Self.state(from: prepared)
+        }
+
+        XCTAssertEqual(readyCount, 2)
+    }
+
     func testNewlySeenAuthoredPREmitsNothing() async throws {
         let authored = Self.pullRequest(
             id: "PR_AUTHORED",
@@ -331,6 +394,188 @@ final class SyncEngineTests: XCTestCase {
         )
 
         XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testTurnedOffOnlyTeamThenCountedTeamAddsOneTeamRelationship() throws {
+        let previous = Self.trustedState([Self.teamRequested([Self.developers])])
+
+        let prepared = try Self.prepareCounted(
+            previous: previous,
+            active: [Self.teamRequested([Self.developers, Self.plmTeam])],
+            turnedOffTeamIDs: [Self.developers.id]
+        )
+
+        XCTAssertEqual(prepared.events.map(\.event.type), [.relationshipAdded])
+        XCTAssertEqual(prepared.events.first?.event.relationshipChanges, [.teamReviewRequest])
+    }
+
+    func testSecondCountedTeamOnAlreadyCountedPRAddsNoRelationship() throws {
+        let previous = Self.trustedState([Self.teamRequested([Self.developers])])
+
+        let prepared = try Self.prepareCounted(
+            previous: previous,
+            active: [Self.teamRequested([Self.developers, Self.plmTeam])]
+        )
+
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testChangingTurnedOffTeamsAloneNeverCreatesRelationshipEvents() throws {
+        let pullRequests = [
+            Self.teamRequested([Self.developers], id: "PR_DEV"),
+            Self.teamRequested([Self.developers, Self.plmTeam], id: "PR_BOTH")
+        ]
+        let previous = Self.trustedState(pullRequests)
+
+        let turnedOff = try Self.prepareCounted(
+            previous: previous,
+            active: pullRequests,
+            turnedOffTeamIDs: [Self.developers.id, Self.plmTeam.id]
+        )
+        let turnedOn = try Self.prepareCounted(previous: Self.state(from: turnedOff), active: pullRequests)
+
+        XCTAssertTrue(turnedOff.events.isEmpty)
+        XCTAssertTrue(turnedOn.events.isEmpty)
+    }
+
+    func testTurnedOffOnlyTeamLeavesActivityWithoutTeamRelationship() throws {
+        let previous = Self.trustedState([Self.teamRequested([Self.developers])])
+        let current = Self.teamRequested(
+            [Self.developers],
+            comments: [Self.comment("C_NEW")],
+            reviews: [Self.review("R_NEW")]
+        )
+
+        let prepared = try Self.prepareCounted(
+            previous: previous,
+            active: [current],
+            turnedOffTeamIDs: [Self.developers.id]
+        )
+
+        XCTAssertEqual(Set(prepared.events.map(\.event.type)), [.newComment, .reviewApproved])
+        for event in prepared.events {
+            XCTAssertEqual(event.filteringContext.reviewRequestKind, .none)
+            XCTAssertTrue(NotificationPreferences.relationships(matching: event.filteringContext).isEmpty)
+        }
+    }
+
+    func testDirectRequestWithTurnedOffTeamKeepsOnlyTheDirectRelationship() throws {
+        let previous = Self.trustedState([Self.teamRequested([Self.developers], direct: true)])
+        let current = Self.teamRequested([Self.developers], direct: true, comments: [Self.comment("C_NEW")])
+
+        let prepared = try Self.prepareCounted(
+            previous: previous,
+            active: [current],
+            turnedOffTeamIDs: [Self.developers.id]
+        )
+
+        XCTAssertEqual(prepared.events.map(\.event.type), [.newComment])
+        XCTAssertEqual(prepared.events.first?.filteringContext.reviewRequestKind, .direct)
+    }
+
+    func testPreparedActivePRsStayRawAndViewerTeamsPassThrough() throws {
+        let current = Self.teamRequested([Self.developers])
+
+        let prepared = try Self.prepareCounted(
+            previous: Self.trustedState([]),
+            active: [current],
+            turnedOffTeamIDs: [Self.developers.id]
+        )
+
+        XCTAssertEqual(prepared.activePullRequests, [current])
+        XCTAssertEqual(prepared.activePullRequests.first?.reviewRequestKind, .team)
+        XCTAssertEqual(prepared.viewerTeams, Self.nestedViewerTeams)
+    }
+
+    func testJoiningATeamThatAnUnchangedAssignedPRRequestsAddsNoRelationship() throws {
+        let pullRequest = Self.teamRequested([Self.plmTeam], isAssigned: true)
+        var previous = Self.trustedState([pullRequest])
+        previous.dashboard.viewerTeams = []
+
+        let prepared = try Self.prepareCounted(previous: previous, active: [pullRequest])
+
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    func testNewDirectAndTurnedOffTeamRequestAddsOnlyTheDirectRelationship() throws {
+        let previous = Self.trustedState([])
+
+        let prepared = try Self.prepareCounted(
+            previous: previous,
+            active: [Self.teamRequested([Self.developers], direct: true)],
+            turnedOffTeamIDs: [Self.developers.id]
+        )
+
+        XCTAssertEqual(prepared.events.map(\.event.type), [.relationshipAdded])
+        XCTAssertEqual(prepared.events.first?.event.relationshipChanges, [.directReviewRequest])
+    }
+
+    func testRetiringTeamOnlyPRKeepsPreviousTeamRelationshipOnlyWhileItCounts() throws {
+        let previous = Self.trustedState([Self.teamRequested([Self.developers])])
+        let retiring = Self.teamRequested([], comments: [Self.comment("C_FINAL")])
+
+        let counting = try Self.prepareCounted(previous: previous, active: [], retiring: [retiring])
+        let turnedOff = try Self.prepareCounted(
+            previous: previous,
+            active: [],
+            retiring: [retiring],
+            turnedOffTeamIDs: [Self.developers.id]
+        )
+
+        XCTAssertEqual(counting.events.map(\.event.activityId), ["C_FINAL"])
+        XCTAssertEqual(counting.events.first?.filteringContext.reviewRequestKind, .team)
+        XCTAssertEqual(counting.events.first?.filteringContext.requestedTeams, [Self.developers])
+        XCTAssertEqual(turnedOff.events.map(\.event.activityId), ["C_FINAL"])
+        XCTAssertEqual(turnedOff.events.first?.filteringContext.reviewRequestKind, ReviewRequestKind.none)
+    }
+
+    private static let reviewersTeam = TeamReference(id: "T_REVIEWERS", organization: "acme", slug: "reviewers")
+    private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
+    private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
+    private static let nestedViewerTeams = [
+        ViewerTeam(team: developers),
+        ViewerTeam(team: plmTeam, parentTeamID: developers.id)
+    ]
+
+    private static func prepareCounted(
+        previous: PullRequestSyncState?,
+        active: [PullRequest],
+        retiring: [PullRequest] = [],
+        viewerTeams: [ViewerTeam] = nestedViewerTeams,
+        turnedOffTeamIDs: Set<String> = []
+    ) throws -> PreparedPullRequestRefresh {
+        try engine().prepare(
+            previousState: previous,
+            fetched: FetchedPullRequestRefresh(
+                login: "rw",
+                account: GitHubAccount(login: "rw"),
+                fetchResult: CompletePullRequestFetchResult(
+                    activePullRequests: active,
+                    retiringPullRequests: retiring,
+                    viewerTeams: viewerTeams
+                )
+            ),
+            turnedOffTeamIDs: turnedOffTeamIDs
+        )
+    }
+
+    private static func teamRequested(
+        _ teams: [TeamReference],
+        id: String = "PR_TEAMS",
+        direct: Bool = false,
+        comments: [PullRequestCommentActivity] = [],
+        reviews: [PullRequestReview] = [],
+        isAssigned: Bool = false
+    ) -> PullRequest {
+        pullRequest(
+            id: id,
+            comments: comments,
+            reviews: reviews,
+            reviewRequestKind: ReviewRequestKind(direct: direct, team: !teams.isEmpty),
+            requestedTeams: teams,
+            isAssigned: isAssigned,
+            isMine: false
+        )
     }
 
     private static func engine() -> SyncEngine {
@@ -388,8 +633,10 @@ final class SyncEngineTests: XCTestCase {
         reviewCount: Int? = nil,
         reviews: [PullRequestReview] = [],
         reviewRequestKind: ReviewRequestKind = .none,
+        requestedTeams: [TeamReference] = [],
         isAssigned: Bool = false,
-        isMine: Bool = true
+        isMine: Bool = true,
+        draft: Bool = false
     ) -> PullRequest {
         PullRequest(
             id: id,
@@ -399,18 +646,19 @@ final class SyncEngineTests: XCTestCase {
             repo: "acme/app",
             repositoryIsArchived: repositoryIsArchived,
             ciState: ci,
-            reviewDecision: .noReviewYet,
+            reviewDecision: .reviewRequired,
             commentCount: commentCount ?? comments.count,
             commentActivityCount: comments.count,
             recentCommentActivities: comments,
             reviewCount: reviewCount ?? reviews.count,
             recentReviews: reviews,
             reviewRequestKind: reviewRequestKind,
+            requestedTeams: requestedTeams,
             isAssignedToViewer: isAssigned,
             isMine: isMine,
             author: isMine ? "rw" : "author",
             mergeable: .mergeable,
-            draft: false
+            draft: draft
         )
     }
 

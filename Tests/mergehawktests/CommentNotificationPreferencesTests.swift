@@ -22,56 +22,33 @@ final class CommentNotificationPreferencesTests: XCTestCase {
         }
     }
 
-    func testOldCommentsSwitchesNeverInitializeModesAndUpperValuesSurvive() throws {
-        for authored in [false, true] {
-            for assigned in [false, true] {
-                for direct in [false, true] {
-                    for team in [false, true] {
-                        try withDefaults { defaults in
-                            defaults.set(Data(Self.legacyMatrixJSON(
-                                comments: [authored, assigned, direct, team]
-                            ).utf8), forKey: matrixKey)
+    func testPullRequestOneFormatMatrixLoadsDefaultsAndStaysStored() throws {
+        try withDefaults { defaults in
+            let stored = Data(Self.pullRequestOneFormatMatrixJSON.utf8)
+            defaults.set(stored, forKey: matrixKey)
 
-                            let controller = makeController(defaults)
-
-                            XCTAssertEqual(controller.preferences.commentModes, .defaults)
-                            XCTAssertFalse(controller.preferences.authored.reviewActivity)
-                            XCTAssertTrue(controller.preferences.assigned.ciFailures)
-                            XCTAssertTrue(controller.preferences.directReviewRequests.relationshipChanges)
-                            XCTAssertFalse(controller.preferences.teamReviewRequests.relationshipChanges)
-                            let stored = try storedMatrixObject(defaults)
-                            XCTAssertNotNil(stored["commentModes"])
-                            XCTAssertEqual(
-                                (stored["authored"] as? [String: Any])?["reviewActivity"] as? Bool,
-                                false
-                            )
-                        }
-                    }
-                }
+            for _ in 0..<2 {
+                let controller = makeController(defaults)
+                XCTAssertEqual(controller.preferences, .defaults)
+                XCTAssertEqual(defaults.data(forKey: matrixKey), stored)
             }
         }
     }
 
-    func testOldCommentsKeysNeverOverrideSavedModesAndReloadingDropsThem() throws {
+    func testSettingsChangeAfterResetPersistsNewFormatAndReloads() throws {
         try withDefaults { defaults in
-            var legacy = try XCTUnwrap(
-                JSONSerialization.jsonObject(with: Data(Self.legacyMatrixJSON(comments: [true, true, true, true]).utf8)) as? [String: Any]
-            )
-            legacy["commentModes"] = [
-                "authored": "off", "assigned": "mentions_and_threads",
-                "directReviewRequests": "all", "teamReviewRequests": "off",
-            ]
-            defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: matrixKey)
+            defaults.set(Data(Self.pullRequestOneFormatMatrixJSON.utf8), forKey: matrixKey)
+            let controller = makeController(defaults)
 
-            for _ in 0..<2 {
-                let controller = makeController(defaults)
-                XCTAssertEqual(controller.preferences.commentModes, CommentNotificationPreferences(
-                    authored: .off, assigned: .mentionsAndThreads, directReviewRequests: .all, teamReviewRequests: .off
-                ))
-            }
+            controller.preferences.commentModes.set(.off, for: .directReviewRequest)
+
             let stored = try storedMatrixObject(defaults)
-            XCTAssertNotNil(stored["commentModes"])
-            XCTAssertNil((stored["authored"] as? [String: Any])?["comments"])
+            for relationship in ["authored", "assigned", "directReviewRequests", "teamReviewRequests"] {
+                XCTAssertNotNil((stored[relationship] as? [String: Any])?["readyForReview"], relationship)
+            }
+            var expected = NotificationPreferences.defaults
+            expected.commentModes.directReviewRequests = .off
+            XCTAssertEqual(makeController(defaults).preferences, expected)
         }
     }
 
@@ -137,7 +114,7 @@ final class CommentNotificationPreferencesTests: XCTestCase {
             let pullRequest = PullRequest(
                 id: "PR_1", title: "History", number: 1,
                 url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
-                ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0, reviewCount: 0,
+                ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, reviewCount: 0,
                 isMine: true, author: "rw", mergeable: .mergeable, draft: false
             )
             var notification = PullRequestNotification(
@@ -156,7 +133,7 @@ final class CommentNotificationPreferencesTests: XCTestCase {
                 notificationHistory: [notification]
             )
             try PreferencesStore(defaults: defaults).storePullRequestSyncState(state)
-            defaults.set(Data(Self.legacyMatrixJSON(comments: [true, true, true, true]).utf8), forKey: matrixKey)
+            defaults.set(Data(Self.pullRequestOneFormatMatrixJSON.utf8), forKey: matrixKey)
 
             let controller = makeController(defaults)
 
@@ -187,15 +164,17 @@ final class CommentNotificationPreferencesTests: XCTestCase {
         try body(defaults)
     }
 
-    /// A matrix saved before comment modes existed, including the old per-relationship Comments switch.
-    private static func legacyMatrixJSON(comments: [Bool]) -> String {
-        """
-        {
-          "authored": {"comments": \(comments[0]), "reviewActivity": false, "ciFailures": true, "relationshipChanges": false},
-          "assigned": {"comments": \(comments[1]), "reviewActivity": true, "ciFailures": true, "relationshipChanges": true},
-          "directReviewRequests": {"comments": \(comments[2]), "reviewActivity": false, "ciFailures": false, "relationshipChanges": true},
-          "teamReviewRequests": {"comments": \(comments[3]), "reviewActivity": true, "ciFailures": false, "relationshipChanges": false}
-        }
-        """
+    /// A matrix saved before Ready for review existed: every current key except `readyForReview`.
+    private static let pullRequestOneFormatMatrixJSON = """
+    {
+      "authored": {"reviewActivity": false, "ciFailures": true, "relationshipChanges": false},
+      "assigned": {"reviewActivity": true, "ciFailures": true, "relationshipChanges": true},
+      "directReviewRequests": {"reviewActivity": false, "ciFailures": false, "relationshipChanges": true},
+      "teamReviewRequests": {"reviewActivity": true, "ciFailures": false, "relationshipChanges": false},
+      "commentModes": {
+        "authored": "off", "assigned": "mentions_and_threads",
+        "directReviewRequests": "all", "teamReviewRequests": "off"
+      }
     }
+    """
 }

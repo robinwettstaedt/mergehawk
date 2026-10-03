@@ -206,7 +206,7 @@ private func presentationPR(
 ) -> PullRequest {
     PullRequest(
         id: "PR_PRESENTATION", title: "Comment presentation", number: 9, url: presentationURL(""), repo: "acme/app",
-        ciState: .passing, reviewDecision: .noReviewYet, commentCount: 0, recentCommentActivities: comments,
+        ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, recentCommentActivities: comments,
         reviewCount: reviews.count, recentReviews: reviews, reviewRequestKind: request, isAssignedToViewer: assigned,
         isMine: true, author: "rw", mergeable: .mergeable, draft: false
     )

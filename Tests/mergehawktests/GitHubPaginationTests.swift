@@ -31,7 +31,8 @@ final class GitHubPaginationTests: XCTestCase {
                 total: 21,
                 nodes: (1..<21).map { Self.request("Q\($0)") },
                 previous: "requests-before"
-            )
+            ),
+            reviewDecision: "APPROVED"
         )
         let transport = HydrationTransport { query, _ in
             if query.contains("CompletePullRequests") {
@@ -339,7 +340,8 @@ final class GitHubPaginationTests: XCTestCase {
         var node = Self.pullRequest(
             comments: Self.connection(total: 1, nodes: [comment]),
             reviews: Self.connection(total: 1, nodes: [review]),
-            opinionated: Self.connection(total: 1, nodes: [review])
+            opinionated: Self.connection(total: 1, nodes: [review]),
+            reviewDecision: "APPROVED"
         )
         node["author"] = prAuthor
         let transport = HydrationTransport { query, _ in
@@ -418,7 +420,8 @@ final class GitHubPaginationTests: XCTestCase {
             comments: Self.connection(total: 1, nodes: [topLevelComment]),
             reviews: Self.connection(total: 2, nodes: [authoredReview, viewerReview]),
             opinionated: Self.connection(total: 1, nodes: [opinionatedReview]),
-            threads: Self.connection(total: 2, nodes: [resolvedThread, actionableThread])
+            threads: Self.connection(total: 2, nodes: [resolvedThread, actionableThread]),
+            reviewDecision: "APPROVED"
         )
         node["title"] = "Ship dashboard"
         node["number"] = 12
@@ -560,6 +563,73 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testHydrationKeepsEveryRequestedTeamWithItsIdentity() async throws {
+        let node = Self.pullRequest(requests: Self.connection(total: 3, nodes: [
+            Self.request("Q_PLM", typeName: "Team", teamSlug: "plm-team"),
+            Self.request("Q_USER", typeName: "User", login: "teammate"),
+            Self.request("Q_DEV", typeName: "Team", teamSlug: "developers")
+        ]))
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.requestedTeams, [
+            TeamReference(id: "TEAM_Q_DEV", organization: "acme", slug: "developers"),
+            TeamReference(id: "TEAM_Q_PLM", organization: "acme", slug: "plm-team")
+        ])
+    }
+
+    func testHydrationKeepsRequestedTeamsFromLaterReviewRequestPages() async throws {
+        let initial = Self.pullRequest(requests: Self.connection(
+            total: 2,
+            nodes: [Self.request("Q_DEV", typeName: "Team", teamSlug: "developers")],
+            previous: "requests-before"
+        ))
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            XCTAssertTrue(query.contains("reviewRequests(last:"))
+            return Self.json(["data": [
+                "c0": ["reviewRequests": Self.connection(total: 2, nodes: [
+                    Self.request("Q_ENG", typeName: "Team", teamSlug: "engineering")
+                ])]
+            ]])
+        }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.requestedTeams.map(\.slug), ["developers", "engineering"])
+        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 1)
+    }
+
+    func testRequestedTeamMissingSlugOrOrganizationFailsHydrationAsInvalidPayload() async throws {
+        for missingKey in ["slug", "organization", "id"] {
+            var team = Self.request("Q_TEAM", typeName: "Team")
+            var reviewer = team["requestedReviewer"] as! [String: Any]
+            reviewer.removeValue(forKey: missingKey)
+            team["requestedReviewer"] = reviewer
+            let node = Self.pullRequest(requests: Self.connection(total: 1, nodes: [team]))
+            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+            do {
+                _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+                XCTFail("Expected a team request without \(missingKey) to fail hydration")
+            } catch {
+                XCTAssertEqual(error as? GitHubReadError, .invalidPayload, missingKey)
+            }
+        }
+    }
+
+    func testHydrationWithoutTeamRequestsKeepsNoRequestedTeams() async throws {
+        let node = Self.pullRequest(requests: Self.connection(total: 1, nodes: [Self.request("Q_USER")]))
+        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.requestedTeams, [])
+    }
+
     func testKnownChangesRequestedWinsOverUncertainOpinionatedReviewsInAnyOrder() async throws {
         var deletedAuthor = Self.review("DELETED", state: "APPROVED")
         deletedAuthor["author"] = NSNull()
@@ -580,7 +650,8 @@ final class GitHubPaginationTests: XCTestCase {
 
         for (reviews, expected) in cases {
             let initial = Self.pullRequest(
-                opinionated: Self.connection(total: reviews.count, nodes: reviews)
+                opinionated: Self.connection(total: reviews.count, nodes: reviews),
+                reviewDecision: "APPROVED"
             )
             let transport = HydrationTransport { _, _ in
                 Self.json(["data": ["nodes": [initial]]])
@@ -589,6 +660,41 @@ final class GitHubPaginationTests: XCTestCase {
             let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
 
             XCTAssertEqual(hydrated[0].pullRequest.reviewDecision, expected)
+        }
+    }
+
+    func testOnlyGitHubApprovedDecisionShowsApproved() async throws {
+        let approved = Self.review("APPROVED", state: "APPROVED")
+        let changesRequested = Self.review("CHANGES", state: "CHANGES_REQUESTED")
+        let dismissed = Self.review("DISMISSED", state: "DISMISSED")
+        var deletedAuthor = Self.review("DELETED", state: "APPROVED")
+        deletedAuthor["author"] = NSNull()
+        let cases: [(String, [[String: Any]], String?, ReviewDecision)] = [
+            ("approval, review required", [approved], "REVIEW_REQUIRED", .reviewRequired),
+            ("approval, approved", [approved], "APPROVED", .approved),
+            ("no opinions, approved", [], "APPROVED", .approved),
+            ("approval, no decision", [approved], nil, .reviewRequired),
+            ("no approval, no decision", [], nil, .reviewRequired),
+            ("no approval, review required", [], "REVIEW_REQUIRED", .reviewRequired),
+            ("changes requested, review required", [changesRequested], "REVIEW_REQUIRED", .changesRequested),
+            ("changes requested, approved", [changesRequested], "APPROVED", .changesRequested),
+            ("dismissed approval, review required", [dismissed], "REVIEW_REQUIRED", .reviewRequired),
+            ("incomplete data, review required", [approved, deletedAuthor], "REVIEW_REQUIRED", .unknown),
+            ("incomplete data, approved", [approved, deletedAuthor], "APPROVED", .unknown),
+        ]
+
+        for (name, reviews, gitHubDecision, expected) in cases {
+            let initial = Self.pullRequest(
+                opinionated: Self.connection(total: reviews.count, nodes: reviews),
+                reviewDecision: gitHubDecision
+            )
+            let transport = HydrationTransport { _, _ in
+                Self.json(["data": ["nodes": [initial]]])
+            }
+
+            let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+
+            XCTAssertEqual(hydrated[0].pullRequest.reviewDecision, expected, name)
         }
     }
 
@@ -865,7 +971,8 @@ final class GitHubPaginationTests: XCTestCase {
                 comments: Self.connection(total: 1, nodes: [comment]),
                 reviews: Self.connection(total: 3, nodes: reviews),
                 opinionated: Self.connection(total: 1, nodes: [reviews[0]]),
-                threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [comment])])
+                threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [comment])]),
+                reviewDecision: "APPROVED"
             )
             let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
             let pr = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
@@ -899,7 +1006,8 @@ final class GitHubPaginationTests: XCTestCase {
             comments: Self.connection(total: 2, nodes: [Self.comment("C_NEW")], previous: "comments-before"),
             reviews: Self.connection(total: 2, nodes: [Self.review("R_NEW", state: "COMMENTED")], previous: "reviews-before"),
             opinionated: Self.connection(total: 2, nodes: [Self.leanReview("O_NEW")], previous: "opinions-before"),
-            threads: Self.connection(total: 2, nodes: [oldThread], previous: "threads-before")
+            threads: Self.connection(total: 2, nodes: [oldThread], previous: "threads-before"),
+            reviewDecision: "APPROVED"
         )
         let transport = HydrationTransport { query, _ in
             if query.contains("CompletePullRequests") {
@@ -996,7 +1104,8 @@ final class GitHubPaginationTests: XCTestCase {
                 review("APPROVAL", state: "APPROVED", html: mention, text: "@RW please look"),
                 review("CHANGES", state: "CHANGES_REQUESTED", html: "<p>Fix it</p>", text: "Fix it"),
             ]),
-            opinionated: Self.connection(total: 1, nodes: [Self.leanReview("APPROVAL")])
+            opinionated: Self.connection(total: 1, nodes: [Self.leanReview("APPROVAL")]),
+            reviewDecision: "APPROVED"
         )
         let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
 
@@ -1132,9 +1241,10 @@ final class GitHubPaginationTests: XCTestCase {
         opinionated: [String: Any] = connection(total: 0, nodes: []),
         threads: [String: Any] = connection(total: 0, nodes: []),
         assignees: [String: Any] = connection(total: 0, nodes: []),
-        requests: [String: Any] = connection(total: 0, nodes: [])
+        requests: [String: Any] = connection(total: 0, nodes: []),
+        reviewDecision: String? = nil
     ) -> [String: Any] {
-        [
+        var result: [String: Any] = [
             "id": id, "title": "Complete hydration", "number": 1,
             "url": "https://github.com/acme/app/pull/1", "state": "OPEN",
             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z",
@@ -1145,6 +1255,10 @@ final class GitHubPaginationTests: XCTestCase {
             "comments": comments, "reviews": reviews, "latestOpinionatedReviews": opinionated,
             "reviewThreads": threads, "assignees": assignees, "reviewRequests": requests
         ]
+        if let reviewDecision {
+            result["reviewDecision"] = reviewDecision
+        }
+        return result
     }
 
     private static func connection(
@@ -1233,14 +1347,16 @@ final class GitHubPaginationTests: XCTestCase {
     private static func request(
         _ id: String,
         typeName: String = "User",
-        login: String = "rw"
+        login: String = "rw",
+        teamSlug: String = "developers",
+        teamOrganization: String = "acme"
     ) -> [String: Any] {
         if typeName == "Team" {
             return [
                 "id": id,
                 "requestedReviewer": [
-                    "__typename": "Team", "id": "TEAM_\(id)", "slug": "developers",
-                    "organization": ["login": "acme"]
+                    "__typename": "Team", "id": "TEAM_\(id)", "slug": teamSlug,
+                    "organization": ["login": teamOrganization]
                 ]
             ]
         }

@@ -150,7 +150,7 @@ final class MenuViewTests: XCTestCase {
 
     func testIndependentStatusDescriptionsAndMixedSignals() {
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).label, "Review approved")
-        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label, "No review yet")
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired).label, "Review required")
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .unknown).label, "Review status unknown")
         XCTAssertEqual(CIStatusIndicator.Kind(ciState: .failing).label, "CI failing")
         XCTAssertEqual(CIStatusIndicator.Kind(ciState: .pending).label, "CI pending (waiting or running)")
@@ -162,7 +162,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertTrue(MergeConflictIndicator.Kind(mergeable: .mergeable).label.contains("other requirements"))
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .approved).signal, .positive)
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .changesRequested).signal, .negative)
-        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).signal, .unavailable)
+        XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired).signal, .unavailable)
         XCTAssertEqual(ReviewDecisionIndicator.Kind(reviewDecision: .unknown).signal, .unavailable)
         XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .mergeable).signal, .positive)
         XCTAssertEqual(MergeConflictIndicator.Kind(mergeable: .conflicting).signal, .negative)
@@ -177,11 +177,11 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(blocked.1, "CI failing")
         XCTAssertEqual(blocked.2, "Merge conflicts")
         let clear = (
-            ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet).label,
+            ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired).label,
             CIStatusIndicator.Kind(ciState: .passing).label,
             MergeConflictIndicator.Kind(mergeable: .mergeable).label
         )
-        XCTAssertEqual(clear.0, "No review yet")
+        XCTAssertEqual(clear.0, "Review required")
         XCTAssertEqual(clear.1, "CI successful")
         XCTAssertTrue(clear.2.contains("No merge conflicts"))
     }
@@ -271,20 +271,44 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testNoReviewFilterKeepsSavedTagAndExcludesUnknown() {
-        XCTAssertEqual(ReviewDecision.noReviewYet.rawValue, "review_required")
-        XCTAssertEqual(DashboardController.PullRequestFilterOption.noReviewYet.rawValue, "reviewRequired")
-        XCTAssertEqual(DashboardController.PullRequestFilterOption.noReviewYet.label, "No review yet")
-        let unknown = PullRequest(
-            id: "unknown", title: "Unknown feedback", number: 1,
-            url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
-            ciState: .unknown, reviewDecision: .unknown, commentCount: 0,
-            reviewCount: 0, isMine: true, author: "rw", mergeable: .unknown,
-            draft: false
+    func testReviewRequiredFilterKeepsSavedTagAndMatchesOnlyItsState() throws {
+        XCTAssertEqual(ReviewDecision.reviewRequired.rawValue, "review_required")
+        XCTAssertEqual(try JSONEncoder().encode([ReviewDecision.reviewRequired]), Data(#"["review_required"]"#.utf8))
+        XCTAssertEqual(
+            try JSONDecoder().decode([ReviewDecision].self, from: Data(#"["review_required"]"#.utf8)),
+            [.reviewRequired]
         )
-        XCTAssertTrue(DashboardController.filtered([unknown], by: [.noReviewYet], events: []).isEmpty)
-        XCTAssertTrue(DashboardController.filtered([unknown], by: [.approved], events: []).isEmpty)
-        XCTAssertEqual(DashboardController.filtered([unknown], by: [.ready], events: []).map(\.id), ["unknown"])
+        XCTAssertEqual(DashboardController.PullRequestFilterOption.reviewRequired.rawValue, "reviewRequired")
+        XCTAssertEqual(DashboardController.PullRequestFilterOption.reviewRequired.label, "Review required")
+
+        func pullRequest(_ id: String, _ decision: ReviewDecision, reviewCount: Int) -> PullRequest {
+            PullRequest(
+                id: id, title: id, number: 1,
+                url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
+                ciState: .unknown, reviewDecision: decision, commentCount: 0,
+                reviewCount: reviewCount, isMine: true, author: "rw", mergeable: .unknown,
+                draft: false
+            )
+        }
+        let pullRequests = [
+            pullRequest("approved", .approved, reviewCount: 1),
+            pullRequest("required-reviewed", .reviewRequired, reviewCount: 2),
+            pullRequest("required-unreviewed", .reviewRequired, reviewCount: 0),
+            pullRequest("changes", .changesRequested, reviewCount: 1),
+            pullRequest("unknown", .unknown, reviewCount: 0),
+        ]
+        XCTAssertEqual(
+            DashboardController.filtered(pullRequests, by: [.approved], events: []).map(\.id),
+            ["approved"]
+        )
+        XCTAssertEqual(
+            Set(DashboardController.filtered(pullRequests, by: [.reviewRequired], events: []).map(\.id)),
+            ["required-reviewed", "required-unreviewed"]
+        )
+        XCTAssertEqual(
+            DashboardController.filtered([pullRequests[4]], by: [.ready], events: []).map(\.id),
+            ["unknown"]
+        )
     }
 
     func testPullRequestListEmptyCopy() {
@@ -344,7 +368,7 @@ final class MenuViewTests: XCTestCase {
     // MER-58 regression: during NSMenu tracking, key equivalents are matched against the open
     // menu's native items first and then the app's main menu — the hosted view hierarchy is never
     // consulted. Hidden native trap items are required so ⌘, and ⌘Q do not fall through to the
-    // SwiftUI Settings scene's auto-generated main-menu items.
+    // native main-menu items.
     @MainActor
     func testStatusMenuAddsHiddenKeyEquivalentTrapItems() {
         let controller = DashboardController(
@@ -368,9 +392,9 @@ final class MenuViewTests: XCTestCase {
         XCTAssertTrue(quitTrapItem.isHidden)
         XCTAssertTrue(quitTrapItem.allowsKeyEquivalentWhenHidden)
 
-        var settingsSelections: [SettingsTab] = []
-        controller.openSettingsWindow = { selection in
-            settingsSelections.append(selection)
+        var keyboardSettingsCount = 0
+        controller.openSettingsWindowPreservingSelection = {
+            keyboardSettingsCount += 1
         }
         var quitInvocationCount = 0
         statusBarController.setQuitActionForTesting {
@@ -378,7 +402,7 @@ final class MenuViewTests: XCTestCase {
         }
 
         _ = settingsTrapItem.target?.perform(settingsTrapItem.action, with: settingsTrapItem)
-        XCTAssertEqual(settingsSelections, [.general])
+        XCTAssertEqual(keyboardSettingsCount, 1)
         _ = quitTrapItem.target?.perform(quitTrapItem.action, with: quitTrapItem)
         XCTAssertEqual(quitInvocationCount, 1)
     }
@@ -399,9 +423,9 @@ final class MenuViewTests: XCTestCase {
         XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: "r", modifiers: [])))
         XCTAssertEqual(statusBarController.refreshFlashCountForTesting(), 1)
 
-        var settingsSelections: [SettingsTab] = []
-        controller.openSettingsWindow = { selection in
-            settingsSelections.append(selection)
+        var keyboardSettingsCount = 0
+        controller.openSettingsWindowPreservingSelection = {
+            keyboardSettingsCount += 1
         }
         var quitInvocationCount = 0
         statusBarController.setQuitActionForTesting {
@@ -409,10 +433,10 @@ final class MenuViewTests: XCTestCase {
         }
         XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: ",", modifiers: [])))
         XCTAssertFalse(hostedView.performKeyEquivalent(with: keyEvent(characters: "q", modifiers: [])))
-        XCTAssertEqual(settingsSelections, [])
+        XCTAssertEqual(keyboardSettingsCount, 0)
         XCTAssertEqual(quitInvocationCount, 0)
         XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: ",", modifiers: .command)))
-        XCTAssertEqual(settingsSelections, [.general])
+        XCTAssertEqual(keyboardSettingsCount, 1)
         XCTAssertTrue(hostedView.performKeyEquivalent(with: keyEvent(characters: "q", modifiers: .command)))
         XCTAssertEqual(quitInvocationCount, 1)
     }
@@ -492,7 +516,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .ciFailed), "xmark.octagon")
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .changesRequested), "exclamationmark.triangle")
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .relationshipAdded), "person.badge.plus")
-        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .otherCommitAdded), "arrow.trianglehead.branch")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .readyForReview), "eye")
     }
 
     func testNotificationIconColorsMatchUpdateTypes() {
@@ -503,7 +527,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .reviewCommented), .blue)
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .newReview), .blue)
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .relationshipAdded), .purple)
-        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .otherCommitAdded), .orange)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .readyForReview), .orange)
     }
 }
 
@@ -524,7 +548,7 @@ final class MenuViewTests: XCTestCase {
 
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .approved) == .approved)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .changesRequested) == .changesRequested)
-    precondition(ReviewDecisionIndicator.Kind(reviewDecision: .noReviewYet) == .noReviewYet)
+    precondition(ReviewDecisionIndicator.Kind(reviewDecision: .reviewRequired) == .reviewRequired)
     precondition(ReviewDecisionIndicator.Kind(reviewDecision: .unknown) == .unknown)
 
     let prURL = URL(string: "https://github.com/acme/mergehawk/pull/12")!
@@ -584,29 +608,6 @@ final class MenuViewTests: XCTestCase {
         count: 3,
         isExpanded: true
     ) == "Hidden (3), expanded")
-    let otherCommitNotificationPullRequest = PullRequest(
-        id: "other-commit",
-        title: "Other commit notification",
-        number: 13,
-        url: URL(string: "https://github.com/acme/mergehawk/pull/13")!,
-        repo: "acme/mergehawk",
-        ciState: .passing,
-        reviewDecision: .noReviewYet,
-        commentCount: 0,
-        reviewCount: 0,
-        isMine: true,
-        author: "rw",
-        mergeable: .mergeable,
-        draft: false
-    )
-    precondition(PullRequestNotificationTitlePresentation.title(for: PullRequestNotification(
-        event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 1, actorLogin: "frontend-sam"),
-        pullRequest: otherCommitNotificationPullRequest
-    )) == "New commit by @frontend-sam")
-    precondition(PullRequestNotificationTitlePresentation.title(for: PullRequestNotification(
-        event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 2),
-        pullRequest: otherCommitNotificationPullRequest
-    )) == "2 commits by others")
     precondition(PullRequestPinPresentation.symbolName(isPinned: false) == "pin")
     precondition(PullRequestPinPresentation.symbolName(isPinned: true) == "pin.fill")
     precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin")
@@ -640,8 +641,7 @@ final class MenuViewTests: XCTestCase {
     precondition(statusMenuItems.count == 3)
     precondition(statusMenuItems[0].view != nil)
     // Hidden native key-equivalent trap items: during NSMenu tracking only native items of the
-    // open menu outrank the app's main menu, so these keep ⌘, and ⌘Q from reaching the SwiftUI
-    // Settings scene's auto-generated main-menu items (MER-58 regression).
+    // open menu outrank the app's native main menu, so these dismiss tracking before Settings or Quit (MER-58 regression).
     precondition(statusMenuItems[1].title == "Settings")
     precondition(statusMenuItems[1].keyEquivalent == ",")
     precondition(statusMenuItems[1].isHidden)
@@ -841,7 +841,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/3")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         isMine: true,
@@ -864,7 +864,7 @@ final class MenuViewTests: XCTestCase {
     precondition(DashboardController.filtered([older, newer, draft], by: [.draft], events: [event]).map(\.id) == ["draft"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ready], events: [event]).map(\.id) == ["older", "newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested], events: [event]).map(\.id) == ["newer"])
-    precondition(DashboardController.filtered([older, newer, draft], by: [.noReviewYet], events: [event]).map(\.id) == ["draft"])
+    precondition(DashboardController.filtered([older, newer, draft], by: [.reviewRequired], events: [event]).map(\.id) == ["draft"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.approved], events: [event]).map(\.id) == ["older"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ciFailing], events: [event]).map(\.id) == ["newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested, .draft], events: [event]).map(\.id) == ["newer", "draft"])
@@ -883,7 +883,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/4")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .direct,
@@ -899,7 +899,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/5")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .team,
@@ -915,7 +915,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/6")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .directAndTeam,
@@ -947,7 +947,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/8")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         isAssignedToViewer: true,
@@ -963,7 +963,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/9")!,
         repo: "acme/mergehawk",
         ciState: .pending,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         isAssignedToViewer: true,
@@ -979,7 +979,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/10")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .direct,
@@ -996,7 +996,7 @@ final class MenuViewTests: XCTestCase {
         url: URL(string: "https://github.com/acme/mergehawk/pull/11")!,
         repo: "acme/mergehawk",
         ciState: .passing,
-        reviewDecision: .noReviewYet,
+        reviewDecision: .reviewRequired,
         commentCount: 0,
         reviewCount: 0,
         reviewRequestKind: .directAndTeam,

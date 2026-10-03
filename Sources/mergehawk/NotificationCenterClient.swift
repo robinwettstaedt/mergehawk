@@ -67,8 +67,8 @@ enum NotificationContentBuilder {
             actorText(for: event).map { "Changes requested by \($0)" } ?? "Changes requested"
         case .relationshipAdded:
             RelationshipChangeTitlePresentation.title(for: event.relationshipChanges)
-        case .otherCommitAdded:
-            otherCommitTitle(for: event)
+        case .readyForReview:
+            "Ready for review"
         }
     }
 
@@ -86,16 +86,6 @@ enum NotificationContentBuilder {
 
     private static func actorText(for event: PullRequestEvent) -> String? {
         event.actorLogin.map { "@\($0)" }
-    }
-
-    private static func otherCommitTitle(for event: PullRequestEvent) -> String {
-        if let actor = actorText(for: event) {
-            return "New commit by \(actor)"
-        }
-        if let count = event.count, count > 1 {
-            return "\(count) commits by others"
-        }
-        return "New commit by someone else"
     }
 
     private static func actorSummary(for events: [PullRequestEvent]) -> String? {

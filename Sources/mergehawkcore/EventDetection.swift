@@ -3,9 +3,13 @@ import Foundation
 public enum PRActivityDetector {
     /// Compares an active PR with its snapshot from the previous trusted refresh. The caller skips this on the
     /// baseline sync. A nil `previous` means the PR is first seen after the baseline: its current relationships
-    /// count as newly added, while its CI state stays baselined.
+    /// count as newly added, while its draft and CI states stay baselined. A tracked PR the viewer did not author
+    /// that changes from draft to ready gets a Ready for review update, timestamped by the refresh that observed it.
     public static func detectTransitions(previous: PullRequest?, current: PullRequest) -> [PullRequestEvent] {
         var events = relationshipAddedEvents(previous: previous, current: current)
+        if let previous, previous.draft, !current.draft, !current.isMine {
+            events.append(PullRequestEvent(type: .readyForReview, prId: current.id))
+        }
         if let previous, previous.ciState != .failing, current.ciState == .failing {
             events.append(PullRequestEvent(type: .ciFailed, prId: current.id))
         }
