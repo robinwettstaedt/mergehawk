@@ -103,6 +103,7 @@ struct SettingsRootView: View {
         case .sources:
             SourcesSettingsView(
                 controller: controller,
+                selection: $settingsWindowState.selection,
                 initialSearchState: initialSourcesSearchState
             )
         case .teams:
@@ -1049,21 +1050,21 @@ private struct SourcesSettingsView: View {
     private static let hideArchivedRepositoriesHelp = "Hides PRs and notifications from repositories archived on GitHub."
 
     @ObservedObject var controller: DashboardController
+    @Binding var selection: SettingsTab
     @State private var sourceSearchState = ExpandableSearchState()
 
     init(
         controller: DashboardController,
+        selection: Binding<SettingsTab>,
         initialSearchState: ExpandableSearchState = ExpandableSearchState()
     ) {
         self.controller = controller
+        _selection = selection
         _sourceSearchState = State(initialValue: initialSearchState)
     }
 
     var body: some View {
-        let filteredCatalog = SourceCatalogSearch.filteredCatalog(
-            controller.sourceCatalog,
-            query: sourceSearchState.query
-        )
+        let isSignedIn = controller.state.authStatus == .signedIn
 
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
@@ -1083,65 +1084,18 @@ private struct SourcesSettingsView: View {
                         .accessibilityHint(Self.hideArchivedRepositoriesHelp)
                 }
                 Divider()
-                HStack(spacing: 8) {
-                    sourceCount(for: filteredCatalog)
-                    CountSearchControl(
-                        searchState: $sourceSearchState,
-                        countLabel: sourceCountLabel(for: filteredCatalog),
-                        placeholder: "Search sources",
-                        help: "Search sources",
-                        isAlwaysExpanded: true,
-                        showsInlineCount: false
-                    )
 
-                    Spacer(minLength: 0)
-                    RefreshStatusControl(
-                        indicatorColor: .secondary,
-                        isRefreshing: controller.isRefreshingSources,
-                        updatedAt: controller.sourceCatalogSyncedAt,
-                        action: controller.refreshSources,
-                        isRefreshEnabled: controller.state.authStatus == .signedIn,
-                        help: "Refresh sources",
-                        accessibilityLabel: "Refresh sources",
-                        keyboardShortcut: KeyboardShortcut("r", modifiers: .command),
-                        timestampPrefix: "",
-                        width: 58,
-                        displayMode: .horizontalButton(height: 24),
-                        showsIndicator: false
-                    )
-                }
-                .padding(.bottom, 6)
-
-                SourceHeaderRow()
-
-                if controller.showsGitHubAppRepositoryAccessPrompt {
-                    GitHubAppRepositoryAccessPrompt(controller: controller, minHeight: 360)
-                } else if controller.sourceCatalog.repositoryCount == 0 {
-                    Text(controller.state.authStatus == .signedIn ? "No sources found." : "Sign in to GitHub to manage sources.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else if filteredCatalog.repositoryCount == 0 {
-                    Text("No sources match \"\(sourceSearchState.trimmedQuery)\".")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                if isSignedIn {
+                    sourceList
                 } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(filteredCatalog.owners) { owner in
-                                OwnerSourceSettingsSection(
-                                    owner: owner,
-                                    controller: controller
-                                )
-                                Divider()
-                            }
+                    EmptyMenuState(
+                        text: SourceSettingsCopy.signedOutHeadline,
+                        systemImage: "tray.full",
+                        detail: SourceSettingsCopy.signedOutDetail,
+                        action: .init(title: OpenAuthSettingsLink.title) {
+                            selection = OpenAuthSettingsLink.destination
                         }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        sourceSearchState.blur()
-                    })
+                    )
                 }
 
                 if let error = controller.sourceErrorMessage {
@@ -1155,7 +1109,7 @@ private struct SourcesSettingsView: View {
             .padding(.horizontal, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            if !controller.showsGitHubAppRepositoryAccessPrompt {
+            if isSignedIn && !controller.showsGitHubAppRepositoryAccessPrompt {
                 GitHubAppInstallationButton(controller: controller)
                     .padding(.horizontal, 20)
                     .padding(.top, 48)
@@ -1165,6 +1119,76 @@ private struct SourcesSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             controller.refreshSourcesIfNeeded()
+        }
+    }
+
+    /// The search and refresh row, column headers, and the source list or repository access prompt.
+    @ViewBuilder
+    private var sourceList: some View {
+        let filteredCatalog = SourceCatalogSearch.filteredCatalog(
+            controller.sourceCatalog,
+            query: sourceSearchState.query
+        )
+
+        HStack(spacing: 8) {
+            sourceCount(for: filteredCatalog)
+            CountSearchControl(
+                searchState: $sourceSearchState,
+                countLabel: sourceCountLabel(for: filteredCatalog),
+                placeholder: "Search sources",
+                help: "Search sources",
+                isAlwaysExpanded: true,
+                showsInlineCount: false
+            )
+
+            Spacer(minLength: 0)
+            RefreshStatusControl(
+                indicatorColor: .secondary,
+                isRefreshing: controller.isRefreshingSources,
+                updatedAt: controller.sourceCatalogSyncedAt,
+                action: controller.refreshSources,
+                isRefreshEnabled: true,
+                help: "Refresh sources",
+                accessibilityLabel: "Refresh sources",
+                keyboardShortcut: KeyboardShortcut("r", modifiers: .command),
+                timestampPrefix: "",
+                width: 58,
+                displayMode: .horizontalButton(height: 24),
+                showsIndicator: false
+            )
+        }
+        .padding(.bottom, 6)
+
+        SourceHeaderRow()
+
+        if controller.showsGitHubAppRepositoryAccessPrompt {
+            GitHubAppRepositoryAccessPrompt(controller: controller, minHeight: 360)
+        } else if controller.sourceCatalog.repositoryCount == 0 {
+            Text("No sources found.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        } else if filteredCatalog.repositoryCount == 0 {
+            Text("No sources match \"\(sourceSearchState.trimmedQuery)\".")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(filteredCatalog.owners) { owner in
+                        OwnerSourceSettingsSection(
+                            owner: owner,
+                            controller: controller
+                        )
+                        Divider()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .simultaneousGesture(TapGesture().onEnded {
+                sourceSearchState.blur()
+            })
         }
     }
 
@@ -1419,6 +1443,8 @@ private enum SourceSettingsLayout {
 enum SourceSettingsCopy {
     static let authoredTitle = "Authored"
     static let requestedTitle = "Requested"
+    static let signedOutHeadline = "Sign in to see your sources"
+    static let signedOutDetail = "Then choose which repositories MergeHawk watches."
 }
 
 private struct OwnerSourceSettingsSection: View {

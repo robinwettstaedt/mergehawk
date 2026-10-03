@@ -211,6 +211,14 @@ final class VisualVerificationXCTests: XCTestCase {
                 ),
                 to: outputURL.appendingPathComponent("settings-teams-signed-out.png")
             )
+            try renderSettings(
+                SettingsRootView(
+                    controller: signedOutController,
+                    settingsWindowState: SettingsWindowState(selection: .sources),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-sources-signed-out.png")
+            )
         }
 
         try await MainActor.run {
@@ -1662,6 +1670,7 @@ private struct VisualCaptureSelection {
         "menu-notifications-read",
         "settings-sources",
         "settings-sources-search-example",
+        "settings-sources-signed-out",
         "settings-teams",
         "settings-teams-empty",
         "settings-teams-signed-out",

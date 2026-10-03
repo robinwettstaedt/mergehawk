@@ -37,6 +37,13 @@ final class SettingsViewTests: XCTestCase {
         )
     }
 
+    func testSourcesSignedOutStateExplainsAndLinksToTheAuthPane() {
+        XCTAssertEqual(SourceSettingsCopy.signedOutHeadline, "Sign in to see your sources")
+        XCTAssertEqual(SourceSettingsCopy.signedOutDetail, "Then choose which repositories MergeHawk watches.")
+        XCTAssertEqual(OpenAuthSettingsLink.title, "Open Auth settings")
+        XCTAssertEqual(OpenAuthSettingsLink.destination, .github)
+    }
+
     func testSourceCatalogSearchReportsEmptyResultsAndCountsFilteredSources() {
         let catalog = makeCatalog()
         let missing = SourceCatalogSearch.filteredCatalog(catalog, query: "missing")
