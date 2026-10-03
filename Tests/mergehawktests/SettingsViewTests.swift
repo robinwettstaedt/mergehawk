@@ -3,6 +3,10 @@ import mergehawkcore
 import XCTest
 
 final class SettingsViewTests: XCTestCase {
+    func testMenuSizeNoteExplainsTheMenuMayBeReduced() {
+        XCTAssertEqual(GeneralMenuSizeCopy.reductionNote, "The menu may be reduced to fit smaller displays.")
+    }
+
     func testSourceCatalogSearchTrimsAndMatchesOwnerRepositoryOrCombinedName() {
         let catalog = makeCatalog()
 

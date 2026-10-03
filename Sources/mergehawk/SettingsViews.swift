@@ -241,6 +241,9 @@ private struct GeneralSettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            Text(GeneralMenuSizeCopy.reductionNote)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if softwareUpdateController.isAvailable {
                 HStack {
@@ -289,6 +292,10 @@ private struct GeneralSettingsView: View {
             .frame(height: 64)
         }
     }
+}
+
+enum GeneralMenuSizeCopy {
+    static let reductionNote = "The menu may be reduced to fit smaller displays."
 }
 
 enum GeneralUpdateCopy {
