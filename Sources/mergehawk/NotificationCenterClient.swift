@@ -67,6 +67,8 @@ enum NotificationContentBuilder {
             actorText(for: event).map { "Changes requested by \($0)" } ?? "Changes requested"
         case .relationshipAdded:
             RelationshipChangeTitlePresentation.title(for: event.relationshipChanges)
+        case .readyForReview:
+            "Ready for review"
         }
     }
 

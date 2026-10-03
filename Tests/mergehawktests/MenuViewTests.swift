@@ -475,6 +475,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .ciFailed), "xmark.octagon")
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .changesRequested), "exclamationmark.triangle")
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .relationshipAdded), "person.badge.plus")
+        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .readyForReview), "eye")
     }
 
     func testNotificationIconColorsMatchUpdateTypes() {
@@ -485,6 +486,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .reviewCommented), .blue)
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .newReview), .blue)
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .relationshipAdded), .purple)
+        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .readyForReview), .orange)
     }
 }
 

@@ -42,10 +42,13 @@ final class SettingsViewTests: XCTestCase {
     }
 
     func testNotificationTablesUseTheAgreedRowsColumnsAndFitTheSettingsWindow() {
-        XCTAssertEqual(PullRequestNotificationActivity.allCases, [.reviewActivity, .ciFailures, .relationshipChanges])
+        XCTAssertEqual(
+            PullRequestNotificationActivity.allCases,
+            [.reviewActivity, .ciFailures, .relationshipChanges, .readyForReview]
+        )
         XCTAssertEqual(
             PullRequestNotificationActivity.allCases.map(\.rowTitle),
-            ["Review decisions", "CI failed", "New assignment or review request"]
+            ["Review decisions", "CI failed", "New assignment or review request", "Ready for review"]
         )
         XCTAssertEqual(CommentNotificationMode.allCases.map(\.title), ["All comments", "Mentions & threads you joined", "Off"])
         XCTAssertEqual(
@@ -65,7 +68,7 @@ final class SettingsViewTests: XCTestCase {
             for activity in PullRequestNotificationActivity.allCases {
                 XCTAssertEqual(
                     NotificationMatrixLayout.showsToggle(relationship: relationship, activity: activity),
-                    !(relationship == .authored && activity == .relationshipChanges),
+                    !(relationship == .authored && [.relationshipChanges, .readyForReview].contains(activity)),
                     "\(relationship) \(activity)"
                 )
             }
@@ -87,6 +90,7 @@ final class SettingsViewTests: XCTestCase {
                 "Direct review requests review decisions",
                 "Direct review requests CI failures",
                 "Direct review requests new assignment or review request",
+                "Direct review requests ready for review",
             ]
         )
         XCTAssertEqual(

@@ -780,6 +780,8 @@ struct NotificationSettingsView: View {
                     activityPreferences.ciFailures = isEnabled
                 case .relationshipChanges:
                     activityPreferences.relationshipChanges = isEnabled
+                case .readyForReview:
+                    activityPreferences.readyForReview = isEnabled
                 }
                 preferences.set(activityPreferences, for: relationship)
                 controller.preferences = preferences
@@ -898,13 +900,13 @@ enum NotificationMatrixLayout {
         return labelColumnWidth + columnCount * (relationshipColumnWidth + columnSpacing)
     }
 
-    /// Authored PRs have no New assignment or review request cell.
+    /// Authored PRs have no New assignment or review request or Ready for review cell.
     static func showsToggle(
         relationship: PullRequestNotificationRelationship,
         activity: PullRequestNotificationActivity
     ) -> Bool {
         switch activity {
-        case .relationshipChanges:
+        case .relationshipChanges, .readyForReview:
             relationship != .authored
         case .reviewActivity, .ciFailures:
             true
@@ -995,6 +997,8 @@ extension PullRequestNotificationActivity {
             "CI failed"
         case .relationshipChanges:
             "New assignment or review request"
+        case .readyForReview:
+            "Ready for review"
         }
     }
 
@@ -1006,6 +1010,8 @@ extension PullRequestNotificationActivity {
             "CI failures"
         case .relationshipChanges:
             "new assignment or review request"
+        case .readyForReview:
+            "ready for review"
         }
     }
 }

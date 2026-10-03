@@ -892,6 +892,23 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertEqual(records[2].relationshipChanges, ["assigned", "team_review_request"])
     }
 
+    func testReadyForReviewTitleAppearsInNotificationContentAndHistory() {
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        let event = PullRequestEvent(type: .readyForReview, prId: "PR_1")
+
+        XCTAssertEqual(
+            NotificationContentBuilder.records(events: [event], pullRequests: [pullRequest]).map(\.title),
+            ["Ready for review"]
+        )
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event]), "Ready for review")
+        XCTAssertEqual(
+            PullRequestNotificationTitlePresentation.title(
+                for: PullRequestNotification(event: event, pullRequest: pullRequest)
+            ),
+            "Ready for review"
+        )
+    }
+
     func testRecordingNotificationClientWritesJsonLines() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mergehawk-notifications-\(UUID().uuidString)")

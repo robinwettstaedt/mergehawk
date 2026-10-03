@@ -22,6 +22,7 @@ struct Runner {
         try testNotificationPreferencesAllowEachRelationshipAndActivity()
         try testNotificationPreferencesSeparateDecisionsFromComments()
         try testNotificationPreferencesAllowOverlappingRelationshipOnce()
+        try testReadyForReviewDefaultsAndAnyRelationshipAllows()
         try testSourcePreferencesResolveOwnerAndRepositoryOverrides()
         try await testPreparedRefreshUsesDurableProcessedActivity()
         try testInMemoryTokenStoreHandlesMissingStoreLoadAndClear()
@@ -704,6 +705,35 @@ struct Runner {
         try expect(!preferences.allows(event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id), for: pullRequest))
     }
 
+    private static func testReadyForReviewDefaultsAndAnyRelationshipAllows() throws {
+        let defaults = NotificationPreferences.defaults
+        try expect(!defaults.authored.readyForReview)
+        try expect(defaults.assigned.readyForReview)
+        try expect(defaults.directReviewRequests.readyForReview)
+        try expect(defaults.teamReviewRequests.readyForReview)
+
+        let pullRequest = PullRequest.fixture(
+            id: "PR_READY_OVERLAP",
+            reviewRequestKind: .directAndTeam,
+            isAssignedToViewer: true,
+            isMine: false
+        )
+        let event = PullRequestEvent(type: .readyForReview, prId: pullRequest.id)
+        let allOff = NotificationPreferences(
+            authored: .enabled,
+            assigned: .disabled,
+            directReviewRequests: .disabled,
+            teamReviewRequests: .disabled
+        )
+        try expect(!allOff.allows(event: event, for: pullRequest))
+
+        for relationship in [PullRequestNotificationRelationship.assigned, .directReviewRequest, .teamReviewRequest] {
+            var preferences = allOff
+            preferences.set(activityPreferences(enabling: .readyForReview), for: relationship)
+            try expect(preferences.allows(event: event, for: pullRequest))
+        }
+    }
+
     private static func testNotificationPreferencesAllowOverlappingRelationshipOnce() throws {
         let preferences = NotificationPreferences(
             authored: .disabled,
@@ -826,7 +856,8 @@ struct Runner {
         PullRequestNotificationActivityPreferences(
             reviewActivity: activity == .reviewActivity,
             ciFailures: activity == .ciFailures,
-            relationshipChanges: activity == .relationshipChanges
+            relationshipChanges: activity == .relationshipChanges,
+            readyForReview: activity == .readyForReview
         )
     }
 
@@ -838,6 +869,8 @@ struct Runner {
             .ciFailed
         case .relationshipChanges:
             .relationshipAdded
+        case .readyForReview:
+            .readyForReview
         }
     }
 
