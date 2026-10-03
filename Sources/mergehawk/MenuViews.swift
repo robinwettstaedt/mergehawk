@@ -599,6 +599,8 @@ enum MenuPanelSize {
     }
 
     /// The widest panel that macOS shows unclipped and that keeps the margins on the usable screen.
+    /// The 60% share is applied to the usable width (visible frame) on purpose, not the full screen width:
+    /// with a side Dock it is narrower, so the panel can only end up slightly narrower than needed, never clipped.
     static func widthBudget(for availableFrame: CGRect) -> CGFloat {
         max(0, min((availableFrame.width * menuWidthShare).rounded(.down), availableFrame.width - margin * 2))
     }
