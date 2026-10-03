@@ -31,7 +31,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-nested-teams"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -966,7 +966,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 outputURL: outputURL
             )
 
-            // The standard mock's teams span two organizations, so the tab draws a second header and a divider.
+            // The standard mock's teams span two organizations, so the tab draws a second organization section.
             XCTAssertEqual(
                 Set(controller.reviewTeamRows.map(\.team.organization)),
                 ["billing-platform-experiments", "mergehawk-labs"]
@@ -998,6 +998,58 @@ final class VisualVerificationXCTests: XCTestCase {
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
                 to: outputURL.appendingPathComponent("settings-teams.png")
+            )
+        }
+
+        // Two organizations: a parent with three children (one with its own child, one with a long slug, one
+        // turned off), then an organization with a long name and enough teams to scroll past the window.
+        let nestedTeamsSuite = "\(suiteName)-nested-teams"
+        let nestedTeams = Self.nestedSiblingViewerTeams()
+        let nestedTeamsCatalog = SourceCatalog(repositories: [], accountLogin: "rw")
+        let nestedTeamsProvider = VisualGitHubProvider(
+            sourceCatalog: nestedTeamsCatalog,
+            installations: GitHubAppInstallations(installations: []),
+            viewerTeams: nestedTeams
+        )
+        let nestedTeamsController = try await MainActor.run { () throws -> DashboardController in
+            let store = try Self.seededVisualStore(
+                defaults: UserDefaults(suiteName: nestedTeamsSuite)!,
+                pullRequests: [],
+                catalog: nestedTeamsCatalog,
+                notificationHistory: []
+            )
+            return DashboardController(
+                tokenStore: InMemoryTokenStore(token: "visual-fixture"),
+                preferencesStore: store,
+                launchAtLoginService: InMemoryLaunchAtLoginService(),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                patGitHubClientFactory: { _ in nestedTeamsProvider },
+                now: Self.visualClock
+            )
+        }
+        try await waitUntil(context: "nested-teams fixture startup refresh") {
+            await MainActor.run {
+                (nestedTeamsController.state.syncedAt ?? .distantPast) > Date(timeIntervalSince1970: 10)
+                    && !nestedTeamsController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            nestedTeamsController.setReviewTeam("T_ACME_WEB", counting: false)
+            let acmeRows = nestedTeamsController.reviewTeamRows.filter { $0.team.organization == "acme" }
+            XCTAssertEqual(acmeRows.map(\.team.slug), [
+                "platform", "api", "api-gateway", Self.longNestedTeamSlug, "web",
+            ])
+            // Siblings share one depth; the grandchild sits one deeper.
+            XCTAssertEqual(acmeRows.map(\.depth), [0, 1, 2, 1, 1])
+            XCTAssertEqual(acmeRows.map(\.isCounting), [true, true, true, true, false])
+            try renderSettings(
+                SettingsRootView(
+                    controller: nestedTeamsController,
+                    settingsWindowState: SettingsWindowState(selection: .teams),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-teams-nested-siblings.png")
             )
         }
 
@@ -1080,6 +1132,29 @@ final class VisualVerificationXCTests: XCTestCase {
             notificationHistory: notificationHistory
         ))
         return store
+    }
+
+    fileprivate static let longNestedTeamSlug = "infrastructure-reliability-and-observability-guild-for-production-services"
+    fileprivate static let longNestedTeamOrganization =
+        "northwind-traders-international-platform-engineering-and-developer-experience"
+
+    private static func nestedSiblingViewerTeams() -> [ViewerTeam] {
+        func team(_ id: String, _ organization: String, _ slug: String, parent: String? = nil) -> ViewerTeam {
+            ViewerTeam(team: TeamReference(id: id, organization: organization, slug: slug), parentTeamID: parent)
+        }
+        let northwind = longNestedTeamOrganization
+        let northwindTeams = [
+            "analytics", "billing", "checkout", "data-platform", "design-systems", "developer-tools",
+            "identity", "mobile", "observability", "payments", "release-engineering", "search",
+            "security", "storefront",
+        ].map { team("T_NORTHWIND_\($0.uppercased())", northwind, $0) }
+        return [
+            team("T_ACME_PLATFORM", "acme", "platform"),
+            team("T_ACME_WEB", "acme", "web", parent: "T_ACME_PLATFORM"),
+            team("T_ACME_API", "acme", "api", parent: "T_ACME_PLATFORM"),
+            team("T_ACME_INFRA", "acme", longNestedTeamSlug, parent: "T_ACME_PLATFORM"),
+            team("T_ACME_API_GATEWAY", "acme", "api-gateway", parent: "T_ACME_API"),
+        ] + northwindTeams
     }
 
     @MainActor
@@ -1590,6 +1665,7 @@ private struct VisualCaptureSelection {
         "settings-teams",
         "settings-teams-empty",
         "settings-teams-signed-out",
+        "settings-teams-nested-siblings",
         "settings-teams-multi-org",
     ]
 
@@ -1770,11 +1846,18 @@ private final class VisualGitHubProvider: GitHubProviding {
     let sourceCatalog: SourceCatalog
     let installations: GitHubAppInstallations
     let pullRequests: [PullRequest]
+    let viewerTeams: [ViewerTeam]
 
-    init(sourceCatalog: SourceCatalog, installations: GitHubAppInstallations, pullRequests: [PullRequest] = []) {
+    init(
+        sourceCatalog: SourceCatalog,
+        installations: GitHubAppInstallations,
+        pullRequests: [PullRequest] = [],
+        viewerTeams: [ViewerTeam] = []
+    ) {
         self.sourceCatalog = sourceCatalog
         self.installations = installations
         self.pullRequests = pullRequests
+        self.viewerTeams = viewerTeams
     }
 
     func fetchViewer() async throws -> GitHubAccount {
@@ -1785,7 +1868,7 @@ private final class VisualGitHubProvider: GitHubProviding {
         login: String,
         previousState: PullRequestSyncState?
     ) async throws -> CompletePullRequestFetchResult {
-        CompletePullRequestFetchResult(activePullRequests: pullRequests)
+        CompletePullRequestFetchResult(activePullRequests: pullRequests, viewerTeams: viewerTeams)
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {

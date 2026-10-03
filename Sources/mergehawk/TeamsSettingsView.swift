@@ -20,7 +20,7 @@ enum ReviewTeamsSettingsPresentation {
     static let signedOutDetail = "Then choose which teams' review requests show up."
     static let noTeamsHeadline = "No teams found"
     static let noTeamsDetail = "Your GitHub teams appear here after the next successful refresh."
-    static let listLabel = "Show review requests from these teams:"
+    static let caption = "Show review requests sent to these teams. A PR still appears if it reaches you another way."
 
     /// Shows the last complete PR refresh's teams, grouped by organization in the controller's tree order.
     static func content(authStatus: AuthStatus, rows: [DashboardController.ReviewTeamRow]) -> Content {
@@ -40,11 +40,13 @@ enum ReviewTeamsSettingsPresentation {
     static func countLabel(for row: DashboardController.ReviewTeamRow) -> String {
         "\(row.pullRequestCount) \(row.pullRequestCount == 1 ? "PR" : "PRs")"
     }
+
+    static func countHelp(for row: DashboardController.ReviewTeamRow) -> String {
+        "PRs requesting \(row.team.displayName), including ones shown for another reason"
+    }
 }
 
 private enum ReviewTeamsSettingsLayout {
-    static let organizationRowHeight: CGFloat = 30
-    static let teamRowHeight: CGFloat = 26
     static let indentPerLevel: CGFloat = 20
 }
 
@@ -73,33 +75,39 @@ struct TeamsSettingsView: View {
                 detail: ReviewTeamsSettingsPresentation.noTeamsDetail
             )
         case .teams(let groups):
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    Text(ReviewTeamsSettingsPresentation.listLabel)
-                        .foregroundStyle(.secondary)
-                        .padding(.bottom, 6)
-                    ForEach(groups) { group in
-                        if group.id != groups.first?.id {
-                            Divider()
-                                .padding(.vertical, 6)
-                        }
-                        HStack(spacing: 6) {
-                            TeamSettingsAvatar(url: group.avatarURL, placeholderSystemImage: "building.2")
-                            Text(group.organization)
-                                .font(.callout.weight(.medium))
-                                .lineLimit(1)
-                        }
-                        .frame(height: ReviewTeamsSettingsLayout.organizationRowHeight)
+            Form {
+                ForEach(groups) { group in
+                    Section {
                         ForEach(group.rows) { row in
                             ReviewTeamSettingsRow(row: row, controller: controller)
                         }
+                    } header: {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // The caption heads the first section so it reads as plain text above the groups.
+                            if group.id == groups.first?.id {
+                                Text(ReviewTeamsSettingsPresentation.caption)
+                                    .font(.body)
+                                    .fontWeight(.regular)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            organizationHeader(group)
+                        }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .formStyle(.grouped)
         }
+    }
+
+    private func organizationHeader(_ group: ReviewTeamsSettingsPresentation.OrganizationGroup) -> some View {
+        HStack(spacing: 6) {
+            TeamSettingsAvatar(url: group.avatarURL, placeholderSystemImage: "building.2")
+            Text(group.organization)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .help(group.organization)
     }
 }
 
@@ -108,26 +116,40 @@ private struct ReviewTeamSettingsRow: View {
     @ObservedObject var controller: DashboardController
 
     var body: some View {
-        HStack(spacing: 6) {
-            Toggle(isOn: Binding {
-                row.isCounting
-            } set: { counting in
-                controller.setReviewTeam(row.team.id, counting: counting)
-            }) {
-                HStack(spacing: 6) {
-                    TeamSettingsAvatar(url: row.avatarURL, placeholderSystemImage: "person.3")
-                    Text(row.team.slug)
-                        .font(.callout)
-                        .lineLimit(1)
-                }
+        let indent = ReviewTeamsSettingsLayout.indentPerLevel
+        HStack(spacing: 0) {
+            if row.depth > 0 {
+                // The marker sits at the parent's inset, so every child of one parent lines up below it.
+                Text("└")
+                    .fontWeight(.light)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: indent, alignment: .leading)
+                    .padding(.leading, CGFloat(row.depth - 1) * indent)
+                    .accessibilityHidden(true)
             }
-            .toggleStyle(.checkbox)
-            .accessibilityLabel("Show review requests from \(row.team.displayName)")
-            CountBubble(text: ReviewTeamsSettingsPresentation.countLabel(for: row))
-            Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                TeamSettingsAvatar(url: row.avatarURL, placeholderSystemImage: "person.3")
+                    .opacity(row.isCounting ? 1 : 0.4)
+                Text(row.team.slug)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(row.isCounting ? .primary : .tertiary)
+                    .help(row.team.displayName)
+                Text("· \(ReviewTeamsSettingsPresentation.countLabel(for: row))")
+                    .foregroundStyle(row.isCounting ? .secondary : .tertiary)
+                    .fixedSize()
+                    .help(ReviewTeamsSettingsPresentation.countHelp(for: row))
+                Spacer(minLength: 8)
+                Toggle("Show review requests from \(row.team.displayName)", isOn: Binding {
+                    row.isCounting
+                } set: { counting in
+                    controller.setReviewTeam(row.team.id, counting: counting)
+                })
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .fixedSize()
+            }
         }
-        .padding(.leading, CGFloat(row.depth) * ReviewTeamsSettingsLayout.indentPerLevel)
-        .frame(height: ReviewTeamsSettingsLayout.teamRowHeight)
     }
 }
 

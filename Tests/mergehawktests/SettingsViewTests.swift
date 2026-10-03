@@ -329,7 +329,27 @@ final class SettingsViewTests: XCTestCase {
         guard case .teams(let builtGroups) = content else { return XCTFail("Expected team rows") }
         XCTAssertEqual(builtGroups.map(\.avatarURL), [nil, zetaAvatar])
         XCTAssertEqual(builtGroups[1].rows.map(\.avatarURL), [platformAvatar, nil])
-        XCTAssertEqual(ReviewTeamsSettingsPresentation.listLabel, "Show review requests from these teams:")
+    }
+
+    func testTeamsCaptionExplainsTheSwitchesWithoutSayingCount() {
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.caption,
+            "Show review requests sent to these teams. A PR still appears if it reaches you another way."
+        )
+        XCTAssertFalse(ReviewTeamsSettingsPresentation.caption.localizedCaseInsensitiveContains("count"))
+    }
+
+    func testTeamPullRequestNumberTooltipNamesTheFullTeam() {
+        let row = DashboardController.ReviewTeamRow(
+            team: TeamReference(id: "T", organization: "acme", slug: "reviewers"),
+            depth: 0,
+            isCounting: true,
+            pullRequestCount: 2
+        )
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.countHelp(for: row),
+            "PRs requesting @acme/reviewers, including ones shown for another reason"
+        )
     }
 
     @MainActor
