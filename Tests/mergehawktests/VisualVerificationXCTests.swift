@@ -679,6 +679,15 @@ final class VisualVerificationXCTests: XCTestCase {
                     initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id),
                     menuSize: size
                 )
+                for (frameName, frame) in MenuSizeCaptures.reducedStateFrames {
+                    try renderMenu(
+                        controller: controller,
+                        to: menuSizeURL(size, "actions-open-\(frameName)"),
+                        availableFrame: frame,
+                        initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id),
+                        menuSize: size
+                    )
+                }
             }
             let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.first?.visible.first)
             try renderHeaderTooltips(
@@ -695,7 +704,7 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-laptop.png"),
-                availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
+                availableFrame: MenuSizeCaptures.macBookPro14Frame.1
             )
             controller.selectedPullRequestFilters = [.changesRequested]
             controller.pullRequestSortOption = .changeSize
@@ -718,6 +727,15 @@ final class VisualVerificationXCTests: XCTestCase {
                         initialDropdown: dropdown,
                         menuSize: size
                     )
+                    for (frameName, frame) in MenuSizeCaptures.reducedStateFrames {
+                        try renderMenu(
+                            controller: controller,
+                            to: menuSizeURL(size, "\(stateName)-\(frameName)"),
+                            availableFrame: frame,
+                            initialDropdown: dropdown,
+                            menuSize: size
+                        )
+                    }
                 }
             }
             controller.selectedPullRequestFilters = []
@@ -780,7 +798,7 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-review-requests-laptop.png"),
-                availableFrame: CGRect(x: 0, y: 28, width: 1280, height: 740)
+                availableFrame: MenuSizeCaptures.macBookPro14Frame.1
             )
             controller.selectedReviewRequestFilters = [.ready]
             controller.reviewRequestSortOption = .updatedDate
@@ -1285,13 +1303,26 @@ private enum MenuSizeCaptures {
         ("authored", .myPRs),
         ("requested", .reviewRequests)
     ]
+    /// Real usable frames (NSScreen.visibleFrame, Dock hidden or at the bottom).
+    static let largerTextFrame: (String, CGRect) = ("1024x632", CGRect(x: 0, y: 0, width: 1024, height: 632))
+    static let macBookPro14Frame: (String, CGRect) = ("1512x949", CGRect(x: 0, y: 0, width: 1512, height: 949))
     static let frames: [(String, CGRect)] = [
-        ("1470x919", CGRect(x: 0, y: 0, width: 1470, height: 919)),
-        ("900x919", CGRect(x: 0, y: 0, width: 900, height: 919)),
-        ("760x600", CGRect(x: 0, y: 0, width: 760, height: 600))
+        // MacBook Pro 14" in the "Larger Text" display mode (1024 × 665 screen).
+        largerTextFrame,
+        // MacBook Air 13" M1 / MacBook Pro 13" default (1440 × 900 screen).
+        ("1440x876", CGRect(x: 0, y: 0, width: 1440, height: 876)),
+        // MacBook Pro 14" default (measured).
+        macBookPro14Frame,
+        // MacBook Pro 16" default (1728 × 1117 screen).
+        ("1728x1084", CGRect(x: 0, y: 0, width: 1728, height: 1084)),
+        // 4K external display at "looks like 2560 × 1440" (measured).
+        ("2560x1410", CGRect(x: 0, y: 0, width: 2560, height: 1410))
     ]
-    /// States are captured on the 13" MacBook Air usable frame.
-    static let stateFrame = CGRect(x: 0, y: 0, width: 1470, height: 919)
+    /// States are captured on the 2560 pt external display usable frame, where every size has its full size.
+    static let stateFrame = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    /// The dropdown and actions states are also captured where the menu is reduced to fit the width limit.
+    static let reducedStateFrames = [largerTextFrame, macBookPro14Frame]
+    static let reducedStates = ["filter-open", "sort-open", "actions-open"]
     static let states = [
         "filter-open",
         "sort-open",
@@ -1326,7 +1357,8 @@ private enum MenuSizeCaptures {
 
     static var allScenarios: Set<String> {
         let tabFrameNames = tabs.flatMap { tab in frames.map { frame in "\(tab.0)-\(frame.0)" } }
-        let menuNames = tabFrameNames + states + fragments
+        let reducedStateNames = reducedStates.flatMap { state in reducedStateFrames.map { frame in "\(state)-\(frame.0)" } }
+        let menuNames = tabFrameNames + states + reducedStateNames + fragments
         return Set(MenuSize.allCases.flatMap { size in menuNames.map { scenario(size, $0) } })
             .union((settingsIsolationTabs + settingsIsolationPendingSignInTabs).map { settingsIsolationScenario($0.0) })
     }
