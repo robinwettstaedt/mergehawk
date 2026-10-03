@@ -132,8 +132,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             ?? NSScreen.main?.visibleFrame
             ?? NSScreen.screens.first?.visibleFrame
             ?? CGRect(origin: .zero, size: MenuMetrics.standard.panelSize)
-        let metrics = MenuMetrics.standard
-        let resolvedSize = MenuPanelSize.resolve(availableFrame: screenFrame, metrics: metrics)
+        let layout = MenuPanelSize.resolve(availableFrame: screenFrame, menuSize: controller.menuSize)
+        let metrics = layout.metrics
+        let resolvedSize = layout.size
         let hostingView = MenuRootHostingView(
             controller: controller,
             footerModel: footerModel,

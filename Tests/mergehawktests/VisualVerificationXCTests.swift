@@ -21,6 +21,9 @@ final class VisualVerificationXCTests: XCTestCase {
 
         let outputURL = URL(fileURLWithPath: outputPath)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let menuSizeURL = { (size: MenuSize, name: String) -> URL in
+            outputURL.appendingPathComponent("\(MenuSizeCaptures.scenario(size, name)).png")
+        }
         let restoreTimeZone = Self.useUTCTimeZone()
         defer { restoreTimeZone() }
         captureSelection = try VisualCaptureSelection(environment: environment)
@@ -28,7 +31,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -87,6 +90,14 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: delayedController,
                 to: outputURL.appendingPathComponent("menu-refresh-loading.png")
             )
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: delayedController,
+                    to: menuSizeURL(size, "refresh-loading"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
         }
         try await waitUntil(context: "delayed complete refresh completion") {
             await MainActor.run { !delayedController.isRefreshing }
@@ -170,6 +181,14 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: signedOutController,
                 to: outputURL.appendingPathComponent("menu-signed-out.png")
             )
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: signedOutController,
+                    to: menuSizeURL(size, "signed-out"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
             try renderSettings(
                 SettingsRootView(
                     controller: signedOutController,
@@ -337,6 +356,14 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: pendingSignInController,
                 to: outputURL.appendingPathComponent("menu-sign-in-pending.png")
             )
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: pendingSignInController,
+                    to: menuSizeURL(size, "sign-in-pending"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
             try renderSettings(
                 SettingsRootView(
                     controller: pendingSignInController,
@@ -344,6 +371,11 @@ final class VisualVerificationXCTests: XCTestCase {
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
                 to: outputURL.appendingPathComponent("settings-github-sign-in-pending.png")
+            )
+            try renderSettingsIsolation(
+                controller: pendingSignInController,
+                tabs: MenuSizeCaptures.settingsIsolationPendingSignInTabs,
+                outputURL: outputURL
             )
             pendingSignInController.cancelDeviceFlowSignIn()
         }
@@ -426,6 +458,14 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: accessPromptController,
                 to: outputURL.appendingPathComponent("menu-repository-access-notifications.png")
             )
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: accessPromptController,
+                    to: menuSizeURL(size, "access-prompt"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
             accessPromptController.selectedTab = .myPRs
             try renderMenu(
                 controller: accessPromptController,
@@ -476,23 +516,12 @@ final class VisualVerificationXCTests: XCTestCase {
             pullRequests: mixedPRs
         )
         let archivedController = try await MainActor.run { () throws -> DashboardController in
-            var store = PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!)
-            store.authMethod = .pat
-            store.sourceCatalog = mixedCatalog
-            store.sourceCatalogSyncedAt = Self.visualNow
-            store.sourceCatalogAccountLogin = "rw"
-            let account = GitHubAccount(login: "rw")
-            try store.storePullRequestSyncState(PullRequestSyncState(
-                account: account,
-                dashboard: DashboardState(
-                    pullRequests: mixedPRs, events: [], syncedAt: Date(timeIntervalSince1970: 10),
-                    source: .github, account: account, authStatus: .signedIn
-                ),
-                processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues: mixedPRs.map {
-                    ($0.id, PRActivityDetector.processedActivity(for: $0))
-                }),
+            let store = try Self.seededVisualStore(
+                defaults: UserDefaults(suiteName: archivedSuite)!,
+                pullRequests: mixedPRs,
+                catalog: mixedCatalog,
                 notificationHistory: retainedNotifications
-            ))
+            )
             return DashboardController(
                 tokenStore: InMemoryTokenStore(token: "visual-fixture"),
                 preferencesStore: store,
@@ -550,6 +579,54 @@ final class VisualVerificationXCTests: XCTestCase {
             }
         }
 
+        // Saving fails only after startup, so the banner comes from a failed mark-as-read, not a failed refresh.
+        let saveFailure = VisualSaveFailure()
+        let saveErrorDefaults = UserDefaults(suiteName: "\(suiteName)-save-error")!
+        let saveErrorController = try await MainActor.run { () throws -> DashboardController in
+            _ = try Self.seededVisualStore(
+                defaults: saveErrorDefaults,
+                pullRequests: mixedPRs,
+                catalog: mixedCatalog,
+                notificationHistory: retainedNotifications
+            )
+            return DashboardController(
+                tokenStore: InMemoryTokenStore(token: "visual-fixture"),
+                preferencesStore: PreferencesStore(defaults: saveErrorDefaults, syncStateEncoder: { state in
+                    if saveFailure.isFailing {
+                        throw VisualSaveFailure.Failure()
+                    }
+                    return try JSONEncoder().encode(state)
+                }),
+                launchAtLoginService: InMemoryLaunchAtLoginService(),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                patGitHubClientFactory: { _ in archivedProvider },
+                now: Self.visualClock
+            )
+        }
+        try await waitUntil(context: "save-error fixture startup refresh") {
+            await MainActor.run {
+                (saveErrorController.state.syncedAt ?? .distantPast) > Date(timeIntervalSince1970: 10)
+                    && !saveErrorController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            saveFailure.isFailing = true
+            saveErrorController.markPullRequestNotificationRead(
+                try XCTUnwrap(saveErrorController.pullRequestNotificationHistory.first { !$0.read })
+            )
+            XCTAssertNotNil(saveErrorController.saveErrorMessage)
+            saveErrorController.selectedTab = .notifications
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: saveErrorController,
+                    to: menuSizeURL(size, "save-error"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
+        }
+
         try await MainActor.run {
             try renderSettings(
                 SettingsRootView(
@@ -585,6 +662,19 @@ final class VisualVerificationXCTests: XCTestCase {
             )
             controller.selectedTab = .notifications
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-notifications.png"))
+            for size in MenuSize.allCases {
+                for (tabName, tab) in MenuSizeCaptures.tabs {
+                    controller.selectedTab = tab
+                    for (frameName, frame) in MenuSizeCaptures.frames {
+                        try renderMenu(
+                            controller: controller,
+                            to: menuSizeURL(size, "\(tabName)-\(frameName)"),
+                            availableFrame: frame,
+                            menuSize: size
+                        )
+                    }
+                }
+            }
 
             controller.selectedTab = .myPRs
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs.png"))
@@ -593,10 +683,27 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-my-prs-actions-open.png"),
                 initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id)
             )
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: controller,
+                    to: menuSizeURL(size, "actions-open"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id),
+                    menuSize: size
+                )
+            }
+            let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.first?.visible.first)
             try renderHeaderTooltips(
-                pullRequest: XCTUnwrap(controller.requestedSections.first?.visible.first),
+                pullRequest: tooltipPullRequest,
                 to: outputURL.appendingPathComponent("menu-header-tooltips.png")
             )
+            for size in MenuSize.allCases {
+                try renderHeaderTooltips(
+                    pullRequest: tooltipPullRequest,
+                    metrics: MenuMetrics(scale: size.factor),
+                    to: menuSizeURL(size, "header-tooltips")
+                )
+            }
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-laptop.png"),
@@ -614,6 +721,17 @@ final class VisualVerificationXCTests: XCTestCase {
                 to: outputURL.appendingPathComponent("menu-my-prs-header-sort-open.png"),
                 initialDropdown: .sort
             )
+            for size in MenuSize.allCases {
+                for (stateName, dropdown) in [("filter-open", PullRequestMenuDropdown.filter), ("sort-open", .sort)] {
+                    try renderMenu(
+                        controller: controller,
+                        to: menuSizeURL(size, stateName),
+                        availableFrame: MenuSizeCaptures.stateFrame,
+                        initialDropdown: dropdown,
+                        menuSize: size
+                    )
+                }
+            }
             controller.selectedPullRequestFilters = []
             controller.pullRequestSortOption = .changeSize
             controller.pullRequestSortDirection = .ascending
@@ -625,31 +743,19 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.pinnedPullRequestIds = []
             controller.hiddenPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(2).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-hidden-collapsed.png"))
-            try render(
-                PullRequestListView(
-                    controller: controller,
-                    mode: .authored,
-                    hiddenPullRequestsExpanded: true
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial)
-                .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
+            try renderHiddenExpanded(
+                controller: controller,
+                mode: .authored,
                 to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded.png")
             )
-            try render(
-                PullRequestListView(
+            for size in MenuSize.allCases {
+                try renderHiddenExpanded(
                     controller: controller,
                     mode: .authored,
-                    hiddenPullRequestsExpanded: true
+                    metrics: MenuMetrics(scale: size.factor),
+                    to: menuSizeURL(size, "my-prs-hidden-expanded")
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial)
-                .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
-                appearance: .aqua,
-                to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded-light.png")
-            )
+            }
             controller.hiddenPullRequestIds = []
             let populatedSourcePreferences = controller.sourcePreferences
             controller.setOwnerPreferences(
@@ -674,6 +780,15 @@ final class VisualVerificationXCTests: XCTestCase {
 
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
+            precondition(controller.collapsedRequestedSections.isEmpty)
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: controller,
+                    to: menuSizeURL(size, "requested-sections-expanded"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-review-requests-laptop.png"),
@@ -705,31 +820,19 @@ final class VisualVerificationXCTests: XCTestCase {
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-collapsed.png")
             )
-            try render(
-                PullRequestListView(
-                    controller: controller,
-                    mode: .reviewRequests,
-                    hiddenPullRequestsExpanded: true
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial)
-                .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
+            try renderHiddenExpanded(
+                controller: controller,
+                mode: .reviewRequests,
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded.png")
             )
-            try render(
-                PullRequestListView(
+            for size in MenuSize.allCases {
+                try renderHiddenExpanded(
                     controller: controller,
                     mode: .reviewRequests,
-                    hiddenPullRequestsExpanded: true
+                    metrics: MenuMetrics(scale: size.factor),
+                    to: menuSizeURL(size, "review-requests-hidden-expanded")
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(.regularMaterial)
-                .environment(\.menuNow, Self.visualNow),
-                size: CGSize(width: MenuMetrics.standard.panel.width, height: MenuMetrics.standard.panelHeight - 100),
-                appearance: .aqua,
-                to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded-light.png")
-            )
+            }
             controller.hiddenPullRequestIds = []
             controller.setOwnerPreferences(
                 owner: "mergehawk-labs",
@@ -811,6 +914,13 @@ final class VisualVerificationXCTests: XCTestCase {
                 ),
                 to: outputURL.appendingPathComponent("settings-sources-search-example.png")
             )
+
+            try renderSettingsIsolation(
+                controller: controller,
+                tabs: MenuSizeCaptures.settingsIsolationTabs,
+                outputURL: outputURL
+            )
+
             // The standard mock's teams span two organizations, so the tab draws a second header and a divider.
             XCTAssertEqual(
                 Set(controller.reviewTeamRows.map(\.team.organization)),
@@ -901,6 +1011,32 @@ final class VisualVerificationXCTests: XCTestCase {
         )
     }
 
+    private static func seededVisualStore(
+        defaults: UserDefaults,
+        pullRequests: [PullRequest],
+        catalog: SourceCatalog,
+        notificationHistory: [PullRequestNotification]
+    ) throws -> PreferencesStore {
+        var store = PreferencesStore(defaults: defaults)
+        store.authMethod = .pat
+        store.sourceCatalog = catalog
+        store.sourceCatalogSyncedAt = visualNow
+        store.sourceCatalogAccountLogin = "rw"
+        let account = GitHubAccount(login: "rw")
+        try store.storePullRequestSyncState(PullRequestSyncState(
+            account: account,
+            dashboard: DashboardState(
+                pullRequests: pullRequests, events: [], syncedAt: Date(timeIntervalSince1970: 10),
+                source: .github, account: account, authStatus: .signedIn
+            ),
+            processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues: pullRequests.map {
+                ($0.id, PRActivityDetector.processedActivity(for: $0))
+            }),
+            notificationHistory: notificationHistory
+        ))
+        return store
+    }
+
     @MainActor
     private func makeScenarioController(
         _ scenario: MockPullRequestScenario,
@@ -924,10 +1060,14 @@ final class VisualVerificationXCTests: XCTestCase {
         controller: DashboardController,
         to url: URL,
         availableFrame: CGRect? = nil,
-        initialDropdown: PullRequestMenuDropdown? = nil
+        initialDropdown: PullRequestMenuDropdown? = nil,
+        menuSize: MenuSize = .standard
     ) throws {
         // Without a usable frame, the frame is large enough that the panel is never clamped.
         let frame = availableFrame ?? CGRect(x: 0, y: 0, width: 10_000, height: 10_000)
+        let previousMenuSize = controller.menuSize
+        controller.menuSize = menuSize
+        defer { controller.menuSize = previousMenuSize }
         let makeMenuView = { () -> NSView in
             let menuView = StatusBarController(controller: controller)
                 .makeMenuContentView(availableFrame: frame, initialDropdown: initialDropdown)
@@ -947,8 +1087,12 @@ final class VisualVerificationXCTests: XCTestCase {
     }
 
     @MainActor
-    private func renderHeaderTooltips(pullRequest: PullRequest, to url: URL) throws {
-        let size = CGSize(width: MenuMetrics.standard.panel.width, height: 800)
+    private func renderHeaderTooltips(
+        pullRequest: PullRequest,
+        metrics: MenuMetrics = .standard,
+        to url: URL
+    ) throws {
+        let size = CGSize(width: metrics.panel.width, height: 800 * metrics.scale)
         let view = ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 36) {
                 ForEach(PullRequestColumnLegend.Column.allCases) { column in
@@ -977,11 +1121,86 @@ final class VisualVerificationXCTests: XCTestCase {
         .frame(width: size.width, height: size.height, alignment: .top)
         .background(.regularMaterial)
         .environment(\.menuNow, Self.visualNow)
+        .environment(\.menuMetrics, metrics)
 
         try render(view, size: size, appearance: .darkAqua, to: url)
         let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
         let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
         try render(view, size: size, appearance: .aqua, to: lightURL)
+    }
+
+    /// Hidden rows can only be expanded through view state, so this fragment is rendered outside the menu factory.
+    @MainActor
+    private func renderHiddenExpanded(
+        controller: DashboardController,
+        mode: PullRequestListView.Mode,
+        metrics: MenuMetrics = .standard,
+        to url: URL
+    ) throws {
+        let view = PullRequestListView(
+            controller: controller,
+            mode: mode,
+            hiddenPullRequestsExpanded: true
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(.regularMaterial)
+        .environment(\.menuNow, Self.visualNow)
+        .environment(\.menuMetrics, metrics)
+        let size = CGSize(width: metrics.panel.width, height: metrics.panelHeight - 100 * metrics.scale)
+        try render(view, size: size, to: url)
+        let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
+        let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
+        try render(view, size: size, appearance: .aqua, to: lightURL)
+    }
+
+    /// The Settings window never scales: each tab renders the same at every menu size as at Default.
+    /// Every size renders under the same file names into its own directory, so the comparator can match
+    /// them; the Larger renders are kept as artifacts.
+    @MainActor
+    private func renderSettingsIsolation(
+        controller: DashboardController,
+        tabs: [(String, SettingsTab)],
+        outputURL: URL
+    ) throws {
+        let workURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mergehawk-settings-isolation-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workURL) }
+        let previousMenuSize = controller.menuSize
+        defer { controller.menuSize = previousMenuSize }
+
+        var directories: [MenuSize: URL] = [:]
+        for size in MenuSize.allCases {
+            let directory = workURL.appendingPathComponent(size.rawValue)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            directories[size] = directory
+            controller.menuSize = size
+            for (tabName, tab) in tabs {
+                try renderSettings(
+                    SettingsRootView(
+                        controller: controller,
+                        settingsWindowState: SettingsWindowState(selection: tab),
+                        softwareUpdateController: SoftwareUpdateController.disabled()
+                    ),
+                    to: directory.appendingPathComponent("\(MenuSizeCaptures.settingsIsolationScenario(tabName)).png")
+                )
+            }
+        }
+
+        let standardURL = try XCTUnwrap(directories[.standard])
+        guard !(try FileManager.default.contentsOfDirectory(atPath: standardURL.path)).isEmpty else {
+            return
+        }
+        for size in MenuSize.allCases where size != .standard {
+            let report = try VisualCaptureComparison.compare(before: standardURL, after: try XCTUnwrap(directories[size]))
+            XCTAssertFalse(report.failed, "\(size): \(report.description)")
+            XCTAssertTrue(report.onlyInAfter.isEmpty, "\(size): \(report.description)")
+        }
+        let largerURL = try XCTUnwrap(directories[.larger])
+        for file in try FileManager.default.contentsOfDirectory(atPath: largerURL.path) {
+            let destination = outputURL.appendingPathComponent(file)
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: largerURL.appendingPathComponent(file), to: destination)
+        }
     }
 
     @MainActor
@@ -1105,8 +1324,72 @@ private enum VisualCaptureError: LocalizedError {
     }
 }
 
+/// The menu size captures: every tab on every frame, the listed states and fragments, and Settings isolation.
+private enum MenuSizeCaptures {
+    static let tabs: [(String, DashboardController.MenuTab)] = [
+        ("notifications", .notifications),
+        ("authored", .myPRs),
+        ("requested", .reviewRequests)
+    ]
+    static let frames: [(String, CGRect)] = [
+        ("1470x919", CGRect(x: 0, y: 0, width: 1470, height: 919)),
+        ("900x919", CGRect(x: 0, y: 0, width: 900, height: 919)),
+        ("760x600", CGRect(x: 0, y: 0, width: 760, height: 600))
+    ]
+    /// States are captured on the 13" MacBook Air usable frame.
+    static let stateFrame = CGRect(x: 0, y: 0, width: 1470, height: 919)
+    static let states = [
+        "filter-open",
+        "sort-open",
+        "actions-open",
+        "requested-sections-expanded",
+        "refresh-loading",
+        "save-error",
+        "signed-out",
+        "sign-in-pending",
+        "access-prompt"
+    ]
+    static let fragments = ["my-prs-hidden-expanded", "review-requests-hidden-expanded", "header-tooltips"]
+    /// General is excluded: its Menu Size control shows the selected size by design.
+    static let settingsIsolationTabs: [(String, SettingsTab)] = [
+        ("github", .github),
+        ("notifications", .notifications),
+        ("sources", .sources),
+        ("teams", .teams),
+        ("about", .about)
+    ]
+    /// The GitHub tab while the device-flow sign-in is pending reuses the menu's pending sign-in view.
+    static let settingsIsolationPendingSignInTabs: [(String, SettingsTab)] = [
+        ("github-sign-in-pending", .github)
+    ]
+
+    static func scenario(_ size: MenuSize, _ name: String) -> String {
+        "menu-size-\(size == .standard ? "default" : size.rawValue)-\(name)"
+    }
+
+    static func settingsIsolationScenario(_ tabName: String) -> String {
+        "settings-isolation-larger-\(tabName)"
+    }
+
+    static var allScenarios: Set<String> {
+        let tabFrameNames = tabs.flatMap { tab in frames.map { frame in "\(tab.0)-\(frame.0)" } }
+        let menuNames = tabFrameNames + states + fragments
+        return Set(MenuSize.allCases.flatMap { size in menuNames.map { scenario(size, $0) } })
+            .union((settingsIsolationTabs + settingsIsolationPendingSignInTabs).map { settingsIsolationScenario($0.0) })
+    }
+}
+
+/// Lets a fixture's store save normally during startup and fail afterwards.
+private final class VisualSaveFailure {
+    struct Failure: LocalizedError {
+        var errorDescription: String? { "The disk is full." }
+    }
+
+    var isFailing = false
+}
+
 private struct VisualCaptureSelection {
-    static let allScenarios: Set<String> = [
+    private static let baseScenarios: Set<String> = [
         "menu-signed-out",
         "settings-github-signed-out",
         "settings-github-pat-idle",
@@ -1173,6 +1456,8 @@ private struct VisualCaptureSelection {
         "settings-teams-empty",
         "settings-teams-multi-org",
     ]
+
+    static let allScenarios = baseScenarios.union(MenuSizeCaptures.allScenarios)
 
     static let all = VisualCaptureSelection(scenarios: allScenarios)
 

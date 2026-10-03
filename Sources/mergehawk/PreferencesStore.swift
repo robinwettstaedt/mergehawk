@@ -191,6 +191,21 @@ struct PreferencesStore {
         }
     }
 
+    var menuSize: MenuSize {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "menu.size"),
+                let size = MenuSize(rawValue: rawValue)
+            else {
+                return .standard
+            }
+            return size
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "menu.size")
+        }
+    }
+
     var pullRequestSortOption: DashboardController.PullRequestSortOption {
         get {
             guard
