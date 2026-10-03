@@ -339,6 +339,14 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertFalse(ReviewTeamsSettingsPresentation.caption.localizedCaseInsensitiveContains("count"))
     }
 
+    func testTeamsNotificationsLinkOpensTheNotificationsPane() {
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.notificationsLinkTitle,
+            "Team review request notifications are set in Notifications ›"
+        )
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.notificationsLinkDestination, .notifications)
+    }
+
     func testTeamPullRequestNumberTooltipNamesTheFullTeam() {
         let row = DashboardController.ReviewTeamRow(
             team: TeamReference(id: "T", organization: "acme", slug: "reviewers"),

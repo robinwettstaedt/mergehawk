@@ -21,6 +21,8 @@ enum ReviewTeamsSettingsPresentation {
     static let noTeamsHeadline = "No teams found"
     static let noTeamsDetail = "Your GitHub teams appear here after the next successful refresh."
     static let caption = "Show review requests sent to these teams. A PR still appears if it reaches you another way."
+    static let notificationsLinkTitle = "Team review request notifications are set in Notifications ›"
+    static let notificationsLinkDestination = SettingsTab.notifications
 
     /// Shows the last complete PR refresh's teams, grouped by organization in the controller's tree order.
     static func content(authStatus: AuthStatus, rows: [DashboardController.ReviewTeamRow]) -> Content {
@@ -97,7 +99,24 @@ struct TeamsSettingsView: View {
                 }
             }
             .formStyle(.grouped)
+            .safeAreaInset(edge: .bottom) {
+                notificationsLink
+            }
         }
+    }
+
+    private var notificationsLink: some View {
+        Button {
+            selection = ReviewTeamsSettingsPresentation.notificationsLinkDestination
+        } label: {
+            Text(ReviewTeamsSettingsPresentation.notificationsLinkTitle)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 14)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func organizationHeader(_ group: ReviewTeamsSettingsPresentation.OrganizationGroup) -> some View {
