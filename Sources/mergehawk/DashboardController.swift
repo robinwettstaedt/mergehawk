@@ -1263,7 +1263,8 @@ final class DashboardController: ObservableObject {
                 source: .mock,
                 account: account,
                 authStatus: .signedIn,
-                viewerTeams: source.viewerTeams
+                viewerTeams: source.viewerTeams,
+                pullRequestStacks: []
             )
             committedSyncState = PullRequestSyncState(
                 account: account,
@@ -1518,7 +1519,8 @@ final class DashboardController: ObservableObject {
                 source: prepared.source,
                 account: isSignedOut ? nil : prepared.account,
                 authStatus: isSignedOut ? .signedOut : .signedIn,
-                viewerTeams: prepared.viewerTeams
+                viewerTeams: prepared.viewerTeams,
+                pullRequestStacks: prepared.stacks
             )
             if isSignedOut {
                 presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)

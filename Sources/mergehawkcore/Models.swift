@@ -246,6 +246,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let draft: Bool
     public let createdAt: Date
     public let updatedAt: Date
+    /// The node ID of the GitHub native stack this PR belongs to, if any.
+    public let stackID: String?
 
     public init(
         id: String,
@@ -274,7 +276,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         mergeable: MergeableState,
         draft: Bool,
         createdAt: Date = Date(timeIntervalSince1970: 0),
-        updatedAt: Date = Date(timeIntervalSince1970: 0)
+        updatedAt: Date = Date(timeIntervalSince1970: 0),
+        stackID: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -303,6 +306,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.draft = draft
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.stackID = stackID
     }
 
     public var withoutActivityHistory: PullRequest {
@@ -340,6 +344,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case draft
         case createdAt
         case updatedAt
+        case stackID
     }
 
     public init(from decoder: Decoder) throws {
@@ -374,6 +379,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.draft = try container.decode(Bool.self, forKey: .draft)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        self.stackID = try container.decodeIfPresent(String.self, forKey: .stackID)
     }
 }
 
@@ -1058,6 +1064,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
     public var authStatus: AuthStatus
     /// The viewer's teams as read by the complete PR refresh that produced `pullRequests`.
     public var viewerTeams: [ViewerTeam]
+    /// The PR stacks read by the complete PR refresh that produced `pullRequests`.
+    public var pullRequestStacks: [PullRequestStack]
 
     public static let empty = DashboardState(
         pullRequests: [],
@@ -1066,7 +1074,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
         source: .none,
         account: nil,
         authStatus: .signedOut,
-        viewerTeams: []
+        viewerTeams: [],
+        pullRequestStacks: []
     )
 
     public init(
@@ -1076,7 +1085,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
         source: DashboardSource,
         account: GitHubAccount?,
         authStatus: AuthStatus,
-        viewerTeams: [ViewerTeam] = []
+        viewerTeams: [ViewerTeam] = [],
+        pullRequestStacks: [PullRequestStack] = []
     ) {
         self.pullRequests = pullRequests
         self.events = events
@@ -1085,5 +1095,23 @@ public struct DashboardState: Codable, Equatable, Sendable {
         self.account = account
         self.authStatus = authStatus
         self.viewerTeams = viewerTeams
+        self.pullRequestStacks = pullRequestStacks
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case pullRequests, events, syncedAt, source, account, authStatus, viewerTeams, pullRequestStacks
+    }
+
+    /// Sync state stored before stacks existed decodes with no stacks; the next refresh fills them in.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.pullRequests = try container.decode([PullRequest].self, forKey: .pullRequests)
+        self.events = try container.decode([PullRequestEvent].self, forKey: .events)
+        self.syncedAt = try container.decodeIfPresent(Date.self, forKey: .syncedAt)
+        self.source = try container.decode(DashboardSource.self, forKey: .source)
+        self.account = try container.decodeIfPresent(GitHubAccount.self, forKey: .account)
+        self.authStatus = try container.decode(AuthStatus.self, forKey: .authStatus)
+        self.viewerTeams = try container.decode([ViewerTeam].self, forKey: .viewerTeams)
+        self.pullRequestStacks = try container.decodeIfPresent([PullRequestStack].self, forKey: .pullRequestStacks) ?? []
     }
 }

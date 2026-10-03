@@ -1635,6 +1635,65 @@ final class AtomicRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testCommittedCompletePRRefreshExposesFetchedStacks() async throws {
+        let stacked = makePullRequest(id: "PR_BASELINE", title: "Baseline")
+        let stack = PullRequestStack(id: "STACK_1", size: 2, entries: [
+            PullRequestStackEntry(
+                position: 1, pullRequestID: "PR_BASE", number: 1, title: "Base",
+                url: URL(string: "https://github.com/acme/app/pull/1")!, state: .merged, isDraft: false, author: "teammate"
+            ),
+            PullRequestStackEntry(
+                position: 2, pullRequestID: stacked.id, number: 2, title: "Baseline",
+                url: URL(string: "https://github.com/acme/app/pull/2")!, state: .open, isDraft: false, author: "teammate"
+            )
+        ])
+        let fixture = try makeFixture(
+            provider: AtomicGitHubProvider(result: .success(CompletePullRequestFetchResult(
+                activePullRequests: [stacked],
+                stacks: [stack]
+            )))
+        )
+        defer { fixture.cleanup() }
+
+        await waitUntilRefreshed(fixture)
+
+        XCTAssertEqual(fixture.controller.state.pullRequestStacks, [stack])
+        XCTAssertEqual(fixture.preferences.pullRequestSyncState?.dashboard.pullRequestStacks, [stack])
+    }
+
+    @MainActor
+    func testStoredSyncStateWithoutStacksStillLoadsWithHistoryAndProcessedActivity() throws {
+        let suiteName = "atomic-refresh-legacy-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let pullRequest = makePullRequest(id: "PR_LEGACY", title: "Legacy")
+        let state = makeSyncState(pullRequest)
+        let history = [PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: pullRequest.id, activityId: "COMMENT_OLD"),
+            pullRequest: pullRequest,
+            createdAt: Date(timeIntervalSince1970: 10)
+        )]
+        let stored = PullRequestSyncState(
+            account: state.account,
+            dashboard: state.dashboard,
+            processedActivityByPullRequestID: state.processedActivityByPullRequestID,
+            notificationHistory: history
+        )
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(stored)) as? [String: Any])
+        var dashboard = try XCTUnwrap(object["dashboard"] as? [String: Any])
+        XCTAssertNotNil(dashboard.removeValue(forKey: "pullRequestStacks"))
+        object["dashboard"] = dashboard
+        defaults.set(try JSONSerialization.data(withJSONObject: object), forKey: "pullRequests.syncState")
+
+        let loaded = try XCTUnwrap(PreferencesStore(defaults: defaults).pullRequestSyncState)
+
+        XCTAssertEqual(loaded.notificationHistory, history)
+        XCTAssertEqual(loaded.processedActivityByPullRequestID[pullRequest.id]?.commentIDs, ["COMMENT_OLD"])
+        XCTAssertEqual(loaded.dashboard.pullRequests, [pullRequest])
+        XCTAssertEqual(loaded.dashboard.pullRequestStacks, [])
+    }
+
+    @MainActor
     func testFailedRefreshKeepsPublishedViewerTeamsAndRequestedSections() async throws {
         let previousPR = Self.teamPullRequest([Self.developers])
         let fixture = try makeFixture(
