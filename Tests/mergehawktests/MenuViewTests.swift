@@ -126,7 +126,7 @@ final class MenuViewTests: XCTestCase {
         let pullRequest = PullRequest(
             id: "PR_AGE", title: "Age", number: 1,
             url: URL(string: "https://github.com/example/app/pull/1")!,
-            repo: "example/app", ciState: .passing, reviewDecision: .noReviewYet,
+            repo: "example/app", ciState: .passing, reviewDecision: .reviewRequired,
             commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
             mergeable: .mergeable, draft: false,
             createdAt: menuNow.addingTimeInterval(-2 * 86_400),
