@@ -26,6 +26,7 @@ Examples:
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario bot-notifications --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario comment-notifications --ui settings --open
   scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario new-review-request --ui menu --open
+  scripts/run-agent-app.sh --slot agent-3 --mock --mock-scenario draft-ready-for-review --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --stage app-final-activity --mock --mock-scenario merged-final-activity --ui menu --open
   scripts/run-agent-app.sh --slot agent-3 --run-dir "$RUN_DIR" --mock --open
 USAGE
@@ -97,9 +98,9 @@ if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" ]]; then
   exit 2
 fi
 case "$MOCK_SCENARIO" in
-  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications|long-lists|new-review-request) ;;
+  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications|long-lists|new-review-request|draft-ready-for-review) ;;
   *)
-    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications, comment-notifications, long-lists or new-review-request" >&2
+    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications, comment-notifications, long-lists, new-review-request or draft-ready-for-review" >&2
     exit 2
     ;;
 esac

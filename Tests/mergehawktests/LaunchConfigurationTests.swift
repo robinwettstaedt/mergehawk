@@ -97,6 +97,10 @@ final class LaunchConfigurationTests: XCTestCase {
         XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock", "--mock-scenario", "new-review-request"], environment: [:]).mockPullRequestScenario, .newReviewRequest)
     }
 
+    func testDraftReadyForReviewScenarioParsesFromMockArguments() {
+        XCTAssertEqual(LaunchConfiguration.current(arguments: ["mergehawk", "--mock", "--mock-scenario", "draft-ready-for-review"], environment: [:]).mockPullRequestScenario, .draftReadyForReview)
+    }
+
     func testRunAgentAppScriptAcceptsEveryMockScenario() throws {
         let script = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
