@@ -623,15 +623,15 @@ final class MenuViewTests: XCTestCase {
         let tooltips = clock.makeController()
         let controller = signedInMockController()
         controller.selectedTab = .notifications
-        let (window, _) = hostMenuRoot(controller: controller, tooltips: tooltips)
-        defer { window.orderOut(nil) }
+        let (host, _) = hostMenuRoot(controller: controller, tooltips: tooltips)
+        defer { host.close() }
 
         let tabs: [DashboardController.MenuTab] = [.myPRs, .reviewRequests, .notifications]
         var nextTab = tabs.makeIterator()
         assertHookDismissesTooltips(tooltips, clock: clock) {
             let tab = nextTab.next() ?? .myPRs
             controller.selectedTab = tab
-            settleRunLoop()
+            host.settle()
         }
     }
 
@@ -641,8 +641,8 @@ final class MenuViewTests: XCTestCase {
         let tooltips = clock.makeController()
         let controller = signedInMockController()
         controller.selectedTab = .myPRs
-        let (window, size) = hostMenuRoot(controller: controller, tooltips: tooltips)
-        defer { window.orderOut(nil) }
+        let (host, size) = hostMenuRoot(controller: controller, tooltips: tooltips)
+        defer { host.close() }
         let delay = MenuTooltipMetrics.showDelay
 
         // The sort menu button ends just left of the refresh control at the trailing edge of the top bar.
@@ -654,23 +654,23 @@ final class MenuViewTests: XCTestCase {
         // The button acts on mouse up; a click's mouse down already dismisses through the event
         // observer, so show a tooltip in between to isolate the dropdown-open hook. Synthesized
         // events do not drive SwiftUI hover here, so the test reports hover and pointer movement.
-        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseDown, at: sortMenuPoint))
         let visible = UUID()
         clock.moveMouse()
         tooltips.hovering(id: visible)
         clock.advance(by: delay)
         XCTAssertEqual(tooltips.visibleID, visible)
-        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseUp, at: sortMenuPoint))
         XCTAssertNil(tooltips.visibleID, "visible tooltip hidden")
 
         // Close the sort menu again, then open it with a tooltip pending.
-        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
-        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
-        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseDown, at: sortMenuPoint))
+        host.send(try host.mouseEvent(.leftMouseUp, at: sortMenuPoint))
+        host.send(try host.mouseEvent(.leftMouseDown, at: sortMenuPoint))
         let pending = UUID()
         clock.moveMouse()
         tooltips.hovering(id: pending)
-        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseUp, at: sortMenuPoint))
         clock.advance(by: 2)
         XCTAssertNil(tooltips.visibleID, "pending tooltip cancelled")
 
@@ -719,7 +719,7 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    private func hostMenuRoot(controller: DashboardController, tooltips: MenuTooltipController) -> (NSWindow, CGSize) {
+    private func hostMenuRoot(controller: DashboardController, tooltips: MenuTooltipController) -> (OffScreenHost, CGSize) {
         let size = MenuMetrics.standard.panelSize
         let hostingView = NSHostingView(rootView: MenuRootView(
             controller: controller,
@@ -727,32 +727,7 @@ final class MenuViewTests: XCTestCase {
             tooltipController: tooltips
         ))
         hostingView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.contentView = hostingView
-        // SwiftUI buttons only receive synthesized clicks in an ordered-in window; keep it off screen.
-        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-        window.orderFrontRegardless()
-        hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
-        return (window, size)
-    }
-
-    @MainActor
-    private func send(_ window: NSWindow, _ event: NSEvent) {
-        window.sendEvent(event)
-        settleRunLoop()
-    }
-
-    @MainActor
-    private func settleRunLoop() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-    }
-
-    private func mouseEvent(_ type: NSEvent.EventType, at point: CGPoint, in window: NSWindow) throws -> NSEvent {
-        try XCTUnwrap(NSEvent.mouseEvent(
-            with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
-        ))
+        return (OffScreenHost(hostingView), size)
     }
 
     @MainActor
