@@ -69,15 +69,31 @@ public struct CompletePullRequestFetchResult: Equatable, Sendable {
     public let activePullRequests: [PullRequest]
     public let retiringPullRequests: [PullRequest]
     public let quietlyRetiredPullRequestIDs: Set<String>
+    public let viewerTeams: [ViewerTeam]
 
     public init(
         activePullRequests: [PullRequest],
         retiringPullRequests: [PullRequest] = [],
-        quietlyRetiredPullRequestIDs: Set<String> = []
+        quietlyRetiredPullRequestIDs: Set<String> = [],
+        viewerTeams: [ViewerTeam] = []
     ) {
         self.activePullRequests = activePullRequests
         self.retiringPullRequests = retiringPullRequests
         self.quietlyRetiredPullRequestIDs = quietlyRetiredPullRequestIDs
+        self.viewerTeams = viewerTeams
+    }
+}
+
+/// The provider read of one complete PR refresh, before detection runs.
+public struct FetchedPullRequestRefresh: Equatable, Sendable {
+    public let login: String
+    public let account: GitHubAccount
+    public let fetchResult: CompletePullRequestFetchResult
+
+    public init(login: String, account: GitHubAccount, fetchResult: CompletePullRequestFetchResult) {
+        self.login = login
+        self.account = account
+        self.fetchResult = fetchResult
     }
 }
 
@@ -98,6 +114,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
     public let retiringPullRequests: [PullRequest]
     public let processedActivityByPullRequestID: [String: ProcessedPullRequestActivity]
     public let events: [PreparedPullRequestEvent]
+    public let viewerTeams: [ViewerTeam]
     public let syncedAt: Date
 
     public init(
@@ -107,6 +124,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         retiringPullRequests: [PullRequest],
         processedActivityByPullRequestID: [String: ProcessedPullRequestActivity],
         events: [PreparedPullRequestEvent],
+        viewerTeams: [ViewerTeam],
         syncedAt: Date
     ) {
         self.account = account
@@ -115,6 +133,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         self.retiringPullRequests = retiringPullRequests
         self.processedActivityByPullRequestID = processedActivityByPullRequestID
         self.events = events
+        self.viewerTeams = viewerTeams
         self.syncedAt = syncedAt
     }
 }

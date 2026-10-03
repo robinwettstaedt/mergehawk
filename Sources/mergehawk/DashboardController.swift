@@ -169,6 +169,19 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    struct ReviewTeamRow: Identifiable, Equatable {
+        let team: TeamReference
+        /// Nesting level under the team's top-level ancestor among the viewer's teams.
+        let depth: Int
+        let isCounting: Bool
+        /// Fetched PRs requesting this team, whatever relationship brought them in.
+        let pullRequestCount: Int
+        var avatarURL: URL? = nil
+        var organizationAvatarURL: URL? = nil
+
+        var id: String { team.id }
+    }
+
     struct RequestedSectionContent {
         let section: RequestedSection
         let visible: [PullRequest]
@@ -243,6 +256,11 @@ final class DashboardController: ObservableObject {
     @Published var hiddenPullRequestIds: Set<String> {
         didSet {
             preferencesStore.hiddenPullRequestIds = hiddenPullRequestIds
+        }
+    }
+    @Published var turnedOffReviewTeamIDs: Set<String> {
+        didSet {
+            preferencesStore.turnedOffReviewTeamIDs = turnedOffReviewTeamIDs
         }
     }
     @Published var sourcePreferences: SourcePreferences {
@@ -384,6 +402,7 @@ final class DashboardController: ObservableObject {
         self.selectedReviewRequestFilters = preferencesStore.selectedReviewRequestFilters
         self.pinnedPullRequestIds = preferencesStore.pinnedPullRequestIds
         self.hiddenPullRequestIds = preferencesStore.hiddenPullRequestIds
+        self.turnedOffReviewTeamIDs = preferencesStore.turnedOffReviewTeamIDs
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.hideArchivedRepositories = preferencesStore.hideArchivedRepositories
         self.sourceCatalog = preferencesStore.sourceCatalog
@@ -479,10 +498,58 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    /// Counted PRs: a team request only counts for one of the viewer's teams that is not turned off.
     var sourceFilteredReviewRequests: [PullRequest] {
         let preferences = effectiveSourcePreferences
-        return state.pullRequests.filter { pr in
+        let counting = teamReviewCounting
+        return state.pullRequests.map(counting.applied(to:)).filter { pr in
             preferences.allowsReviewRequests(for: pr.repo)
+        }
+    }
+
+    var teamReviewCounting: TeamReviewCounting {
+        TeamReviewCounting(viewerTeams: state.viewerTeams, turnedOffTeamIDs: turnedOffReviewTeamIDs)
+    }
+
+    /// The viewer's teams from the last complete PR refresh as a tree like GitHub's team list: organizations in
+    /// order, each team followed by its child teams, siblings by slug. A team whose parent is not one of the
+    /// viewer's teams is top level.
+    var reviewTeamRows: [ReviewTeamRow] {
+        let viewerTeams = state.viewerTeams
+        let viewerTeamIDs = Set(viewerTeams.map(\.team.id))
+        let bySlug: (ViewerTeam, ViewerTeam) -> Bool = {
+            ($0.team.organization, $0.team.slug, $0.team.id) < ($1.team.organization, $1.team.slug, $1.team.id)
+        }
+        let childrenByParentID = Dictionary(grouping: viewerTeams.filter {
+            $0.parentTeamID.map(viewerTeamIDs.contains) == true
+        }) { $0.parentTeamID! }
+        let roots = viewerTeams.filter { $0.parentTeamID.map(viewerTeamIDs.contains) != true }.sorted(by: bySlug)
+
+        var rows: [ReviewTeamRow] = []
+        func append(_ viewerTeam: ViewerTeam, depth: Int) {
+            rows.append(ReviewTeamRow(
+                team: viewerTeam.team,
+                depth: depth,
+                isCounting: !turnedOffReviewTeamIDs.contains(viewerTeam.team.id),
+                pullRequestCount: state.pullRequests.filter { pr in
+                    pr.requestedTeams.contains { $0.id == viewerTeam.team.id }
+                }.count,
+                avatarURL: viewerTeam.avatarURL,
+                organizationAvatarURL: viewerTeam.organizationAvatarURL
+            ))
+            for child in (childrenByParentID[viewerTeam.team.id] ?? []).sorted(by: bySlug) {
+                append(child, depth: depth + 1)
+            }
+        }
+        roots.forEach { append($0, depth: 0) }
+        return rows
+    }
+
+    func setReviewTeam(_ id: String, counting: Bool) {
+        if counting {
+            turnedOffReviewTeamIDs.remove(id)
+        } else {
+            turnedOffReviewTeamIDs.insert(id)
         }
     }
 
@@ -1181,7 +1248,8 @@ final class DashboardController: ObservableObject {
                 syncedAt: nil,
                 source: .mock,
                 account: account,
-                authStatus: .signedIn
+                authStatus: .signedIn,
+                viewerTeams: source.viewerTeams
             )
             committedSyncState = PullRequestSyncState(
                 account: account,
@@ -1394,8 +1462,15 @@ final class DashboardController: ObservableObject {
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
-            let prepared = try await syncEngine.prepare(previousState: committedSyncState)
+            let previousState = committedSyncState
+            let fetched = try await syncEngine.fetchRefresh(previousState: previousState)
             guard !Task.isCancelled, providerGeneration == generation else { return }
+            // Read after the fetch, so a team turned off or on during a suspended refresh applies to it.
+            let prepared = try syncEngine.prepare(
+                previousState: previousState,
+                fetched: fetched,
+                turnedOffTeamIDs: turnedOffReviewTeamIDs
+            )
 
             let archivedRepositories = Set(
                 (prepared.activePullRequests + prepared.retiringPullRequests)
@@ -1427,7 +1502,8 @@ final class DashboardController: ObservableObject {
                 syncedAt: prepared.syncedAt,
                 source: prepared.source,
                 account: isSignedOut ? nil : prepared.account,
-                authStatus: isSignedOut ? .signedOut : .signedIn
+                authStatus: isSignedOut ? .signedOut : .signedIn,
+                viewerTeams: prepared.viewerTeams
             )
             if isSignedOut {
                 presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)

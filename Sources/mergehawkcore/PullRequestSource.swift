@@ -45,6 +45,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case quietAccessLoss = "quiet-access-loss"
     case longLists = "long-lists"
     case newReviewRequest = "new-review-request"
+    case reviewTeams = "review-teams"
 }
 
 public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
@@ -169,6 +170,7 @@ public final class MockPullRequestSource {
                     commentCount: 1,
                     reviewCount: 0,
                     reviewRequestKind: .team,
+                    requestedTeams: [Self.billingReviewersTeam],
                     isMine: false,
                     author: "design-systems-amy",
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
@@ -209,6 +211,7 @@ public final class MockPullRequestSource {
                     commentCount: 8,
                     reviewCount: 3,
                     reviewRequestKind: .directAndTeam,
+                    requestedTeams: [Self.reviewersTeam],
                     isMine: false,
                     author: "backend-mateo",
                     headRefName: "MER-41-stale-review-alerts",
@@ -324,6 +327,7 @@ public final class MockPullRequestSource {
                     commentCount: 1,
                     reviewCount: 0,
                     reviewRequestKind: .team,
+                    requestedTeams: [Self.billingReviewersTeam],
                     isMine: false,
                     author: "design-systems-amy",
                     headRefName: "MER-18-tighten-billing-retry-copy-for-failed-payment-state-when-card-network-times-out",
@@ -364,6 +368,7 @@ public final class MockPullRequestSource {
                     commentCount: 8,
                     reviewCount: 3,
                     reviewRequestKind: .directAndTeam,
+                    requestedTeams: [Self.reviewersTeam],
                     isMine: false,
                     author: "backend-mateo",
                     headRefName: "MER-41-stale-review-alerts",
@@ -389,9 +394,97 @@ public final class MockPullRequestSource {
             Self.longListPullRequests(stage: 0)
         case .newReviewRequest:
             Self.newReviewRequestPullRequests(stage: 0)
+        case .reviewTeams:
+            Self.reviewTeamPullRequests(stage: 0)
         case .refreshFailure, .mergedFinalActivity, .quietAccessLoss:
             [Self.scenarioBaselinePullRequest]
         }
+    }
+
+    /// The viewer's teams every refresh of this scenario returns.
+    public var viewerTeams: [ViewerTeam] {
+        switch scenario {
+        case .reviewTeams:
+            Self.reviewTeamViewerTeams
+        case .standard, .botNotifications, .commentNotifications, .delayedRefresh, .refreshFailure,
+             .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest:
+            Self.standardViewerTeams
+        }
+    }
+
+    static let reviewersTeam = TeamReference(id: "T_MOCK_REVIEWERS", organization: "mergehawk-labs", slug: "reviewers")
+    static let billingReviewersTeam = TeamReference(
+        id: "T_MOCK_BILLING_REVIEWERS",
+        organization: "billing-platform-experiments",
+        slug: "billing-reviewers"
+    )
+    static let standardViewerTeams = [ViewerTeam(team: billingReviewersTeam), ViewerTeam(team: reviewersTeam)]
+
+    static let engineeringTeam = TeamReference(id: "T_MOCK_ENGINEERING", organization: "mergehawk-labs", slug: "engineering")
+    static let developersTeam = TeamReference(id: "T_MOCK_DEVELOPERS", organization: "mergehawk-labs", slug: "developers")
+    static let plmTeam = TeamReference(id: "T_MOCK_PLM", organization: "mergehawk-labs", slug: "plm-team")
+    static let secretSquadTeam = TeamReference(id: "T_MOCK_SECRET_SQUAD", organization: "mergehawk-labs", slug: "secret-squad")
+    static let securityTeam = TeamReference(id: "T_MOCK_SECURITY", organization: "mergehawk-labs", slug: "security")
+    /// `engineering` -> `developers` -> `plm-team`, with the viewer directly in `plm-team` and a secret team.
+    static let reviewTeamViewerTeams = [
+        ViewerTeam(team: developersTeam, parentTeamID: engineeringTeam.id),
+        ViewerTeam(team: engineeringTeam),
+        ViewerTeam(team: plmTeam, parentTeamID: developersTeam.id),
+        ViewerTeam(team: secretSquadTeam)
+    ]
+
+    /// Stage 0 has pull requests requesting each nested team, a team the viewer is not in, and combinations.
+    /// Stage 1 adds `plm-team` to the `developers`-only pull request. Later refreshes repeat stage 1.
+    private static func reviewTeamPullRequests(stage: Int) -> [PullRequest] {
+        let base = Date(timeIntervalSince1970: 1_778_000_000)
+        func pullRequest(
+            _ id: String, number: Int, title: String, teams: [TeamReference], direct: Bool = false,
+            author: String = "platform-nora"
+        ) -> PullRequest {
+            PullRequest(
+                id: id, title: title, number: number,
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(number)")!,
+                repo: "mergehawk-labs/mergehawk", ciState: .passing, reviewDecision: .reviewRequired,
+                additions: 24, deletions: 4, commentCount: 0, reviewCount: 0,
+                headRefOid: "review-teams-fixture",
+                // Like GitHub discovery, the raw team flag only reflects requests to one of the viewer's teams.
+                reviewRequestKind: ReviewRequestKind(
+                    direct: direct,
+                    team: teams.contains { team in reviewTeamViewerTeams.contains { $0.team.id == team.id } }
+                ),
+                requestedTeams: teams, isMine: false, author: author,
+                headRefName: "MER-81-review-teams-\(number)", mergeable: .mergeable, draft: false,
+                createdAt: base.addingTimeInterval(-86_400 - Double(number) * 60),
+                updatedAt: base.addingTimeInterval(stage >= 1 && number == 101 ? 600 : -Double(number) * 60)
+            )
+        }
+        return [
+            pullRequest(
+                "PR_TEAMS_DEVELOPERS", number: 101, title: "Ask the broad developers team for review",
+                teams: stage >= 1 ? [developersTeam, plmTeam] : [developersTeam]
+            ),
+            pullRequest("PR_TEAMS_PLM", number: 102, title: "Ask plm-team for review", teams: [plmTeam], author: "backend-mateo"),
+            pullRequest(
+                "PR_TEAMS_ENGINEERING", number: 103, title: "Ask the engineering org team for review",
+                teams: [engineeringTeam], author: "docs-lee"
+            ),
+            pullRequest(
+                "PR_TEAMS_SECURITY", number: 104, title: "Ask the security team for review",
+                teams: [securityTeam], author: "frontend-sam"
+            ),
+            pullRequest(
+                "PR_TEAMS_DEVELOPERS_SECURITY", number: 105, title: "Ask developers and security for review",
+                teams: [developersTeam, securityTeam], author: "frontend-sam"
+            ),
+            pullRequest(
+                "PR_TEAMS_DEVELOPERS_PLM", number: 106, title: "Ask developers and plm-team for review",
+                teams: [developersTeam, plmTeam], author: "design-systems-amy"
+            ),
+            pullRequest(
+                "PR_TEAMS_DIRECT_DEVELOPERS", number: 107, title: "Ask you and developers for review",
+                teams: [developersTeam], direct: true, author: "backend-mateo"
+            ),
+        ]
     }
 
     private func nextPullRequests() -> [PullRequest] {
@@ -513,7 +606,8 @@ public final class MockPullRequestSource {
                 ciState: .passing, reviewDecision: reviews.contains { $0.state == .approved } ? .approved : .reviewRequired,
                 additions: 40, deletions: 8, commentCount: 0, commentActivityCount: comments.count,
                 recentCommentActivities: comments, reviewCount: reviews.count, recentReviews: reviews,
-                headRefOid: "comment-notification-fixture", reviewRequestKind: request, isAssignedToViewer: assigned,
+                headRefOid: "comment-notification-fixture", reviewRequestKind: request,
+                requestedTeams: request.includesTeam ? [Self.reviewersTeam] : [], isAssignedToViewer: assigned,
                 isMine: mine, author: mine ? "agent-fixture" : "platform-nora",
                 headRefName: "MER-73-comment-notifications", mergeable: .mergeable, draft: false,
                 createdAt: at(-86_400), updatedAt: at(editsMention ? 400 : hasUpdates ? 241 : 30)
@@ -557,6 +651,7 @@ public final class MockPullRequestSource {
                 commentActivityCount: comments.count, recentCommentActivities: comments,
                 reviewCount: 0, recentReviews: [],
                 headRefOid: "long-list-fixture", reviewRequestKind: request,
+                requestedTeams: request.includesTeam ? [Self.reviewersTeam] : [],
                 isAssignedToViewer: !mine && ordinal % 3 == 0,
                 isMine: mine, author: mine ? "agent-fixture" : "platform-nora",
                 headRefName: "MER-76-long-list-\(number)", mergeable: .mergeable, draft: false,
@@ -586,7 +681,8 @@ public final class MockPullRequestSource {
                 ciState: ci, reviewDecision: .reviewRequired,
                 additions: 36, deletions: 6, commentCount: comments.count, commentActivityCount: comments.count,
                 recentCommentActivities: comments, reviewCount: 0, recentReviews: [],
-                headRefOid: "new-review-request-fixture", reviewRequestKind: request, isAssignedToViewer: assigned,
+                headRefOid: "new-review-request-fixture", reviewRequestKind: request,
+                requestedTeams: request.includesTeam ? [Self.reviewersTeam] : [], isAssignedToViewer: assigned,
                 isMine: mine, author: mine ? "agent-fixture" : author,
                 headRefName: "MER-82-new-review-request-\(number)", mergeable: .mergeable, draft: false,
                 createdAt: at(-86_400), updatedAt: at(-3_600)
@@ -961,7 +1057,23 @@ extension MockPullRequestSource: CompletePullRequestFetching {
         login: String,
         previousState: PullRequestSyncState?
     ) async throws -> CompletePullRequestFetchResult {
+        let result = try fetchScenarioPullRequests(previousState: previousState)
+        return CompletePullRequestFetchResult(
+            activePullRequests: result.activePullRequests,
+            retiringPullRequests: result.retiringPullRequests,
+            quietlyRetiredPullRequestIDs: result.quietlyRetiredPullRequestIDs,
+            viewerTeams: viewerTeams
+        )
+    }
+
+    private func fetchScenarioPullRequests(
+        previousState: PullRequestSyncState?
+    ) throws -> CompletePullRequestFetchResult {
         switch scenario {
+        case .reviewTeams:
+            let stage = min(index, 1)
+            index += 1
+            return CompletePullRequestFetchResult(activePullRequests: Self.reviewTeamPullRequests(stage: stage))
         case .botNotifications:
             let hasBaseline = Self.botNotificationPullRequests(includesUpdates: false).contains {
                 previousState?.processedActivityByPullRequestID[$0.id] != nil
