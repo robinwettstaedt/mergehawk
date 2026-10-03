@@ -871,16 +871,6 @@ public final class MockPullRequestSource {
                 ),
                 pullRequest: notificationFixtureLegacyReviewPullRequest,
                 createdAt: Date(timeIntervalSince1970: 1_777_791_600)
-            ),
-            PullRequestNotification(
-                event: PullRequestEvent(
-                    type: .otherCommitAdded,
-                    prId: notificationFixtureOtherCommitPullRequest.id,
-                    count: 1,
-                    actorLogin: "teammate-kai"
-                ),
-                pullRequest: notificationFixtureOtherCommitPullRequest,
-                createdAt: Date(timeIntervalSince1970: 1_777_788_000)
             )
         ]
     }
@@ -1030,24 +1020,6 @@ public final class MockPullRequestSource {
         mergeable: .mergeable,
         draft: false,
         updatedAt: Date(timeIntervalSince1970: 1_777_791_600)
-    )
-
-    private static let notificationFixtureOtherCommitPullRequest = PullRequest(
-        id: "PR_NOTIFICATION_OTHER_COMMIT",
-        title: "Refresh onboarding checklist",
-        number: 47,
-        url: URL(string: "https://github.com/example/app/pull/47")!,
-        repo: "example/app",
-        ciState: .pending,
-        reviewDecision: .reviewRequired,
-        commentCount: 0,
-        reviewCount: 0,
-        isMine: true,
-        author: "agent-fixture",
-        headRefName: "onboarding-checklist",
-        mergeable: .mergeable,
-        draft: false,
-        updatedAt: Date(timeIntervalSince1970: 1_777_788_000)
     )
 }
 

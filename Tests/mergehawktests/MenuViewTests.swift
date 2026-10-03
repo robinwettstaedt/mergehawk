@@ -475,7 +475,6 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .ciFailed), "xmark.octagon")
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .changesRequested), "exclamationmark.triangle")
         XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .relationshipAdded), "person.badge.plus")
-        XCTAssertEqual(PullRequestNotificationIconPresentation.symbolName(for: .otherCommitAdded), "arrow.trianglehead.branch")
     }
 
     func testNotificationIconColorsMatchUpdateTypes() {
@@ -486,7 +485,6 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .reviewCommented), .blue)
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .newReview), .blue)
         XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .relationshipAdded), .purple)
-        XCTAssertEqual(PullRequestNotificationIconPresentation.color(for: .otherCommitAdded), .orange)
     }
 }
 
@@ -567,29 +565,6 @@ final class MenuViewTests: XCTestCase {
         count: 3,
         isExpanded: true
     ) == "Hidden (3), expanded")
-    let otherCommitNotificationPullRequest = PullRequest(
-        id: "other-commit",
-        title: "Other commit notification",
-        number: 13,
-        url: URL(string: "https://github.com/acme/mergehawk/pull/13")!,
-        repo: "acme/mergehawk",
-        ciState: .passing,
-        reviewDecision: .reviewRequired,
-        commentCount: 0,
-        reviewCount: 0,
-        isMine: true,
-        author: "rw",
-        mergeable: .mergeable,
-        draft: false
-    )
-    precondition(PullRequestNotificationTitlePresentation.title(for: PullRequestNotification(
-        event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 1, actorLogin: "frontend-sam"),
-        pullRequest: otherCommitNotificationPullRequest
-    )) == "New commit by @frontend-sam")
-    precondition(PullRequestNotificationTitlePresentation.title(for: PullRequestNotification(
-        event: PullRequestEvent(type: .otherCommitAdded, prId: "other-commit", count: 2),
-        pullRequest: otherCommitNotificationPullRequest
-    )) == "2 commits by others")
     precondition(PullRequestPinPresentation.symbolName(isPinned: false) == "pin")
     precondition(PullRequestPinPresentation.symbolName(isPinned: true) == "pin.fill")
     precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin")

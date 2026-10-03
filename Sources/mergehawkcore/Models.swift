@@ -639,7 +639,6 @@ public enum PullRequestEventType: String, Codable, Equatable, Sendable {
     case ciFailed = "ci_failed"
     case changesRequested = "changes_requested"
     case relationshipAdded = "relationship_added"
-    case otherCommitAdded = "other_commit_added"
 }
 
 public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
@@ -785,9 +784,6 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
     case reviewActivity = "review_activity"
     case ciFailures = "ci_failures"
     case relationshipChanges = "relationship_changes"
-    case otherCommits = "other_commits"
-
-    public static let allCases: [Self] = [.reviewActivity, .ciFailures, .relationshipChanges]
 
     /// Nil for comment updates, which follow the comment modes.
     public init?(eventType: PullRequestEventType) {
@@ -800,8 +796,6 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
             self = .ciFailures
         case .relationshipAdded:
             self = .relationshipChanges
-        case .otherCommitAdded:
-            self = .otherCommits
         }
     }
 }
@@ -863,8 +857,6 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
             ciFailures
         case .relationshipChanges:
             relationshipChanges
-        case .otherCommits:
-            false
         }
     }
 }

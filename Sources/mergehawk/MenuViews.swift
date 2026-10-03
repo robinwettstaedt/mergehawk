@@ -95,23 +95,11 @@ enum PullRequestNotificationTitlePresentation {
             actorText(for: notification).map { "Changes requested by \($0)" } ?? "Changes requested"
         case .relationshipAdded:
             RelationshipChangeTitlePresentation.title(for: notification.relationshipChanges)
-        case .otherCommitAdded:
-            otherCommitTitle(for: notification)
         }
     }
 
     private static func actorText(for notification: PullRequestNotification) -> String? {
         notification.actorLogin.map { "@\($0)" }
-    }
-
-    private static func otherCommitTitle(for notification: PullRequestNotification) -> String {
-        if let actor = actorText(for: notification) {
-            return "New commit by \(actor)"
-        }
-        if let count = notification.count, count > 1 {
-            return "\(count) commits by others"
-        }
-        return "New commit by someone else"
     }
 }
 
@@ -132,8 +120,6 @@ enum PullRequestNotificationIconPresentation {
             "exclamationmark.triangle"
         case .relationshipAdded:
             "person.badge.plus"
-        case .otherCommitAdded:
-            "arrow.trianglehead.branch"
         }
     }
 
@@ -147,8 +133,6 @@ enum PullRequestNotificationIconPresentation {
             .blue
         case .relationshipAdded:
             .purple
-        case .otherCommitAdded:
-            .orange
         }
     }
 }

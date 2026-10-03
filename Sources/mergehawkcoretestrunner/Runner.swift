@@ -838,8 +838,6 @@ struct Runner {
             .ciFailed
         case .relationshipChanges:
             .relationshipAdded
-        case .otherCommits:
-            .otherCommitAdded
         }
     }
 
