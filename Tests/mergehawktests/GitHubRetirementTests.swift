@@ -14,6 +14,7 @@ final class GitHubRetirementTests: XCTestCase {
         let previous = Self.previousState(previousPR)
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
             if query.contains("CompletePullRequests") {
@@ -61,6 +62,7 @@ final class GitHubRetirementTests: XCTestCase {
                 return Self.response(Self.json([]), request)
             }
             let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
             if query.contains("CompletePullRequests") {
@@ -117,6 +119,7 @@ final class GitHubRetirementTests: XCTestCase {
         let previous = Self.previousState(Self.previousPR())
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
             if query.contains("CompletePullRequests") {
@@ -132,6 +135,96 @@ final class GitHubRetirementTests: XCTestCase {
         XCTAssertTrue(result.retiringPullRequests.isEmpty)
     }
 
+    func testCompletePRRefreshReturnsViewerTeamsWithActivePRs() async throws {
+        let previous = Self.previousState(Self.previousPR())
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") {
+                return Self.response(Self.viewerTeams([[
+                    "id": "T_PLM", "slug": "plm-team", "parentTeam": ["id": "T_DEV"],
+                    "ancestors": [
+                        "pageInfo": ["hasNextPage": false],
+                        "nodes": [["id": "T_DEV", "slug": "developers", "parentTeam": NSNull()]]
+                    ]
+                ]]), request)
+            }
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("CompletePullRequests") {
+                return Self.response(Self.hydration(nodes: [Self.completePR(state: "OPEN")]), request)
+            }
+            XCTFail("Unexpected query \(query.prefix(80))")
+            return Self.response(Data(), request, status: 500)
+        }
+
+        let result = try await GitHubClient(token: "token", session: Self.session())
+            .fetchCompletePullRequests(login: "rw", previousState: previous)
+
+        XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_1"])
+        XCTAssertEqual(result.viewerTeams, [
+            ViewerTeam(team: TeamReference(id: "T_DEV", organization: "acme", slug: "developers")),
+            ViewerTeam(team: TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team"), parentTeamID: "T_DEV")
+        ])
+    }
+
+    func testViewerTeamsFailureFailsTheCompletePRRefreshBeforeDiscovery() async throws {
+        let previous = Self.previousState(Self.previousPR())
+        let discoveryRequests = LockedRetirementCounter()
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") {
+                return Self.response(Self.json([
+                    "data": NSNull(),
+                    "errors": [["message": "Resource not accessible by integration", "type": "FORBIDDEN"]]
+                ]), request)
+            }
+            discoveryRequests.increment()
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            return Self.response(Self.hydration(nodes: [Self.completePR(state: "OPEN")]), request)
+        }
+
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: previous)
+            XCTFail("Expected the viewer teams failure to fail the complete PR refresh")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .accessDenied)
+        }
+        XCTAssertEqual(discoveryRequests.value, 0)
+    }
+
+    func testHydrationFailureAfterViewerTeamsFailsTheCompletePRRefresh() async throws {
+        let previous = Self.previousState(Self.previousPR())
+        let viewerTeamRequests = LockedRetirementCounter()
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") {
+                viewerTeamRequests.increment()
+                return Self.response(Self.viewerTeams([[
+                    "id": "T_PLM", "slug": "plm-team",
+                    "ancestors": ["pageInfo": ["hasNextPage": false], "nodes": []]
+                ]]), request)
+            }
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("CompletePullRequests") {
+                return Self.response(Self.json(["data": ["nodes": []]]), request)
+            }
+            XCTFail("Unexpected query \(query.prefix(80))")
+            return Self.response(Data(), request, status: 500)
+        }
+
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: previous)
+            XCTFail("Expected the hydration failure to fail the complete PR refresh")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
+        }
+        XCTAssertEqual(viewerTeamRequests.value, 1)
+    }
+
     func testResource404And410RequireFreshMatchingViewerBeforeQuietRetirement() async throws {
         for status in [404, 410] {
             let previous = Self.previousState(Self.previousPR())
@@ -145,6 +238,7 @@ final class GitHubRetirementTests: XCTestCase {
                     return Self.response(Self.json(["login": "rw"]), request)
                 }
                 let query = Self.graphQLQuery(request)
+                if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
                 if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
                 if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
                 if query.contains("CompletePullRequests") {
@@ -177,6 +271,7 @@ final class GitHubRetirementTests: XCTestCase {
                     return Self.response(Self.json(["login": "rw"]), request)
                 }
                 let query = Self.graphQLQuery(request)
+                if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
                 if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
                 if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
                 if query.contains("CompletePullRequests") {
@@ -229,6 +324,7 @@ final class GitHubRetirementTests: XCTestCase {
                     return Self.response(Self.json(["login": "rw"]), request)
                 }
                 let query = Self.graphQLQuery(request)
+                if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
                 if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
                 if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
                 if query.contains("CompletePullRequests") {
@@ -290,6 +386,7 @@ final class GitHubRetirementTests: XCTestCase {
                     return Self.response(Self.json(["message": "Not Found"]), request, status: 404)
                 }
                 let query = Self.graphQLQuery(request)
+                if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
                 if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
                 if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
                 if query.contains("CompletePullRequests") {
@@ -342,6 +439,7 @@ final class GitHubRetirementTests: XCTestCase {
                 return Self.response(Self.json(["login": "someone-else"]), request)
             }
             let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
             if query.contains("CompletePullRequests") {
@@ -368,6 +466,7 @@ final class GitHubRetirementTests: XCTestCase {
         let teamQueries = LockedRetirementCounter()
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
             if query.contains("CompletePullRequests") {
@@ -408,6 +507,7 @@ final class GitHubRetirementTests: XCTestCase {
         let teamQueries = LockedRetirementCounter()
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") {
                 var data: [String: Any] = [:]
                 for lane in GitHubDiscoveryLane.allCases {
@@ -507,6 +607,7 @@ final class GitHubRetirementTests: XCTestCase {
                     }
                 }
                 let query = Self.graphQLQuery(request)
+                if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
                 if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
                 if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
                 if query.contains("CompletePullRequests") {
@@ -553,6 +654,7 @@ final class GitHubRetirementTests: XCTestCase {
                 )
             }
             let query = Self.graphQLQuery(request)
+            if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
             if query.contains("CompletePullRequests") {
@@ -612,7 +714,7 @@ final class GitHubRetirementTests: XCTestCase {
         PullRequest(
             id: id, title: "Tracked PR", number: number,
             url: URL(string: "https://github.com/acme/app/pull/\(number)")!, repo: "acme/app",
-            ciState: .passing, reviewDecision: .noReviewYet,
+            ciState: .passing, reviewDecision: .reviewRequired,
             commentCount: 0, reviewCount: 0,
             reviewRequestKind: reviewKind, isAssignedToViewer: assigned,
             isMine: isMine, author: isMine ? "rw" : "author", mergeable: .mergeable, draft: false,
@@ -710,6 +812,16 @@ final class GitHubRetirementTests: XCTestCase {
             "assignees": connection(assignees.map { ["id": "U_\($0)", "login": $0] }),
             "reviewRequests": connection(requests)
         ]
+    }
+
+    private static func viewerTeams(_ teams: [[String: Any]] = []) -> Data {
+        json(["data": ["viewer": ["organizations": [
+            "pageInfo": ["hasNextPage": false, "endCursor": NSNull()],
+            "nodes": [[
+                "login": "acme",
+                "teams": ["pageInfo": ["hasNextPage": false, "endCursor": NSNull()], "nodes": teams]
+            ]]
+        ]]]])
     }
 
     private static func discoveryNode(id: String, number: Int, second: Int) -> [String: Any] {

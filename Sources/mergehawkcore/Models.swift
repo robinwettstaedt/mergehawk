@@ -10,7 +10,7 @@ public enum CIState: String, Codable, Equatable, Sendable {
 public enum ReviewDecision: String, Codable, Equatable, Sendable {
     case approved
     case changesRequested = "changes_requested"
-    case noReviewYet = "review_required"
+    case reviewRequired = "review_required"
     case unknown
 }
 
@@ -235,6 +235,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public var recentReviews: [PullRequestReview]
     public let headRefOid: String
     public var reviewRequestKind: ReviewRequestKind
+    /// Every team this PR requests a review from, whether or not the viewer belongs to it.
+    public let requestedTeams: [TeamReference]
     public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String
@@ -263,6 +265,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         recentReviews: [PullRequestReview] = [],
         headRefOid: String = "",
         reviewRequestKind: ReviewRequestKind = .none,
+        requestedTeams: [TeamReference] = [],
         isAssignedToViewer: Bool = false,
         isMine: Bool,
         author: String,
@@ -290,6 +293,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.recentReviews = recentReviews
         self.headRefOid = headRefOid
         self.reviewRequestKind = reviewRequestKind
+        self.requestedTeams = requestedTeams
         self.isAssignedToViewer = isAssignedToViewer
         self.isMine = isMine
         self.author = author
@@ -326,6 +330,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case recentReviews
         case headRefOid
         case reviewRequestKind
+        case requestedTeams
         case isAssignedToViewer
         case isMine
         case author
@@ -359,6 +364,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.recentReviews = try container.decode([PullRequestReview].self, forKey: .recentReviews)
         self.headRefOid = try container.decodeIfPresent(String.self, forKey: .headRefOid) ?? ""
         self.reviewRequestKind = try container.decode(ReviewRequestKind.self, forKey: .reviewRequestKind)
+        self.requestedTeams = try container.decode([TeamReference].self, forKey: .requestedTeams)
         self.isAssignedToViewer = try container.decode(Bool.self, forKey: .isAssignedToViewer)
         self.isMine = try container.decode(Bool.self, forKey: .isMine)
         self.author = try container.decode(String.self, forKey: .author)
@@ -633,7 +639,7 @@ public enum PullRequestEventType: String, Codable, Equatable, Sendable {
     case ciFailed = "ci_failed"
     case changesRequested = "changes_requested"
     case relationshipAdded = "relationship_added"
-    case otherCommitAdded = "other_commit_added"
+    case readyForReview = "ready_for_review"
 }
 
 public enum PullRequestNotificationRelationship: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
@@ -779,9 +785,7 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
     case reviewActivity = "review_activity"
     case ciFailures = "ci_failures"
     case relationshipChanges = "relationship_changes"
-    case otherCommits = "other_commits"
-
-    public static let allCases: [Self] = [.reviewActivity, .ciFailures, .relationshipChanges]
+    case readyForReview = "ready_for_review"
 
     /// Nil for comment updates, which follow the comment modes.
     public init?(eventType: PullRequestEventType) {
@@ -794,8 +798,8 @@ public enum PullRequestNotificationActivity: String, Codable, CaseIterable, Equa
             self = .ciFailures
         case .relationshipAdded:
             self = .relationshipChanges
-        case .otherCommitAdded:
-            self = .otherCommits
+        case .readyForReview:
+            self = .readyForReview
         }
     }
 }
@@ -804,49 +808,43 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
     public var reviewActivity: Bool
     public var ciFailures: Bool
     public var relationshipChanges: Bool
+    public var readyForReview: Bool
 
     public static let authoredDefaults = PullRequestNotificationActivityPreferences(
         reviewActivity: true,
         ciFailures: true,
-        relationshipChanges: false
+        relationshipChanges: false,
+        readyForReview: false
     )
     public static let enabled = PullRequestNotificationActivityPreferences(
         reviewActivity: true,
         ciFailures: true,
-        relationshipChanges: true
+        relationshipChanges: true,
+        readyForReview: true
     )
     public static let disabled = PullRequestNotificationActivityPreferences(
         reviewActivity: false,
         ciFailures: false,
-        relationshipChanges: false
+        relationshipChanges: false,
+        readyForReview: false
     )
-    public static let relationshipChangesOnly = PullRequestNotificationActivityPreferences(
+    public static let requestedDefaults = PullRequestNotificationActivityPreferences(
         reviewActivity: false,
         ciFailures: false,
-        relationshipChanges: true
+        relationshipChanges: true,
+        readyForReview: true
     )
-
-    enum CodingKeys: String, CodingKey {
-        case reviewActivity
-        case ciFailures
-        case relationshipChanges
-    }
 
     public init(
         reviewActivity: Bool,
         ciFailures: Bool,
-        relationshipChanges: Bool = false
+        relationshipChanges: Bool = false,
+        readyForReview: Bool = false
     ) {
         self.reviewActivity = reviewActivity
         self.ciFailures = ciFailures
         self.relationshipChanges = relationshipChanges
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.reviewActivity = try container.decode(Bool.self, forKey: .reviewActivity)
-        self.ciFailures = try container.decode(Bool.self, forKey: .ciFailures)
-        self.relationshipChanges = try container.decodeIfPresent(Bool.self, forKey: .relationshipChanges) ?? false
+        self.readyForReview = readyForReview
     }
 
     public func allows(_ activity: PullRequestNotificationActivity) -> Bool {
@@ -857,8 +855,8 @@ public struct PullRequestNotificationActivityPreferences: Codable, Equatable, Se
             ciFailures
         case .relationshipChanges:
             relationshipChanges
-        case .otherCommits:
-            false
+        case .readyForReview:
+            readyForReview
         }
     }
 }
@@ -944,18 +942,10 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
 
     public static let defaults = NotificationPreferences(
         authored: .authoredDefaults,
-        assigned: .relationshipChangesOnly,
-        directReviewRequests: .relationshipChangesOnly,
-        teamReviewRequests: .relationshipChangesOnly
+        assigned: .requestedDefaults,
+        directReviewRequests: .requestedDefaults,
+        teamReviewRequests: .requestedDefaults
     )
-
-    enum CodingKeys: String, CodingKey {
-        case authored
-        case assigned
-        case directReviewRequests
-        case teamReviewRequests
-        case commentModes
-    }
 
     public init(
         authored: PullRequestNotificationActivityPreferences,
@@ -969,25 +959,6 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         self.directReviewRequests = directReviewRequests
         self.teamReviewRequests = teamReviewRequests
         self.commentModes = commentModes
-    }
-
-    /// Comment modes are independent of the upper matrix, so a value saved before they existed gets their defaults.
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.authored = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .authored)
-        self.assigned = try container.decode(PullRequestNotificationActivityPreferences.self, forKey: .assigned)
-        self.directReviewRequests = try container.decode(
-            PullRequestNotificationActivityPreferences.self,
-            forKey: .directReviewRequests
-        )
-        self.teamReviewRequests = try container.decode(
-            PullRequestNotificationActivityPreferences.self,
-            forKey: .teamReviewRequests
-        )
-        self.commentModes = try container.decodeIfPresent(
-            CommentNotificationPreferences.self,
-            forKey: .commentModes
-        ) ?? .defaults
     }
 
     public func preferences(for relationship: PullRequestNotificationRelationship) -> PullRequestNotificationActivityPreferences {
@@ -1085,6 +1056,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
     public var source: DashboardSource
     public var account: GitHubAccount?
     public var authStatus: AuthStatus
+    /// The viewer's teams as read by the complete PR refresh that produced `pullRequests`.
+    public var viewerTeams: [ViewerTeam]
 
     public static let empty = DashboardState(
         pullRequests: [],
@@ -1092,7 +1065,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
         syncedAt: nil,
         source: .none,
         account: nil,
-        authStatus: .signedOut
+        authStatus: .signedOut,
+        viewerTeams: []
     )
 
     public init(
@@ -1101,7 +1075,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
         syncedAt: Date?,
         source: DashboardSource,
         account: GitHubAccount?,
-        authStatus: AuthStatus
+        authStatus: AuthStatus,
+        viewerTeams: [ViewerTeam] = []
     ) {
         self.pullRequests = pullRequests
         self.events = events
@@ -1109,5 +1084,6 @@ public struct DashboardState: Codable, Equatable, Sendable {
         self.source = source
         self.account = account
         self.authStatus = authStatus
+        self.viewerTeams = viewerTeams
     }
 }

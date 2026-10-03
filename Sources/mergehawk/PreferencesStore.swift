@@ -27,8 +27,9 @@ struct PreferencesStore {
         }
     }
 
-    /// Loads the notification matrix and stores it with any newly introduced defaults materialized, so those
-    /// defaults persist without a UI edit. An unreadable stored value is left untouched.
+    /// Loads the saved notification matrix. On first launch, with nothing stored, the defaults are saved. A stored
+    /// value that does not decode, such as one saved in an older format, is left untouched and the defaults are
+    /// returned until a settings change saves the current format.
     func loadAndPersistNotificationPreferences() -> NotificationPreferences {
         let key = "notifications.prMatrix"
         guard defaults.object(forKey: key) != nil else {
@@ -41,7 +42,6 @@ struct PreferencesStore {
         else {
             return .defaults
         }
-        encode(value, for: key)
         return value
     }
 
@@ -311,6 +311,16 @@ struct PreferencesStore {
         }
         set {
             defaults.set(newValue.sorted(), forKey: "pullRequests.hiddenIds")
+        }
+    }
+
+    /// Teams whose review requests the viewer turned off, kept even while the viewer is not in the team.
+    var turnedOffReviewTeamIDs: Set<String> {
+        get {
+            normalizedPullRequestIds(for: "reviewTeams.turnedOffIds")
+        }
+        set {
+            defaults.set(newValue.sorted(), forKey: "reviewTeams.turnedOffIds")
         }
     }
 

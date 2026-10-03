@@ -31,7 +31,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -553,6 +553,18 @@ final class VisualVerificationXCTests: XCTestCase {
         try await MainActor.run {
             for (hideArchived, suffix) in [(true, "on"), (false, "off")] {
                 archivedController.hideArchivedRepositories = hideArchived
+                if hideArchived {
+                    // Signed in through a provider that reports no teams.
+                    XCTAssertTrue(archivedController.reviewTeamRows.isEmpty)
+                    try renderSettings(
+                        SettingsRootView(
+                            controller: archivedController,
+                            settingsWindowState: SettingsWindowState(selection: .teams),
+                            softwareUpdateController: SoftwareUpdateController.disabled()
+                        ),
+                        to: outputURL.appendingPathComponent("settings-teams-empty.png")
+                    )
+                }
                 XCTAssertEqual(PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!).hideArchivedRepositories, hideArchived)
                 let expectedCount = hideArchived ? 1 : 2
                 XCTAssertEqual(archivedController.sortedMyPullRequests.count, expectedCount)
@@ -944,6 +956,40 @@ final class VisualVerificationXCTests: XCTestCase {
                 tabs: MenuSizeCaptures.settingsIsolationTabs,
                 outputURL: outputURL
             )
+
+            // The standard mock's teams span two organizations, so the tab draws a second header and a divider.
+            XCTAssertEqual(
+                Set(controller.reviewTeamRows.map(\.team.organization)),
+                ["billing-platform-experiments", "mergehawk-labs"]
+            )
+            try renderSettings(
+                SettingsRootView(
+                    controller: controller,
+                    settingsWindowState: SettingsWindowState(selection: .teams),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-teams-multi-org.png")
+            )
+        }
+
+        // Nested teams with a turned-off parent above a counted child, and a team no PR requests.
+        let teamsController = await MainActor.run {
+            makeScenarioController(.reviewTeams, suiteName: "\(suiteName)-teams")
+        }
+        try await waitUntil(context: "review-teams synchronization") {
+            await MainActor.run { teamsController.state.syncedAt != nil && !teamsController.isRefreshing }
+        }
+        try await MainActor.run {
+            teamsController.setReviewTeam("T_MOCK_DEVELOPERS", counting: false)
+            XCTAssertEqual(teamsController.reviewTeamRows.map(\.depth), [0, 1, 2, 0])
+            try renderSettings(
+                SettingsRootView(
+                    controller: teamsController,
+                    settingsWindowState: SettingsWindowState(selection: .teams),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-teams.png")
+            )
         }
 
         let expectedFilenames = captureSelection.expectedFilenames
@@ -993,7 +1039,7 @@ final class VisualVerificationXCTests: XCTestCase {
             id: id, title: archived ? "Archived repository PR" : "Active repository PR", number: archived ? 68 : 69,
             url: URL(string: "https://github.com/\(repo)/pull/\(archived ? 68 : 69)")!,
             repo: repo, repositoryIsArchived: archived,
-            ciState: .passing, reviewDecision: .noReviewYet,
+            ciState: .passing, reviewDecision: .reviewRequired,
             commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
             mergeable: .mergeable, draft: false,
             createdAt: visualNow.addingTimeInterval(archived ? -7200 : -86_400),
@@ -1360,6 +1406,7 @@ private enum MenuSizeCaptures {
         ("github", .github),
         ("notifications", .notifications),
         ("sources", .sources),
+        ("teams", .teams),
         ("about", .about)
     ]
     /// The GitHub tab while the device-flow sign-in is pending reuses the menu's pending sign-in view.
@@ -1458,6 +1505,9 @@ private struct VisualCaptureSelection {
         "menu-notifications-read",
         "settings-sources",
         "settings-sources-search-example",
+        "settings-teams",
+        "settings-teams-empty",
+        "settings-teams-multi-org",
     ]
 
     static let allScenarios = baseScenarios.union(MenuSizeCaptures.allScenarios)

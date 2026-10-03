@@ -89,23 +89,13 @@ enum PullRequestNotificationTitlePresentation {
             actorText(for: notification).map { "Changes requested by \($0)" } ?? "Changes requested"
         case .relationshipAdded:
             RelationshipChangeTitlePresentation.title(for: notification.relationshipChanges)
-        case .otherCommitAdded:
-            otherCommitTitle(for: notification)
+        case .readyForReview:
+            "Ready for review"
         }
     }
 
     private static func actorText(for notification: PullRequestNotification) -> String? {
         notification.actorLogin.map { "@\($0)" }
-    }
-
-    private static func otherCommitTitle(for notification: PullRequestNotification) -> String {
-        if let actor = actorText(for: notification) {
-            return "New commit by \(actor)"
-        }
-        if let count = notification.count, count > 1 {
-            return "\(count) commits by others"
-        }
-        return "New commit by someone else"
     }
 }
 
@@ -126,8 +116,8 @@ enum PullRequestNotificationIconPresentation {
             "exclamationmark.triangle"
         case .relationshipAdded:
             "person.badge.plus"
-        case .otherCommitAdded:
-            "arrow.trianglehead.branch"
+        case .readyForReview:
+            "eye"
         }
     }
 
@@ -141,7 +131,7 @@ enum PullRequestNotificationIconPresentation {
             .blue
         case .relationshipAdded:
             .purple
-        case .otherCommitAdded:
+        case .readyForReview:
             .orange
         }
     }
@@ -2016,12 +2006,7 @@ struct RequestedSectionHeading: View {
                         .frame(width: metrics.prList.sectionChevronWidth, alignment: .leading)
                     Text(section.title)
                         .font(metrics.type.sectionHeading.font)
-                    Text("\(count)")
-                        .font(metrics.type.sectionCount.font)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, metrics.prList.sectionCountHorizontalPadding)
-                        .padding(.vertical, metrics.prList.sectionCountVerticalPadding)
-                        .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
+                    CountBubble(text: "\(count)")
                     Spacer(minLength: 0)
                 }
                 .frame(height: metrics.prColumns.headerHeight)
@@ -2825,7 +2810,7 @@ struct ReviewDecisionIndicator: View {
     enum Kind: Equatable {
         case approved
         case changesRequested
-        case noReviewYet
+        case reviewRequired
         case unknown
 
         init(reviewDecision: ReviewDecision) {
@@ -2834,8 +2819,8 @@ struct ReviewDecisionIndicator: View {
                 self = .approved
             case .changesRequested:
                 self = .changesRequested
-            case .noReviewYet:
-                self = .noReviewYet
+            case .reviewRequired:
+                self = .reviewRequired
             case .unknown:
                 self = .unknown
             }
@@ -2870,7 +2855,7 @@ extension ReviewDecisionIndicator.Kind {
         switch self {
         case .approved: .positive
         case .changesRequested: .negative
-        case .noReviewYet, .unknown: .unavailable
+        case .reviewRequired, .unknown: .unavailable
         }
     }
 
@@ -2880,22 +2865,39 @@ extension ReviewDecisionIndicator.Kind {
             "Review approved"
         case .changesRequested:
             "Changes requested"
-        case .noReviewYet:
-            "No review yet"
+        case .reviewRequired:
+            "Review required"
         case .unknown:
             "Review status unknown"
         }
     }
 }
 
-private struct EmptyMenuState: View {
+/// The small capsule count used by the Requested section headings.
+struct CountBubble: View {
     let text: String
 
     @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
+        Text(text)
+            .font(metrics.type.sectionCount.font)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, metrics.prList.sectionCountHorizontalPadding)
+            .padding(.vertical, metrics.prList.sectionCountVerticalPadding)
+            .background(Color(nsColor: .quaternaryLabelColor), in: Capsule())
+    }
+}
+
+struct EmptyMenuState: View {
+    let text: String
+    var systemImage = "tray"
+
+    @Environment(\.menuMetrics) private var metrics
+
+    var body: some View {
         VStack(spacing: metrics.emptyState.spacing) {
-            Image(systemName: "tray")
+            Image(systemName: systemImage)
                 .font(metrics.type.emptyStateIcon.font)
                 .foregroundStyle(.secondary)
             Text(text)

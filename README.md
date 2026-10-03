@@ -196,7 +196,10 @@ MergeHawk signs in through a GitHub App user access token. Before validating rea
     - Issues: Read-only
     - Checks: Read-only
     - Commit statuses: Read-only
-11. Leave organization permissions empty.
+11. Use this organization permission:
+    - Members: Read-only
+
+    MergeHawk needs it to read your teams for per-team review request filtering.
 12. Register the app. No client secret is required.
 13. For local development overrides, save the credentials in `.env.local`:
 
@@ -228,7 +231,9 @@ authored, PRs assigned to you, and PRs where your review is requested directly o
 through a team. Comment settings never add PRs to that set.
 
 - **Pull request notifications** covers review decisions (approvals and changes
-  requested), failed CI, and becoming assigned or requested.
+  requested), failed CI, becoming assigned or requested, and Ready for review: a draft
+  PR you are assigned to or asked to review becoming ready for review. Ready for review
+  updates are never produced for PRs you authored.
 - **Comment notifications** chooses one mode per relationship: **All comments**,
   **Mentions & threads you joined**, or **Off**. Authored and assigned PRs default to
   All comments; direct and team review requests default to Mentions & threads you joined.
@@ -246,6 +251,8 @@ history keeps the newest 100 notifications.
 1. Create a GitHub fine-grained or classic personal access token for PR data.
 2. Grant repository access for the repositories MergeHawk should monitor.
 3. Include read permissions for metadata, pull requests, issues, and actions where applicable.
+   A fine-grained token also needs the organization permission **Members: Read-only** so
+   MergeHawk can read your teams; a classic token's `read:org` scope already covers it.
 4. Launch the app with `swift run mergehawk`.
 5. Open Settings, then the GitHub pane.
 6. Paste only the token value, for example `github_pat_...`, with no surrounding text.
@@ -273,6 +280,19 @@ Build the app:
 swift build --product mergehawk
 ```
 
+Isolated mock launches default to the Settings verification surface for unattended
+agent testing:
+
+```sh
+scripts/run-agent-app.sh --slot local --mock --open
+```
+
+The explicit `--ui settings` and `--ui menu` verification surfaces are agent testing
+aids. Human review uses `--ui native`, which starts the normal menu bar app without
+automatically opening Settings or a persistent Verification Menu. Presentation is
+independent of fixture data: all three choices keep the slot in mock mode with
+isolated app identity and suppressed macOS local notifications.
+
 Isolated mock launches support deterministic complete-refresh scenarios:
 
 ```sh
@@ -283,6 +303,7 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario quiet-access-loss -
 scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario comment-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario long-lists --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario review-teams --ui menu --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
@@ -300,7 +321,28 @@ nothing.
 The `long-lists` scenario has 20 authored and 20 review-request pull requests so the
 Authored and Requested lists overflow the menu; the first refresh adds a comment to
 each, which fills the Notifications list past its visible height.
+The `review-teams` scenario has nested teams (`engineering` → `developers` →
+`plm-team`, with the viewer directly in `plm-team`) and pull requests requesting
+each of them, a team the viewer is not in, and combinations. Turn teams off in
+Settings › Teams to see the Requested tab change; the first refresh adds
+`plm-team` to the pull request that only requested `developers`.
 
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL
 immutable while the default first launch remains the `app` stage.
+
+For human review of the same verified source and bundle, reuse the printed run
+directory and slot with a native review stage. Preserve the recorded
+`--mock-scenario` and replay `--notification-type-fixtures` when the packaged
+verified bundle used it. For example, a run verified with the `long-lists`
+scenario and notification type fixtures uses this matching handoff:
+
+```sh
+scripts/run-agent-app.sh --slot local --run-dir "$RUN_DIR" --stage app-review --ui native --mock --mock-scenario long-lists --notification-type-fixtures --open
+```
+
+This replaces the slot's running process while preserving its packaged app and
+prior verification evidence. Record the exact review stage name for validation;
+use an unused suffix such as `app-review-2` for another same-source launch. Source
+changes require a fresh verification run. Open Settings from the native menu or
+with Command-comma; explicit Settings actions bring its shared window forward.
