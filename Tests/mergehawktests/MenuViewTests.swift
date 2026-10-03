@@ -79,99 +79,138 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(dismissCount, 4)
     }
 
-    func testDefaultPanelSizeUsesPreferredWidthAndFitsUsableScreen() {
-        let metrics = MenuMetrics.standard
-        let large = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000), menuSize: .standard)
-        XCTAssertEqual(large.size, CGSize(width: 820, height: 765))
-        XCTAssertEqual(large.metrics, metrics)
+    // Real usable frames (NSScreen.visibleFrame, Dock hidden or at the bottom unless stated).
+    /// MacBook Pro 14" in the "Larger Text" display mode (1024 × 665 screen).
+    static let largerTextFrame = CGRect(x: 0, y: 0, width: 1024, height: 632)
+    /// MacBook Air 13" M1 / MacBook Pro 13" default (1440 × 900 screen).
+    static let macBookAir13Frame = CGRect(x: 0, y: 0, width: 1440, height: 876)
+    /// MacBook Pro 14" default (measured).
+    static let macBookPro14Frame = CGRect(x: 0, y: 0, width: 1512, height: 949)
+    /// MacBook Pro 16" default (1728 × 1117 screen).
+    static let macBookPro16Frame = CGRect(x: 0, y: 0, width: 1728, height: 1084)
+    /// 1080p external display with the Dock at the bottom.
+    static let external1080pFrame = CGRect(x: 0, y: 0, width: 1920, height: 985)
+    /// 4K external display at "looks like 2560 × 1440" (measured).
+    static let external2560Frame = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    /// MacBook Pro 14" (1512 pt) with the Dock on the left.
+    static let sideDockFrame = CGRect(x: 64, y: 0, width: 1448, height: 949)
 
-        let laptopUsableFrame = CGRect(x: 0, y: 28, width: 1280, height: 740)
-        let laptop = MenuPanelSize.resolve(availableFrame: laptopUsableFrame, menuSize: .standard).size
-        XCTAssertEqual(laptop.width, 820)
-        XCTAssertLessThan(laptop.height, metrics.panelHeight)
-        XCTAssertLessThanOrEqual(laptop.height + MenuPanelSize.margin * 2, laptopUsableFrame.height)
-        XCTAssertGreaterThan(laptop.height, metrics.footer.height + metrics.topBar.height)
+    private static let realFrames = [
+        largerTextFrame, macBookAir13Frame, macBookPro14Frame, macBookPro16Frame,
+        external1080pFrame, external2560Frame, sideDockFrame
+    ]
+
+    func testWidthBudgetIsSixtyPercentOfTheUsableWidthRoundedDown() {
+        XCTAssertEqual(MenuPanelSize.widthBudget(for: Self.macBookPro14Frame), 907)
+        XCTAssertEqual(MenuPanelSize.widthBudget(for: Self.external2560Frame), 1536)
+        XCTAssertEqual(MenuPanelSize.widthBudget(for: Self.macBookAir13Frame), 864)
+        XCTAssertEqual(MenuPanelSize.widthBudget(for: Self.largerTextFrame), 614)
     }
 
-    func testEachMenuSizeGetsItsOwnFactorWhenTheScreenIsWideEnough() {
-        let frame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
-        for size in MenuSize.allCases {
-            XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: size).metrics.scale, size.factor, "\(size)")
+    func testEachSizeKeepsItsFactorFromItsThresholdOn() {
+        // (size, usable widths below / at / above the threshold, budgets, factors)
+        let cases: [(MenuSize, [CGFloat], [CGFloat], [CGFloat])] = [
+            (.small, [1161, 1162, 1163], [696, 697, 697], [696.0 / 820, 0.85, 0.85]),
+            (.standard, [1366, 1367, 1368], [819, 820, 820], [819.0 / 820, 1, 1]),
+            (.large, [1571, 1572, 1573], [942, 943, 943], [942.0 / 820, 1.15, 1.15]),
+            (.larger, [1776, 1777, 1778], [1065, 1066, 1066], [1065.0 / 820, 1.3, 1.3])
+        ]
+        for (size, widths, budgets, factors) in cases {
+            for index in widths.indices {
+                let frame = CGRect(x: 0, y: 0, width: widths[index], height: 1410)
+                let label = "\(size) on \(widths[index])"
+                XCTAssertEqual(MenuPanelSize.widthBudget(for: frame), budgets[index], label)
+                let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size)
+                XCTAssertEqual(resolved.metrics.scale, factors[index], accuracy: 1e-9, label)
+                XCTAssertEqual(resolved.size.width, budgets[index], accuracy: 1e-9, label)
+            }
         }
-        XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: .large).size.width, 943, accuracy: 1e-9)
-        XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: .larger).size.width, 1066, accuracy: 1e-9)
     }
 
-    func testEachMenuSizeResolvesToItsFullPanelSizeUnclampedAndClampsOnlyItsHeightOnAShortFrame() throws {
+    func testLargeAndLargerShareTheBudgetOnAMacBookPro14() {
+        for size in [MenuSize.large, .larger] {
+            let resolved = MenuPanelSize.resolve(availableFrame: Self.macBookPro14Frame, menuSize: size)
+            XCTAssertEqual(resolved.metrics.scale, 907.0 / 820, accuracy: 1e-9, "\(size)")
+            XCTAssertEqual(resolved.size.width, 907, "\(size)")
+        }
+        let small = MenuPanelSize.resolve(availableFrame: Self.macBookPro14Frame, menuSize: .small)
+        XCTAssertEqual(small.metrics.scale, 0.85)
+        XCTAssertEqual(small.size.width, 697, accuracy: 1e-9)
+        XCTAssertEqual(small.size.height, 650.4, accuracy: 1e-9)
+        let standard = MenuPanelSize.resolve(availableFrame: Self.macBookPro14Frame, menuSize: .standard)
+        XCTAssertEqual(standard.metrics, .standard)
+        XCTAssertEqual(standard.size, CGSize(width: 820, height: 765))
+    }
+
+    func testLargeAndLargerShrinkOnAMacBookAir13() {
+        for size in [MenuSize.large, .larger] {
+            let resolved = MenuPanelSize.resolve(availableFrame: Self.macBookAir13Frame, menuSize: size)
+            XCTAssertEqual(resolved.metrics.scale, 864.0 / 820, accuracy: 1e-9, "\(size)")
+            XCTAssertEqual(resolved.size.width, 864, "\(size)")
+        }
+    }
+
+    func testEverySizeShrinksToTheBudgetInLargerTextMode() {
+        for size in MenuSize.allCases {
+            let resolved = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
+            XCTAssertEqual(resolved.metrics.scale, 614.0 / 820, accuracy: 1e-9, "\(size)")
+            XCTAssertEqual(resolved.size.width, 614, accuracy: 1e-9, "\(size)")
+            // 1 + 764 × 614 / 820, below the 608 pt height limit.
+            XCTAssertEqual(resolved.size.height, 573.0682926829269, accuracy: 1e-9, "\(size)")
+        }
+    }
+
+    func testOnlyLargerShrinksOnAMacBookPro16() {
+        let large = MenuPanelSize.resolve(availableFrame: Self.macBookPro16Frame, menuSize: .large)
+        XCTAssertEqual(large.metrics.scale, 1.15)
+        XCTAssertEqual(large.size.width, 943, accuracy: 1e-9)
+        let larger = MenuPanelSize.resolve(availableFrame: Self.macBookPro16Frame, menuSize: .larger)
+        XCTAssertEqual(larger.metrics.scale, 1036.0 / 820, accuracy: 1e-9)
+        XCTAssertEqual(larger.size.width, 1036, accuracy: 1e-9)
+    }
+
+    func testLargerKeepsItsWidthAndClampsItsHeightOnA1080pDisplay() {
+        let larger = MenuPanelSize.resolve(availableFrame: Self.external1080pFrame, menuSize: .larger)
+        XCTAssertEqual(larger.metrics.scale, 1.3)
+        XCTAssertEqual(larger.size.width, 1066, accuracy: 1e-9)
+        XCTAssertEqual(larger.size.height, 961)
+    }
+
+    func testEachMenuSizeKeepsItsFullPanelSizeOnA2560Display() throws {
         // Panel at factor f: width 820f, height 650f + footer (1 + 114f) = 1 + 764f.
-        let expectedUnclamped: [MenuSize: CGSize] = [
+        let expected: [MenuSize: CGSize] = [
             .small: CGSize(width: 697, height: 650.4),
             .standard: CGSize(width: 820, height: 765),
             .large: CGSize(width: 943, height: 879.6),
             .larger: CGSize(width: 1066, height: 994.2)
         ]
-        let roomy = CGRect(x: 0, y: 0, width: 2000, height: 1200)
-        let short = CGRect(x: 0, y: 0, width: 1600, height: 600)
         for size in MenuSize.allCases {
-            let expected = try XCTUnwrap(expectedUnclamped[size])
-            let unclamped = MenuPanelSize.resolve(availableFrame: roomy, menuSize: size).size
-            XCTAssertEqual(unclamped.width, expected.width, accuracy: 1e-9, "\(size)")
-            XCTAssertEqual(unclamped.height, expected.height, accuracy: 1e-9, "\(size)")
-
-            let clamped = MenuPanelSize.resolve(availableFrame: short, menuSize: size)
-            XCTAssertEqual(clamped.metrics.scale, size.factor, "\(size)")
-            XCTAssertEqual(clamped.size.width, expected.width, accuracy: 1e-9, "\(size)")
-            XCTAssertEqual(clamped.size.height, 576, "\(size)")
+            let full = try XCTUnwrap(expected[size])
+            let resolved = MenuPanelSize.resolve(availableFrame: Self.external2560Frame, menuSize: size)
+            XCTAssertEqual(resolved.metrics.scale, size.factor, "\(size)")
+            XCTAssertEqual(resolved.size.width, full.width, accuracy: 1e-9, "\(size)")
+            XCTAssertEqual(resolved.size.height, full.height, accuracy: 1e-9, "\(size)")
         }
     }
 
-    func testLargerFitsTheLaptopWidthAndClampsItsHeight() {
-        let larger = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 1470, height: 919), menuSize: .larger)
-        XCTAssertEqual(larger.metrics.scale, 1.3)
-        XCTAssertEqual(larger.size.width, 1066, accuracy: 1e-9)
-        XCTAssertEqual(larger.size.height, 895)
+    func testASideDockLimitsTheBudgetToTheUsableWidth() {
+        XCTAssertEqual(MenuPanelSize.widthBudget(for: Self.sideDockFrame), 868)
+        let larger = MenuPanelSize.resolve(availableFrame: Self.sideDockFrame, menuSize: .larger)
+        XCTAssertEqual(larger.metrics.scale, 868.0 / 820, accuracy: 1e-9)
+        XCTAssertEqual(larger.size.width, 868)
     }
 
-    func testLargerShrinksToTheFactorThatFitsTheUsableWidth() {
-        let larger = MenuPanelSize.resolve(availableFrame: CGRect(x: 0, y: 0, width: 900, height: 919), menuSize: .larger)
-        XCTAssertEqual(larger.metrics.scale, (900 - 24) / 820)
-        XCTAssertEqual(larger.size.width, 876)
-    }
-
-    func testLargeAndLargerNeverGoBelowDefaultOnNarrowScreens() {
-        let frame = CGRect(x: 0, y: 0, width: 760, height: 600)
-        let standard = MenuPanelSize.resolve(availableFrame: frame, menuSize: .standard)
-        XCTAssertEqual(standard.size, CGSize(width: 736, height: 576))
-        for size in [MenuSize.large, .larger] {
-            let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size)
-            XCTAssertEqual(resolved.metrics.scale, 1, "\(size)")
-            XCTAssertEqual(resolved.size, standard.size, "\(size)")
-        }
-    }
-
-    func testSmallKeepsItsFactorOnEveryFrame() {
-        for frame in Self.panelSizeFrames {
-            XCTAssertEqual(MenuPanelSize.resolve(availableFrame: frame, menuSize: .small).metrics.scale, 0.85, "\(frame)")
-        }
-    }
-
-    func testResolvedSizeNeverExceedsTheFrameMinusMargins() {
-        for frame in Self.panelSizeFrames {
+    func testResolvedSizeNeverExceedsTheMenuWidthLimitOrTheUsableHeight() {
+        for frame in Self.realFrames {
             for size in MenuSize.allCases {
                 let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size).size
-                XCTAssertLessThanOrEqual(resolved.width, frame.width - 2 * MenuPanelSize.margin, "\(size) on \(frame)")
-                XCTAssertLessThanOrEqual(resolved.height, frame.height - 2 * MenuPanelSize.margin, "\(size) on \(frame)")
+                let label = "\(size) on \(frame)"
+                XCTAssertLessThanOrEqual(resolved.width, (frame.width * 0.6).rounded(.down), label)
+                XCTAssertLessThanOrEqual(resolved.width, frame.width - 24, label)
+                XCTAssertLessThanOrEqual(resolved.height, frame.height - 24, label)
             }
         }
     }
-
-    private static let panelSizeFrames = [
-        CGRect(x: 0, y: 0, width: 1600, height: 1000),
-        CGRect(x: 0, y: 0, width: 1470, height: 919),
-        CGRect(x: 0, y: 28, width: 1280, height: 740),
-        CGRect(x: 0, y: 0, width: 900, height: 919),
-        CGRect(x: 0, y: 0, width: 760, height: 600)
-    ]
 
     @MainActor
     func testNativeHostAndRootUseTheSameResolvedSize() throws {
@@ -181,15 +220,16 @@ final class MenuViewTests: XCTestCase {
             automaticRefreshInterval: 0
         )
         let statusBarController = StatusBarController(controller: controller)
-        let frame = CGRect(x: 0, y: 28, width: 1280, height: 740)
-        for size in MenuSize.allCases {
-            controller.menuSize = size
-            let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
-            let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size)
-            XCTAssertEqual(hosted.frame.size, resolved.size, "\(size)")
-            XCTAssertEqual(hosted.rootView.resolvedSize, resolved.size, "\(size)")
-            XCTAssertEqual(hosted.rootView.metrics, resolved.metrics, "\(size)")
-            XCTAssertEqual(hosted.rootView.metrics.scale, size.factor, "\(size)")
+        for frame in [Self.macBookPro14Frame, Self.largerTextFrame] {
+            for size in MenuSize.allCases {
+                controller.menuSize = size
+                let label = "\(size) on \(frame.size)"
+                let hosted = try XCTUnwrap(statusBarController.makeMenuContentView(availableFrame: frame) as? MenuRootHostingView)
+                let resolved = MenuPanelSize.resolve(availableFrame: frame, menuSize: size)
+                XCTAssertEqual(hosted.frame.size, resolved.size, label)
+                XCTAssertEqual(hosted.rootView.resolvedSize, resolved.size, label)
+                XCTAssertEqual(hosted.rootView.metrics, resolved.metrics, label)
+            }
         }
     }
 
@@ -201,16 +241,17 @@ final class MenuViewTests: XCTestCase {
             automaticRefreshInterval: 0
         )
         let statusBarController = StatusBarController(controller: controller)
-        let built = try XCTUnwrap(statusBarController.rebuildMenuForTesting().first?.view as? MenuRootHostingView)
+        // Every size keeps its own factor on this frame, so Small and Default differ.
+        let frame = Self.external2560Frame
+        let built = try XCTUnwrap(statusBarController.rebuildMenuForTesting(availableFrame: frame).first?.view as? MenuRootHostingView)
         let builtSize = built.frame.size
         XCTAssertEqual(built.rootView.metrics, .standard)
 
-        // Small applies its own factor on every screen, so the rebuilt host is predictable here.
         controller.menuSize = .small
 
         XCTAssertEqual(built.frame.size, builtSize)
         XCTAssertEqual(built.rootView.metrics, .standard)
-        let rebuilt = try XCTUnwrap(statusBarController.rebuildMenuForTesting().first?.view as? MenuRootHostingView)
+        let rebuilt = try XCTUnwrap(statusBarController.rebuildMenuForTesting(availableFrame: frame).first?.view as? MenuRootHostingView)
         XCTAssertEqual(rebuilt.rootView.metrics, MenuMetrics(scale: MenuSize.small.factor))
         XCTAssertEqual(rebuilt.frame.size, rebuilt.rootView.resolvedSize)
         XCTAssertNotEqual(rebuilt.frame.size, builtSize)
@@ -552,11 +593,7 @@ final class MenuViewTests: XCTestCase {
         waitUntil(timeout: 1.0) { !controller.visiblePullRequestNotifications.isEmpty && !controller.isRefreshing }
 
         let statusBarController = StatusBarController(controller: controller)
-        let frames = [
-            CGRect(x: 0, y: 0, width: 1470, height: 919),
-            CGRect(x: 0, y: 0, width: 900, height: 919),
-            CGRect(x: 0, y: 0, width: 760, height: 600)
-        ]
+        let frames = [Self.largerTextFrame, Self.macBookPro14Frame, Self.external2560Frame]
         for size in MenuSize.allCases {
             controller.menuSize = size
             for frame in frames {
