@@ -194,6 +194,42 @@ struct GitHubOrganizationViewerTeamsPayload: Decodable, Equatable, Sendable {
     }
 }
 
+struct GitHubPayloadStackEntry: Decodable, Equatable, Sendable {
+    let position: Int
+    /// Nil when GitHub can't return the PR at this position, for example after a deletion.
+    let pullRequest: PullRequest?
+
+    struct PullRequest: Decodable, Equatable, Sendable {
+        let id: String
+        let number: Int
+        let title: String
+        let url: URL
+        let state: String
+        let isDraft: Bool
+        let author: GitHubPayloadUser?
+    }
+}
+
+struct GitHubPayloadStackEntryConnection: Decodable, Equatable, Sendable {
+    let totalCount: Int
+    let pageInfo: GitHubForwardPageInfo
+    let nodes: [GitHubPayloadStackEntry]
+}
+
+struct GitHubPayloadStack: Decodable, Equatable, Sendable {
+    let id: String
+    let size: Int
+    let entries: GitHubPayloadStackEntryConnection
+}
+
+struct GitHubStackEntriesPayload: Decodable, Equatable, Sendable {
+    let node: Node?
+
+    struct Node: Decodable, Equatable, Sendable {
+        let entries: GitHubPayloadStackEntryConnection
+    }
+}
+
 /// Reads only the errors of a GraphQL response, so they are classified before the data shape is checked.
 struct GitHubGraphQLErrorEnvelope: Decodable {
     let errors: [GitHubGraphQLErrorPayload]?

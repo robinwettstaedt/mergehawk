@@ -170,6 +170,42 @@ enum GitHubPullRequestQueries {
       }
     """
 
+    static let stackEntriesPageSize = 100
+    static let stackBatchSize = 20
+
+    /// Entries keep their PR summary only; members MergeHawk doesn't otherwise discover get no full read.
+    static let stackEntryConnectionFields = """
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        position
+        pullRequest { id number title url state isDraft author { login avatarUrl(size: 64) } }
+      }
+    """
+
+    static let pullRequestStacks = """
+      query PullRequestStacks($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on PullRequestStack {
+            id
+            size
+            entries(first: \(stackEntriesPageSize)) { \(stackEntryConnectionFields) }
+          }
+        }
+      }
+    """
+
+    /// Only used for a stack whose entries in `pullRequestStacks` have more pages.
+    static let pullRequestStackEntries = """
+      query PullRequestStackEntries($id: ID!, $cursor: String!) {
+        node(id: $id) {
+          ... on PullRequestStack {
+            entries(first: \(stackEntriesPageSize), after: $cursor) { \(stackEntryConnectionFields) }
+          }
+        }
+      }
+    """
+
     static let searchPage = """
       query SearchPullRequests($query: String!, $cursor: String) {
         search(query: $query, type: ISSUE, first: 100, after: $cursor) {

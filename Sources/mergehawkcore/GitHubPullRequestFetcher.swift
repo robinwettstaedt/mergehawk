@@ -1184,6 +1184,95 @@ struct GitHubPullRequestFetcher: Sendable {
         }
     }
 
+    /// Reads each stack once with every page of its entries. A stack that went away since hydration is dropped,
+    /// so its PRs keep standalone cards.
+    func fetchStacks(ids: [String]) async throws -> [PullRequestStack] {
+        var stacks: [PullRequestStack] = []
+        for start in stride(from: 0, to: ids.count, by: GitHubPullRequestQueries.stackBatchSize) {
+            let chunk = Array(ids[start..<min(start + GitHubPullRequestQueries.stackBatchSize, ids.count)])
+            let data = try await read(GitHubPullRequestQueries.pullRequestStacks, ["ids": .strings(chunk)])
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw GitHubReadError.invalidPayload
+            }
+            let errors = try decodeErrors(object["errors"])
+            guard let dataObject = object["data"] as? [String: Any],
+                  let nodes = dataObject["nodes"] as? [Any],
+                  nodes.count == chunk.count else {
+                try validate(errors: errors)
+                throw GitHubReadError.invalidPayload
+            }
+            var goneIndices = Set<Int>()
+            let remainingErrors = errors.filter { error in
+                guard error.type?.uppercased() == "NOT_FOUND",
+                      let path = error.path, path.count == 2, path[0] == .field("nodes"),
+                      case .index(let index) = path[1],
+                      nodes.indices.contains(index), nodes[index] is NSNull else { return true }
+                goneIndices.insert(index)
+                return false
+            }
+            try validate(errors: remainingErrors)
+            for (index, node) in nodes.enumerated() {
+                if node is NSNull {
+                    guard goneIndices.contains(index) else { throw GitHubReadError.invalidPayload }
+                    continue
+                }
+                guard let payload = try? decoder.decode(
+                    GitHubPayloadStack.self,
+                    from: JSONSerialization.data(withJSONObject: node)
+                ), payload.id == chunk[index] else { throw GitHubReadError.invalidPayload }
+                stacks.append(try await completeStack(payload))
+            }
+        }
+        return stacks
+    }
+
+    private func completeStack(_ payload: GitHubPayloadStack) async throws -> PullRequestStack {
+        var connection = payload.entries
+        var rawEntries = connection.nodes
+        var seenCursors = Set<String>()
+        while connection.pageInfo.hasNextPage {
+            guard let cursor = connection.pageInfo.endCursor else { throw GitHubReadError.invalidPayload }
+            guard seenCursors.insert(cursor).inserted else {
+                throw GitHubReadError.incompleteCoverage("Repeated stack entries cursor")
+            }
+            let page = try await readValidated(
+                GitHubStackEntriesPayload.self,
+                query: GitHubPullRequestQueries.pullRequestStackEntries,
+                variables: ["id": .string(payload.id), "cursor": .string(cursor)]
+            )
+            guard let node = page.node else { throw GitHubReadError.invalidPayload }
+            connection = node.entries
+            rawEntries += connection.nodes
+        }
+        guard rawEntries.count == payload.entries.totalCount else {
+            throw GitHubReadError.incompleteCoverage("Incomplete entries of stack \(payload.id)")
+        }
+        return PullRequestStack(
+            id: payload.id,
+            size: payload.size,
+            entries: try rawEntries.compactMap { entry in
+                guard let pullRequest = entry.pullRequest else { return nil }
+                let state: PullRequestStackEntry.State = switch pullRequest.state {
+                case "OPEN": .open
+                case "MERGED": .merged
+                case "CLOSED": .closed
+                default: throw GitHubReadError.invalidPayload
+                }
+                return PullRequestStackEntry(
+                    position: entry.position,
+                    pullRequestID: pullRequest.id,
+                    number: pullRequest.number,
+                    title: pullRequest.title,
+                    url: pullRequest.url,
+                    state: state,
+                    isDraft: pullRequest.isDraft,
+                    author: pullRequest.author?.login ?? "unknown",
+                    authorAvatarURL: pullRequest.author?.avatarUrl
+                )
+            }
+        )
+    }
+
     private func readValidated<Payload: Decodable>(
         _ type: Payload.Type,
         query: String,
