@@ -989,7 +989,8 @@ final class VisualVerificationXCTests: XCTestCase {
             )
         }
 
-        // Nested teams with a turned-off parent above a counted child, and a team no PR requests.
+        // Nested teams with a turned-off parent above a counted child, a team no PR requests, and two more
+        // organizations with sibling and deep nesting, so the list scrolls.
         let teamsController = await MainActor.run {
             makeScenarioController(.reviewTeams, suiteName: "\(suiteName)-teams")
         }
@@ -998,7 +999,19 @@ final class VisualVerificationXCTests: XCTestCase {
         }
         try await MainActor.run {
             teamsController.setReviewTeam("T_MOCK_DEVELOPERS", counting: false)
-            XCTAssertEqual(teamsController.reviewTeamRows.map(\.depth), [0, 1, 2, 0])
+            let depthsByOrganization = Dictionary(grouping: teamsController.reviewTeamRows, by: \.team.organization)
+                .mapValues { $0.map(\.depth) }
+            XCTAssertEqual(depthsByOrganization, [
+                "mergehawk-labs": [0, 1, 2, 0],
+                "northwind-apps": [0, 1, 1, 1, 0, 1],
+                "zenith-infra": [0, 1, 1, 2, 3],
+            ])
+            XCTAssertEqual(
+                teamsController.reviewTeamRows.map(\.team.organization).reduce(into: [String]()) {
+                    if $0.last != $1 { $0.append($1) }
+                },
+                ["mergehawk-labs", "northwind-apps", "zenith-infra"]
+            )
             try renderSettings(
                 SettingsRootView(
                     controller: teamsController,

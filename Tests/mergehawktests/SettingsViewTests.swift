@@ -298,7 +298,7 @@ final class SettingsViewTests: XCTestCase {
         ) else {
             return XCTFail("Expected team rows")
         }
-        XCTAssertEqual(groups.map(\.organization), ["mergehawk-labs"])
+        XCTAssertEqual(groups.map(\.organization), ["mergehawk-labs", "northwind-apps", "zenith-infra"])
         XCTAssertEqual(groups[0].rows.map(\.team.displayName), [
             "@mergehawk-labs/engineering", "@mergehawk-labs/developers", "@mergehawk-labs/plm-team",
             "@mergehawk-labs/secret-squad"
@@ -310,6 +310,12 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertTrue(groups[0].rows.allSatisfy(\.isCounting))
         // Mock teams have no avatar URLs, so the Teams tab shows placeholders and never loads images.
         XCTAssertTrue(groups[0].rows.allSatisfy { $0.avatarURL == nil && $0.organizationAvatarURL == nil })
+        // The other organizations show siblings at one depth and nesting three levels below a root.
+        XCTAssertEqual(groups[1].rows.map(\.team.slug), ["frontend", "design-system", "mobile", "web", "qa", "release-checks"])
+        XCTAssertEqual(groups[1].rows.map(\.depth), [0, 1, 1, 1, 0, 1])
+        XCTAssertEqual(groups[2].rows.map(\.team.slug), ["platform", "observability", "runtime", "scheduler", "queue-workers"])
+        XCTAssertEqual(groups[2].rows.map(\.depth), [0, 1, 1, 2, 3])
+        XCTAssertTrue(groups[1...].flatMap(\.rows).allSatisfy { $0.isCounting && $0.pullRequestCount == 0 })
 
         let acme = TeamReference(id: "T_ACME", organization: "acme", slug: "reviewers")
         let zeta = TeamReference(id: "T_ZETA", organization: "zeta", slug: "ops")
@@ -462,7 +468,9 @@ final class SettingsViewTests: XCTestCase {
         defer { host.close() }
         let developersSwitch = "Show review requests from @mergehawk-labs/developers"
         func counting() -> [String: Bool] {
-            Dictionary(uniqueKeysWithValues: controller.reviewTeamRows.map { ($0.team.slug, $0.isCounting) })
+            Dictionary(uniqueKeysWithValues: controller.reviewTeamRows
+                .filter { $0.team.organization == "mergehawk-labs" }
+                .map { ($0.team.slug, $0.isCounting) })
         }
         XCTAssertEqual(counting(), ["engineering": true, "developers": true, "plm-team": true, "secret-squad": true])
 

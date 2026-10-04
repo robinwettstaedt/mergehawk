@@ -428,13 +428,43 @@ public final class MockPullRequestSource {
     static let plmTeam = TeamReference(id: "T_MOCK_PLM", organization: "mergehawk-labs", slug: "plm-team")
     static let secretSquadTeam = TeamReference(id: "T_MOCK_SECRET_SQUAD", organization: "mergehawk-labs", slug: "secret-squad")
     static let securityTeam = TeamReference(id: "T_MOCK_SECURITY", organization: "mergehawk-labs", slug: "security")
-    /// `engineering` -> `developers` -> `plm-team`, with the viewer directly in `plm-team` and a secret team.
+    /// `engineering` -> `developers` -> `plm-team`, with the viewer directly in `plm-team` and a secret team,
+    /// then two organizations no PR requests, for sibling and deep nesting in the Teams settings pane.
     static let reviewTeamViewerTeams = [
         ViewerTeam(team: developersTeam, parentTeamID: engineeringTeam.id),
         ViewerTeam(team: engineeringTeam),
         ViewerTeam(team: plmTeam, parentTeamID: developersTeam.id),
         ViewerTeam(team: secretSquadTeam)
-    ]
+    ] + northwindAppsViewerTeams + zenithInfraViewerTeams
+
+    /// One level of nesting with several siblings: `frontend` with three children, and `qa` with one.
+    static let northwindAppsViewerTeams: [ViewerTeam] = {
+        func team(_ slug: String, _ id: String, parent: String? = nil) -> ViewerTeam {
+            ViewerTeam(team: TeamReference(id: id, organization: "northwind-apps", slug: slug), parentTeamID: parent)
+        }
+        return [
+            team("frontend", "T_MOCK_NW_FRONTEND"),
+            team("design-system", "T_MOCK_NW_DESIGN_SYSTEM", parent: "T_MOCK_NW_FRONTEND"),
+            team("mobile", "T_MOCK_NW_MOBILE", parent: "T_MOCK_NW_FRONTEND"),
+            team("web", "T_MOCK_NW_WEB", parent: "T_MOCK_NW_FRONTEND"),
+            team("qa", "T_MOCK_NW_QA"),
+            team("release-checks", "T_MOCK_NW_RELEASE_CHECKS", parent: "T_MOCK_NW_QA"),
+        ]
+    }()
+
+    /// Deep nesting: `platform` -> `runtime` -> `scheduler` -> `queue-workers`, and `observability` under `platform`.
+    static let zenithInfraViewerTeams: [ViewerTeam] = {
+        func team(_ slug: String, _ id: String, parent: String? = nil) -> ViewerTeam {
+            ViewerTeam(team: TeamReference(id: id, organization: "zenith-infra", slug: slug), parentTeamID: parent)
+        }
+        return [
+            team("platform", "T_MOCK_ZI_PLATFORM"),
+            team("runtime", "T_MOCK_ZI_RUNTIME", parent: "T_MOCK_ZI_PLATFORM"),
+            team("scheduler", "T_MOCK_ZI_SCHEDULER", parent: "T_MOCK_ZI_RUNTIME"),
+            team("queue-workers", "T_MOCK_ZI_QUEUE_WORKERS", parent: "T_MOCK_ZI_SCHEDULER"),
+            team("observability", "T_MOCK_ZI_OBSERVABILITY", parent: "T_MOCK_ZI_PLATFORM"),
+        ]
+    }()
 
     /// Stage 0 has pull requests requesting each nested team, a team the viewer is not in, and combinations.
     /// Stage 1 adds `plm-team` to the `developers`-only pull request. Later refreshes repeat stage 1.
