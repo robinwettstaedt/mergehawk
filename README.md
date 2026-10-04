@@ -10,7 +10,7 @@ Shared project terminology lives in [docs/glossary.md](docs/glossary.md).
 - `LSUIElement`-style accessory behavior at runtime with no Dock presence.
 - Native `NSStatusItem` menu populated with SwiftUI-hosted dashboard rows.
 - Compact menu tabs for `Notifications`, `My PRs`, and `Requested`.
-- SwiftUI Settings window with General, GitHub, Notifications, and Sources panes.
+- SwiftUI Settings window with General, Auth, Notifications, Sources, Teams, and About panes.
 - First-sync silent baseline behavior.
 - Event detection for new comments, review decisions, failed CI, and newly added mentions.
 - Notification preferences for in-menu and macOS notifications, including per-relationship
@@ -254,7 +254,7 @@ history keeps the newest 100 notifications.
    A fine-grained token also needs the organization permission **Members: Read-only** so
    MergeHawk can read your teams; a classic token's `read:org` scope already covers it.
 4. Launch the app with `swift run mergehawk`.
-5. Open Settings, then the GitHub pane.
+5. Open Settings, then the Auth pane.
 6. Paste only the token value, for example `github_pat_...`, with no surrounding text.
 7. Click **Connect with token**.
 

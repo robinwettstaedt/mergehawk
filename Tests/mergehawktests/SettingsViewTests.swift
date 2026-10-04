@@ -9,6 +9,11 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(GeneralMenuSizeCopy.reductionNote, "The menu may be reduced to fit smaller displays.")
     }
 
+    func testGeneralFooterShortcutHintEndsAtTheLastSettingsTab() {
+        XCTAssertEqual(GeneralShortcutHintCopy.lastTabShortcut, "⌘6")
+        XCTAssertEqual(GeneralShortcutHintCopy.lastTabShortcut, "⌘\(SettingsTab.allCases.count)")
+    }
+
     func testSourceCatalogSearchTrimsAndMatchesOwnerRepositoryOrCombinedName() {
         let catalog = makeCatalog()
 
@@ -30,6 +35,11 @@ final class SettingsViewTests: XCTestCase {
             sourceCatalogEntries(SourceCatalogSearch.filteredCatalog(catalog, query: "acme/web")),
             ["acme/website"]
         )
+    }
+
+    func testSourcesSignedOutStateExplainsWhatSigningInEnables() {
+        XCTAssertEqual(SourceSettingsCopy.signedOutHeadline, "Sign in to see your sources")
+        XCTAssertEqual(SourceSettingsCopy.signedOutDetail, "Then choose which repositories MergeHawk watches.")
     }
 
     func testSourceCatalogSearchReportsEmptyResultsAndCountsFilteredSources() {
@@ -288,7 +298,7 @@ final class SettingsViewTests: XCTestCase {
         ) else {
             return XCTFail("Expected team rows")
         }
-        XCTAssertEqual(groups.map(\.organization), ["mergehawk-labs"])
+        XCTAssertEqual(groups.map(\.organization), ["mergehawk-labs", "northwind-apps", "zenith-infra"])
         XCTAssertEqual(groups[0].rows.map(\.team.displayName), [
             "@mergehawk-labs/engineering", "@mergehawk-labs/developers", "@mergehawk-labs/plm-team",
             "@mergehawk-labs/secret-squad"
@@ -300,6 +310,12 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertTrue(groups[0].rows.allSatisfy(\.isCounting))
         // Mock teams have no avatar URLs, so the Teams tab shows placeholders and never loads images.
         XCTAssertTrue(groups[0].rows.allSatisfy { $0.avatarURL == nil && $0.organizationAvatarURL == nil })
+        // The other organizations show siblings at one depth and nesting three levels below a root.
+        XCTAssertEqual(groups[1].rows.map(\.team.slug), ["frontend", "design-system", "mobile", "web", "qa", "release-checks"])
+        XCTAssertEqual(groups[1].rows.map(\.depth), [0, 1, 1, 1, 0, 1])
+        XCTAssertEqual(groups[2].rows.map(\.team.slug), ["platform", "observability", "runtime", "scheduler", "queue-workers"])
+        XCTAssertEqual(groups[2].rows.map(\.depth), [0, 1, 1, 2, 3])
+        XCTAssertTrue(groups[1...].flatMap(\.rows).allSatisfy { $0.isCounting && $0.pullRequestCount == 0 })
 
         let acme = TeamReference(id: "T_ACME", organization: "acme", slug: "reviewers")
         let zeta = TeamReference(id: "T_ZETA", organization: "zeta", slug: "ops")
@@ -324,7 +340,28 @@ final class SettingsViewTests: XCTestCase {
         guard case .teams(let builtGroups) = content else { return XCTFail("Expected team rows") }
         XCTAssertEqual(builtGroups.map(\.avatarURL), [nil, zetaAvatar])
         XCTAssertEqual(builtGroups[1].rows.map(\.avatarURL), [platformAvatar, nil])
-        XCTAssertEqual(ReviewTeamsSettingsPresentation.listLabel, "Show review requests from these teams:")
+    }
+
+    func testTeamsCaptionExplainsTheSwitchesWithoutSayingCount() {
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.caption,
+            "Turn off a team to hide PRs and notifications that reach you only through that team. "
+                + "Useful for broad teams that CODEOWNERS adds to every PR."
+        )
+        XCTAssertFalse(ReviewTeamsSettingsPresentation.caption.localizedCaseInsensitiveContains("count"))
+    }
+
+    func testTeamPullRequestNumberTooltipNamesTheFullTeam() {
+        let row = DashboardController.ReviewTeamRow(
+            team: TeamReference(id: "T", organization: "acme", slug: "reviewers"),
+            depth: 0,
+            isCounting: true,
+            pullRequestCount: 2
+        )
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.countHelp(for: row),
+            "PRs requesting @acme/reviewers, including ones shown for another reason"
+        )
     }
 
     @MainActor
@@ -339,6 +376,13 @@ final class SettingsViewTests: XCTestCase {
             SettingsTabLayout.tabWidth * tabCount + SettingsTabLayout.tabSpacing * (tabCount - 1),
             SettingsTab.defaultWindowSize.width - 24
         )
+    }
+
+    func testGitHubPaneIsTitledAuthAndKeepsItsSecondPosition() {
+        XCTAssertEqual(SettingsTab.github.title, "Auth")
+        // Still the second tab, so ⌘2 opens it.
+        XCTAssertEqual(SettingsTab.allCases, [.general, .github, .notifications, .sources, .teams, .about])
+        XCTAssertEqual(SettingsTab.allCases.firstIndex(of: .github).map { $0 + 1 }, 2)
     }
 
     @MainActor
@@ -373,7 +417,212 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: []), .signedOut)
         XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedOut, rows: [row]), .signedOut)
         XCTAssertEqual(ReviewTeamsSettingsPresentation.content(authStatus: .signedIn, rows: []), .noTeams)
-        XCTAssertEqual(ReviewTeamsSettingsPresentation.noTeamsText, "You're not in any GitHub teams.")
+    }
+
+    func testTeamsSignedOutStateExplainsWhatSigningInEnables() {
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.signedOutHeadline, "Sign in to see your teams")
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.signedOutDetail, "Then choose which teams' review requests show up.")
+    }
+
+    func testTeamsNoTeamsStateExplainsWhenTeamsAppear() {
+        XCTAssertEqual(ReviewTeamsSettingsPresentation.noTeamsHeadline, "No teams found")
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.noTeamsDetail,
+            "Your GitHub teams appear here after the next successful refresh."
+        )
+    }
+
+    @MainActor
+    func testSignedOutTeamsAndSourcesButtonsOpenTheAuthPane() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: nil)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertNotEqual(controller.state.authStatus, .signedIn)
+
+        for pane in [SettingsTab.teams, .sources] {
+            let (host, state) = hostSettings(controller: controller, selection: pane)
+            defer { host.close() }
+            try clickAccessibilityElement(labeled: "Open Auth settings", role: .button, in: host)
+            XCTAssertEqual(state.selection, .github, "\(pane)")
+        }
+    }
+
+    @MainActor
+    func testTeamsNotificationsLinkOpensTheNotificationsPane() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: .reviewTeams)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, state) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+
+        try clickAccessibilityElement(
+            labeled: "Set notifications for teams you haven't turned off here ›",
+            role: .button,
+            in: host
+        )
+        XCTAssertEqual(state.selection, .notifications)
+    }
+
+    @MainActor
+    func testTeamSwitchTurnsOnlyItsOwnTeamOffAndBackOn() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: .reviewTeams)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+        let developersSwitch = "Show review requests from @mergehawk-labs/developers"
+        func counting() -> [String: Bool] {
+            Dictionary(uniqueKeysWithValues: controller.reviewTeamRows
+                .filter { $0.team.organization == "mergehawk-labs" }
+                .map { ($0.team.slug, $0.isCounting) })
+        }
+        XCTAssertEqual(counting(), ["engineering": true, "developers": true, "plm-team": true, "secret-squad": true])
+
+        try clickAccessibilityElement(labeled: developersSwitch, role: .checkBox, in: host)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, ["T_MOCK_DEVELOPERS"])
+        XCTAssertEqual(counting(), ["engineering": true, "developers": false, "plm-team": true, "secret-squad": true])
+
+        try clickAccessibilityElement(labeled: developersSwitch, role: .checkBox, in: host)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, [])
+        XCTAssertEqual(counting(), ["engineering": true, "developers": true, "plm-team": true, "secret-squad": true])
+    }
+
+    @MainActor
+    func testTeamSwitchTogglesThroughItsAccessibilityPressAction() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: .reviewTeams)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+        let developersSwitch = "Show review requests from @mergehawk-labs/developers"
+
+        try pressAccessibilityElement(labeled: developersSwitch, role: .checkBox, in: host)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, ["T_MOCK_DEVELOPERS"])
+
+        try pressAccessibilityElement(labeled: developersSwitch, role: .checkBox, in: host)
+        XCTAssertEqual(controller.turnedOffReviewTeamIDs, [])
+    }
+
+    /// A controller signed in to a synced mock scenario, or signed out when `scenario` is nil.
+    @MainActor
+    private func makeSettingsController(
+        scenario: MockPullRequestScenario?
+    ) -> (DashboardController, UserDefaults, String) {
+        let suite = "settings-hosted-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: scenario.map {
+                LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: $0)
+            } ?? LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0
+        )
+        if scenario != nil {
+            let deadline = Date().addingTimeInterval(1)
+            while controller.state.syncedAt == nil || controller.isRefreshing, Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+        }
+        return (controller, defaults, suite)
+    }
+
+    @MainActor
+    private func hostSettings(
+        controller: DashboardController,
+        selection: SettingsTab
+    ) -> (OffScreenHost, SettingsWindowState) {
+        let state = SettingsWindowState(selection: selection)
+        let hostingView = NSHostingView(rootView: SettingsRootView(
+            controller: controller,
+            settingsWindowState: state,
+            softwareUpdateController: SoftwareUpdateController.disabled()
+        ))
+        hostingView.frame = CGRect(origin: .zero, size: SettingsTab.defaultWindowSize)
+        return (OffScreenHost(hostingView), state)
+    }
+
+    /// Clicks the center of the one accessibility element with this label and role, as VoiceOver sees the pane.
+    @MainActor
+    private func clickAccessibilityElement(
+        labeled label: String,
+        role: NSAccessibility.Role,
+        in host: OffScreenHost,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withAccessibilityElement(labeled: label, role: role, in: host, file: file, line: line) { element in
+            let screenFrame = element.accessibilityFrame()
+            try host.click(at: host.window.convertPoint(fromScreen: CGPoint(x: screenFrame.midX, y: screenFrame.midY)))
+        }
+    }
+
+    /// Performs the press action of the one accessibility element with this label and role, as VoiceOver does.
+    @MainActor
+    private func pressAccessibilityElement(
+        labeled label: String,
+        role: NSAccessibility.Role,
+        in host: OffScreenHost,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withAccessibilityElement(labeled: label, role: role, in: host, file: file, line: line) { element in
+            let actions = (element as AnyObject).accessibilityActionNames?() ?? []
+            XCTAssertTrue(actions.contains(.press), "\(label) actions \(actions)", file: file, line: line)
+            // SwiftUI reports a switch press as unhandled even when it toggles, so callers assert the outcome.
+            _ = (element as AnyObject).accessibilityPerformPress?()
+            host.settle()
+        }
+    }
+
+    /// Finds the one accessibility element with this label and role in the hosted pane, through the in-process
+    /// NSAccessibility protocol, so it needs no Accessibility permission. Fails instead of waiting past a short deadline.
+    @MainActor
+    private func withAccessibilityElement(
+        labeled label: String,
+        role: NSAccessibility.Role,
+        in host: OffScreenHost,
+        file: StaticString,
+        line: UInt,
+        _ body: (NSAccessibilityElementProtocol) throws -> Void
+    ) throws {
+        // SwiftUI builds its accessibility tree only once an assistive client asks for it; this in-process request
+        // needs no Accessibility permission.
+        let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhancedInterface) }
+        let root = try XCTUnwrap(host.window.contentView, file: file, line: line)
+        let deadline = Date().addingTimeInterval(2)
+        var found = accessibilityElements(labeled: label, role: role, under: root, until: deadline)
+        while found.isEmpty, Date() < deadline {
+            host.settle()
+            found = accessibilityElements(labeled: label, role: role, under: root, until: deadline)
+        }
+        guard found.count == 1, let element = found.first else {
+            return XCTFail("Expected one \(role.rawValue) labeled \(label), found \(found.count)", file: file, line: line)
+        }
+        try body(element)
+    }
+
+    /// Walks the accessibility tree breadth first, visiting each element once and stopping at the deadline or node cap.
+    @MainActor
+    private func accessibilityElements(
+        labeled label: String,
+        role: NSAccessibility.Role,
+        under root: NSView,
+        until deadline: Date
+    ) -> [NSAccessibilityElementProtocol] {
+        var queue: [AnyObject] = [root]
+        var visited: Set<ObjectIdentifier> = []
+        var matches: [NSAccessibilityElementProtocol] = []
+        var index = 0
+        while index < queue.count, visited.count < 5_000, Date() < deadline {
+            let object = queue[index]
+            index += 1
+            guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+            if object.accessibilityLabel?() == label, object.accessibilityRole?() == role,
+               let element = object as? NSAccessibilityElementProtocol {
+                matches.append(element)
+            }
+            queue += ((object.accessibilityChildren?() ?? nil) ?? []).map { $0 as AnyObject }
+        }
+        return matches
     }
 
     @MainActor
