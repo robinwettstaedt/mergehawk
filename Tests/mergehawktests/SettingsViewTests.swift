@@ -571,7 +571,8 @@ final class SettingsViewTests: XCTestCase {
         }
     }
 
-    /// Finds the one accessibility element with this label and role while the pane's accessibility tree exists.
+    /// Finds the one accessibility element with this label and role in the hosted pane, through the in-process
+    /// NSAccessibility protocol, so it needs no Accessibility permission. Fails instead of waiting past a short deadline.
     @MainActor
     private func withAccessibilityElement(
         labeled label: String,
@@ -581,22 +582,47 @@ final class SettingsViewTests: XCTestCase {
         line: UInt,
         _ body: (NSAccessibilityElementProtocol) throws -> Void
     ) throws {
-        // SwiftUI builds its accessibility tree only once an assistive client asks for it.
+        // SwiftUI builds its accessibility tree only once an assistive client asks for it; this in-process request
+        // needs no Accessibility permission.
         let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
         defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhancedInterface) }
         let root = try XCTUnwrap(host.window.contentView, file: file, line: line)
-
-        func matches(in element: Any) -> [NSAccessibilityElementProtocol] {
-            let object = element as AnyObject
-            let children = (object.accessibilityChildren?() ?? nil) ?? []
-            let own: [NSAccessibilityElementProtocol] = object.accessibilityLabel?() == label
-                && object.accessibilityRole?() == role ? [element as! NSAccessibilityElementProtocol] : []
-            return own + children.flatMap(matches(in:))
+        let deadline = Date().addingTimeInterval(2)
+        var found = accessibilityElements(labeled: label, role: role, under: root, until: deadline)
+        while found.isEmpty, Date() < deadline {
+            host.settle()
+            found = accessibilityElements(labeled: label, role: role, under: root, until: deadline)
         }
-        let found = matches(in: root)
-        XCTAssertEqual(found.count, 1, "accessibility elements labeled \(label)", file: file, line: line)
-        try body(try XCTUnwrap(found.first, file: file, line: line))
+        guard found.count == 1, let element = found.first else {
+            return XCTFail("Expected one \(role.rawValue) labeled \(label), found \(found.count)", file: file, line: line)
+        }
+        try body(element)
+    }
+
+    /// Walks the accessibility tree breadth first, visiting each element once and stopping at the deadline or node cap.
+    @MainActor
+    private func accessibilityElements(
+        labeled label: String,
+        role: NSAccessibility.Role,
+        under root: NSView,
+        until deadline: Date
+    ) -> [NSAccessibilityElementProtocol] {
+        var queue: [AnyObject] = [root]
+        var visited: Set<ObjectIdentifier> = []
+        var matches: [NSAccessibilityElementProtocol] = []
+        var index = 0
+        while index < queue.count, visited.count < 5_000, Date() < deadline {
+            let object = queue[index]
+            index += 1
+            guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+            if object.accessibilityLabel?() == label, object.accessibilityRole?() == role,
+               let element = object as? NSAccessibilityElementProtocol {
+                matches.append(element)
+            }
+            queue += ((object.accessibilityChildren?() ?? nil) ?? []).map { $0 as AnyObject }
+        }
+        return matches
     }
 
     @MainActor
