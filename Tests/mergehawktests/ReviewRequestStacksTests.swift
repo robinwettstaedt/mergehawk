@@ -111,16 +111,6 @@ final class ReviewRequestStacksTests: XCTestCase {
         XCTAssertTrue(sections.allSatisfy { $0.visible.isEmpty && $0.hidden.isEmpty && $0.count == 0 })
     }
 
-    func testSizeOneStackYieldsAStandaloneRow() {
-        let single = Self.pr("PR_SINGLE", .direct, stack: "S")
-        let stack = Self.stack("S", size: 1, [(1, single.id, .open)])
-
-        let row = Self.row(single.id, in: Self.sections([single], stacks: [stack]))
-
-        XCTAssertNotNil(row)
-        XCTAssertNil(row?.stack)
-    }
-
     func testStackWithOnlyOneReadableRequestedEntryStillFormsAGroup() throws {
         let top = Self.pr("PR_TOP", .direct, stack: "S")
         let stack = Self.stack("S", size: 3, [(3, top.id, .open)])
@@ -150,14 +140,16 @@ final class ReviewRequestStacksTests: XCTestCase {
         }
     }
 
-    func testRequestedPRWhoseEntryIsMergedOrClosedInASizeOneStackGetsNoRow() {
-        for state in [PullRequestStackEntry.State.merged, .closed] {
-            let stale = Self.pr("PR_STALE", .direct, stack: "S")
-            let stack = Self.stack("S", size: 1, [(1, stale.id, state)])
+    func testRequestedPRWhoseEntryIsMergedOrClosedInASizeOneStackKeepsItsStandaloneRow() throws {
+        for state in [PullRequestStackEntry.State.open, .merged, .closed] {
+            let single = Self.pr("PR_SINGLE", .direct, stack: "S")
+            let stack = Self.stack("S", size: 1, [(1, single.id, state)])
 
-            let sections = Self.sections([stale], stacks: [stack])
+            let stacked = Self.sections([single], stacks: [stack])
+            let unstacked = Self.sections([single], stacks: [])
 
-            XCTAssertTrue(sections.allSatisfy { $0.visible.isEmpty && $0.hidden.isEmpty && $0.count == 0 }, "\(state)")
+            XCTAssertEqual(stacked, unstacked, "\(state)")
+            XCTAssertNil(try XCTUnwrap(Self.row(single.id, in: stacked), "\(state)").stack)
         }
     }
 

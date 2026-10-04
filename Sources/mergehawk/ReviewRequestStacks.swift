@@ -100,6 +100,8 @@ enum ReviewRequestStacks {
         let matchingIDs = Set(matching.map(\.id))
         var consumedIDs = Set<String>()
         var placed: [PlacedRow] = []
+        // A stack where a PR is the only member keeps the PR's unstacked presentation, whatever its entry says.
+        let stacks = stacks.filter { $0.size > 1 }
         let stackIDByPullRequestID = memberships(of: requested, in: stacks)
 
         for stack in stacks {
@@ -108,9 +110,7 @@ enum ReviewRequestStacks {
             guard !members.isEmpty else { continue }
             // The stack read comes after hydration, so a member whose entry is merged or closed is context only.
             let openMembers = members.filter { entryByID[$0.id]?.state == .open }
-            consumedIDs.formUnion(members.filter { entryByID[$0.id]?.state != .open }.map(\.id))
-            guard stack.size > 1 else { continue }
-            consumedIDs.formUnion(openMembers.map(\.id))
+            consumedIDs.formUnion(members.map(\.id))
 
             let byPosition = openMembers.sorted { entryByID[$0.id]!.position < entryByID[$1.id]!.position }
             let matchingMembers = byPosition.filter { matchingIDs.contains($0.id) }
