@@ -115,7 +115,8 @@ struct TeamsSettingsView: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 14)
+        // No bottom padding, so the link sits as low as the install link at the bottom of Sources.
+        .padding(.top, 14)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
