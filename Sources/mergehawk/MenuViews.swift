@@ -2217,6 +2217,16 @@ struct PullRequestCardColumnAnchorsKey: PreferenceKey {
     }
 }
 
+enum PullRequestCardKeyboard {
+    static let activationKeys: Set<KeyEquivalent> = [.space, .return]
+
+    static func handle(_ key: KeyEquivalent, action: () -> Void) -> KeyPress.Result {
+        guard activationKeys.contains(key) else { return .ignored }
+        action()
+        return .handled
+    }
+}
+
 /// The card shared by every PR row and stack member card: padding, card style, hover, the optional stack
 /// position column, the avatar, the identity slot, and the fixed value and actions columns. Sharing it keeps
 /// card heights and column x-positions equal across kinds of cards.
@@ -2270,6 +2280,11 @@ struct PullRequestCardLayout<Identity: View, Actions: View>: View {
         .padding(.vertical, columns.verticalInset)
         .contentShape(Rectangle())
         .onTapGesture { action() }
+        // Keyboard users focus the card and open the PR with Space or Return, as with the button it replaced.
+        .focusable(interactions: .activate)
+        .onKeyPress(keys: PullRequestCardKeyboard.activationKeys) { press in
+            PullRequestCardKeyboard.handle(press.key, action: action)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel)

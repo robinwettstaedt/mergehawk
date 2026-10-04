@@ -939,6 +939,15 @@ final class MenuViewTests: XCTestCase {
         }
     }
 
+    func testSpaceAndReturnOnAFocusedCardOpenThePRAndOtherKeysDoNot() {
+        var opened = 0
+        XCTAssertEqual(PullRequestCardKeyboard.handle(.space) { opened += 1 }, .handled)
+        XCTAssertEqual(PullRequestCardKeyboard.handle(.return) { opened += 1 }, .handled)
+        XCTAssertEqual(PullRequestCardKeyboard.handle(KeyEquivalent("a")) { opened += 1 }, .ignored)
+        XCTAssertEqual(PullRequestCardKeyboard.handle(.tab) { opened += 1 }, .ignored)
+        XCTAssertEqual(opened, 2)
+    }
+
     @MainActor
     func testStackedCardKeepsTheUnstackedCardHeightAtEveryMenuSize() {
         for size in MenuSize.allCases {
