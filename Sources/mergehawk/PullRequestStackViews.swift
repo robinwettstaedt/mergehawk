@@ -102,6 +102,28 @@ struct StackMemberList<Card: View>: View {
                 card(member, group.position(of: member) ?? 0)
             }
         }
+        // A rail centered in the list's leading padding marks the group without moving the cards.
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: metrics.prList.stackRailWidth)
+                .alignmentGuide(.leading) { dimensions in
+                    dimensions[.leading] + (metrics.prList.horizontalPadding + metrics.prList.stackRailWidth) / 2
+                }
+                .anchorPreference(key: StackMemberRailAnchorKey.self, value: .bounds) { $0 }
+                .accessibilityHidden(true)
+        }
+        // A doubled row gap before and after separates the group from neighbouring cards.
+        .padding(.vertical, metrics.prColumns.rowSpacing)
+    }
+}
+
+/// The rail's frame, reported so tests can check that it spans the expanded group's member cards.
+struct StackMemberRailAnchorKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
     }
 }
 

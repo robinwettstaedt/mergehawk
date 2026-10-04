@@ -1114,7 +1114,8 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testExpandedMemberCardColumnsLineUpWithOrdinaryCardsAtTheReducedWidth() {
+    func testExpandedMemberCardColumnsLineUpWithOrdinaryCardsAtTheReducedWidth() throws {
+        let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
         for size in MenuSize.allCases {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
             let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
@@ -1127,6 +1128,60 @@ final class MenuViewTests: XCTestCase {
                 XCTAssertEqual(columns.map(\.minX), ordinary.map(\.minX), "\(name) at \(size)")
                 XCTAssertEqual(columns.map(\.width), ordinary.map(\.width), "\(name) at \(size)")
             }
+
+            // Inside an expanded group the same cards keep their width and every column's x-position.
+            let cards = memberCards(title: Self.longTitle, draft: true).map(\.1)
+            let list = StackMemberList(group: group) { _, position in cards[(position - 1) % cards.count] }
+            let expanded = measure(list, width: width, metrics: layout.metrics)
+            XCTAssertEqual(expanded.columns.count, ordinary.count * group.members.count, "\(size)")
+            for (index, start) in stride(from: 0, to: expanded.columns.count, by: ordinary.count).enumerated() {
+                let columns = Array(expanded.columns[start..<start + ordinary.count])
+                XCTAssertEqual(columns.map(\.minX), ordinary.map(\.minX), "expanded member \(index) at \(size)")
+                XCTAssertEqual(columns.map(\.width), ordinary.map(\.width), "expanded member \(index) at \(size)")
+            }
+        }
+    }
+
+    @MainActor
+    func testStackRailSpansExactlyTheExpandedMembersInsideTheListGutter() throws {
+        let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            var cardFrames: [String: CGRect] = [:]
+            var rail: CGRect?
+            let list = StackMemberList(group: group) { member, _ in
+                Color.gray.frame(height: 40)
+                    .background(GeometryReader { proxy in
+                        Color.clear.onAppear { cardFrames[member.pullRequestID] = proxy.frame(in: .named("list")) }
+                    })
+            }
+            .coordinateSpace(name: "list")
+            .overlayPreferenceValue(StackMemberRailAnchorKey.self) { anchor in
+                GeometryReader { proxy in
+                    Color.clear.onAppear { rail = anchor.map { proxy[$0] } }
+                }
+            }
+            .frame(width: 400)
+            .padding(.horizontal, metrics.prList.horizontalPadding)
+            .environment(\.menuMetrics, metrics)
+            let hostingView = NSHostingView(rootView: list)
+            hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
+            hostingView.layoutSubtreeIfNeeded()
+            settleRunLoop()
+
+            let frames = group.members.compactMap { cardFrames[$0.pullRequestID] }.sorted { $0.minY < $1.minY }
+            let railFrame = try XCTUnwrap(rail, "\(size)")
+            let first = try XCTUnwrap(frames.first), last = try XCTUnwrap(frames.last)
+            XCTAssertEqual(frames.count, group.members.count)
+            // Layout rounds fractional menu sizes to whole pixels (1 pt in this off-screen host).
+            let pixel: CGFloat = 1
+            XCTAssertEqual(railFrame.minY, first.minY, accuracy: pixel, "\(size)")
+            XCTAssertEqual(railFrame.maxY, last.maxY, accuracy: pixel, "\(size)")
+            XCTAssertEqual(railFrame.width, metrics.prList.stackRailWidth, accuracy: pixel, "\(size)")
+            XCTAssertLessThan(railFrame.maxX, first.minX, "the rail stays outside the cards at \(size)")
+            XCTAssertGreaterThan(railFrame.minX, first.minX - metrics.prList.horizontalPadding, "inside the gutter at \(size)")
+            // The doubled gap: one row gap of padding before the first card and after the last.
+            XCTAssertEqual(first.minY, metrics.prColumns.rowSpacing, accuracy: pixel, "\(size)")
         }
     }
 
