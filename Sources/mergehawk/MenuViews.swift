@@ -1576,11 +1576,30 @@ struct PullRequestListView: View {
     }
 
     /// A requested row shows its representative; a stack group's actions apply to every requested member.
+    /// An expanded group shows every member instead, with the representative keeping the chip and actions.
+    @ViewBuilder
     private func requestedRow(_ row: ReviewRequestRow) -> some View {
+        if let group = row.stack, controller.isStackExpanded(group.stack.id) {
+            StackMemberList(group: group) { member, position in
+                switch member {
+                case .requested(let pullRequest):
+                    requestedMemberCard(pullRequest, row: row, group: group, position: position)
+                case .context(let entry):
+                    StackContextCard(entry: entry, repo: row.representative.repo, position: position) {
+                        controller.openStackMember(member)
+                    }
+                }
+            }
+        } else {
+            representativeCard(row)
+        }
+    }
+
+    private func representativeCard(_ row: ReviewRequestRow, position: Int? = nil, isAttention: Bool? = nil) -> some View {
         let pullRequest = row.representative
         return PullRequestRow(
             pullRequest: pullRequest,
-            isAttention: row.isUnread,
+            isAttention: isAttention ?? row.isUnread,
             isPinned: row.isPinned,
             isHidden: row.isHidden,
             isActionsOpen: dropdownState.openMenu == .actions(pullRequest.id),
@@ -1597,9 +1616,38 @@ struct PullRequestListView: View {
                 ) {
                     controller.toggleStackExpanded(group.stack.id)
                 })
-            }
+            },
+            titleBadge: position == nil ? nil : AnyView(ReviewRequestedBadge()),
+            position: position
         ) {
             controller.openPullRequest(pullRequest)
+        }
+    }
+
+    @ViewBuilder
+    private func requestedMemberCard(
+        _ pullRequest: PullRequest,
+        row: ReviewRequestRow,
+        group: StackGroup,
+        position: Int
+    ) -> some View {
+        let isUnread = controller.isUnreadPullRequest(pullRequest)
+        if pullRequest.id == row.representative.id {
+            representativeCard(row, position: position, isAttention: isUnread)
+        } else {
+            PullRequestRow(
+                pullRequest: pullRequest,
+                isAttention: isUnread,
+                isPinned: controller.isPinned(pullRequest),
+                isHidden: controller.isHidden(pullRequest),
+                toggleHide: {},
+                togglePin: {},
+                titleBadge: AnyView(ReviewRequestedBadge()),
+                position: position,
+                showsActions: false
+            ) {
+                controller.openStackMember(.requested(pullRequest))
+            }
         }
     }
 
@@ -2150,6 +2198,93 @@ struct PullRequestColumnLegend: View {
     }
 }
 
+/// The value cells of a PR card. A context-only stack member's card leaves them empty.
+struct PullRequestCardValues {
+    var changes: AnyView
+    var comments: AnyView
+    var ciStatus: AnyView
+    var mergeStatus: AnyView
+    var reviewStatus: AnyView
+    var age: AnyView
+}
+
+/// Column frames of a PR card, reported so tests can check that every kind of card lines up.
+struct PullRequestCardColumnAnchorsKey: PreferenceKey {
+    static var defaultValue: [Anchor<CGRect>] { [] }
+
+    static func reduce(value: inout [Anchor<CGRect>], nextValue: () -> [Anchor<CGRect>]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+/// The card shared by every PR row and stack member card: padding, card style, hover, the optional stack
+/// position column, the avatar, the identity slot, and the fixed value and actions columns. Sharing it keeps
+/// card heights and column x-positions equal across kinds of cards.
+struct PullRequestCardLayout<Identity: View, Actions: View>: View {
+    var position: Int? = nil
+    let author: String
+    let authorAvatarURL: URL?
+    /// Nil leaves every value column empty at its width.
+    let values: PullRequestCardValues?
+    let isAttention: Bool
+    let accessibilityLabel: String
+    @ViewBuilder let identity: () -> Identity
+    @ViewBuilder let actions: () -> Actions
+    let action: () -> Void
+
+    @State private var isHovered = false
+    @Environment(\.menuMetrics) private var metrics
+
+    var body: some View {
+        let columns = metrics.prColumns
+        // The card opens the PR through a tap gesture rather than a button, so the stack chip and the actions
+        // button inside it stay real buttons that take their own clicks.
+        HStack(spacing: columns.spacing) {
+            HStack(spacing: columns.identitySpacing) {
+                if let position {
+                    Text("\(position)")
+                        .font(metrics.type.cardMetadata.font.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(width: metrics.prRow.stackPositionWidth)
+                        .accessibilityLabel("Stack position \(position)")
+                }
+                PullRequestAuthorAvatar(author: author, url: authorAvatarURL)
+                identity()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            column(values?.changes, width: columns.changesWidth)
+            column(values?.comments, width: columns.commentsWidth)
+            column(values?.ciStatus, width: columns.statusWidth)
+            column(values?.mergeStatus, width: columns.statusWidth)
+            column(values?.reviewStatus, width: columns.statusWidth)
+            column(values?.age, width: columns.ageWidth, height: metrics.prRow.valueColumnHeight)
+            // The column keeps its width when a card has no actions button.
+            Color.clear
+                .frame(width: columns.actionsWidth, height: columns.actionButtonHitSize)
+                .overlay { actions() }
+                .anchorPreference(key: PullRequestCardColumnAnchorsKey.self, value: .bounds) { [$0] }
+        }
+        .padding(.horizontal, columns.horizontalInset)
+        .padding(.vertical, columns.verticalInset)
+        .contentShape(Rectangle())
+        .onTapGesture { action() }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAction { action() }
+        .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
+        .onHover { isHovered = $0 }
+    }
+
+    private func column(_ content: AnyView?, width: CGFloat, height: CGFloat? = nil) -> some View {
+        (content ?? AnyView(Color.clear))
+            .frame(width: width, height: height)
+            .anchorPreference(key: PullRequestCardColumnAnchorsKey.self, value: .bounds) { [$0] }
+    }
+}
+
 struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isAttention: Bool
@@ -2161,75 +2296,77 @@ struct PullRequestRow: View {
     let togglePin: () -> Void
     /// Shown at the end of the metadata line, after the PR number; it takes width from the repository first.
     var metadataAccessory: AnyView? = nil
+    /// Shown before the title, after the Draft badge.
+    var titleBadge: AnyView? = nil
+    /// The stack position, in a narrow column before the avatar.
+    var position: Int? = nil
+    /// False leaves the actions column empty at its width.
+    var showsActions = true
     let action: () -> Void
 
     @Environment(\.menuNow) private var menuNow
-    @State private var isHovered = false
     @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
-        // The card opens the PR through a tap gesture rather than a button, so the stack chip and the actions
-        // button inside it stay real buttons that take their own clicks.
-        HStack(spacing: metrics.prColumns.spacing) {
-            HStack(spacing: metrics.prColumns.identitySpacing) {
-                PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
-                identity
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
-                .frame(width: metrics.prColumns.changesWidth)
-            CommentCountIndicator(count: pullRequest.commentCount)
-                .frame(width: metrics.prColumns.commentsWidth)
-            CIStatusIndicator(ciState: pullRequest.ciState)
-                .frame(width: metrics.prColumns.statusWidth)
-            MergeConflictIndicator(mergeable: pullRequest.mergeable)
-                .frame(width: metrics.prColumns.statusWidth)
-            ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                .frame(width: metrics.prColumns.statusWidth)
-            VStack(alignment: .trailing, spacing: 0) {
-                ageCell(pullRequest.updatedAt, field: .updated)
-                ageCell(pullRequest.createdAt, field: .opened)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .frame(width: metrics.prColumns.ageWidth, height: metrics.prRow.valueColumnHeight)
+        PullRequestCardLayout(
+            position: position,
+            author: pullRequest.author,
+            authorAvatarURL: pullRequest.authorAvatarURL,
+            values: values,
+            isAttention: isAttention,
+            accessibilityLabel: "\(pullRequest.title), \(pullRequest.author), \(pullRequest.repo) #\(pullRequest.number)",
+            identity: { identity },
+            actions: {
+                if showsActions {
+                    actionsButton
+                }
+            },
+            action: action
+        )
+    }
 
-            Button(action: toggleActions) {
-                Image(systemName: "ellipsis")
-                    .font(metrics.type.actionsSymbol.font)
-                    .rotationEffect(.degrees(90))
-                    .frame(width: metrics.prColumns.actionButtonHitSize, height: metrics.prColumns.actionButtonHitSize)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(isActionsOpen ? Color.accentColor : Color.secondary)
-            .menuTooltip("PR actions")
-            .accessibilityLabel("PR actions")
-            .anchorPreference(key: PullRequestActionsAnchorKey.self, value: .bounds) { bounds in
-                PullRequestActionsAnchors(
-                    buttons: [bounds],
-                    openMenu: isActionsOpen ? PullRequestActionsAnchor(
-                        bounds: bounds,
-                        url: pullRequest.url,
-                        isHidden: isHidden,
-                        isPinned: isPinned,
-                        toggleHide: toggleHide,
-                        togglePin: togglePin
-                    ) : nil
-                )
-            }
-            .frame(width: metrics.prColumns.actionsWidth)
+    private var values: PullRequestCardValues {
+        PullRequestCardValues(
+            changes: AnyView(PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)),
+            comments: AnyView(CommentCountIndicator(count: pullRequest.commentCount)),
+            ciStatus: AnyView(CIStatusIndicator(ciState: pullRequest.ciState)),
+            mergeStatus: AnyView(MergeConflictIndicator(mergeable: pullRequest.mergeable)),
+            reviewStatus: AnyView(ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)),
+            age: AnyView(
+                VStack(alignment: .trailing, spacing: 0) {
+                    ageCell(pullRequest.updatedAt, field: .updated)
+                    ageCell(pullRequest.createdAt, field: .opened)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            )
+        )
+    }
+
+    private var actionsButton: some View {
+        Button(action: toggleActions) {
+            Image(systemName: "ellipsis")
+                .font(metrics.type.actionsSymbol.font)
+                .rotationEffect(.degrees(90))
+                .frame(width: metrics.prColumns.actionButtonHitSize, height: metrics.prColumns.actionButtonHitSize)
+                .contentShape(Rectangle())
         }
-        .padding(.horizontal, metrics.prColumns.horizontalInset)
-        .padding(.vertical, metrics.prColumns.verticalInset)
-        .contentShape(Rectangle())
-        .onTapGesture { action() }
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("\(pullRequest.title), \(pullRequest.author), \(pullRequest.repo) #\(pullRequest.number)")
-        .accessibilityAction { action() }
-        .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
-        .onHover { isHovered = $0 }
+        .buttonStyle(.plain)
+        .foregroundStyle(isActionsOpen ? Color.accentColor : Color.secondary)
+        .menuTooltip("PR actions")
+        .accessibilityLabel("PR actions")
+        .anchorPreference(key: PullRequestActionsAnchorKey.self, value: .bounds) { bounds in
+            PullRequestActionsAnchors(
+                buttons: [bounds],
+                openMenu: isActionsOpen ? PullRequestActionsAnchor(
+                    bounds: bounds,
+                    url: pullRequest.url,
+                    isHidden: isHidden,
+                    isPinned: isPinned,
+                    toggleHide: toggleHide,
+                    togglePin: togglePin
+                ) : nil
+            )
+        }
     }
 
     private func ageCell(_ date: Date, field: PullRequestAgePresentation.Field) -> some View {
@@ -2244,6 +2381,7 @@ struct PullRequestRow: View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             HStack(spacing: metrics.prRow.identityItemSpacing) {
                 if pullRequest.draft { DraftPullRequestIndicator() }
+                if let titleBadge { titleBadge }
                 Text(pullRequest.title)
                     .font(metrics.type.cardTitle.font)
                     .lineLimit(1)
@@ -2282,7 +2420,7 @@ struct PullRequestRow: View {
     }
 }
 
-private struct PullRequestAuthorAvatar: View {
+struct PullRequestAuthorAvatar: View {
     let author: String
     let url: URL?
 
@@ -2317,19 +2455,52 @@ private struct PullRequestAuthorAvatar: View {
     }
 }
 
-private struct DraftPullRequestIndicator: View {
+struct ReviewRequestedBadge: View {
+    var body: some View {
+        PullRequestTitleBadge(
+            text: StackMemberBadge.reviewRequested.title,
+            accessibilityLabel: StackMemberBadge.reviewRequested.title,
+            isAccented: true,
+            keepsLineHeight: true
+        )
+    }
+}
+
+struct DraftPullRequestIndicator: View {
+    var body: some View {
+        PullRequestTitleBadge(text: "Draft", accessibilityLabel: "Draft PR")
+    }
+}
+
+/// A capsule label before a card title, styled like the Draft badge; the accent tint marks review requests.
+struct PullRequestTitleBadge: View {
+    let text: String
+    let accessibilityLabel: String
+    var isAccented = false
+    /// Stack member badges must not make a card taller than an ordinary card with the same Draft state,
+    /// so they take no layout height and draw over the title line's spacing.
+    var keepsLineHeight = false
+
     @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
-        Text("Draft")
+        if keepsLineHeight {
+            badge.frame(height: 0)
+        } else {
+            badge
+        }
+    }
+
+    private var badge: some View {
+        Text(text)
             .font(metrics.type.draftBadge.font)
-            .foregroundStyle(.primary)
+            .foregroundStyle(isAccented ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, metrics.prRow.draftBadgeHorizontalPadding)
             .padding(.vertical, metrics.prRow.draftBadgeVerticalPadding)
-            .background(Color.secondary.opacity(0.2), in: Capsule())
-            .accessibilityLabel("Draft PR")
+            .background(isAccented ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.2), in: Capsule())
+            .accessibilityLabel(accessibilityLabel)
     }
 }
 

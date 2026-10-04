@@ -955,6 +955,283 @@ final class MenuViewTests: XCTestCase {
         }
     }
 
+    // MARK: - Expanded stack members
+
+    @MainActor
+    private func prStacksGroup(_ stackID: String) throws -> (controller: DashboardController, row: ReviewRequestRow) {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .prStacks
+            ),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
+        let row = try XCTUnwrap(controller.requestedSections.flatMap(\.visible).first { $0.stack?.stack.id == stackID })
+        return (controller, row)
+    }
+
+    @MainActor
+    func testExpandedGroupListsEveryReadableMemberInPositionOrder() throws {
+        let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
+        var rendered: [(id: String, position: Int, minY: CGFloat)] = []
+        let list = StackMemberList(group: group) { member, position in
+            GeometryReader { proxy in
+                Color.clear.onAppear {
+                    rendered.append((member.pullRequestID, position, proxy.frame(in: .global).minY))
+                }
+            }
+            .frame(height: 10)
+        }
+        let hostingView = NSHostingView(rootView: list.frame(width: 400))
+        hostingView.frame = CGRect(x: 0, y: 0, width: 400, height: 200)
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+
+        let topToBottom = rendered.sorted { $0.minY < $1.minY }
+        XCTAssertEqual(topToBottom.map(\.position), [1, 2, 4])
+        XCTAssertEqual(topToBottom.map(\.id), [
+            "PR_STACK_MOCK_UNREADABLE_1", "PR_STACK_MOCK_UNREADABLE_2", "PR_STACK_MOCK_UNREADABLE_4"
+        ])
+    }
+
+    @MainActor
+    func testMemberBadgesMarkRequestsStatesAndDrafts() throws {
+        let unreadable = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
+        XCTAssertEqual(unreadable.members.map(StackMemberBadge.badges(for:)), [[.closed], [.reviewRequested], [.draft]])
+
+        let filter = try XCTUnwrap(try prStacksGroup("STACK_MOCK_FILTER").row.stack)
+        XCTAssertEqual(filter.members.map(StackMemberBadge.badges(for:)), [[.draft, .reviewRequested], [.reviewRequested], []])
+
+        let merged = PullRequestStackEntry(
+            position: 1, pullRequestID: "PR_M", number: 1, title: "Merged", url: Self.stackedPullRequest.url,
+            state: .merged, isDraft: false, author: "a"
+        )
+        XCTAssertEqual(StackMemberBadge.badges(for: .context(merged)), [.merged])
+        XCTAssertEqual(StackMemberBadge.badges(for: .context(merged)).map(\.title), ["Merged"])
+    }
+
+    private static let longTitle = String(repeating: "Explain every skipped stack entry in detail ", count: 6)
+
+    private static func contextEntry(draft: Bool, state: PullRequestStackEntry.State = .open) -> PullRequestStackEntry {
+        PullRequestStackEntry(
+            position: 3, pullRequestID: "PR_CONTEXT", number: 214, title: longTitle,
+            url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/214")!,
+            state: state, isDraft: draft, author: "docs-lee"
+        )
+    }
+
+    private static func pullRequest(title: String, draft: Bool) -> PullRequest {
+        PullRequest(
+            id: "PR_MEMBER", title: title, number: 212,
+            url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/212")!,
+            repo: "mergehawk-labs/mergehawk", ciState: .passing, reviewDecision: .reviewRequired,
+            additions: 12, deletions: 3, commentCount: 1, reviewCount: 0, reviewRequestKind: .direct,
+            isMine: false, author: "docs-lee", mergeable: .mergeable, draft: draft,
+            createdAt: Date(timeIntervalSince1970: 1_000_000_000), updatedAt: Date(timeIntervalSince1970: 1_000_000_000)
+        )
+    }
+
+    private final class ColumnFrames {
+        var frames: [CGRect] = []
+    }
+
+    /// Hosts `card` at `width` and returns its fitted height and its column frames, left to right.
+    @MainActor
+    private func measure(_ card: some View, width: CGFloat, metrics: MenuMetrics) -> (height: CGFloat, columns: [CGRect]) {
+        let box = ColumnFrames()
+        let measured = card
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .overlayPreferenceValue(PullRequestCardColumnAnchorsKey.self) { anchors in
+                GeometryReader { proxy in
+                    Color.clear.onAppear { box.frames = anchors.map { proxy[$0] } }
+                }
+            }
+            .environment(\.menuMetrics, metrics)
+        let hostingView = NSHostingView(rootView: measured)
+        let height = hostingView.fittingSize.height
+        hostingView.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = hostingView
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        window.contentView = nil
+        return (height, box.frames)
+    }
+
+    @MainActor
+    private func memberCards(
+        title: String,
+        draft: Bool
+    ) -> [(String, AnyView)] {
+        let pullRequest = Self.pullRequest(title: title, draft: draft)
+        let chip = AnyView(StackChip(presentation: StackChipPresentation(group: Self.stackGroup(), isExpanded: true)) {})
+        return [
+            ("ordinary card", AnyView(PullRequestRow(
+                pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
+                toggleHide: {}, togglePin: {}, action: {}
+            ))),
+            ("representative member", AnyView(PullRequestRow(
+                pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
+                toggleHide: {}, togglePin: {}, metadataAccessory: chip, titleBadge: AnyView(ReviewRequestedBadge()),
+                position: 2, action: {}
+            ))),
+            ("other requested member", AnyView(PullRequestRow(
+                pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
+                toggleHide: {}, togglePin: {}, titleBadge: AnyView(ReviewRequestedBadge()),
+                position: 12, showsActions: false, action: {}
+            ))),
+            ("context member", AnyView(StackContextCard(
+                entry: Self.contextEntry(draft: draft, state: .merged), repo: pullRequest.repo, position: 3
+            ) {}))
+        ]
+    }
+
+    @MainActor
+    func testContextCardsAndMemberCardsKeepTheStandardCardHeightAtEveryMenuSize() {
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            for draft in [false, true] {
+                for title in ["Short title", Self.longTitle] {
+                    let heights = memberCards(title: title, draft: draft).map { name, card in
+                        (name, measure(card, width: 800 * size.factor, metrics: metrics).height)
+                    }
+                    for (name, height) in heights {
+                        XCTAssertEqual(height, heights[0].1, "\(name) at \(size), draft: \(draft), \(title.count) characters")
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testExpandedMemberCardColumnsLineUpWithOrdinaryCardsAtTheReducedWidth() {
+        for size in MenuSize.allCases {
+            let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
+            let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
+            let measured = memberCards(title: Self.longTitle, draft: true).map { name, card in
+                (name, measure(card, width: width, metrics: layout.metrics).columns)
+            }
+            let ordinary = measured[0].1
+            XCTAssertEqual(ordinary.count, 7, "six value columns and the actions column at \(size)")
+            for (name, columns) in measured {
+                XCTAssertEqual(columns.map(\.minX), ordinary.map(\.minX), "\(name) at \(size)")
+                XCTAssertEqual(columns.map(\.width), ordinary.map(\.width), "\(name) at \(size)")
+            }
+        }
+    }
+
+    @MainActor
+    func testOnlyTheRepresentativeMemberHasAnActionsButton() throws {
+        let pullRequest = Self.pullRequest(title: "Member", draft: false)
+        for showsActions in [true, false] {
+            var opened = 0
+            var toggledActions = 0
+            let row = PullRequestRow(
+                pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
+                toggleActions: { toggledActions += 1 }, toggleHide: {}, togglePin: {},
+                titleBadge: AnyView(ReviewRequestedBadge()), position: 2, showsActions: showsActions
+            ) { opened += 1 }
+            let (window, view) = host(row, width: 800)
+            defer { window.orderOut(nil) }
+
+            try click(window, atTopLeft: RowPoints(width: view.bounds.width, height: view.bounds.height).actionsButton)
+
+            XCTAssertEqual(toggledActions, showsActions ? 1 : 0, "shows actions: \(showsActions)")
+            XCTAssertEqual(opened, showsActions ? 0 : 1, "shows actions: \(showsActions)")
+        }
+    }
+
+    @MainActor
+    func testClickingAContextCardOpensItsEntry() throws {
+        var opened = 0
+        let card = StackContextCard(entry: Self.contextEntry(draft: false), repo: "mergehawk-labs/mergehawk", position: 3) {
+            opened += 1
+        }
+        let (window, view) = host(card, width: 800)
+        defer { window.orderOut(nil) }
+        let points = RowPoints(width: view.bounds.width, height: view.bounds.height)
+
+        try click(window, atTopLeft: points.title)
+        try click(window, atTopLeft: points.statusColumn)
+        try click(window, atTopLeft: points.actionsButton)
+
+        XCTAssertEqual(opened, 3)
+    }
+
+    @MainActor
+    func testOpeningMembersOpensTheirOwnURLs() throws {
+        var opened: [URL] = []
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .prStacks
+            ),
+            automaticRefreshInterval: 0,
+            urlOpener: { opened.append($0) }
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
+        let group = try XCTUnwrap(controller.requestedSections.flatMap(\.visible).first {
+            $0.stack?.stack.id == "STACK_MOCK_SPREAD"
+        }?.stack)
+
+        group.members.forEach(controller.openStackMember)
+
+        XCTAssertEqual(opened.map(\.absoluteString), (201...204).map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" })
+    }
+
+    @MainActor
+    func testCollapsingAnExpandedGroupReturnsToTheSingleCollapsedCard() throws {
+        let (controller, row) = try prStacksGroup("STACK_MOCK_SPREAD")
+        controller.selectedTab = .reviewRequests
+        let stackID = try XCTUnwrap(row.stack?.stack.id)
+        let collapsed = try renderMenu(controller)
+
+        controller.toggleStackExpanded(stackID)
+        let expanded = try renderMenu(controller)
+        controller.toggleStackExpanded(stackID)
+
+        XCTAssertNotEqual(expanded, collapsed)
+        XCTAssertEqual(try renderMenu(controller), collapsed)
+    }
+
+    @MainActor
+    private func renderMenu(_ controller: DashboardController) throws -> Data {
+        let size = MenuMetrics.standard.panelSize
+        let hostingView = NSHostingView(rootView: MenuRootView(
+            controller: controller,
+            footerModel: MenuFooterModel(),
+            tooltipController: MenuTooltipController()
+        )
+        .environment(\.menuNow, Date(timeIntervalSince1970: 1_778_100_000)))
+        hostingView.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = hostingView
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        let representation = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: representation)
+        window.contentView = nil
+        return try XCTUnwrap(representation.representation(using: .png, properties: [:]))
+    }
+
+    @MainActor
+    private func host(_ view: some View, width: CGFloat) -> (window: NSWindow, view: NSView) {
+        let hostingView = NSHostingView(rootView: view.frame(width: width).fixedSize(horizontal: false, vertical: true))
+        hostingView.frame = CGRect(origin: .zero, size: CGSize(width: width, height: hostingView.fittingSize.height))
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = hostingView
+        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
+        window.orderFrontRegardless()
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        return (window, hostingView)
+    }
+
     @MainActor
     func testEveryMenuListShowsTheNativeVerticalScrollIndicator() throws {
         let suite = "menu-list-scrollbars-\(UUID().uuidString)"

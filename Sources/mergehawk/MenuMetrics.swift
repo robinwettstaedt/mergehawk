@@ -231,6 +231,8 @@ struct MenuMetrics: Equatable {
         /// The stack chip has no vertical padding, so a stacked card keeps the standard height.
         var stackChipHorizontalPadding: CGFloat
         var stackChipSpacing: CGFloat
+        /// The stack position column of an expanded stack member card; it takes width from the identity slot.
+        var stackPositionWidth: CGFloat
     }
 
     struct Card: Equatable {
@@ -556,7 +558,8 @@ struct MenuMetrics: Equatable {
             draftBadgeHorizontalPadding: s(6),
             draftBadgeVerticalPadding: s(2),
             stackChipHorizontalPadding: s(6),
-            stackChipSpacing: s(2)
+            stackChipSpacing: s(2),
+            stackPositionWidth: s(14)
         )
         card = Card(cornerRadius: s(8))
         legend = Legend(
