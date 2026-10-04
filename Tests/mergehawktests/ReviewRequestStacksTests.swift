@@ -161,17 +161,57 @@ final class ReviewRequestStacksTests: XCTestCase {
         }
     }
 
-    func testRequestedPRNamingADifferentStackThanTheOneListingItStaysStandalone() throws {
+    func testRequestedPRWithoutAHydratedStackIDJoinsTheStackThatListsIt() throws {
+        let unstamped = Self.pr("PR_UNSTAMPED", .team)
+        let member = Self.pr("PR_MEMBER", .direct, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, unstamped.id, .open), (2, member.id, .open)])
+
+        let sections = Self.sections([unstamped, member], stacks: [stack])
+
+        XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [unstamped.id], .team: []])
+        let group = try XCTUnwrap(Self.row(unstamped.id, in: sections)?.stack)
+        XCTAssertEqual(group.requestedMemberIDs, [unstamped.id, member.id])
+        XCTAssertEqual(group.members, [.requested(unstamped), .requested(member)])
+        XCTAssertEqual(sections.map(\.count), [0, 2, 0])
+    }
+
+    func testRequestedPRNamingAnotherStackJoinsTheStackThatListsIt() throws {
         let moved = Self.pr("PR_MOVED", .direct, stack: "OTHER")
         let member = Self.pr("PR_MEMBER", .direct, stack: "S")
         let stack = Self.stack("S", size: 2, [(1, moved.id, .open), (2, member.id, .open)])
 
         let sections = Self.sections([moved, member], stacks: [stack])
 
-        XCTAssertNil(try XCTUnwrap(Self.row(moved.id, in: sections)).stack)
-        let group = try XCTUnwrap(Self.row(member.id, in: sections)?.stack)
-        XCTAssertEqual(group.requestedMemberIDs, [member.id])
-        XCTAssertEqual(group.members.first, .context(stack.entries[0]))
+        XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [moved.id], .team: []])
+        let group = try XCTUnwrap(Self.row(moved.id, in: sections)?.stack)
+        XCTAssertEqual(group.members, [.requested(moved), .requested(member)])
+    }
+
+    func testPRListedByTwoStacksJoinsOneGroupAndIsNeverAContextMemberOfTheOther() throws {
+        let shared = Self.pr("PR_SHARED", .direct, stack: "B")
+        let inA = Self.pr("PR_A", .direct, stack: "A")
+        let inB = Self.pr("PR_B", .team, stack: "B")
+        let stackA = Self.stack("A", size: 2, [(1, inA.id, .open), (2, shared.id, .open)])
+        let stackB = Self.stack("B", size: 2, [(1, shared.id, .open), (2, inB.id, .open)])
+
+        // The stack matching the hydrated stack ID wins.
+        let preferred = Self.sections([shared, inA, inB], stacks: [stackA, stackB])
+        let groupB = try XCTUnwrap(Self.row(shared.id, in: preferred)?.stack)
+        XCTAssertEqual(groupB.stack.id, "B")
+        XCTAssertEqual(groupB.requestedMemberIDs, [shared.id, inB.id])
+        let groupA = try XCTUnwrap(Self.row(inA.id, in: preferred)?.stack)
+        XCTAssertEqual(groupA.requestedMemberIDs, [inA.id])
+        XCTAssertEqual(groupA.members, [.requested(inA)])
+
+        // Without a matching stack ID, the lowest stack ID wins.
+        let unstamped = Self.pr("PR_SHARED", .direct)
+        let lowest = Self.sections([unstamped, inA, inB], stacks: [stackB, stackA])
+        let rows = lowest.flatMap { $0.visible + $0.hidden }
+        XCTAssertEqual(rows.map(\.id).sorted(), [inA.id, inB.id])
+        XCTAssertEqual(rows.first { $0.id == inA.id }?.stack?.requestedMemberIDs, [inA.id, unstamped.id])
+        let other = try XCTUnwrap(rows.first { $0.id == inB.id }?.stack)
+        XCTAssertEqual(other.members, [.requested(inB)])
+        XCTAssertEqual(lowest.map(\.count), [0, 2, 1])
     }
 
     func testAdditionalRequestCountIgnoresTheFilterAndExcludedCountCountsFilteredMembers() throws {

@@ -64,6 +64,28 @@ enum ReviewRequestStacks {
         let matchingCount: Int
     }
 
+    /// The stack read decides membership, because it comes after hydration: a requested PR joins a stack that
+    /// lists it, whatever its hydrated stack ID says. When several stacks list it, the one matching its stack ID
+    /// wins, otherwise the lowest stack ID.
+    private static func memberships(of requested: [PullRequest], in stacks: [PullRequestStack]) -> [String: String] {
+        let requestedByID = Dictionary(requested.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var candidates: [String: Set<String>] = [:]
+        for stack in stacks {
+            for entry in stack.entries where requestedByID[entry.pullRequestID] != nil {
+                candidates[entry.pullRequestID, default: []].insert(stack.id)
+            }
+        }
+        var membership: [String: String] = [:]
+        for (pullRequestID, stackIDs) in candidates {
+            if let hydrated = requestedByID[pullRequestID]?.stackID, stackIDs.contains(hydrated) {
+                membership[pullRequestID] = hydrated
+            } else {
+                membership[pullRequestID] = stackIDs.min()
+            }
+        }
+        return membership
+    }
+
     /// `requested` is the counted requested PRs before the Draft/Ready filter; `matching` is the subset passing it.
     static func sections(
         requested: [PullRequest],
@@ -78,10 +100,11 @@ enum ReviewRequestStacks {
         let matchingIDs = Set(matching.map(\.id))
         var consumedIDs = Set<String>()
         var placed: [PlacedRow] = []
+        let stackIDByPullRequestID = memberships(of: requested, in: stacks)
 
         for stack in stacks {
             let entryByID = Dictionary(stack.entries.map { ($0.pullRequestID, $0) }, uniquingKeysWith: { first, _ in first })
-            let members = requested.filter { $0.stackID == stack.id && entryByID[$0.id] != nil }
+            let members = requested.filter { stackIDByPullRequestID[$0.id] == stack.id }
             guard !members.isEmpty else { continue }
             // The stack read comes after hydration, so a member whose entry is merged or closed is context only.
             let openMembers = members.filter { entryByID[$0.id]?.state == .open }
@@ -105,8 +128,11 @@ enum ReviewRequestStacks {
                 representativePosition: entryByID[representative.id]!.position,
                 requestedMemberIDs: Set(requestedByID.keys),
                 matchingMemberIDs: Set(matchingMembers.map(\.id)),
-                members: stack.entries.map { entry in
-                    requestedByID[entry.pullRequestID].map(StackGroup.Member.requested) ?? .context(entry)
+                // A requested PR that joined another stack's group is left out here, so it is never a context member.
+                members: stack.entries.compactMap { entry in
+                    if let member = requestedByID[entry.pullRequestID] { return .requested(member) }
+                    if let other = stackIDByPullRequestID[entry.pullRequestID], other != stack.id { return nil }
+                    return .context(entry)
                 }
             )
             placed.append(PlacedRow(
