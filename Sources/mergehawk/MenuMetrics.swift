@@ -66,6 +66,8 @@ struct MenuMetrics: Equatable {
         var metricValue: FontToken
         var signalSymbol: FontToken
         var draftBadge: FontToken
+        /// The stack and chevron symbols in a requested stack card's chip.
+        var stackChipSymbol: FontToken
         var actionsMenuItem: FontToken
         /// Title of the GitHub buttons in the sign-in view and the repository access prompt.
         var gitHubButtonTitle: FontToken
@@ -226,6 +228,9 @@ struct MenuMetrics: Equatable {
         var valueColumnHeight: CGFloat
         var draftBadgeHorizontalPadding: CGFloat
         var draftBadgeVerticalPadding: CGFloat
+        /// The stack chip has no vertical padding, so a stacked card keeps the standard height.
+        var stackChipHorizontalPadding: CGFloat
+        var stackChipSpacing: CGFloat
     }
 
     struct Card: Equatable {
@@ -428,6 +433,7 @@ struct MenuMetrics: Equatable {
             metricValue: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
             signalSymbol: FontToken(size: s(body), weight: .semibold),
             draftBadge: FontToken(size: s(caption), weight: .semibold),
+            stackChipSymbol: FontToken(size: s(caption), weight: .semibold),
             actionsMenuItem: FontToken(size: s(body)),
             gitHubButtonTitle: FontToken(size: s(title), weight: .semibold),
             signInTitle: FontToken(size: s(title), weight: .bold),
@@ -548,7 +554,9 @@ struct MenuMetrics: Equatable {
             identityItemSpacing: s(4),
             valueColumnHeight: s(30),
             draftBadgeHorizontalPadding: s(6),
-            draftBadgeVerticalPadding: s(2)
+            draftBadgeVerticalPadding: s(2),
+            stackChipHorizontalPadding: s(6),
+            stackChipSpacing: s(2)
         )
         card = Card(cornerRadius: s(8))
         legend = Legend(

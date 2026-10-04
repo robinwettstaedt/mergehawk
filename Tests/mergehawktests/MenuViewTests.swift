@@ -755,6 +755,206 @@ final class MenuViewTests: XCTestCase {
         ))
     }
 
+    // MARK: - Stack chip and card clicks
+
+    private static let stackedPullRequest = PullRequest(
+        id: "PR_STACKED", title: "Read stack metadata during hydration", number: 202,
+        url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/202")!,
+        repo: "mergehawk-labs/mergehawk", ciState: .failing, reviewDecision: .reviewRequired,
+        additions: 120, deletions: 14, commentCount: 3, reviewCount: 0, reviewRequestKind: .direct,
+        isMine: false, author: "platform-nora", mergeable: .conflicting, draft: false,
+        createdAt: Date(timeIntervalSince1970: 1_000_000_000), updatedAt: Date(timeIntervalSince1970: 1_000_000_000),
+        stackID: "STACK"
+    )
+
+    private static func stackGroup(additional: Int = 1, excluded: Int = 0) -> StackGroup {
+        let requestedIDs = Set(["PR_STACKED"] + (0..<additional).map { "PR_MORE_\($0)" })
+        return StackGroup(
+            stack: PullRequestStack(id: "STACK", size: 4, entries: []),
+            representativePosition: 2,
+            requestedMemberIDs: requestedIDs,
+            matchingMemberIDs: Set(requestedIDs.sorted().dropLast(excluded)),
+            members: []
+        )
+    }
+
+    func testStackChipShowsPositionSizeAndAdditionalRequests() {
+        let presentation = StackChipPresentation(group: Self.stackGroup(), isExpanded: false)
+
+        XCTAssertEqual(presentation.positionText, "2 of 4")
+        XCTAssertEqual(presentation.additionalRequestsText, "+1")
+        XCTAssertEqual(presentation.chevronSymbolName, "chevron.right")
+        XCTAssertEqual(presentation.tooltip, "Stack · 2 of 4 · 1 more review request")
+        XCTAssertEqual(presentation.accessibilityLabel, presentation.tooltip)
+        XCTAssertEqual(StackChipPresentation(group: Self.stackGroup(), isExpanded: true).chevronSymbolName, "chevron.down")
+        XCTAssertEqual(
+            StackChipPresentation(group: Self.stackGroup(additional: 2), isExpanded: false).tooltip,
+            "Stack · 2 of 4 · 2 more review requests"
+        )
+    }
+
+    func testStackChipWithoutOtherRequestsHasNoCountOrRequestClause() {
+        let presentation = StackChipPresentation(group: Self.stackGroup(additional: 0), isExpanded: false)
+
+        XCTAssertNil(presentation.additionalRequestsText)
+        XCTAssertEqual(presentation.tooltip, "Stack · 2 of 4")
+    }
+
+    func testStackChipTooltipNamesRequestsOutsideTheCurrentFilter() {
+        let presentation = StackChipPresentation(group: Self.stackGroup(excluded: 1), isExpanded: false)
+
+        XCTAssertEqual(presentation.tooltip, "Stack · 2 of 4 · 1 more review request · 1 outside the current filter")
+    }
+
+    private final class RowEvents {
+        var opened = 0
+        var toggledStack = 0
+        var toggledActions = 0
+        /// The chip's frame in the hosted row, top-left origin.
+        var chipFrame: CGRect = .zero
+    }
+
+    @MainActor
+    private func hostRow(
+        stacked: Bool,
+        events: RowEvents,
+        metrics: MenuMetrics = .standard,
+        width: CGFloat = 800
+    ) -> (window: NSWindow, view: NSView) {
+        let chip = stacked ? AnyView(StackChip(
+            presentation: StackChipPresentation(group: Self.stackGroup(), isExpanded: false)
+        ) { events.toggledStack += 1 }
+            .background(GeometryReader { proxy in
+                Color.clear.onAppear { events.chipFrame = proxy.frame(in: .global) }
+            })) : nil
+        let row = PullRequestRow(
+            pullRequest: Self.stackedPullRequest, isAttention: false, isPinned: false, isHidden: false,
+            toggleActions: { events.toggledActions += 1 }, toggleHide: {}, togglePin: {},
+            metadataAccessory: chip
+        ) { events.opened += 1 }
+        let content = row
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .environment(\.menuMetrics, metrics)
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.frame = CGRect(origin: .zero, size: CGSize(width: width, height: hostingView.fittingSize.height))
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = hostingView
+        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
+        window.orderFrontRegardless()
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        return (window, hostingView)
+    }
+
+    @MainActor
+    private func windowPoint(_ window: NSWindow, topLeft point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x, y: window.contentView!.bounds.height - point.y)
+    }
+
+    /// Clicks a point given from the card's top-leading corner.
+    @MainActor
+    private func click(_ window: NSWindow, atTopLeft point: CGPoint) throws {
+        let location = windowPoint(window, topLeft: point)
+        send(window, try mouseEvent(.leftMouseDown, at: location, in: window))
+        send(window, try mouseEvent(.leftMouseUp, at: location, in: window))
+    }
+
+    /// Points on the card, from its top-leading corner, for a row of `width` laid out with `metrics`.
+    private struct RowPoints {
+        let title: CGPoint
+        let metadata: CGPoint
+        let ageColumn: CGPoint
+        let changesColumn: CGPoint
+        let statusColumn: CGPoint
+        let leadingPadding: CGPoint
+        let topPadding: CGPoint
+        let actionsButton: CGPoint
+
+        init(width: CGFloat, height: CGFloat, metrics: MenuMetrics = .standard) {
+            let columns = metrics.prColumns
+            let identityX = columns.horizontalInset + columns.avatarSize + columns.identitySpacing
+            title = CGPoint(x: identityX + 4, y: columns.verticalInset + 4)
+            metadata = CGPoint(x: identityX + 4, y: height - columns.verticalInset - 4)
+            let actionsMinX = width - columns.horizontalInset - columns.actionsWidth
+            actionsButton = CGPoint(x: actionsMinX + columns.actionsWidth / 2, y: height / 2)
+            let ageMaxX = actionsMinX - columns.spacing
+            ageColumn = CGPoint(x: ageMaxX - columns.ageWidth / 2, y: height / 2)
+            let statusMaxX = ageMaxX - columns.ageWidth - columns.spacing
+            // Status, merge and review columns, then comments, then changes, right to left.
+            statusColumn = CGPoint(x: statusMaxX - 2.5 * columns.statusWidth - 2 * columns.spacing, y: height / 2)
+            let changesMaxX = statusMaxX - 3 * columns.statusWidth - 3 * columns.spacing - columns.commentsWidth - columns.spacing
+            changesColumn = CGPoint(x: changesMaxX - columns.changesWidth / 2, y: height / 2)
+            leadingPadding = CGPoint(x: columns.horizontalInset / 2, y: height / 2)
+            topPadding = CGPoint(x: width / 2, y: columns.verticalInset / 2)
+        }
+    }
+
+    @MainActor
+    func testClickingTheStackChipTogglesExpansionWithoutOpeningThePR() throws {
+        let events = RowEvents()
+        let (window, _) = hostRow(stacked: true, events: events)
+        defer { window.orderOut(nil) }
+        XCTAssertGreaterThan(events.chipFrame.width, 0)
+
+        try click(window, atTopLeft: CGPoint(x: events.chipFrame.midX, y: events.chipFrame.midY))
+
+        XCTAssertEqual(events.toggledStack, 1)
+        XCTAssertEqual(events.opened, 0)
+    }
+
+    @MainActor
+    func testClickingAnywhereElseOnTheCardOpensThePRWithOrWithoutAChip() throws {
+        for stacked in [false, true] {
+            let events = RowEvents()
+            let (window, view) = hostRow(stacked: stacked, events: events)
+            defer { window.orderOut(nil) }
+            let points = RowPoints(width: view.bounds.width, height: view.bounds.height)
+            let targets: [(String, CGPoint)] = [
+                ("title", points.title), ("metadata", points.metadata), ("age column", points.ageColumn),
+                ("status column", points.statusColumn), ("changes column", points.changesColumn),
+                ("leading padding", points.leadingPadding), ("top padding", points.topPadding)
+            ]
+
+            for (index, target) in targets.enumerated() {
+                try click(window, atTopLeft: target.1)
+                XCTAssertEqual(events.opened, index + 1, "\(target.0), stacked: \(stacked)")
+            }
+            XCTAssertEqual(events.toggledStack, 0)
+            XCTAssertEqual(events.toggledActions, 0)
+        }
+    }
+
+    @MainActor
+    func testActionsButtonOpensTheActionsMenuWithoutOpeningThePR() throws {
+        for stacked in [false, true] {
+            let events = RowEvents()
+            let (window, view) = hostRow(stacked: stacked, events: events)
+            defer { window.orderOut(nil) }
+
+            try click(window, atTopLeft: RowPoints(width: view.bounds.width, height: view.bounds.height).actionsButton)
+
+            XCTAssertEqual(events.toggledActions, 1, "stacked: \(stacked)")
+            XCTAssertEqual(events.opened, 0, "stacked: \(stacked)")
+        }
+    }
+
+    @MainActor
+    func testStackedCardKeepsTheUnstackedCardHeightAtEveryMenuSize() {
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            let width = 800 * size.factor
+            let unstacked = hostRow(stacked: false, events: RowEvents(), metrics: metrics, width: width)
+            let stacked = hostRow(stacked: true, events: RowEvents(), metrics: metrics, width: width)
+            defer {
+                unstacked.window.orderOut(nil)
+                stacked.window.orderOut(nil)
+            }
+
+            XCTAssertEqual(stacked.view.bounds.height, unstacked.view.bounds.height, "\(size)")
+        }
+    }
+
     @MainActor
     func testEveryMenuListShowsTheNativeVerticalScrollIndicator() throws {
         let suite = "menu-list-scrollbars-\(UUID().uuidString)"

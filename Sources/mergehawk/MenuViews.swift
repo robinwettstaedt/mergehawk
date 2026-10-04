@@ -1590,6 +1590,13 @@ struct PullRequestListView: View {
             },
             togglePin: {
                 controller.setPinned(row, pinned: !row.isPinned)
+            },
+            metadataAccessory: row.stack.map { group in
+                AnyView(StackChip(
+                    presentation: StackChipPresentation(group: group, isExpanded: controller.isStackExpanded(group.stack.id))
+                ) {
+                    controller.toggleStackExpanded(group.stack.id)
+                })
             }
         ) {
             controller.openPullRequest(pullRequest)
@@ -2152,6 +2159,8 @@ struct PullRequestRow: View {
     var toggleActions: () -> Void = {}
     let toggleHide: () -> Void
     let togglePin: () -> Void
+    /// Shown at the end of the metadata line, after the PR number; it takes width from the repository first.
+    var metadataAccessory: AnyView? = nil
     let action: () -> Void
 
     @Environment(\.menuNow) private var menuNow
@@ -2159,35 +2168,31 @@ struct PullRequestRow: View {
     @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
+        // The card opens the PR through a tap gesture rather than a button, so the stack chip and the actions
+        // button inside it stay real buttons that take their own clicks.
         HStack(spacing: metrics.prColumns.spacing) {
-            Button(action: action) {
-                HStack(spacing: metrics.prColumns.spacing) {
-                    HStack(spacing: metrics.prColumns.identitySpacing) {
-                        PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
-                        identity
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+            HStack(spacing: metrics.prColumns.identitySpacing) {
+                PullRequestAuthorAvatar(author: pullRequest.author, url: pullRequest.authorAvatarURL)
+                identity
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
-                        .frame(width: metrics.prColumns.changesWidth)
-                    CommentCountIndicator(count: pullRequest.commentCount)
-                        .frame(width: metrics.prColumns.commentsWidth)
-                    CIStatusIndicator(ciState: pullRequest.ciState)
-                        .frame(width: metrics.prColumns.statusWidth)
-                    MergeConflictIndicator(mergeable: pullRequest.mergeable)
-                        .frame(width: metrics.prColumns.statusWidth)
-                    ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
-                        .frame(width: metrics.prColumns.statusWidth)
-                    VStack(alignment: .trailing, spacing: 0) {
-                        ageCell(pullRequest.updatedAt, field: .updated)
-                        ageCell(pullRequest.createdAt, field: .opened)
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(width: metrics.prColumns.ageWidth, height: metrics.prRow.valueColumnHeight)
-                }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            PullRequestChangesIndicator(additions: pullRequest.additions, deletions: pullRequest.deletions)
+                .frame(width: metrics.prColumns.changesWidth)
+            CommentCountIndicator(count: pullRequest.commentCount)
+                .frame(width: metrics.prColumns.commentsWidth)
+            CIStatusIndicator(ciState: pullRequest.ciState)
+                .frame(width: metrics.prColumns.statusWidth)
+            MergeConflictIndicator(mergeable: pullRequest.mergeable)
+                .frame(width: metrics.prColumns.statusWidth)
+            ReviewDecisionIndicator(reviewDecision: pullRequest.reviewDecision)
+                .frame(width: metrics.prColumns.statusWidth)
+            VStack(alignment: .trailing, spacing: 0) {
+                ageCell(pullRequest.updatedAt, field: .updated)
+                ageCell(pullRequest.createdAt, field: .opened)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(width: metrics.prColumns.ageWidth, height: metrics.prRow.valueColumnHeight)
 
             Button(action: toggleActions) {
                 Image(systemName: "ellipsis")
@@ -2217,6 +2222,12 @@ struct PullRequestRow: View {
         }
         .padding(.horizontal, metrics.prColumns.horizontalInset)
         .padding(.vertical, metrics.prColumns.verticalInset)
+        .contentShape(Rectangle())
+        .onTapGesture { action() }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("\(pullRequest.title), \(pullRequest.author), \(pullRequest.repo) #\(pullRequest.number)")
+        .accessibilityAction { action() }
         .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
         .onHover { isHovered = $0 }
     }
@@ -2258,6 +2269,11 @@ struct PullRequestRow: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(1)
                     .accessibilityLabel("Pull request number \(pullRequest.number)")
+                if let metadataAccessory {
+                    metadataAccessory
+                        .fixedSize()
+                        .layoutPriority(2)
+                }
             }
             .font(metrics.type.cardMetadata.font)
             .foregroundStyle(.secondary)

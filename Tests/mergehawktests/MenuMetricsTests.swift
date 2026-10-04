@@ -191,6 +191,8 @@ final class MenuMetricsTests: XCTestCase {
         ("prRow.identityItemSpacing", \.prRow.identityItemSpacing, 4),
         ("prRow.draftBadgeHorizontalPadding", \.prRow.draftBadgeHorizontalPadding, 6),
         ("prRow.draftBadgeVerticalPadding", \.prRow.draftBadgeVerticalPadding, 2),
+        ("prRow.stackChipHorizontalPadding", \.prRow.stackChipHorizontalPadding, 6),
+        ("prRow.stackChipSpacing", \.prRow.stackChipSpacing, 2),
         ("tooltip.horizontalPadding", \.tooltip.horizontalPadding, 8),
         ("tooltip.verticalPadding", \.tooltip.verticalPadding, 5),
         ("tooltip.gap", \.tooltip.gap, 4),
@@ -230,7 +232,7 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testSpacingIsOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.spacingTokens.count, 88)
+        XCTAssertEqual(Self.spacingTokens.count, 90)
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {
@@ -329,6 +331,7 @@ final class MenuMetricsTests: XCTestCase {
         .init(name: "metricValue", keyPath: \.type.metricValue, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
         .init(name: "signalSymbol", keyPath: \.type.signalSymbol, mer86Size: 12, size: 11, weight: .semibold),
         .init(name: "draftBadge", keyPath: \.type.draftBadge, mer86Size: 9, size: 10, weight: .semibold),
+        .init(name: "stackChipSymbol", keyPath: \.type.stackChipSymbol, mer86Size: 10, size: 10, weight: .semibold),
         .init(name: "actionsMenuItem", keyPath: \.type.actionsMenuItem, mer86Size: 12, size: 11),
         .init(name: "gitHubButtonTitle", keyPath: \.type.gitHubButtonTitle, mer86Size: 13, size: 13, weight: .semibold),
         .init(name: "signInTitle", keyPath: \.type.signInTitle, mer86Size: 13, size: 13, weight: .bold),
