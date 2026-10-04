@@ -345,7 +345,7 @@ final class SettingsViewTests: XCTestCase {
     func testTeamsCaptionExplainsTheSwitchesWithoutSayingCount() {
         XCTAssertEqual(
             ReviewTeamsSettingsPresentation.caption,
-            "Turn off a team to hide PRs and notifications that reach you only through that team.\n"
+            "Turn off a team to hide PRs and notifications that reach you only through that team. "
                 + "Useful for broad teams that CODEOWNERS adds to every PR."
         )
         XCTAssertFalse(ReviewTeamsSettingsPresentation.caption.localizedCaseInsensitiveContains("count"))
@@ -454,7 +454,7 @@ final class SettingsViewTests: XCTestCase {
         defer { host.close() }
 
         try clickAccessibilityElement(
-            labeled: "Choose which updates notify you for teams you haven't turned off in Notifications ›",
+            labeled: "Set notifications for teams you haven't turned off here ›",
             role: .button,
             in: host
         )
