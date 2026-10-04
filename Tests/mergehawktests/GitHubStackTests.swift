@@ -119,6 +119,81 @@ final class GitHubStackTests: XCTestCase {
         }
     }
 
+    func testNullEntryWithANestedNotFoundErrorIsSkippedAndStillCountsTowardTotal() async throws {
+        let transport = StackTransport { _, _ in
+            Self.json([
+                "data": ["nodes": [
+                    Self.stack("STACK_1", size: 3, entries: [
+                        Self.entry(1, id: "PR_1"), ["position": 2, "pullRequest": NSNull()], Self.entry(3, id: "PR_3")
+                    ])
+                ]],
+                "errors": [Self.error("NOT_FOUND", path: ["nodes", 0, "entries", "nodes", 1, "pullRequest"])]
+            ])
+        }
+
+        let stack = try await Self.fetcher(transport).fetchStacks(ids: ["STACK_1"]).first
+
+        XCTAssertEqual(stack?.size, 3)
+        XCTAssertEqual(stack?.entries.map(\.position), [1, 3])
+    }
+
+    func testNullEntryWithANestedForbiddenErrorIsSkippedOnTheFirstAndLaterPages() async throws {
+        let transport = StackTransport { query, _ in
+            if query.contains("PullRequestStackEntries") {
+                return Self.json([
+                    "data": ["node": ["entries": Self.connection(
+                        [["position": 3, "pullRequest": NSNull()], Self.entry(4, id: "PR_4")], total: 4, nextCursor: nil
+                    )]],
+                    "errors": [Self.error("FORBIDDEN", path: ["node", "entries", "nodes", 0, "pullRequest"])]
+                ])
+            }
+            return Self.json([
+                "data": ["nodes": [
+                    Self.stack("STACK_1", size: 4, entries: [
+                        ["position": 1, "pullRequest": NSNull()], Self.entry(2, id: "PR_2")
+                    ], total: 4, nextCursor: "PAGE_1")
+                ]],
+                "errors": [Self.error("FORBIDDEN", path: ["nodes", 0, "entries", "nodes", 0, "pullRequest"])]
+            ])
+        }
+
+        let stack = try await Self.fetcher(transport).fetchStacks(ids: ["STACK_1"]).first
+
+        XCTAssertEqual(stack?.size, 4)
+        XCTAssertEqual(stack?.entries.map(\.position), [2, 4])
+    }
+
+    func testNestedEntryErrorOfAnotherTypeOrAtAnotherPathStillFailsTheRead() async throws {
+        let cases: [(type: String, path: [Any])] = [
+            ("INTERNAL", ["nodes", 0, "entries", "nodes", 1, "pullRequest"]),
+            ("FORBIDDEN", ["nodes", 0, "entries", "nodes", 1, "pullRequest", "author"]),
+            ("NOT_FOUND", ["nodes", 0, "entries"]),
+            // The entry at the reported path has a PR, so the error isn't about an unreadable entry.
+            ("NOT_FOUND", ["nodes", 0, "entries", "nodes", 0, "pullRequest"])
+        ]
+        for errorCase in cases {
+            let transport = StackTransport { _, _ in
+                Self.json([
+                    "data": ["nodes": [
+                        Self.stack("STACK_1", size: 2, entries: [Self.entry(1, id: "PR_1"), ["position": 2, "pullRequest": NSNull()]])
+                    ]],
+                    "errors": [Self.error(errorCase.type, path: errorCase.path)]
+                ])
+            }
+
+            do {
+                _ = try await Self.fetcher(transport).fetchStacks(ids: ["STACK_1"])
+                XCTFail("Expected \(errorCase) to fail the read")
+            } catch {
+                XCTAssertNotNil(error as? GitHubReadError, "\(errorCase)")
+            }
+        }
+    }
+
+    private static func error(_ type: String, path: [Any]) -> [String: Any] {
+        ["type": type, "message": "Could not read the pull request", "path": path]
+    }
+
     func testTwentyOneStackIDsAreReadInTwoBatches() async throws {
         let ids = (1...21).map { "STACK_\($0)" }
         let transport = StackTransport { _, variables in

@@ -1202,7 +1202,7 @@ struct GitHubPullRequestFetcher: Sendable {
                 throw GitHubReadError.invalidPayload
             }
             var goneIndices = Set<Int>()
-            let remainingErrors = errors.filter { error in
+            let remainingErrors = Self.withoutUnreadableEntryErrors(errors, data: dataObject).filter { error in
                 guard error.type?.uppercased() == "NOT_FOUND",
                       let path = error.path, path.count == 2, path[0] == .field("nodes"),
                       case .index(let index) = path[1],
@@ -1226,6 +1226,42 @@ struct GitHubPullRequestFetcher: Sendable {
         return stacks
     }
 
+    /// GitHub reports an entry whose PR the viewer can't read (deleted or inaccessible) as a null `pullRequest`
+    /// with a NOT_FOUND or FORBIDDEN error at that entry. Such an entry is skipped like any entry without a PR;
+    /// every other error still fails the read.
+    private static func withoutUnreadableEntryErrors(
+        _ errors: [GitHubGraphQLErrorPayload],
+        data: Any?
+    ) -> [GitHubGraphQLErrorPayload] {
+        errors.filter { error in
+            guard ["NOT_FOUND", "FORBIDDEN"].contains(error.type?.uppercased() ?? ""),
+                  let path = error.path else { return true }
+            let entrySuffix = Array(path.suffix(4))
+            let prefix = Array(path.dropLast(4))
+            guard entrySuffix.count == 4,
+                  entrySuffix[0] == .field("entries"), entrySuffix[1] == .field("nodes"),
+                  case .index = entrySuffix[2], entrySuffix[3] == .field("pullRequest") else { return true }
+            let isStackPrefix: Bool = switch prefix.count {
+            case 1: prefix[0] == .field("node")
+            case 2: prefix[0] == .field("nodes") && { if case .index = prefix[1] { true } else { false } }()
+            default: false
+            }
+            guard isStackPrefix else { return true }
+            return !(value(at: path, in: data) is NSNull)
+        }
+    }
+
+    private static func value(at path: [GitHubGraphQLPathComponent], in root: Any?) -> Any? {
+        path.reduce(root) { current, component in
+            switch component {
+            case .field(let name):
+                (current as? [String: Any])?[name]
+            case .index(let index):
+                (current as? [Any]).flatMap { $0.indices.contains(index) ? $0[index] : nil }
+            }
+        }
+    }
+
     private func completeStack(_ payload: GitHubPayloadStack) async throws -> PullRequestStack {
         var connection = payload.entries
         var rawEntries = connection.nodes
@@ -1235,12 +1271,19 @@ struct GitHubPullRequestFetcher: Sendable {
             guard seenCursors.insert(cursor).inserted else {
                 throw GitHubReadError.incompleteCoverage("Repeated stack entries cursor")
             }
-            let page = try await readValidated(
-                GitHubStackEntriesPayload.self,
-                query: GitHubPullRequestQueries.pullRequestStackEntries,
-                variables: ["id": .string(payload.id), "cursor": .string(cursor)]
+            let data = try await read(
+                GitHubPullRequestQueries.pullRequestStackEntries,
+                ["id": .string(payload.id), "cursor": .string(cursor)]
             )
-            guard let node = page.node else { throw GitHubReadError.invalidPayload }
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw GitHubReadError.invalidPayload
+            }
+            try validate(errors: Self.withoutUnreadableEntryErrors(
+                try decodeErrors(object["errors"]),
+                data: object["data"]
+            ))
+            guard let page = try? decoder.decode(GitHubGraphQLPayload<GitHubStackEntriesPayload>.self, from: data).data,
+                  let node = page.node else { throw GitHubReadError.invalidPayload }
             connection = node.entries
             rawEntries += connection.nodes
         }
