@@ -88,7 +88,7 @@ struct TeamsSettingsView: View {
                             ReviewTeamSettingsRow(row: row, controller: controller)
                         }
                     } header: {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 20) {
                             // The caption heads the first section so it reads as plain text above the groups.
                             if group.id == groups.first?.id {
                                 Text(ReviewTeamsSettingsPresentation.caption)
