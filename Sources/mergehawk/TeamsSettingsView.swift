@@ -22,8 +22,8 @@ enum ReviewTeamsSettingsPresentation {
     static let noTeamsDetail = "Your GitHub teams appear here after the next successful refresh."
     /// Two lines: the second sentence always starts on its own line.
     static let caption = """
-        Show review requests sent to these teams.
-        A PR still appears if it reaches you another way, like a direct request, an assignment, or another of your teams.
+        Turn off a team to hide review requests sent only to that team.
+        Useful for broad teams that CODEOWNERS adds to every PR.
         """
     static let notificationsLinkTitle = "Team review request notifications are set in Notifications ›"
     static let notificationsLinkDestination = SettingsTab.notifications
