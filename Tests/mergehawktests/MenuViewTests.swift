@@ -1099,18 +1099,25 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testContextCardsAndMemberCardsKeepTheStandardCardHeightAtEveryMenuSize() {
+    func testEveryKindOfPRCardHasTheSameHeightAtEveryMenuSize() {
         for size in MenuSize.allCases {
             let metrics = MenuMetrics(scale: size.factor)
+            var heights: [(String, CGFloat)] = []
             for draft in [false, true] {
                 for title in ["Short title", Self.longTitle] {
-                    let heights = memberCards(title: title, draft: draft).map { name, card in
-                        (name, measure(card, width: 800 * size.factor, metrics: metrics).height)
-                    }
-                    for (name, height) in heights {
-                        XCTAssertEqual(height, heights[0].1, "\(name) at \(size), draft: \(draft), \(title.count) characters")
+                    for (name, card) in memberCards(title: title, draft: draft) {
+                        let label = "\(name), draft: \(draft), \(title.count) characters"
+                        heights.append((label, measure(card, width: 800 * size.factor, metrics: metrics).height))
                     }
                 }
+            }
+            for state in [PullRequestStackEntry.State.open, .closed] {
+                let card = StackContextCard(entry: Self.contextEntry(draft: false, state: state), repo: "a/b", position: 1) {}
+                heights.append(("context \(state)", measure(card, width: 800 * size.factor, metrics: metrics).height))
+            }
+            let reference = heights[0]
+            for (label, height) in heights {
+                XCTAssertEqual(height, reference.1, "\(label) at \(size) vs \(reference.0)")
             }
         }
     }

@@ -2394,7 +2394,7 @@ struct PullRequestRow: View {
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
-            HStack(spacing: metrics.prRow.identityItemSpacing) {
+            PullRequestTitleLine {
                 if pullRequest.draft { DraftPullRequestIndicator() }
                 if let titleBadge { titleBadge }
                 Text(pullRequest.title)
@@ -2403,7 +2403,6 @@ struct PullRequestRow: View {
                     .truncationMode(.tail)
                     .accessibilityLabel(pullRequest.title)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: metrics.prRow.identityItemSpacing) {
                 Text(pullRequest.author)
@@ -2470,13 +2469,32 @@ struct PullRequestAuthorAvatar: View {
     }
 }
 
+/// A card's title line. It always reserves the height of a title badge, so every card has the same height
+/// whether or not it shows a Draft or other badge.
+struct PullRequestTitleLine<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.menuMetrics) private var metrics
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            DraftPullRequestIndicator()
+                .hidden()
+                .accessibilityHidden(true)
+            HStack(spacing: metrics.prRow.identityItemSpacing) {
+                content()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct ReviewRequestedBadge: View {
     var body: some View {
         PullRequestTitleBadge(
             text: StackMemberBadge.reviewRequested.title,
             accessibilityLabel: StackMemberBadge.reviewRequested.title,
-            isAccented: true,
-            keepsLineHeight: true
+            isAccented: true
         )
     }
 }
@@ -2492,21 +2510,10 @@ struct PullRequestTitleBadge: View {
     let text: String
     let accessibilityLabel: String
     var isAccented = false
-    /// Stack member badges must not make a card taller than an ordinary card with the same Draft state,
-    /// so they take no layout height and draw over the title line's spacing.
-    var keepsLineHeight = false
 
     @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
-        if keepsLineHeight {
-            badge.frame(height: 0)
-        } else {
-            badge
-        }
-    }
-
-    private var badge: some View {
         Text(text)
             .font(metrics.type.draftBadge.font)
             .foregroundStyle(isAccented ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))

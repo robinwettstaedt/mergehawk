@@ -132,13 +132,13 @@ struct StackContextCard: View {
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
-            HStack(spacing: metrics.prRow.identityItemSpacing) {
+            PullRequestTitleLine {
                 ForEach(StackMemberBadge.badges(for: .context(entry)), id: \.self) { badge in
                     switch badge {
                     case .draft:
                         DraftPullRequestIndicator()
                     case .reviewRequested, .merged, .closed:
-                        PullRequestTitleBadge(text: badge.title, accessibilityLabel: "\(badge.title) PR", keepsLineHeight: true)
+                        PullRequestTitleBadge(text: badge.title, accessibilityLabel: "\(badge.title) PR")
                     }
                 }
                 Text(entry.title)
@@ -147,7 +147,6 @@ struct StackContextCard: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: metrics.prRow.identityItemSpacing) {
                 Text(entry.author)
