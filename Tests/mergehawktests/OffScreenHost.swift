@@ -37,8 +37,17 @@ final class OffScreenHost {
         ))
     }
 
+    /// Clicks at `point` in window coordinates. AppKit controls such as bordered buttons and switches track a mouse
+    /// down until they dequeue the matching mouse up, so the mouse up is queued before the mouse down is sent.
     func click(at point: CGPoint) throws {
-        send(try mouseEvent(.leftMouseDown, at: point))
-        send(try mouseEvent(.leftMouseUp, at: point))
+        let mouseUp = try mouseEvent(.leftMouseUp, at: point)
+        NSApp.postEvent(mouseUp, atStart: false)
+        window.sendEvent(try mouseEvent(.leftMouseDown, at: point))
+        // A control that did not track leaves the mouse up queued; deliver it so the click completes and no stray
+        // event reaches a later test.
+        if let queuedMouseUp = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) {
+            window.sendEvent(queuedMouseUp)
+        }
+        settle()
     }
 }
