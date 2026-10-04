@@ -345,7 +345,9 @@ final class SettingsViewTests: XCTestCase {
     func testTeamsCaptionExplainsTheSwitchesWithoutSayingCount() {
         XCTAssertEqual(
             ReviewTeamsSettingsPresentation.caption,
-            "Show review requests sent to these teams. A PR still appears if it reaches you another way."
+            "Show review requests sent to these teams.\n"
+                + "A PR still appears if it reaches you another way, like a direct request, an assignment, "
+                + "or another of your teams."
         )
         XCTAssertFalse(ReviewTeamsSettingsPresentation.caption.localizedCaseInsensitiveContains("count"))
     }

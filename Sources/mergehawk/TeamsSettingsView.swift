@@ -20,7 +20,11 @@ enum ReviewTeamsSettingsPresentation {
     static let signedOutDetail = "Then choose which teams' review requests show up."
     static let noTeamsHeadline = "No teams found"
     static let noTeamsDetail = "Your GitHub teams appear here after the next successful refresh."
-    static let caption = "Show review requests sent to these teams. A PR still appears if it reaches you another way."
+    /// Two lines: the second sentence always starts on its own line.
+    static let caption = """
+        Show review requests sent to these teams.
+        A PR still appears if it reaches you another way, like a direct request, an assignment, or another of your teams.
+        """
     static let notificationsLinkTitle = "Team review request notifications are set in Notifications ›"
     static let notificationsLinkDestination = SettingsTab.notifications
 
