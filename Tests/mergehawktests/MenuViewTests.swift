@@ -1562,6 +1562,57 @@ final class MenuViewTests: XCTestCase {
         )
     }
 
+    private final class ConnectorFrames {
+        var avatars: [String: CGRect] = [:]
+        var connectors: [CGRect] = []
+    }
+
+    @MainActor
+    func testExpandedStackJoinsConsecutiveAvatarsWithAGappedLineAtEveryMenuSize() throws {
+        let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            let width = 800 * size.factor
+            let cards = memberCards(title: Self.longTitle, draft: false)
+            let container = StackMemberContainer(group: group, isUnread: false) { _, position in cards[2 + position % 2].1 }
+            let box = ConnectorFrames()
+            let hosted = container
+                .overlayPreferenceValue(StackMemberAvatarAnchorsKey.self) { anchors in
+                    GeometryReader { proxy in
+                        Color.clear.onAppear { box.avatars = anchors.mapValues { proxy[$0] } }
+                    }
+                }
+                .overlayPreferenceValue(StackConnectorAnchorsKey.self) { anchors in
+                    GeometryReader { proxy in
+                        Color.clear.onAppear { box.connectors = anchors.map { proxy[$0] } }
+                    }
+                }
+            _ = measure(hosted, width: width, metrics: metrics)
+
+            let avatars = try group.members.map { try XCTUnwrap(box.avatars[$0.pullRequestID], "\(size)") }
+            let segments = box.connectors.sorted { $0.minY < $1.minY }
+            XCTAssertEqual(segments.count, group.members.count - 1, "\(size)")
+            let gap = metrics.prRow.stackConnectorGap
+            for (index, segment) in segments.enumerated() {
+                let label = "segment \(index) at \(size)"
+                XCTAssertEqual(segment.midX, avatars[index].midX, accuracy: 0.5, label)
+                XCTAssertEqual(segment.width, metrics.prRow.stackConnectorWidth, accuracy: 0.5, label)
+                XCTAssertEqual(segment.minY, avatars[index].maxY + gap, accuracy: 0.5, label)
+                XCTAssertEqual(segment.maxY, avatars[index + 1].minY - gap, accuracy: 0.5, label)
+            }
+
+            // The line adds no height: the container stays as tall as the same number of ordinary cards.
+            let ordinaryCards = VStack(spacing: 0) {
+                ForEach(group.members, id: \.pullRequestID) { _ in cards[0].1 }
+            }
+            XCTAssertEqual(
+                measure(container, width: width, metrics: metrics).height,
+                measure(ordinaryCards, width: width, metrics: metrics).height,
+                "\(size)"
+            )
+        }
+    }
+
     // MARK: - Expanded stacks in the menu
 
     private struct ResolvedStackControl: Equatable {
@@ -1574,6 +1625,7 @@ final class MenuViewTests: XCTestCase {
         var controls: [String: ResolvedStackControl] = [:]
         var rows: [String: CGRect] = [:]
         var positionLabels: [String: CGRect] = [:]
+        var connectors: [CGRect] = []
     }
 
     @MainActor
@@ -1616,6 +1668,14 @@ final class MenuViewTests: XCTestCase {
                     Color.clear
                         .onAppear { frames.rows = resolved }
                         .onChange(of: resolved) { _, new in frames.rows = new }
+                }
+            }
+            .overlayPreferenceValue(StackConnectorAnchorsKey.self) { anchors in
+                GeometryReader { proxy in
+                    let resolved = anchors.map { proxy[$0] }
+                    Color.clear
+                        .onAppear { frames.connectors = resolved }
+                        .onChange(of: resolved) { _, new in frames.connectors = new }
                 }
             }
             .overlayPreferenceValue(StackPositionLabelAnchorsKey.self) { anchors in
@@ -1723,6 +1783,12 @@ final class MenuViewTests: XCTestCase {
         }
         XCTAssertEqual(opened, (201...204).map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" })
 
+        // The avatar line takes no clicks: a click on it, just below the first avatar, opens the first member.
+        let firstSegment = try XCTUnwrap(frames.connectors.min { $0.minY < $1.minY })
+        try click(window, atTopLeft: CGPoint(x: firstSegment.midX, y: firstSegment.minY + 1))
+        XCTAssertEqual(opened.last, "https://github.com/mergehawk-labs/mergehawk/pull/201")
+        opened.removeLast()
+
         // Position 1 is an open context member; its control stays fully operable.
         let control = try XCTUnwrap(frames.controls["STACK_MOCK_SPREAD"])
         XCTAssertTrue(try XCTUnwrap(frames.rows[Self.spreadMemberIDs[0]]).contains(control.frame))
@@ -1763,6 +1829,7 @@ final class MenuViewTests: XCTestCase {
         defer { window.orderOut(nil) }
         XCTAssertFalse(frames.controls.isEmpty)
         XCTAssertEqual(frames.positionLabels, [:], "collapsed cards show no metadata position")
+        XCTAssertEqual(frames.connectors, [], "collapsed and unstacked cards have no avatar line")
 
         controller.toggleStackExpanded("STACK_MOCK_SPREAD")
         relayout(view)
@@ -1776,6 +1843,7 @@ final class MenuViewTests: XCTestCase {
             XCTAssertGreaterThan(label.midY, row.midY, "on the metadata line, position \(position)")
         }
         XCTAssertEqual(frames.controls["STACK_MOCK_SPREAD"]?.fractionText, "1/4")
+        XCTAssertEqual(frames.connectors.count, 3, "one segment per consecutive pair of the four members")
     }
 
     @MainActor

@@ -135,6 +135,8 @@ final class MenuMetricsTests: XCTestCase {
         "footer.selectionInsetX", "footer.selectionInsetY", "footer.titleLeading", "footer.shortcutTrailing",
         "footer.separatorHorizontalPadding",
         "controls.sortDividerVerticalInset", "controls.segmentDividerVerticalInset",
+        // The gap between an avatar and the stack connector line is optical, not layout spacing.
+        "prRow.stackConnectorGap",
     ]
 
     /// Every spacing and padding token with its value before the scales were consolidated (MER-86).
@@ -195,6 +197,7 @@ final class MenuMetricsTests: XCTestCase {
         ("prRow.stackControlHorizontalPadding", \.prRow.stackControlHorizontalPadding, 8),
         ("prRow.stackControlSpacing", \.prRow.stackControlSpacing, 6),
         ("prRow.stackPositionSymbolSpacing", \.prRow.stackPositionSymbolSpacing, 2),
+        ("prRow.stackConnectorGap", \.prRow.stackConnectorGap, 3),
         ("tooltip.horizontalPadding", \.tooltip.horizontalPadding, 8),
         ("tooltip.verticalPadding", \.tooltip.verticalPadding, 5),
         ("tooltip.gap", \.tooltip.gap, 4),
@@ -234,7 +237,7 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testSpacingIsOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.spacingTokens.count, 91)
+        XCTAssertEqual(Self.spacingTokens.count, 92)
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {

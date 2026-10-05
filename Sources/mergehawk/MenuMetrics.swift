@@ -235,6 +235,10 @@ struct MenuMetrics: Equatable {
         var stackControlHeight: CGFloat
         /// Between the stack symbol and the fraction in an expanded row's metadata position.
         var stackPositionSymbolSpacing: CGFloat
+        /// The vertical line joining consecutive avatars of an expanded stack.
+        var stackConnectorWidth: CGFloat
+        /// Between an avatar and each end of a connector segment.
+        var stackConnectorGap: CGFloat
     }
 
     struct Card: Equatable {
@@ -563,7 +567,9 @@ struct MenuMetrics: Equatable {
             stackControlSpacing: s(6),
             stackControlCornerRadius: s(6),
             stackControlHeight: s(30),
-            stackPositionSymbolSpacing: s(2)
+            stackPositionSymbolSpacing: s(2),
+            stackConnectorWidth: s(1.5),
+            stackConnectorGap: s(3)
         )
         card = Card(cornerRadius: s(8))
         legend = Legend(

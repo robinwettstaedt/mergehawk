@@ -221,13 +221,16 @@ struct StackMemberBadgeView: View {
 }
 
 /// An expanded stack group: one rounded container of borderless rows, position 1 (closest to the base branch)
-/// first, with a hairline between rows. Each row keeps an ordinary card's height, so the container is exactly
-/// as tall as its rows, and its top edge is where the collapsed card's top edge was.
+/// first, with a hairline between rows and a vertical line joining consecutive avatars. Each row keeps an ordinary
+/// card's height, so the container is exactly as tall as its rows, and its top edge is where the collapsed card's
+/// top edge was.
 struct StackMemberContainer<Row: View>: View {
     let group: StackGroup
     /// The group unread rule, the same signal the collapsed card shows.
     let isUnread: Bool
     @ViewBuilder let row: (_ member: StackGroup.Member, _ position: Int) -> Row
+
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         VStack(spacing: 0) {
@@ -243,9 +246,62 @@ struct StackMemberContainer<Row: View>: View {
                         }
                     }
                     .anchorPreference(key: StackMemberRowAnchorsKey.self, value: .bounds) { [member.pullRequestID: $0] }
+                    // Re-reports the row's avatar under the member's ID, so the connector can join the avatars.
+                    .overlayPreferenceValue(PullRequestCardPartAnchorsKey.self) { parts in
+                        Color.clear.preference(
+                            key: StackMemberAvatarAnchorsKey.self,
+                            value: parts[.avatar].map { [member.pullRequestID: $0] } ?? [:]
+                        )
+                    }
             }
         }
+        // Drawn over the rows and dividers but never dimmed with a row, never hit-tested, and never read aloud.
+        .overlayPreferenceValue(StackMemberAvatarAnchorsKey.self) { avatars in
+            GeometryReader { proxy in
+                ForEach(Array(connectorSegments(avatars: avatars, proxy: proxy).enumerated()), id: \.offset) { _, segment in
+                    Rectangle()
+                        .fill(Color(nsColor: .tertiaryLabelColor))
+                        .frame(width: segment.width, height: segment.height)
+                        .anchorPreference(key: StackConnectorAnchorsKey.self, value: .bounds) { [$0] }
+                        .position(x: segment.midX, y: segment.midY)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
         .transparentCardStyle(accentColor: isUnread ? .accentColor : nil, isHovered: false)
+    }
+
+    /// One segment per consecutive pair of avatars, on the avatar column's centre, with a gap at both ends.
+    private func connectorSegments(avatars: [String: Anchor<CGRect>], proxy: GeometryProxy) -> [CGRect] {
+        let frames = group.members.compactMap { avatars[$0.pullRequestID].map { proxy[$0] } }
+        let row = metrics.prRow
+        return zip(frames, frames.dropFirst()).compactMap { upper, lower in
+            let top = upper.maxY + row.stackConnectorGap
+            let bottom = lower.minY - row.stackConnectorGap
+            guard bottom > top else { return nil }
+            return CGRect(
+                x: upper.midX - row.stackConnectorWidth / 2, y: top, width: row.stackConnectorWidth, height: bottom - top
+            )
+        }
+    }
+}
+
+/// Each expanded row's avatar frame, by the member's PR ID.
+struct StackMemberAvatarAnchorsKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
+    }
+}
+
+/// The frames of the line segments joining an expanded stack's avatars, reported so tests can check them.
+struct StackConnectorAnchorsKey: PreferenceKey {
+    static var defaultValue: [Anchor<CGRect>] { [] }
+
+    static func reduce(value: inout [Anchor<CGRect>], nextValue: () -> [Anchor<CGRect>]) {
+        value.append(contentsOf: nextValue())
     }
 }
 
