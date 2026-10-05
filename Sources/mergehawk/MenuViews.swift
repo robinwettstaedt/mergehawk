@@ -253,7 +253,7 @@ struct SortControlButton: View {
     }
 }
 
-private enum MenuControlBorderPresentation {
+enum MenuControlBorderPresentation {
     static func color(colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
             ? Color.white.opacity(0.24)
@@ -1612,8 +1612,12 @@ struct PullRequestListView: View {
             },
             titleBadge: isMember ? AnyView(ReviewRequestedBadge()) : nil,
             stackControl: row.stack.map { group in
-                AnyView(StackChip(
-                    presentation: StackChipPresentation(group: group, isExpanded: controller.isStackExpanded(group.stack.id))
+                AnyView(StackControl(
+                    presentation: StackControlPresentation(
+                        group: group,
+                        displayedPosition: group.representativePosition,
+                        isExpanded: controller.isStackExpanded(group.stack.id)
+                    )
                 ) {
                     controller.toggleStackExpanded(group.stack.id)
                 })

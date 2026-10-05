@@ -755,7 +755,7 @@ final class MenuViewTests: XCTestCase {
         ))
     }
 
-    // MARK: - Stack chip and card clicks
+    // MARK: - Stack control and card clicks
 
     private static let stackedPullRequest = PullRequest(
         id: "PR_STACKED", title: "Read stack metadata during hydration", number: 202,
@@ -767,51 +767,104 @@ final class MenuViewTests: XCTestCase {
         stackID: "STACK"
     )
 
-    private static func stackGroup(additional: Int = 1, excluded: Int = 0) -> StackGroup {
+    private static func stackEntry(position: Int) -> PullRequestStackEntry {
+        PullRequestStackEntry(
+            position: position, pullRequestID: "PR_ENTRY_\(position)", number: 600 + position,
+            title: "Entry \(position)", url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(600 + position)")!,
+            state: .open, isDraft: false, author: "docs-lee"
+        )
+    }
+
+    private static func stackGroup(
+        additional: Int = 1,
+        excluded: Int = 0,
+        size: Int = 4,
+        representativePosition: Int = 2,
+        entryPositions: [Int] = []
+    ) -> StackGroup {
         let requestedIDs = Set(["PR_STACKED"] + (0..<additional).map { "PR_MORE_\($0)" })
+        let entries = entryPositions.map(stackEntry(position:))
         return StackGroup(
-            stack: PullRequestStack(id: "STACK", size: 4, entries: []),
-            representativePosition: 2,
+            stack: PullRequestStack(id: "STACK", size: size, entries: entries),
+            representativePosition: representativePosition,
             requestedMemberIDs: requestedIDs,
             matchingMemberIDs: Set(requestedIDs.sorted().dropLast(excluded)),
-            members: []
+            members: entries.map { .context($0) }
         )
     }
 
-    func testStackChipShowsPositionSizeAndAdditionalRequests() {
-        let presentation = StackChipPresentation(group: Self.stackGroup(), isExpanded: false)
+    func testCollapsedStackControlShowsTheRepresentativePositionAndExpandedTheFirstMember() {
+        let group = Self.stackGroup(size: 3, entryPositions: [1, 2, 3])
+        let collapsed = StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false)
+        XCTAssertEqual(collapsed.fractionText, "2/3")
+        XCTAssertEqual(collapsed.chevronSymbolName, "chevron.down")
 
-        XCTAssertEqual(presentation.positionText, "2 of 4")
-        XCTAssertEqual(presentation.additionalRequestsText, "+1")
-        XCTAssertEqual(presentation.chevronSymbolName, "chevron.right")
-        XCTAssertEqual(presentation.tooltip, "Stack · 2 of 4 · 1 more review request")
-        XCTAssertEqual(presentation.accessibilityLabel, presentation.tooltip)
-        XCTAssertEqual(StackChipPresentation(group: Self.stackGroup(), isExpanded: true).chevronSymbolName, "chevron.down")
+        let expanded = StackControlPresentation(group: group, displayedPosition: group.firstMemberPosition, isExpanded: true)
+        XCTAssertEqual(expanded.fractionText, "1/3")
+        XCTAssertEqual(expanded.chevronSymbolName, "chevron.up")
+    }
+
+    func testExpandedStackControlShowsTheFirstReadablePosition() {
+        // GitHub returned no readable entry at position 1.
+        let group = Self.stackGroup(size: 3, representativePosition: 3, entryPositions: [2, 3])
+        XCTAssertEqual(group.firstMemberPosition, 2)
         XCTAssertEqual(
-            StackChipPresentation(group: Self.stackGroup(additional: 2), isExpanded: false).tooltip,
-            "Stack · 2 of 4 · 2 more review requests"
+            StackControlPresentation(group: group, displayedPosition: group.firstMemberPosition, isExpanded: true).fractionText,
+            "2/3"
         )
     }
 
-    func testStackChipWithoutOtherRequestsHasNoCountOrRequestClause() {
-        let presentation = StackChipPresentation(group: Self.stackGroup(additional: 0), isExpanded: false)
-
-        XCTAssertNil(presentation.additionalRequestsText)
-        XCTAssertEqual(presentation.tooltip, "Stack · 2 of 4")
+    func testStackControlShowsNoCountOrStackWordAndKeepsRequestsInTheTooltip() {
+        let presentation = StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
+        XCTAssertEqual(presentation.fractionText, "2/4")
+        XCTAssertFalse(presentation.fractionText.contains("+"))
+        XCTAssertFalse(presentation.fractionText.contains("Stack"))
+        XCTAssertEqual(presentation.tooltip, "Stack · position 2 of 4 · 1 more review request · Expand stack")
+        XCTAssertEqual(presentation.accessibilityLabel, presentation.tooltip)
+        XCTAssertEqual(
+            StackControlPresentation(group: Self.stackGroup(additional: 2), displayedPosition: 1, isExpanded: true).tooltip,
+            "Stack · position 1 of 4 · 2 more review requests · Collapse stack"
+        )
+        XCTAssertEqual(
+            StackControlPresentation(group: Self.stackGroup(excluded: 1), displayedPosition: 2, isExpanded: false).tooltip,
+            "Stack · position 2 of 4 · 1 more review request · 1 outside the current filter · Expand stack"
+        )
+        XCTAssertEqual(
+            StackControlPresentation(group: Self.stackGroup(additional: 0), displayedPosition: 2, isExpanded: false).tooltip,
+            "Stack · position 2 of 4 · Expand stack"
+        )
     }
 
-    func testStackChipTooltipNamesRequestsOutsideTheCurrentFilter() {
-        let presentation = StackChipPresentation(group: Self.stackGroup(excluded: 1), isExpanded: false)
+    @MainActor
+    func testStackControlKeepsOneSizeForItsGroupInBothStates() {
+        func size(_ presentation: StackControlPresentation, metrics: MenuMetrics) -> CGSize {
+            NSHostingView(rootView: StackControl(presentation: presentation) {}.environment(\.menuMetrics, metrics)).fittingSize
+        }
+        for menuSize in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: menuSize.factor)
+            let small = Self.stackGroup(size: 3, entryPositions: [1, 2, 3])
+            let collapsed = size(.init(group: small, displayedPosition: 2, isExpanded: false), metrics: metrics)
+            XCTAssertGreaterThan(collapsed.width, 0)
+            XCTAssertEqual(size(.init(group: small, displayedPosition: 1, isExpanded: true), metrics: metrics), collapsed, "\(menuSize)")
 
-        XCTAssertEqual(presentation.tooltip, "Stack · 2 of 4 · 1 more review request · 1 outside the current filter")
+            let large = Self.stackGroup(size: 12, representativePosition: 10, entryPositions: Array(1...12))
+            let twoDigits = size(.init(group: large, displayedPosition: 10, isExpanded: false), metrics: metrics)
+            for (position, isExpanded) in [(9, false), (1, true), (10, true)] {
+                XCTAssertEqual(
+                    size(.init(group: large, displayedPosition: position, isExpanded: isExpanded), metrics: metrics),
+                    twoDigits,
+                    "\(position)/12, expanded: \(isExpanded), at \(menuSize)"
+                )
+            }
+        }
     }
 
     private final class RowEvents {
         var opened = 0
         var toggledStack = 0
         var toggledActions = 0
-        /// The chip's frame in the hosted row, top-left origin.
-        var chipFrame: CGRect = .zero
+        /// The stack control's frame in the hosted row, top-left origin.
+        var controlFrame: CGRect = .zero
     }
 
     @MainActor
@@ -821,16 +874,16 @@ final class MenuViewTests: XCTestCase {
         metrics: MenuMetrics = .standard,
         width: CGFloat = 800
     ) -> (window: NSWindow, view: NSView) {
-        let chip = stacked ? AnyView(StackChip(
-            presentation: StackChipPresentation(group: Self.stackGroup(), isExpanded: false)
+        let control = stacked ? AnyView(StackControl(
+            presentation: StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
         ) { events.toggledStack += 1 }
             .background(GeometryReader { proxy in
-                Color.clear.onAppear { events.chipFrame = proxy.frame(in: .global) }
+                Color.clear.onAppear { events.controlFrame = proxy.frame(in: .global) }
             })) : nil
         let row = PullRequestRow(
             pullRequest: Self.stackedPullRequest, isAttention: false, isPinned: false, isHidden: false,
             toggleActions: { events.toggledActions += 1 }, toggleHide: {}, togglePin: {},
-            stackControl: chip
+            stackControl: control
         ) { events.opened += 1 }
         let content = row
             .frame(width: width)
@@ -891,20 +944,34 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testClickingTheStackChipTogglesExpansionWithoutOpeningThePR() throws {
+    func testClickingAnywhereInTheStackControlTogglesExpansionWithoutOpeningThePR() throws {
         let events = RowEvents()
         let (window, _) = hostRow(stacked: true, events: events)
         defer { window.orderOut(nil) }
-        XCTAssertGreaterThan(events.chipFrame.width, 0)
+        let frame = events.controlFrame
+        XCTAssertGreaterThan(frame.width, 0)
+        XCTAssertGreaterThan(frame.height, MenuMetrics.standard.prRow.stackControlHeight - 1)
 
-        try click(window, atTopLeft: CGPoint(x: events.chipFrame.midX, y: events.chipFrame.midY))
-
-        XCTAssertEqual(events.toggledStack, 1)
+        // The center, then the padding near each corner and edge, inside the rounded border.
+        let inset: CGFloat = 4
+        let points = [
+            CGPoint(x: frame.midX, y: frame.midY),
+            CGPoint(x: frame.minX + inset, y: frame.minY + inset),
+            CGPoint(x: frame.maxX - inset, y: frame.minY + inset),
+            CGPoint(x: frame.minX + inset, y: frame.maxY - inset),
+            CGPoint(x: frame.maxX - inset, y: frame.maxY - inset),
+            CGPoint(x: frame.minX + 1.5, y: frame.midY),
+            CGPoint(x: frame.midX, y: frame.minY + 1.5)
+        ]
+        for (index, point) in points.enumerated() {
+            try click(window, atTopLeft: point)
+            XCTAssertEqual(events.toggledStack, index + 1, "\(point)")
+        }
         XCTAssertEqual(events.opened, 0)
     }
 
     @MainActor
-    func testClickingAnywhereElseOnTheCardOpensThePRWithOrWithoutAChip() throws {
+    func testClickingAnywhereElseOnTheCardOpensThePRWithOrWithoutAStackControl() throws {
         for stacked in [false, true] {
             let events = RowEvents()
             let (window, view) = hostRow(stacked: stacked, events: events)
@@ -1088,8 +1155,8 @@ final class MenuViewTests: XCTestCase {
         stackControl: AnyView? = nil
     ) -> [(String, AnyView)] {
         let pullRequest = Self.pullRequest(title: title, draft: draft)
-        let control = stackControl ?? AnyView(StackChip(
-            presentation: StackChipPresentation(group: Self.stackGroup(), isExpanded: false)
+        let control = stackControl ?? AnyView(StackControl(
+            presentation: StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
         ) {})
         return [
             ("unstacked card", AnyView(PullRequestRow(

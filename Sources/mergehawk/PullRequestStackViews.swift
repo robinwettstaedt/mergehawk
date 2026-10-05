@@ -1,24 +1,32 @@
 import mergehawkcore
 import SwiftUI
 
-/// The chip on a requested stack card: "‹position› of ‹size›" and "+N" other review requests in the stack.
-struct StackChipPresentation: Equatable {
+/// The stack control on a requested stack card: stack symbol, "‹position›/‹size›", and an expand or collapse
+/// chevron. Other review requests and filter-excluded requests appear only in the tooltip.
+struct StackControlPresentation: Equatable {
     static let stackSymbolName = "square.stack"
+    static let collapsedChevronSymbolName = "chevron.down"
+    static let expandedChevronSymbolName = "chevron.up"
 
-    let positionText: String
-    /// "+N" when other open members also request the viewer's review; nil when N is 0.
-    let additionalRequestsText: String?
+    let fractionText: String
+    /// Laid out hidden under the fraction, so every fraction of the stack takes the same width.
+    let templateText: String
     let chevronSymbolName: String
     let tooltip: String
 
     var accessibilityLabel: String { tooltip }
 
-    init(group: StackGroup, isExpanded: Bool) {
-        positionText = "\(group.representativePosition) of \(group.stack.size)"
+    /// `displayedPosition` is the representative's position when collapsed, and the first displayed member's
+    /// position when expanded.
+    init(group: StackGroup, displayedPosition: Int, isExpanded: Bool) {
+        let size = group.stack.size
+        fractionText = "\(displayedPosition)/\(size)"
+        let highest = max(size, group.stack.entries.map(\.position).max() ?? 0)
+        let digits = String(repeating: "8", count: String(highest).count)
+        templateText = "\(digits)/\(digits)"
+        chevronSymbolName = isExpanded ? Self.expandedChevronSymbolName : Self.collapsedChevronSymbolName
+        var parts = ["Stack", "position \(displayedPosition) of \(size)"]
         let additional = group.additionalRequestCount
-        additionalRequestsText = additional > 0 ? "+\(additional)" : nil
-        chevronSymbolName = isExpanded ? "chevron.down" : "chevron.right"
-        var parts = ["Stack", positionText]
         if additional > 0 {
             parts.append("\(additional) more review \(additional == 1 ? "request" : "requests")")
         }
@@ -26,41 +34,79 @@ struct StackChipPresentation: Equatable {
         if excluded > 0 {
             parts.append("\(excluded) outside the current filter")
         }
+        parts.append(isExpanded ? "Collapse stack" : "Expand stack")
         tooltip = parts.joined(separator: " · ")
     }
 }
 
-struct StackChip: View {
-    let presentation: StackChipPresentation
+extension StackGroup {
+    /// The position of the first displayed member of the expanded group, which is position 1 unless GitHub
+    /// returned no readable entry there.
+    var firstMemberPosition: Int {
+        members.first.flatMap(position(of:)) ?? representativePosition
+    }
+}
+
+/// A bordered button spanning the card's two identity lines. It keeps one size for its group in both states,
+/// and it only toggles the group; it never opens a PR.
+struct StackControl: View {
+    let presentation: StackControlPresentation
     let toggle: () -> Void
 
+    @State private var isHovered = false
     @Environment(\.menuMetrics) private var metrics
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let row = metrics.prRow
+        let shape = RoundedRectangle(cornerRadius: row.stackControlCornerRadius, style: .continuous)
         Button(action: toggle) {
-            HStack(spacing: metrics.prRow.stackChipSpacing) {
-                Image(systemName: StackChipPresentation.stackSymbolName)
-                    .font(metrics.type.stackChipSymbol.font)
-                Text(presentation.positionText)
-                if let additional = presentation.additionalRequestsText {
-                    Text(additional)
-                        .foregroundStyle(Color.accentColor)
+            HStack(spacing: row.stackControlSpacing) {
+                Image(systemName: StackControlPresentation.stackSymbolName)
+                    .font(metrics.type.stackControlSymbol.font)
+                ZStack {
+                    Text(presentation.templateText)
+                        .hidden()
+                    Text(presentation.fractionText)
                 }
-                Image(systemName: presentation.chevronSymbolName)
-                    .font(metrics.type.stackChipSymbol.font)
+                .font(metrics.type.cardTitle.font.monospacedDigit())
+                ZStack {
+                    // Both chevrons, hidden, keep the width equal in both states.
+                    Image(systemName: StackControlPresentation.collapsedChevronSymbolName)
+                        .hidden()
+                    Image(systemName: StackControlPresentation.expandedChevronSymbolName)
+                        .hidden()
+                    Image(systemName: presentation.chevronSymbolName)
+                }
+                .font(metrics.type.stackControlSymbol.font)
             }
-            .font(metrics.type.cardMetadata.font)
             .lineLimit(1)
-            .padding(.horizontal, metrics.prRow.stackChipHorizontalPadding)
-            .background(Color.secondary.opacity(0.15), in: Capsule())
-            .contentShape(Capsule())
+            .foregroundStyle(.primary)
+            .padding(.horizontal, row.stackControlHorizontalPadding)
+            .frame(height: row.stackControlHeight)
+            .background {
+                shape.fill(isHovered ? hoverFill : restFill)
+            }
+            .overlay {
+                shape.strokeBorder(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
+            }
+            // The whole bordered area, padding included, takes the click.
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .onHover { isHovered = $0 }
         .menuTooltip(presentation.tooltip, providesAccessibilityHint: false)
         .accessibilityLabel(presentation.accessibilityLabel)
-        // The symbols are slightly taller than the metadata text; a zero layout height keeps the card height.
-        .frame(height: 0)
+    }
+
+    // Stronger than a card's hover fill, so the control reads as its own target.
+    private var restFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03)
+    }
+
+    private var hoverFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.1)
     }
 }
 

@@ -66,8 +66,8 @@ struct MenuMetrics: Equatable {
         var metricValue: FontToken
         var signalSymbol: FontToken
         var draftBadge: FontToken
-        /// The stack and chevron symbols in a requested stack card's chip.
-        var stackChipSymbol: FontToken
+        /// The stack and chevron symbols in a requested stack card's stack control.
+        var stackControlSymbol: FontToken
         var actionsMenuItem: FontToken
         /// Title of the GitHub buttons in the sign-in view and the repository access prompt.
         var gitHubButtonTitle: FontToken
@@ -230,9 +230,11 @@ struct MenuMetrics: Equatable {
         var valueColumnHeight: CGFloat
         var draftBadgeHorizontalPadding: CGFloat
         var draftBadgeVerticalPadding: CGFloat
-        /// The stack chip has no vertical padding, so a stacked card keeps the standard height.
-        var stackChipHorizontalPadding: CGFloat
-        var stackChipSpacing: CGFloat
+        var stackControlHorizontalPadding: CGFloat
+        var stackControlSpacing: CGFloat
+        var stackControlCornerRadius: CGFloat
+        /// Spans both identity lines; no taller than the value columns, so a stacked card keeps the standard height.
+        var stackControlHeight: CGFloat
     }
 
     struct Card: Equatable {
@@ -435,7 +437,7 @@ struct MenuMetrics: Equatable {
             metricValue: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
             signalSymbol: FontToken(size: s(body), weight: .semibold),
             draftBadge: FontToken(size: s(caption), weight: .semibold),
-            stackChipSymbol: FontToken(size: s(caption), weight: .semibold),
+            stackControlSymbol: FontToken(size: s(body), weight: .semibold),
             actionsMenuItem: FontToken(size: s(body)),
             gitHubButtonTitle: FontToken(size: s(title), weight: .semibold),
             signInTitle: FontToken(size: s(title), weight: .bold),
@@ -558,8 +560,10 @@ struct MenuMetrics: Equatable {
             valueColumnHeight: s(30),
             draftBadgeHorizontalPadding: s(6),
             draftBadgeVerticalPadding: s(2),
-            stackChipHorizontalPadding: s(6),
-            stackChipSpacing: s(2)
+            stackControlHorizontalPadding: s(8),
+            stackControlSpacing: s(6),
+            stackControlCornerRadius: s(6),
+            stackControlHeight: s(30)
         )
         card = Card(cornerRadius: s(8))
         legend = Legend(
