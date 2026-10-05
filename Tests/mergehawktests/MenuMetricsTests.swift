@@ -194,6 +194,7 @@ final class MenuMetricsTests: XCTestCase {
         // New in MER-64, after the scales were consolidated.
         ("prRow.stackControlHorizontalPadding", \.prRow.stackControlHorizontalPadding, 8),
         ("prRow.stackControlSpacing", \.prRow.stackControlSpacing, 6),
+        ("prRow.stackPositionSymbolSpacing", \.prRow.stackPositionSymbolSpacing, 2),
         ("tooltip.horizontalPadding", \.tooltip.horizontalPadding, 8),
         ("tooltip.verticalPadding", \.tooltip.verticalPadding, 5),
         ("tooltip.gap", \.tooltip.gap, 4),
@@ -233,7 +234,7 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testSpacingIsOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.spacingTokens.count, 90)
+        XCTAssertEqual(Self.spacingTokens.count, 91)
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {

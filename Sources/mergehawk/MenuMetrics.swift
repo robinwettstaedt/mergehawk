@@ -233,6 +233,8 @@ struct MenuMetrics: Equatable {
         var stackControlCornerRadius: CGFloat
         /// Spans both identity lines; no taller than the value columns, so a stacked card keeps the standard height.
         var stackControlHeight: CGFloat
+        /// Between the stack symbol and the fraction in an expanded row's metadata position.
+        var stackPositionSymbolSpacing: CGFloat
     }
 
     struct Card: Equatable {
@@ -560,7 +562,8 @@ struct MenuMetrics: Equatable {
             stackControlHorizontalPadding: s(8),
             stackControlSpacing: s(6),
             stackControlCornerRadius: s(6),
-            stackControlHeight: s(30)
+            stackControlHeight: s(30),
+            stackPositionSymbolSpacing: s(2)
         )
         card = Card(cornerRadius: s(8))
         legend = Legend(

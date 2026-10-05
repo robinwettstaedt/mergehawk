@@ -1154,7 +1154,8 @@ final class MenuViewTests: XCTestCase {
         Text("1/3").padding(.horizontal, 12).frame(height: 20).background(Color.blue)
     )
 
-    /// An unstacked card, a collapsed stacked card, a requested member row, and a context row.
+    /// An unstacked card, a collapsed stacked card, and a requested member row and a context row below the top of an
+    /// expanded group, which show their stack position in the metadata.
     @MainActor
     private func memberCards(
         title: String,
@@ -1177,12 +1178,48 @@ final class MenuViewTests: XCTestCase {
             ))),
             ("requested member row", AnyView(PullRequestRow(
                 pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
-                toggleHide: {}, togglePin: {}, chrome: .containerRow, showsActions: false, action: {}
+                toggleHide: {}, togglePin: {},
+                metadataAccessory: AnyView(StackPositionLabel(pullRequestID: pullRequest.id, position: 2, size: 12)),
+                chrome: .containerRow, showsActions: false, action: {}
             ))),
             ("context row", AnyView(StackContextCard(
-                entry: Self.contextEntry(draft: draft, state: contextState), repo: pullRequest.repo, chrome: .containerRow
+                entry: Self.contextEntry(draft: draft, state: contextState), repo: pullRequest.repo, chrome: .containerRow,
+                metadataAccessory: AnyView(StackPositionLabel(pullRequestID: "PR_CONTEXT", position: 12, size: 12))
             ) {}))
         ]
+    }
+
+    @MainActor
+    func testTheRepositoryTruncatesBeforeAMetadataStackPosition() throws {
+        let metrics = MenuMetrics.standard
+        /// The position label's frame and the identity slot's frame in a context row for `repo`.
+        func layout(repo: String) throws -> (label: CGRect, identity: CGRect) {
+            let card = StackContextCard(
+                entry: Self.contextEntry(draft: false, state: .merged), repo: repo, chrome: .containerRow,
+                metadataAccessory: AnyView(StackPositionLabel(pullRequestID: "PR_CONTEXT", position: 12, size: 12))
+            ) {}
+            let box = ColumnFrames()
+            let hosted = card
+                .frame(width: 800)
+                .fixedSize(horizontal: false, vertical: true)
+                .overlayPreferenceValue(StackPositionLabelAnchorsKey.self) { anchors in
+                    GeometryReader { proxy in
+                        Color.clear.onAppear { box.frames = anchors.values.map { proxy[$0] } }
+                    }
+                }
+                .environment(\.menuMetrics, metrics)
+            let (window, _) = host(hosted, width: 800)
+            defer { window.orderOut(nil) }
+            let identity = try XCTUnwrap(measure(card, width: 800, metrics: metrics).parts[.identity])
+            return (try XCTUnwrap(box.frames.first), identity)
+        }
+
+        let short = try layout(repo: "a/b")
+        let long = try layout(repo: String(repeating: "mergehawk-labs/a-very-long-repository-name-", count: 6))
+
+        XCTAssertEqual(long.label.width, short.label.width, "the stack position keeps its full width")
+        XCTAssertLessThanOrEqual(long.label.maxX, long.identity.maxX + 0.5, "the long repository truncates instead")
+        XCTAssertGreaterThan(long.label.minX, short.label.minX, "the repository takes the rest of the line")
     }
 
     @MainActor

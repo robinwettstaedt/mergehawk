@@ -4,7 +4,7 @@ import SwiftUI
 /// The stack control on a requested stack card: stack symbol, "‹position›/‹size›", and an expand or collapse
 /// chevron. Other review requests and filter-excluded requests appear only in the tooltip.
 struct StackControlPresentation: Equatable {
-    static let stackSymbolName = "square.stack"
+    static let stackSymbolName = "square.3.layers.3d"
     static let collapsedChevronSymbolName = "chevron.down"
     static let expandedChevronSymbolName = "chevron.up"
 
@@ -129,7 +129,7 @@ struct StackControlAnchorsKey: PreferenceKey {
     }
 }
 
-/// "· ‹position›/‹size›" at the end of the metadata line of an expanded row below the top row.
+/// "· [stack symbol] ‹position›/‹size›" at the end of the metadata line of an expanded row below the top row.
 struct StackPositionLabel: View {
     /// The member's PR ID, which keys its reported frame.
     let pullRequestID: String
@@ -142,8 +142,15 @@ struct StackPositionLabel: View {
         HStack(spacing: metrics.prRow.identityItemSpacing) {
             Text("·")
                 .accessibilityHidden(true)
-            Text("\(position)/\(size)")
-                .monospacedDigit()
+            // The symbol takes the metadata font and color, so it dims with a context row's metadata. It is slightly
+            // taller than the text; a zero layout height, centered on the line, keeps the row height.
+            HStack(spacing: metrics.prRow.stackPositionSymbolSpacing) {
+                Image(systemName: StackControlPresentation.stackSymbolName)
+                    .font(metrics.type.cardMetadata.font)
+                    .frame(height: 0)
+                Text("\(position)/\(size)")
+                    .monospacedDigit()
+            }
         }
         .lineLimit(1)
         .accessibilityElement(children: .ignore)
