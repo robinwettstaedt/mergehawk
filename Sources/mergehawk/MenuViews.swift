@@ -1580,12 +1580,12 @@ struct PullRequestListView: View {
     @ViewBuilder
     private func requestedRow(_ row: ReviewRequestRow) -> some View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
-            StackMemberList(group: group) { member, position in
+            StackMemberList(group: group) { member, _ in
                 switch member {
                 case .requested(let pullRequest):
-                    requestedMemberCard(pullRequest, row: row, group: group, position: position)
+                    requestedMemberCard(pullRequest, row: row)
                 case .context(let entry):
-                    StackContextCard(entry: entry, repo: row.representative.repo, position: position) {
+                    StackContextCard(entry: entry, repo: row.representative.repo) {
                         controller.openStackMember(member)
                     }
                 }
@@ -1595,7 +1595,7 @@ struct PullRequestListView: View {
         }
     }
 
-    private func representativeCard(_ row: ReviewRequestRow, position: Int? = nil, isAttention: Bool? = nil) -> some View {
+    private func representativeCard(_ row: ReviewRequestRow, isMember: Bool = false, isAttention: Bool? = nil) -> some View {
         let pullRequest = row.representative
         return PullRequestRow(
             pullRequest: pullRequest,
@@ -1610,30 +1610,24 @@ struct PullRequestListView: View {
             togglePin: {
                 controller.setPinned(row, pinned: !row.isPinned)
             },
-            metadataAccessory: row.stack.map { group in
+            titleBadge: isMember ? AnyView(ReviewRequestedBadge()) : nil,
+            stackControl: row.stack.map { group in
                 AnyView(StackChip(
                     presentation: StackChipPresentation(group: group, isExpanded: controller.isStackExpanded(group.stack.id))
                 ) {
                     controller.toggleStackExpanded(group.stack.id)
                 })
-            },
-            titleBadge: position == nil ? nil : AnyView(ReviewRequestedBadge()),
-            position: position
+            }
         ) {
             controller.openPullRequest(pullRequest)
         }
     }
 
     @ViewBuilder
-    private func requestedMemberCard(
-        _ pullRequest: PullRequest,
-        row: ReviewRequestRow,
-        group: StackGroup,
-        position: Int
-    ) -> some View {
+    private func requestedMemberCard(_ pullRequest: PullRequest, row: ReviewRequestRow) -> some View {
         let isUnread = controller.isUnreadPullRequest(pullRequest)
         if pullRequest.id == row.representative.id {
-            representativeCard(row, position: position, isAttention: isUnread)
+            representativeCard(row, isMember: true, isAttention: isUnread)
         } else {
             PullRequestRow(
                 pullRequest: pullRequest,
@@ -1643,7 +1637,6 @@ struct PullRequestListView: View {
                 toggleHide: {},
                 togglePin: {},
                 titleBadge: AnyView(ReviewRequestedBadge()),
-                position: position,
                 showsActions: false
             ) {
                 controller.openStackMember(.requested(pullRequest))
@@ -2217,16 +2210,58 @@ struct PullRequestCardColumnAnchorsKey: PreferenceKey {
     }
 }
 
-/// The card shared by every PR row and stack member card: padding, card style, hover, the optional stack
-/// position column, the avatar, the identity slot, and the fixed value and actions columns. Sharing it keeps
-/// card heights and column x-positions equal across kinds of cards.
+/// Parts of a PR card, reported so tests can check where each sits.
+enum PullRequestCardPart: Hashable {
+    case avatar
+    case identity
+    case title
+    case metadata
+    case stackControl
+}
+
+/// The frames of a card's parts. A list of cards reports the last card's parts.
+struct PullRequestCardPartAnchorsKey: PreferenceKey {
+    static var defaultValue: [PullRequestCardPart: Anchor<CGRect>] { [:] }
+
+    static func reduce(
+        value: inout [PullRequestCardPart: Anchor<CGRect>],
+        nextValue: () -> [PullRequestCardPart: Anchor<CGRect>]
+    ) {
+        value.merge(nextValue()) { _, next in next }
+    }
+}
+
+extension View {
+    func pullRequestCardPart(_ part: PullRequestCardPart) -> some View {
+        // Transforming keeps the parts reported inside this one.
+        transformAnchorPreference(key: PullRequestCardPartAnchorsKey.self, value: .bounds) { parts, anchor in
+            parts[part] = anchor
+        }
+    }
+}
+
+/// How a PR card draws its outline.
+enum PullRequestCardChrome {
+    /// Its own rounded card: border, rest fill, attention accent, and hover fill.
+    case card
+    /// A borderless row inside a shared container: the card's insets and the hover fill only.
+    case containerRow
+}
+
+/// The card shared by every PR row and stack member card: padding, chrome, hover, the avatar, the identity
+/// slot, the optional stack control, and the fixed value and actions columns. Sharing it keeps card heights
+/// and column x-positions equal across kinds of cards.
 struct PullRequestCardLayout<Identity: View, Actions: View>: View {
-    var position: Int? = nil
     let author: String
     let authorAvatarURL: URL?
     /// Nil leaves every value column empty at its width.
     let values: PullRequestCardValues?
     let isAttention: Bool
+    var chrome: PullRequestCardChrome = .card
+    /// Dims the avatar only, so a stack control or badge on the card keeps full strength.
+    var dimsAvatar = false
+    /// Shown directly before the changes column; the identity slot ends where it begins.
+    var stackControl: AnyView? = nil
     let accessibilityLabel: String
     @ViewBuilder let identity: () -> Identity
     @ViewBuilder let actions: () -> Actions
@@ -2238,23 +2273,22 @@ struct PullRequestCardLayout<Identity: View, Actions: View>: View {
 
     var body: some View {
         let columns = metrics.prColumns
-        // The card opens the PR through a tap gesture rather than a button, so the stack chip and the actions
+        // The card opens the PR through a tap gesture rather than a button, so the stack control and the actions
         // button inside it stay real buttons that take their own clicks.
         HStack(spacing: columns.spacing) {
             HStack(spacing: columns.identitySpacing) {
-                if let position {
-                    Text("\(position)")
-                        .font(metrics.type.cardMetadata.font.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(width: metrics.prRow.stackPositionWidth)
-                        .accessibilityLabel("Stack position \(position)")
-                }
                 PullRequestAuthorAvatar(author: author, url: authorAvatarURL)
+                    .opacity(dimsAvatar ? PullRequestCardDimming.avatarOpacity : 1)
+                    .pullRequestCardPart(.avatar)
                 identity()
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .pullRequestCardPart(.identity)
+            if let stackControl {
+                stackControl
+                    .pullRequestCardPart(.stackControl)
+            }
             column(values?.changes, width: columns.changesWidth)
             column(values?.comments, width: columns.commentsWidth)
             column(values?.ciStatus, width: columns.statusWidth)
@@ -2272,7 +2306,7 @@ struct PullRequestCardLayout<Identity: View, Actions: View>: View {
         .contentShape(Rectangle())
         .onTapGesture { action() }
         // Keyboard users focus the card and open the PR with Space or Return, as with the button it replaced.
-        // Keys pressed while the chip or the actions button has focus reach their own buttons, not the card.
+        // Keys pressed while the stack control or the actions button has focus reach their own buttons, not the card.
         .focusable(interactions: .activate)
         .focused($cardIsFocused)
         .onKeyPress(keys: [.space, .return]) { _ in
@@ -2284,14 +2318,43 @@ struct PullRequestCardLayout<Identity: View, Actions: View>: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAction { action() }
-        .transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
+        .modifier(chromeModifier)
         .onHover { isHovered = $0 }
+    }
+
+    private var chromeModifier: PullRequestCardChromeModifier {
+        PullRequestCardChromeModifier(chrome: chrome, isAttention: isAttention, isHovered: isHovered)
     }
 
     private func column(_ content: AnyView?, width: CGFloat, height: CGFloat? = nil) -> some View {
         (content ?? AnyView(Color.clear))
             .frame(width: width, height: height)
             .anchorPreference(key: PullRequestCardColumnAnchorsKey.self, value: .bounds) { [$0] }
+    }
+}
+
+/// How a context stack member is subdued: per element, never the whole row.
+enum PullRequestCardDimming {
+    static let avatarOpacity: Double = 0.55
+}
+
+private struct PullRequestCardChromeModifier: ViewModifier {
+    let chrome: PullRequestCardChrome
+    let isAttention: Bool
+    let isHovered: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        switch chrome {
+        case .card:
+            content.transparentCardStyle(accentColor: isAttention ? .accentColor : nil, isHovered: isHovered)
+        case .containerRow:
+            // The shared container clips the row to its rounded shape.
+            content
+                .background(HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme))
+                .contentShape(Rectangle())
+        }
     }
 }
 
@@ -2308,8 +2371,9 @@ struct PullRequestRow: View {
     var metadataAccessory: AnyView? = nil
     /// Shown before the title, after the Draft badge.
     var titleBadge: AnyView? = nil
-    /// The stack position, in a narrow column before the avatar.
-    var position: Int? = nil
+    /// Shown directly before the changes column.
+    var stackControl: AnyView? = nil
+    var chrome: PullRequestCardChrome = .card
     /// False leaves the actions column empty at its width.
     var showsActions = true
     let action: () -> Void
@@ -2319,11 +2383,12 @@ struct PullRequestRow: View {
 
     var body: some View {
         PullRequestCardLayout(
-            position: position,
             author: pullRequest.author,
             authorAvatarURL: pullRequest.authorAvatarURL,
             values: values,
             isAttention: isAttention,
+            chrome: chrome,
+            stackControl: stackControl,
             accessibilityLabel: "\(pullRequest.title), \(pullRequest.author), \(pullRequest.repo) #\(pullRequest.number)",
             identity: { identity },
             actions: {
@@ -2397,6 +2462,7 @@ struct PullRequestRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .accessibilityLabel(pullRequest.title)
+                    .pullRequestCardPart(.title)
             }
 
             HStack(spacing: metrics.prRow.identityItemSpacing) {
@@ -2424,6 +2490,7 @@ struct PullRequestRow: View {
             }
             .font(metrics.type.cardMetadata.font)
             .foregroundStyle(.secondary)
+            .pullRequestCardPart(.metadata)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

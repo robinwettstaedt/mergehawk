@@ -830,7 +830,7 @@ final class MenuViewTests: XCTestCase {
         let row = PullRequestRow(
             pullRequest: Self.stackedPullRequest, isAttention: false, isPinned: false, isHidden: false,
             toggleActions: { events.toggledActions += 1 }, toggleHide: {}, togglePin: {},
-            metadataAccessory: chip
+            stackControl: chip
         ) { events.opened += 1 }
         let content = row
             .frame(width: width)
@@ -1035,11 +1035,19 @@ final class MenuViewTests: XCTestCase {
 
     private final class ColumnFrames {
         var frames: [CGRect] = []
+        var parts: [PullRequestCardPart: CGRect] = [:]
     }
 
-    /// Hosts `card` at `width` and returns its fitted height and its column frames, left to right.
+    private struct CardMeasurement {
+        let height: CGFloat
+        /// Value columns and the actions column, left to right.
+        let columns: [CGRect]
+        let parts: [PullRequestCardPart: CGRect]
+    }
+
+    /// Hosts `card` at `width` and returns its fitted height, its column frames, and its part frames.
     @MainActor
-    private func measure(_ card: some View, width: CGFloat, metrics: MenuMetrics) -> (height: CGFloat, columns: [CGRect]) {
+    private func measure(_ card: some View, width: CGFloat, metrics: MenuMetrics) -> CardMeasurement {
         let box = ColumnFrames()
         let measured = card
             .frame(width: width)
@@ -1047,6 +1055,11 @@ final class MenuViewTests: XCTestCase {
             .overlayPreferenceValue(PullRequestCardColumnAnchorsKey.self) { anchors in
                 GeometryReader { proxy in
                     Color.clear.onAppear { box.frames = anchors.map { proxy[$0] } }
+                }
+            }
+            .overlayPreferenceValue(PullRequestCardPartAnchorsKey.self) { anchors in
+                GeometryReader { proxy in
+                    Color.clear.onAppear { box.parts = anchors.mapValues { proxy[$0] } }
                 }
             }
             .environment(\.menuMetrics, metrics)
@@ -1058,33 +1071,41 @@ final class MenuViewTests: XCTestCase {
         hostingView.layoutSubtreeIfNeeded()
         settleRunLoop()
         window.contentView = nil
-        return (height, box.frames)
+        return CardMeasurement(height: height, columns: box.frames, parts: box.parts)
     }
 
+    /// A stand-in stack control with a fixed size, for checks of the card layout rather than the control.
+    private static let stackControlStandIn = AnyView(
+        Text("1/3").padding(.horizontal, 12).frame(height: 20).background(Color.blue)
+    )
+
+    /// An unstacked card, a collapsed stacked card, a requested member row, and a context row.
     @MainActor
     private func memberCards(
         title: String,
-        draft: Bool
+        draft: Bool,
+        contextState: PullRequestStackEntry.State = .merged,
+        stackControl: AnyView? = nil
     ) -> [(String, AnyView)] {
         let pullRequest = Self.pullRequest(title: title, draft: draft)
-        let chip = AnyView(StackChip(presentation: StackChipPresentation(group: Self.stackGroup(), isExpanded: true)) {})
+        let control = stackControl ?? AnyView(StackChip(
+            presentation: StackChipPresentation(group: Self.stackGroup(), isExpanded: false)
+        ) {})
         return [
-            ("ordinary card", AnyView(PullRequestRow(
+            ("unstacked card", AnyView(PullRequestRow(
                 pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
                 toggleHide: {}, togglePin: {}, action: {}
             ))),
-            ("representative member", AnyView(PullRequestRow(
+            ("collapsed stacked card", AnyView(PullRequestRow(
                 pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
-                toggleHide: {}, togglePin: {}, metadataAccessory: chip, titleBadge: AnyView(ReviewRequestedBadge()),
-                position: 2, action: {}
+                toggleHide: {}, togglePin: {}, stackControl: control, action: {}
             ))),
-            ("other requested member", AnyView(PullRequestRow(
+            ("requested member row", AnyView(PullRequestRow(
                 pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
-                toggleHide: {}, togglePin: {}, titleBadge: AnyView(ReviewRequestedBadge()),
-                position: 12, showsActions: false, action: {}
+                toggleHide: {}, togglePin: {}, chrome: .containerRow, showsActions: false, action: {}
             ))),
-            ("context member", AnyView(StackContextCard(
-                entry: Self.contextEntry(draft: draft, state: .merged), repo: pullRequest.repo, position: 3
+            ("context row", AnyView(StackContextCard(
+                entry: Self.contextEntry(draft: draft, state: contextState), repo: pullRequest.repo, chrome: .containerRow
             ) {}))
         ]
     }
@@ -1103,7 +1124,7 @@ final class MenuViewTests: XCTestCase {
                 }
             }
             for state in [PullRequestStackEntry.State.open, .closed] {
-                let card = StackContextCard(entry: Self.contextEntry(draft: false, state: state), repo: "a/b", position: 1) {}
+                let card = StackContextCard(entry: Self.contextEntry(draft: false, state: state), repo: "a/b") {}
                 heights.append(("context \(state)", measure(card, width: 800 * size.factor, metrics: metrics).height))
             }
             let reference = heights[0]
@@ -1140,6 +1161,143 @@ final class MenuViewTests: XCTestCase {
                 XCTAssertEqual(columns.map(\.width), ordinary.map(\.width), "expanded member \(index) at \(size)")
             }
         }
+    }
+
+    @MainActor
+    func testEveryKindOfPRCardStartsItsAvatarTitleAndMetadataAtTheSameX() throws {
+        for size in MenuSize.allCases {
+            let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
+            let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
+            for draft in [false, true] {
+                // An open context member has no badge before its title, like the requested cards.
+                let measured = memberCards(title: Self.longTitle, draft: draft, contextState: .open).map { name, card in
+                    (name, measure(card, width: width, metrics: layout.metrics).parts)
+                }
+                let reference = measured[0].1
+                for (name, parts) in measured {
+                    for part in [PullRequestCardPart.avatar, .title, .metadata] {
+                        let label = "\(part) of \(name), draft: \(draft), at \(size)"
+                        let expected = try XCTUnwrap(reference[part], label)
+                        XCTAssertEqual(try XCTUnwrap(parts[part], label).minX, expected.minX, label)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testIdentitySlotEndsAtTheStackControlOrOtherwiseAtTheChangesColumn() throws {
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            let cards = memberCards(title: Self.longTitle, draft: false, stackControl: Self.stackControlStandIn)
+            for (name, card) in cards {
+                let measured = measure(card, width: 800 * size.factor, metrics: metrics)
+                let identity = try XCTUnwrap(measured.parts[.identity], name)
+                let changes = try XCTUnwrap(measured.columns.first, name)
+                if let control = measured.parts[.stackControl] {
+                    XCTAssertEqual(name, "collapsed stacked card")
+                    XCTAssertEqual(control.minX - identity.maxX, metrics.prColumns.spacing, accuracy: 0.5, "\(name) at \(size)")
+                    XCTAssertEqual(changes.minX - control.maxX, metrics.prColumns.spacing, accuracy: 0.5, "\(name) at \(size)")
+                    let title = try XCTUnwrap(measured.parts[.title], name)
+                    XCTAssertLessThanOrEqual(title.maxX, identity.maxX + 0.5, "the long title stops at the control at \(size)")
+                } else {
+                    XCTAssertEqual(changes.minX - identity.maxX, metrics.prColumns.spacing, accuracy: 0.5, "\(name) at \(size)")
+                }
+            }
+        }
+    }
+
+    /// Renders `view` at `width` on a white background in the light appearance.
+    @MainActor
+    private func renderBitmap(_ view: some View, width: CGFloat, metrics: MenuMetrics = .standard) throws
+        -> (bitmap: NSBitmapImageRep, measurement: CardMeasurement) {
+        let measurement = measure(view, width: width, metrics: metrics)
+        let content = view
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(Color.white)
+            .environment(\.menuMetrics, metrics)
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.frame = CGRect(x: 0, y: 0, width: width, height: measurement.height)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = hostingView
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        let bitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        window.contentView = nil
+        return (bitmap, measurement)
+    }
+
+    /// The pixels inside `rect`, given in points from the top-leading corner.
+    private func pixels(of bitmap: NSBitmapImageRep, in rect: CGRect, viewWidth: CGFloat) -> [UInt32] {
+        let scale = CGFloat(bitmap.pixelsWide) / viewWidth
+        var result: [UInt32] = []
+        for y in Int((rect.minY * scale).rounded())..<Int((rect.maxY * scale).rounded()) {
+            for x in Int((rect.minX * scale).rounded())..<Int((rect.maxX * scale).rounded()) {
+                var pixel = [Int](repeating: 0, count: 4)
+                bitmap.getPixel(&pixel, atX: x, y: y)
+                result.append(pixel.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1 & 0xFF) })
+            }
+        }
+        return result
+    }
+
+    @MainActor
+    func testAContextCardDimsItsAvatarButNotItsStackControl() throws {
+        let width: CGFloat = 800
+        let entry = Self.contextEntry(draft: false)
+        let pullRequest = Self.pullRequest(title: Self.longTitle, draft: false)
+        let context = try renderBitmap(StackContextCard(
+            entry: entry, repo: pullRequest.repo, stackControl: Self.stackControlStandIn
+        ) {}, width: width)
+        let requested = try renderBitmap(PullRequestRow(
+            pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
+            toggleHide: {}, togglePin: {}, stackControl: Self.stackControlStandIn, action: {}
+        ), width: width)
+
+        let contextControl = try XCTUnwrap(context.measurement.parts[.stackControl])
+        XCTAssertEqual(contextControl, requested.measurement.parts[.stackControl])
+        XCTAssertTrue(
+            pixels(of: context.bitmap, in: contextControl, viewWidth: width)
+                == pixels(of: requested.bitmap, in: contextControl, viewWidth: width),
+            "the control on a context card renders at full strength"
+        )
+        let avatar = try XCTUnwrap(context.measurement.parts[.avatar])
+        XCTAssertEqual(avatar, requested.measurement.parts[.avatar])
+        XCTAssertFalse(
+            pixels(of: context.bitmap, in: avatar, viewWidth: width)
+                == pixels(of: requested.bitmap, in: avatar, viewWidth: width),
+            "the context card's avatar is dimmed"
+        )
+    }
+
+    @MainActor
+    func testContainerRowChromeDrawsNoBorderOrFill() throws {
+        let width: CGFloat = 800
+        let pullRequest = Self.pullRequest(title: "Member", draft: false)
+        func row(_ chrome: PullRequestCardChrome) -> some View {
+            PullRequestRow(
+                pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
+                toggleHide: {}, togglePin: {}, chrome: chrome, action: {}
+            )
+        }
+        let card = try renderBitmap(row(.card), width: width)
+        let containerRow = try renderBitmap(row(.containerRow), width: width)
+        let white = UInt32(0xFFFF_FFFF)
+        // The leading edge and the leading padding, at mid-height.
+        let edge = CGRect(x: 0, y: card.measurement.height / 2, width: 1, height: 1)
+        let padding = CGRect(x: 2, y: card.measurement.height / 2, width: 1, height: 1)
+
+        let cardEdge = pixels(of: card.bitmap, in: edge, viewWidth: width)
+        XCTAssertNotEqual(cardEdge, [UInt32](repeating: white, count: cardEdge.count), "a card draws its border")
+        for rect in [edge, padding] {
+            let rendered = pixels(of: containerRow.bitmap, in: rect, viewWidth: width)
+            XCTAssertFalse(rendered.isEmpty)
+            XCTAssertEqual(rendered, [UInt32](repeating: white, count: rendered.count), "\(rect)")
+        }
+        XCTAssertEqual(containerRow.measurement.height, card.measurement.height)
     }
 
     @MainActor
@@ -1194,7 +1352,7 @@ final class MenuViewTests: XCTestCase {
             let row = PullRequestRow(
                 pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
                 toggleActions: { toggledActions += 1 }, toggleHide: {}, togglePin: {},
-                titleBadge: AnyView(ReviewRequestedBadge()), position: 2, showsActions: showsActions
+                titleBadge: AnyView(ReviewRequestedBadge()), showsActions: showsActions
             ) { opened += 1 }
             let (window, view) = host(row, width: 800)
             defer { window.orderOut(nil) }
@@ -1209,7 +1367,7 @@ final class MenuViewTests: XCTestCase {
     @MainActor
     func testClickingAContextCardOpensItsEntry() throws {
         var opened = 0
-        let card = StackContextCard(entry: Self.contextEntry(draft: false), repo: "mergehawk-labs/mergehawk", position: 3) {
+        let card = StackContextCard(entry: Self.contextEntry(draft: false), repo: "mergehawk-labs/mergehawk") {
             opened += 1
         }
         let (window, view) = host(card, width: 800)

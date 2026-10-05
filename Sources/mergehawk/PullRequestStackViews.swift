@@ -132,25 +132,30 @@ struct StackContextCard: View {
     let entry: PullRequestStackEntry
     /// A stack lives in one repository, so its entries share the group's repository.
     let repo: String
-    let position: Int
+    var chrome: PullRequestCardChrome = .card
+    /// Shown directly before the changes column; it keeps full strength on the dimmed card.
+    var stackControl: AnyView? = nil
+    /// Shown at the end of the metadata line, after the PR number.
+    var metadataAccessory: AnyView? = nil
     let action: () -> Void
 
     @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         PullRequestCardLayout(
-            position: position,
             author: entry.author,
             authorAvatarURL: entry.authorAvatarURL,
             values: nil,
             isAttention: false,
+            chrome: chrome,
+            dimsAvatar: true,
+            stackControl: stackControl,
             accessibilityLabel: "\(entry.title), \(entry.author), \(repo) #\(entry.number)",
             identity: { identity },
             actions: { EmptyView() },
             action: action
         )
     }
-
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
@@ -168,6 +173,7 @@ struct StackContextCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .pullRequestCardPart(.title)
             }
 
             HStack(spacing: metrics.prRow.identityItemSpacing) {
@@ -184,9 +190,15 @@ struct StackContextCard: View {
                 Text("#\(entry.number)")
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(1)
+                if let metadataAccessory {
+                    metadataAccessory
+                        .fixedSize()
+                        .layoutPriority(2)
+                }
             }
             .font(metrics.type.cardMetadata.font)
             .foregroundStyle(.tertiary)
+            .pullRequestCardPart(.metadata)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
