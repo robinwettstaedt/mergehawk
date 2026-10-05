@@ -1612,19 +1612,17 @@ final class MenuViewTests: XCTestCase {
 
     @MainActor
     func testTogglingAStackKeepsItsControlUnderThePointerInAScrolledList() throws {
-        let cases: [(stackID: String, hiddenMemberID: String?, size: Int, representative: Int)] = [
-            ("STACK_MOCK_SPREAD", nil, 4, 2),
-            // With the position-2 member hidden on its own, the position-3 member represents the group.
-            ("STACK_MOCK_ASSIGNED", "PR_STACK_MOCK_ASSIGNED_2", 3, 3)
+        // The position-3 stack is the oldest Direct card; the reversed sort moves it away from the end of the list,
+        // where collapsing shrinks the content below the scroll offset and the scroll view clamps it (accepted).
+        let cases: [(stackID: String, size: Int, representative: Int, reversesSort: Bool)] = [
+            ("STACK_MOCK_SPREAD", 4, 2, false),
+            ("STACK_MOCK_POSITION_3", 3, 3, true)
         ]
         for testCase in cases {
             let label = testCase.stackID
             let controller = try stackMenuController()
-            if let hiddenMemberID = testCase.hiddenMemberID {
-                let member = try XCTUnwrap(controller.state.pullRequests.first { $0.id == hiddenMemberID }, label)
-                controller.toggleHide(member)
-                // Newest first puts the unstacked assigned PR above the group.
-                controller.reviewRequestSortDirection = .descending
+            if testCase.reversesSort {
+                controller.reviewRequestSortDirection = controller.reviewRequestSortDirection.toggled
             }
             let visibleRows = controller.requestedSections.flatMap(\.visible)
             XCTAssertGreaterThan(
@@ -1638,21 +1636,25 @@ final class MenuViewTests: XCTestCase {
             let frames = StackMenuFrames()
             let (window, view) = hostStackMenu(controller, frames: frames)
             defer { window.orderOut(nil) }
-            let unscrolled = try XCTUnwrap(frames.controls[testCase.stackID], label)
 
-            // Scroll the list so the group sits at a nonzero offset, with other cards above it.
+            // Scroll the list until the group sits in the upper part of the list, at a nonzero offset.
             let scrollView = try XCTUnwrap(scrollViews(in: view).first { $0.documentView != nil }, label)
-            let offset: CGFloat = 30
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-            relayout(view)
+            var offset: CGFloat = 0
+            repeat {
+                offset += 30
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                relayout(view)
+            } while (frames.controls[testCase.stackID].map { $0.frame.minY > 400 } ?? true) && offset < 3_000
+            XCTAssertEqual(scrollView.contentView.bounds.minY, offset, "the list scrolled, \(label)")
             let collapsed = try XCTUnwrap(frames.controls[testCase.stackID], label)
-            XCTAssertEqual(collapsed.frame.minY, unscrolled.frame.minY - offset, accuracy: 0.5, "the list scrolled, \(label)")
+            XCTAssertGreaterThan(collapsed.frame.minY, 100, label)
             XCTAssertEqual(collapsed.fractionText, "\(testCase.representative)/\(testCase.size)", label)
 
             try click(window, atTopLeft: CGPoint(x: collapsed.frame.midX, y: collapsed.frame.midY))
             relayout(view)
             XCTAssertTrue(controller.isStackExpanded(testCase.stackID), label)
+            XCTAssertEqual(scrollView.contentView.bounds.minY, offset, "expanding keeps the offset, \(label)")
             let expanded = try XCTUnwrap(frames.controls[testCase.stackID], label)
             XCTAssertEqual(expanded.frame, collapsed.frame, "expanded, \(label)")
             XCTAssertEqual(expanded.fractionText, "1/\(testCase.size)", label)

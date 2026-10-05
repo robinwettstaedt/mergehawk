@@ -938,7 +938,7 @@ final class DashboardControllerXCTests: XCTestCase {
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
 
         let expected = MockPullRequestSource(scenario: .prStacks).stacks
-        XCTAssertEqual(expected.count, 5)
+        XCTAssertEqual(expected.count, 9)
         XCTAssertEqual(controller.state.pullRequestStacks, expected)
     }
 
@@ -981,6 +981,11 @@ final class DashboardControllerXCTests: XCTestCase {
     private static let assignedStackTeamMember = "PR_STACK_MOCK_ASSIGNED_2"
     private static let filterDraftMember = "PR_STACK_MOCK_FILTER_1"
     private static let filterReadyMember = "PR_STACK_MOCK_FILTER_2"
+    /// The position-2 members of the all-open, closed-dependency, and partially merged stacks, sorted.
+    private static let acceptanceRepresentatives = [
+        "PR_STACK_MOCK_ALL_OPEN_2", "PR_STACK_MOCK_CLOSED_DEPENDENCY_2", "PR_STACK_MOCK_PARTIALLY_MERGED_2"
+    ]
+    private static let positionThreeRepresentative = "PR_STACK_MOCK_POSITION_3_3"
 
     @MainActor
     private static func rowIDs(_ controller: DashboardController) -> [DashboardController.RequestedSection: [String]] {
@@ -1000,14 +1005,14 @@ final class DashboardControllerXCTests: XCTestCase {
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
 
         XCTAssertEqual(Self.rowIDs(controller), [
-            .assigned: [Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_ASSIGNED"].sorted(),
+            .assigned: ([Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_ASSIGNED"] + Self.acceptanceRepresentatives).sorted(),
             .direct: [
                 Self.filterDraftMember, "PR_STACKS_UNSTACKED_DIRECT", "PR_STACK_MOCK_LAST_OPEN_2",
-                Self.spreadRepresentative, "PR_STACK_MOCK_UNREADABLE_2"
+                Self.spreadRepresentative, "PR_STACK_MOCK_UNREADABLE_2", Self.positionThreeRepresentative
             ].sorted(),
             .team: ["PR_STACKS_UNSTACKED_TEAM"]
         ])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [3, 7, 1])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [6, 8, 1])
         let stackIDs = controller.requestedSections.flatMap { $0.visible + $0.hidden }.compactMap(\.stack?.stack.id)
         XCTAssertEqual(stackIDs.sorted(), controller.state.pullRequestStacks.map(\.id).sorted())
     }
@@ -1020,10 +1025,10 @@ final class DashboardControllerXCTests: XCTestCase {
         controller.selectedReviewRequestFilters = [.ready]
 
         let ids = Self.rowIDs(controller)
-        XCTAssertEqual(ids[.assigned], ["PR_STACKS_UNSTACKED_ASSIGNED"])
+        XCTAssertEqual(ids[.assigned], ["PR_STACKS_UNSTACKED_ASSIGNED"] + Self.acceptanceRepresentatives)
         XCTAssertEqual(ids[.team], [Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_TEAM"].sorted())
         XCTAssertTrue(ids[.direct]?.contains(Self.filterReadyMember) == true)
-        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 6, 2])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [4, 7, 2])
     }
 
     @MainActor
@@ -1040,7 +1045,7 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertEqual(direct.hidden.map(\.id), [Self.spreadRepresentative])
         XCTAssertFalse(direct.visible.contains { $0.id == Self.spreadRepresentative })
         XCTAssertEqual(direct.hiddenCount, 2)
-        XCTAssertEqual(direct.count, 7)
+        XCTAssertEqual(direct.count, 8)
 
         controller.setHidden(try Self.row(Self.spreadRepresentative, in: controller), hidden: false)
 
@@ -1141,7 +1146,7 @@ final class DashboardControllerXCTests: XCTestCase {
         let rows = controller.requestedSections.flatMap { $0.visible + $0.hidden }
         XCTAssertFalse(rows.contains { $0.representative.repo == "mergehawk-labs/desktop-app" })
         XCTAssertFalse(rows.contains { ["STACK_MOCK_ASSIGNED", "STACK_MOCK_FILTER"].contains($0.stack?.stack.id) })
-        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 5, 1])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [4, 6, 1])
     }
 
     @MainActor

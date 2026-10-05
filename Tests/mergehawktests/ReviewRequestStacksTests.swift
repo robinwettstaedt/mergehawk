@@ -338,6 +338,76 @@ final class ReviewRequestStacksTests: XCTestCase {
         XCTAssertEqual(group.members[2], .requested(requested))
     }
 
+    // MARK: - pr-stacks mock scenario
+
+    private static func prStacksSections(filters: Set<ReviewRequestFilterOption> = []) -> [ReviewRequestSectionContent] {
+        let source = MockPullRequestSource(scenario: .prStacks)
+        let requested = source.firstRefreshPullRequests.filter(DashboardController.isRequestedPullRequest)
+        return ReviewRequestStacks.sections(
+            requested: requested,
+            matching: DashboardController.filteredReviewRequests(requested, by: filters),
+            stacks: source.stacks,
+            hiddenIDs: [], pinnedIDs: [], unreadIDs: [],
+            sortOption: .createdDate, sortDirection: .descending
+        )
+    }
+
+    private static func prStacksGroup(_ stackID: String) throws -> (row: ReviewRequestRow, group: StackGroup) {
+        let row = try XCTUnwrap(prStacksSections().flatMap(\.visible).first { $0.stack?.stack.id == stackID }, stackID)
+        return (row, try XCTUnwrap(row.stack, stackID))
+    }
+
+    func testAcceptanceStacksGroupUnderTheirAssignedPositionTwoMember() throws {
+        let firstStates: [(String, StackMemberBadge)] = [
+            ("STACK_MOCK_ALL_OPEN", .open), ("STACK_MOCK_PARTIALLY_MERGED", .merged), ("STACK_MOCK_CLOSED_DEPENDENCY", .closed)
+        ]
+        let assigned = try XCTUnwrap(Self.prStacksSections().first { $0.section == .assigned })
+        for (stackID, firstState) in firstStates {
+            let (row, group) = try Self.prStacksGroup(stackID)
+            XCTAssertEqual(row.representative.id, "PR_\(stackID)_2", stackID)
+            XCTAssertTrue(assigned.visible.contains(row), "assigned, \(stackID)")
+            XCTAssertEqual(group.stack.size, 3, stackID)
+            XCTAssertEqual(group.members.map { group.position(of: $0) }, [1, 2, 3], stackID)
+            XCTAssertEqual(group.requestedMemberIDs, [row.representative.id], stackID)
+            XCTAssertEqual(
+                StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
+                "2/3", stackID
+            )
+            XCTAssertEqual(group.members.map { StackMemberBadge.badges(for: $0).afterTitle }, [[firstState], [], [.open]], stackID)
+        }
+    }
+
+    func testPositionThreeStackIsRepresentedByItsLastMember() throws {
+        let (row, group) = try Self.prStacksGroup("STACK_MOCK_POSITION_3")
+
+        XCTAssertEqual(row.representative.id, "PR_STACK_MOCK_POSITION_3_3")
+        XCTAssertEqual(group.representativePosition, 3)
+        XCTAssertEqual(
+            StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
+            "3/3"
+        )
+        XCTAssertEqual(group.members.map { StackMemberBadge.badges(for: $0).afterTitle }, [[.merged], [.open], []])
+    }
+
+    func testMergedAndClosedContextMembersNeverRepresentAGroupOrCountInASection() throws {
+        let source = MockPullRequestSource(scenario: .prStacks)
+        let entries = Dictionary(source.stacks.flatMap(\.entries).map { ($0.pullRequestID, $0) }, uniquingKeysWith: { first, _ in first })
+        let sections = Self.prStacksSections()
+        let rows = sections.flatMap { $0.visible + $0.hidden }
+
+        let finished = Set(entries.values.filter { $0.state != .open }.map(\.pullRequestID))
+        XCTAssertEqual(finished.count, 6)
+        for row in rows {
+            XCTAssertFalse(finished.contains(row.representative.id), row.id)
+            XCTAssertTrue(row.stack?.requestedMemberIDs.isDisjoint(with: finished) ?? true, row.id)
+        }
+        // Each section counts only its matching requested PRs, folded-in members included.
+        let requested = source.firstRefreshPullRequests.filter(DashboardController.isRequestedPullRequest)
+        XCTAssertTrue(Set(requested.map(\.id)).isDisjoint(with: finished))
+        XCTAssertEqual(sections.map(\.count).reduce(0, +), requested.count)
+        XCTAssertEqual(sections.map(\.count), [6, 8, 1])
+    }
+
     // MARK: - Fixtures
 
     private enum Role {

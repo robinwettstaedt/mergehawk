@@ -758,6 +758,8 @@ public final class MockPullRequestSource {
 
     /// Stacks for Review requests grouping. Requested members are fetched PRs; context-only members exist only
     /// as stack entries. The unreadable stack has no entry at position 3, as when GitHub returns no PR there.
+    /// The all-open, partially merged, and closed-dependency stacks have only position 2 assigned; the position-3
+    /// stack is represented by its last member. Long titles truncate at the default menu size.
     private static let prStackFixtures: [PRStackFixture] = [
         PRStackFixture(id: "STACK_MOCK_SPREAD", repo: "mergehawk-labs/mergehawk", size: 4, members: [
             PRStackMember(position: 1, number: 201, title: "Extract the stack entry model", role: .context(.open), author: "docs-lee"),
@@ -783,6 +785,42 @@ public final class MockPullRequestSource {
             PRStackMember(position: 1, number: 311, title: "Sketch the onboarding window", role: .direct, draft: true, author: "platform-nora"),
             PRStackMember(position: 2, number: 312, title: "Build the onboarding window", role: .direct, author: "platform-nora"),
             PRStackMember(position: 3, number: 313, title: "Animate onboarding steps", role: .context(.open), author: "backend-mateo")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_ALL_OPEN", repo: "mergehawk-labs/billing", size: 3, members: [
+            PRStackMember(position: 1, number: 501, title: "Introduce shared billing types", role: .context(.open), author: "docs-lee"),
+            PRStackMember(
+                position: 2, number: 502,
+                title: "Show invoice totals, tax lines, and currency conversions in the billing summary for every organization plan",
+                role: .assigned, author: "docs-lee"
+            ),
+            PRStackMember(
+                position: 3, number: 503,
+                title: "Connect billing flows across organizations, enterprise accounts, and personal plans behind the rollout flag",
+                role: .context(.open), draft: true, author: "backend-mateo"
+            )
+        ]),
+        PRStackFixture(id: "STACK_MOCK_PARTIALLY_MERGED", repo: "mergehawk-labs/billing", size: 3, members: [
+            PRStackMember(
+                position: 1, number: 511,
+                title: "Introduce shared billing types and currency helpers used by invoices, receipts, and plan upgrades",
+                role: .context(.merged), author: "docs-lee"
+            ),
+            PRStackMember(position: 2, number: 512, title: "Add the invoice summary endpoint", role: .assigned, author: "docs-lee"),
+            PRStackMember(position: 3, number: 513, title: "Render invoice summaries in settings", role: .context(.open), author: "docs-lee")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_CLOSED_DEPENDENCY", repo: "mergehawk-labs/billing", size: 3, members: [
+            PRStackMember(
+                position: 1, number: 521,
+                title: "Try a separate billing cache for invoice summaries before moving them into the shared store",
+                role: .context(.closed), author: "backend-mateo"
+            ),
+            PRStackMember(position: 2, number: 522, title: "Read invoice summaries from the shared store", role: .assigned, author: "backend-mateo"),
+            PRStackMember(position: 3, number: 523, title: "Expire invoice summaries after a plan change", role: .context(.open), author: "backend-mateo")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_POSITION_3", repo: "mergehawk-labs/notifications", size: 3, members: [
+            PRStackMember(position: 1, number: 531, title: "Store notification preferences per repository", role: .context(.merged), author: "design-systems-amy"),
+            PRStackMember(position: 2, number: 532, title: "Read notification preferences at launch", role: .context(.open), author: "design-systems-amy"),
+            PRStackMember(position: 3, number: 533, title: "Mute notifications for archived repositories", role: .direct, author: "design-systems-amy")
         ])
     ]
 
