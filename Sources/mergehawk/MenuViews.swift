@@ -1584,8 +1584,10 @@ struct PullRequestListView: View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
             StackMemberContainer(group: group, isUnread: row.isUnread) { member, position in
                 let isFirst = member.pullRequestID == group.members.first?.pullRequestID
-                let control = isFirst ? stackControl(group, displayedPosition: position, isExpanded: true) : nil
-                let positionLabel = isFirst ? nil : AnyView(StackPositionLabel(position: position, size: group.stack.size))
+                let control = isFirst ? stackControl(group, displayedPosition: group.firstMemberPosition, isExpanded: true) : nil
+                let positionLabel = isFirst ? nil : AnyView(StackPositionLabel(
+                    pullRequestID: member.pullRequestID, position: position, size: group.stack.size
+                ))
                 switch member {
                 case .requested(let pullRequest):
                     requestedMemberRow(pullRequest, row: row, stackControl: control, positionLabel: positionLabel)
@@ -2597,7 +2599,6 @@ struct PullRequestTitleBadge: View {
             .font(metrics.type.draftBadge.font)
             .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
             .lineLimit(1)
-            .fixedSize()
             .padding(.horizontal, metrics.prRow.draftBadgeHorizontalPadding)
             .padding(.vertical, metrics.prRow.draftBadgeVerticalPadding)
             .background(tint?.opacity(0.15) ?? Color.secondary.opacity(0.2), in: Capsule())

@@ -1730,10 +1730,11 @@ final class MenuViewTests: XCTestCase {
         controller.toggleStackExpanded("STACK_MOCK_SPREAD")
         relayout(view)
 
-        XCTAssertEqual(Set(frames.positionLabels.keys), ["2/4", "3/4", "4/4"])
+        XCTAssertEqual(Set(frames.positionLabels.keys), Set(Self.spreadMemberIDs.dropFirst()))
         for position in 2...4 {
-            let row = try XCTUnwrap(frames.rows[Self.spreadMemberIDs[position - 1]])
-            let label = try XCTUnwrap(frames.positionLabels["\(position)/4"])
+            let id = Self.spreadMemberIDs[position - 1]
+            let row = try XCTUnwrap(frames.rows[id])
+            let label = try XCTUnwrap(frames.positionLabels[id])
             XCTAssertTrue(row.contains(label), "position \(position)")
             XCTAssertGreaterThan(label.midY, row.midY, "on the metadata line, position \(position)")
         }

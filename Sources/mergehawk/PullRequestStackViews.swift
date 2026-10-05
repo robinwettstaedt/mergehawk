@@ -131,6 +131,8 @@ struct StackControlAnchorsKey: PreferenceKey {
 
 /// "· ‹position›/‹size›" at the end of the metadata line of an expanded row below the top row.
 struct StackPositionLabel: View {
+    /// The member's PR ID, which keys its reported frame.
+    let pullRequestID: String
     let position: Int
     let size: Int
 
@@ -146,11 +148,11 @@ struct StackPositionLabel: View {
         .lineLimit(1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Stack position \(position) of \(size)")
-        .anchorPreference(key: StackPositionLabelAnchorsKey.self, value: .bounds) { ["\(position)/\(size)": $0] }
+        .anchorPreference(key: StackPositionLabelAnchorsKey.self, value: .bounds) { [pullRequestID: $0] }
     }
 }
 
-/// Each metadata stack position's frame, by its "‹position›/‹size›" text.
+/// Each metadata stack position's frame, by the member's PR ID.
 struct StackPositionLabelAnchorsKey: PreferenceKey {
     static var defaultValue: [String: Anchor<CGRect>] { [:] }
 
