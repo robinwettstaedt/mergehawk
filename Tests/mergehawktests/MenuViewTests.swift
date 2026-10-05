@@ -1064,19 +1064,27 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testMemberBadgesMarkRequestsStatesAndDrafts() throws {
+    func testContextMembersNameTheirStateAfterTheTitleAndRequestedMembersOnlyDraft() throws {
+        typealias Placement = StackMemberBadge.Placement
         let unreadable = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
-        XCTAssertEqual(unreadable.members.map(StackMemberBadge.badges(for:)), [[.closed], [.reviewRequested], [.draft]])
+        // Closed context, requested, draft open context.
+        XCTAssertEqual(unreadable.members.map(StackMemberBadge.badges(for:)), [
+            Placement(beforeTitle: [], afterTitle: [.closed]),
+            Placement(beforeTitle: [], afterTitle: []),
+            Placement(beforeTitle: [.draft], afterTitle: [.open])
+        ])
 
         let filter = try XCTUnwrap(try prStacksGroup("STACK_MOCK_FILTER").row.stack)
-        XCTAssertEqual(filter.members.map(StackMemberBadge.badges(for:)), [[.draft, .reviewRequested], [.reviewRequested], []])
+        // Draft requested, requested, open context.
+        XCTAssertEqual(filter.members.map(StackMemberBadge.badges(for:)), [
+            Placement(beforeTitle: [.draft], afterTitle: []),
+            Placement(beforeTitle: [], afterTitle: []),
+            Placement(beforeTitle: [], afterTitle: [.open])
+        ])
 
-        let merged = PullRequestStackEntry(
-            position: 1, pullRequestID: "PR_M", number: 1, title: "Merged", url: Self.stackedPullRequest.url,
-            state: .merged, isDraft: false, author: "a"
-        )
-        XCTAssertEqual(StackMemberBadge.badges(for: .context(merged)), [.merged])
-        XCTAssertEqual(StackMemberBadge.badges(for: .context(merged)).map(\.title), ["Merged"])
+        let merged = try XCTUnwrap(try prStacksGroup("STACK_MOCK_ASSIGNED").row.stack?.members.first)
+        XCTAssertEqual(StackMemberBadge.badges(for: merged), Placement(beforeTitle: [], afterTitle: [.merged]))
+        XCTAssertEqual([StackMemberBadge.open, .merged, .closed].map(\.title), ["Open", "Merged", "Closed"])
     }
 
     private static let longTitle = String(repeating: "Explain every skipped stack entry in detail ", count: 6)
@@ -1235,15 +1243,17 @@ final class MenuViewTests: XCTestCase {
         for size in MenuSize.allCases {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
             let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
-            for draft in [false, true] {
-                // An open context member has no badge before its title, like the requested cards.
-                let measured = memberCards(title: Self.longTitle, draft: draft, contextState: .open).map { name, card in
+            for (draft, state) in [false, true].flatMap({ draft in
+                [PullRequestStackEntry.State.open, .merged, .closed].map { (draft, $0) }
+            }) {
+                // State badges follow the title, so every context state starts its title where requested cards do.
+                let measured = memberCards(title: Self.longTitle, draft: draft, contextState: state).map { name, card in
                     (name, measure(card, width: width, metrics: layout.metrics).parts)
                 }
                 let reference = measured[0].1
                 for (name, parts) in measured {
                     for part in [PullRequestCardPart.avatar, .title, .metadata] {
-                        let label = "\(part) of \(name), draft: \(draft), at \(size)"
+                        let label = "\(part) of \(name), draft: \(draft), \(state), at \(size)"
                         let expected = try XCTUnwrap(reference[part], label)
                         XCTAssertEqual(try XCTUnwrap(parts[part], label).minX, expected.minX, label)
                     }
@@ -1412,6 +1422,106 @@ final class MenuViewTests: XCTestCase {
             pixels(of: unread.bitmap, in: edge, viewWidth: width),
             pixels(of: read.bitmap, in: edge, viewWidth: width),
             "an unread group has the accent border"
+        )
+    }
+
+    /// The width `view` takes when it is offered all the width it wants.
+    @MainActor
+    private func intrinsicWidth(_ view: some View, metrics: MenuMetrics) -> CGFloat {
+        NSHostingView(rootView: view.fixedSize().environment(\.menuMetrics, metrics)).fittingSize.width
+    }
+
+    @MainActor
+    func testLongContextTitlesTruncateBeforeTheirFullWidthBadges() throws {
+        let smallest = try XCTUnwrap(MenuSize.allCases.min { $0.factor < $1.factor })
+        for size in [smallest, .standard] {
+            let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
+            let metrics = layout.metrics
+            let width = layout.size.width - 2 * metrics.prList.horizontalPadding
+            let titleIdealWidth = intrinsicWidth(Text(Self.longTitle).font(metrics.type.cardTitle.font), metrics: metrics)
+            let draftWidth = intrinsicWidth(StackMemberBadgeView(badge: .draft), metrics: metrics)
+            for state in [PullRequestStackEntry.State.open, .merged, .closed] {
+                for (draft, withControl) in [(false, false), (true, false), (true, true)] {
+                    let label = "\(state), draft: \(draft), control: \(withControl), at \(size)"
+                    let card = StackContextCard(
+                        entry: Self.contextEntry(draft: draft, state: state),
+                        repo: "mergehawk-labs/mergehawk",
+                        chrome: .containerRow,
+                        stackControl: withControl ? AnyView(StackControl(
+                            presentation: StackControlPresentation(group: Self.stackGroup(), displayedPosition: 1, isExpanded: true)
+                        ) {}) : nil
+                    ) {}
+                    let parts = measure(card, width: width, metrics: metrics).parts
+                    let title = try XCTUnwrap(parts[.title], label)
+                    let badge = try XCTUnwrap(parts[.stateBadge], label)
+                    let stateBadge: StackMemberBadge = switch state {
+                    case .open: .open
+                    case .merged: .merged
+                    case .closed: .closed
+                    }
+                    XCTAssertEqual(
+                        badge.width, intrinsicWidth(StackMemberBadgeView(badge: stateBadge), metrics: metrics),
+                        accuracy: 0.5, "full state badge, \(label)"
+                    )
+                    XCTAssertLessThan(title.width, titleIdealWidth - 1, "the title truncates, \(label)")
+                    XCTAssertLessThanOrEqual(title.maxX, badge.minX + 0.5, "the title ends before the badge, \(label)")
+                    if draft {
+                        let draftBadge = try XCTUnwrap(parts[.draftBadge], label)
+                        XCTAssertEqual(draftBadge.width, draftWidth, accuracy: 0.5, "full Draft badge, \(label)")
+                        XCTAssertLessThanOrEqual(draftBadge.maxX, title.minX + 0.5, "Draft before the title, \(label)")
+                    } else {
+                        XCTAssertNil(parts[.draftBadge], label)
+                    }
+                    let identity = try XCTUnwrap(parts[.identity], label)
+                    XCTAssertLessThanOrEqual(badge.maxX, identity.maxX + 0.5, "the badge stays in the identity slot, \(label)")
+                    if withControl {
+                        let control = try XCTUnwrap(parts[.stackControl], label)
+                        XCTAssertLessThanOrEqual(badge.maxX, control.minX - metrics.prColumns.spacing + 0.5, label)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testALongUnstackedTitleReachesTheChangesColumnPastAStackControl() throws {
+        for size in MenuSize.allCases {
+            let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
+            let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
+            let cards = memberCards(title: Self.longTitle, draft: false)
+            let unstacked = measure(cards[0].1, width: width, metrics: layout.metrics)
+            let stacked = measure(cards[1].1, width: width, metrics: layout.metrics)
+            let title = try XCTUnwrap(unstacked.parts[.title])
+            let neighbouringControl = try XCTUnwrap(stacked.parts[.stackControl])
+            let changes = try XCTUnwrap(unstacked.columns.first)
+
+            // The truncated title ends at its last glyph, within a few points of the changes column.
+            XCTAssertGreaterThan(title.maxX, neighbouringControl.midX, "\(size)")
+            XCTAssertLessThanOrEqual(title.maxX, changes.minX - layout.metrics.prColumns.spacing + 0.5, "\(size)")
+        }
+    }
+
+    @MainActor
+    func testContextRowsLeaveEveryValueColumnEmpty() throws {
+        let width: CGFloat = 800
+        let row = try renderBitmap(StackContextCard(
+            entry: Self.contextEntry(draft: false, state: .merged), repo: "mergehawk-labs/mergehawk", chrome: .containerRow
+        ) {}, width: width)
+        let requested = try renderBitmap(PullRequestRow(
+            pullRequest: Self.pullRequest(title: "Member", draft: false), isAttention: false, isPinned: false, isHidden: false,
+            toggleHide: {}, togglePin: {}, chrome: .containerRow, showsActions: false, action: {}
+        ), width: width)
+        let white = UInt32(0xFFFF_FFFF)
+        XCTAssertEqual(row.measurement.columns.count, 7)
+        for (index, column) in row.measurement.columns.enumerated() {
+            let rendered = pixels(of: row.bitmap, in: column, viewWidth: width)
+            XCTAssertFalse(rendered.isEmpty)
+            XCTAssertTrue(rendered.allSatisfy { $0 == white }, "column \(index) is empty")
+        }
+        let requestedChanges = try XCTUnwrap(requested.measurement.columns.first)
+        XCTAssertFalse(
+            pixels(of: requested.bitmap, in: requestedChanges, viewWidth: width).allSatisfy { $0 == white },
+            "a requested row draws its values"
         )
     }
 

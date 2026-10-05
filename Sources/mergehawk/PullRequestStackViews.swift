@@ -159,27 +159,54 @@ struct StackPositionLabelAnchorsKey: PreferenceKey {
     }
 }
 
-/// The badges before an expanded stack member's title, in display order.
+/// The badges on an expanded stack member's title line: Draft before the title, and on a context member its
+/// state after the title.
 enum StackMemberBadge: String, Equatable {
     case draft = "Draft"
-    case reviewRequested = "Review requested"
+    case open = "Open"
     case merged = "Merged"
     case closed = "Closed"
 
     var title: String { rawValue }
 
-    static func badges(for member: StackGroup.Member) -> [StackMemberBadge] {
+    struct Placement: Equatable {
+        var beforeTitle: [StackMemberBadge]
+        var afterTitle: [StackMemberBadge]
+    }
+
+    static func badges(for member: StackGroup.Member) -> Placement {
         switch member {
         case .requested(let pullRequest):
-            (pullRequest.draft ? [.draft] : []) + [.reviewRequested]
+            Placement(beforeTitle: pullRequest.draft ? [.draft] : [], afterTitle: [])
         case .context(let entry):
-            (entry.isDraft ? [.draft] : []) + {
-                switch entry.state {
-                case .open: []
-                case .merged: [.merged]
-                case .closed: [.closed]
-                }
-            }()
+            Placement(
+                beforeTitle: entry.isDraft ? [.draft] : [],
+                afterTitle: [{
+                    switch entry.state {
+                    case .open: .open
+                    case .merged: .merged
+                    case .closed: .closed
+                    }
+                }()]
+            )
+        }
+    }
+}
+
+/// A title-line badge for a stack member. The text names the state; the tint only supports it.
+struct StackMemberBadgeView: View {
+    let badge: StackMemberBadge
+
+    var body: some View {
+        switch badge {
+        case .draft:
+            DraftPullRequestIndicator()
+        case .open:
+            PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Open PR")
+        case .merged:
+            PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Merged PR", tint: .purple)
+        case .closed:
+            PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Closed PR", tint: .red)
         }
     }
 }
@@ -252,16 +279,18 @@ struct StackContextCard: View {
         )
     }
 
+    private var badges: StackMemberBadge.Placement {
+        StackMemberBadge.badges(for: .context(entry))
+    }
+
     private var identity: some View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             PullRequestTitleLine {
-                ForEach(StackMemberBadge.badges(for: .context(entry)), id: \.self) { badge in
-                    switch badge {
-                    case .draft:
-                        DraftPullRequestIndicator()
-                    case .reviewRequested, .merged, .closed:
-                        PullRequestTitleBadge(text: badge.title, accessibilityLabel: "\(badge.title) PR")
-                    }
+                ForEach(badges.beforeTitle, id: \.self) { badge in
+                    // Badges keep their full width; only the title truncates.
+                    StackMemberBadgeView(badge: badge)
+                        .layoutPriority(1)
+                        .pullRequestCardPart(.draftBadge)
                 }
                 Text(entry.title)
                     .font(metrics.type.cardTitle.font)
@@ -269,6 +298,11 @@ struct StackContextCard: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .pullRequestCardPart(.title)
+                ForEach(badges.afterTitle, id: \.self) { badge in
+                    StackMemberBadgeView(badge: badge)
+                        .layoutPriority(1)
+                        .pullRequestCardPart(.stateBadge)
+                }
             }
 
             HStack(spacing: metrics.prRow.identityItemSpacing) {

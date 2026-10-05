@@ -2245,6 +2245,8 @@ enum PullRequestCardPart: Hashable {
     case title
     case metadata
     case stackControl
+    case draftBadge
+    case stateBadge
 }
 
 /// The frames of a card's parts. A list of cards reports the last card's parts.
@@ -2582,23 +2584,24 @@ struct DraftPullRequestIndicator: View {
     }
 }
 
-/// A capsule label on a card title line, styled like the Draft badge.
+/// A capsule label on a card title line, styled like the Draft badge; a tint colors its text and fill.
 struct PullRequestTitleBadge: View {
     let text: String
     let accessibilityLabel: String
-    var isAccented = false
+    var tint: Color? = nil
 
     @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         Text(text)
             .font(metrics.type.draftBadge.font)
-            .foregroundStyle(isAccented ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
+            .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, metrics.prRow.draftBadgeHorizontalPadding)
             .padding(.vertical, metrics.prRow.draftBadgeVerticalPadding)
-            .background(isAccented ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.2), in: Capsule())
+            .background(tint?.opacity(0.15) ?? Color.secondary.opacity(0.2), in: Capsule())
+            .fixedSize()
             .accessibilityLabel(accessibilityLabel)
     }
 }
