@@ -8,6 +8,7 @@ struct StackControlPresentation: Equatable {
     static let collapsedChevronSymbolName = "chevron.down"
     static let expandedChevronSymbolName = "chevron.up"
 
+    let stackID: String
     let fractionText: String
     /// Laid out hidden under the fraction, so every fraction of the stack takes the same width.
     let templateText: String
@@ -20,6 +21,7 @@ struct StackControlPresentation: Equatable {
     /// position when expanded.
     init(group: StackGroup, displayedPosition: Int, isExpanded: Bool) {
         let size = group.stack.size
+        stackID = group.stack.id
         fractionText = "\(displayedPosition)/\(size)"
         let highest = max(size, group.stack.entries.map(\.position).max() ?? 0)
         let digits = String(repeating: "8", count: String(highest).count)
@@ -95,6 +97,9 @@ struct StackControl: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .anchorPreference(key: StackControlAnchorsKey.self, value: .bounds) {
+            [presentation.stackID: StackControlAnchor(bounds: $0, fractionText: presentation.fractionText)]
+        }
         .onHover { isHovered = $0 }
         .menuTooltip(presentation.tooltip, providesAccessibilityHint: false)
         .accessibilityLabel(presentation.accessibilityLabel)
@@ -107,6 +112,50 @@ struct StackControl: View {
 
     private var hoverFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.1)
+    }
+}
+
+/// A stack control's frame and fraction, reported per stack so tests can check that it stays put on toggle.
+struct StackControlAnchor {
+    let bounds: Anchor<CGRect>
+    let fractionText: String
+}
+
+struct StackControlAnchorsKey: PreferenceKey {
+    static var defaultValue: [String: StackControlAnchor] { [:] }
+
+    static func reduce(value: inout [String: StackControlAnchor], nextValue: () -> [String: StackControlAnchor]) {
+        value.merge(nextValue()) { _, next in next }
+    }
+}
+
+/// "· ‹position›/‹size›" at the end of the metadata line of an expanded row below the top row.
+struct StackPositionLabel: View {
+    let position: Int
+    let size: Int
+
+    @Environment(\.menuMetrics) private var metrics
+
+    var body: some View {
+        HStack(spacing: metrics.prRow.identityItemSpacing) {
+            Text("·")
+                .accessibilityHidden(true)
+            Text("\(position)/\(size)")
+                .monospacedDigit()
+        }
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Stack position \(position) of \(size)")
+        .anchorPreference(key: StackPositionLabelAnchorsKey.self, value: .bounds) { ["\(position)/\(size)": $0] }
+    }
+}
+
+/// Each metadata stack position's frame, by its "‹position›/‹size›" text.
+struct StackPositionLabelAnchorsKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
     }
 }
 
@@ -135,41 +184,41 @@ enum StackMemberBadge: String, Equatable {
     }
 }
 
-/// An expanded stack group: one card per member, position 1 (closest to the base branch) first.
-struct StackMemberList<Card: View>: View {
+/// An expanded stack group: one rounded container of borderless rows, position 1 (closest to the base branch)
+/// first, with a hairline between rows. Each row keeps an ordinary card's height, so the container is exactly
+/// as tall as its rows, and its top edge is where the collapsed card's top edge was.
+struct StackMemberContainer<Row: View>: View {
     let group: StackGroup
-    @ViewBuilder let card: (_ member: StackGroup.Member, _ position: Int) -> Card
-
-    @Environment(\.menuMetrics) private var metrics
+    /// The group unread rule, the same signal the collapsed card shows.
+    let isUnread: Bool
+    @ViewBuilder let row: (_ member: StackGroup.Member, _ position: Int) -> Row
 
     var body: some View {
-        VStack(spacing: metrics.prColumns.rowSpacing) {
-            ForEach(group.members, id: \.pullRequestID) { member in
-                card(member, group.position(of: member) ?? 0)
+        VStack(spacing: 0) {
+            ForEach(Array(group.members.enumerated()), id: \.element.pullRequestID) { index, member in
+                row(member, group.position(of: member) ?? 0)
+                    // Overlaid, so the divider adds no height.
+                    .overlay(alignment: .top) {
+                        if index > 0 {
+                            Rectangle()
+                                .fill(Color(nsColor: .separatorColor))
+                                .frame(height: MenuMetrics.hairline)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .anchorPreference(key: StackMemberRowAnchorsKey.self, value: .bounds) { [member.pullRequestID: $0] }
             }
         }
-        // A rail centered in the list's leading padding marks the group without moving the cards.
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: metrics.prList.stackRailWidth)
-                .alignmentGuide(.leading) { dimensions in
-                    dimensions[.leading] + (metrics.prList.horizontalPadding + metrics.prList.stackRailWidth) / 2
-                }
-                .anchorPreference(key: StackMemberRailAnchorKey.self, value: .bounds) { $0 }
-                .accessibilityHidden(true)
-        }
-        // A doubled row gap before and after separates the group from neighbouring cards.
-        .padding(.vertical, metrics.prColumns.rowSpacing)
+        .transparentCardStyle(accentColor: isUnread ? .accentColor : nil, isHovered: false)
     }
 }
 
-/// The rail's frame, reported so tests can check that it spans the expanded group's member cards.
-struct StackMemberRailAnchorKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>? { nil }
+/// Each expanded row's frame, by the member's PR ID, reported so tests can check heights, actions, and clicks.
+struct StackMemberRowAnchorsKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] { [:] }
 
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
     }
 }
 

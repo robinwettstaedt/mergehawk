@@ -1043,7 +1043,7 @@ final class MenuViewTests: XCTestCase {
     func testExpandedGroupListsEveryReadableMemberInPositionOrder() throws {
         let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
         var rendered: [(id: String, position: Int, minY: CGFloat)] = []
-        let list = StackMemberList(group: group) { member, position in
+        let list = StackMemberContainer(group: group, isUnread: false) { member, position in
             GeometryReader { proxy in
                 Color.clear.onAppear {
                     rendered.append((member.pullRequestID, position, proxy.frame(in: .global).minY))
@@ -1219,7 +1219,7 @@ final class MenuViewTests: XCTestCase {
 
             // Inside an expanded group the same cards keep their width and every column's x-position.
             let cards = memberCards(title: Self.longTitle, draft: true).map(\.1)
-            let list = StackMemberList(group: group) { _, position in cards[(position - 1) % cards.count] }
+            let list = StackMemberContainer(group: group, isUnread: false) { _, position in cards[(position - 1) % cards.count] }
             let expanded = measure(list, width: width, metrics: layout.metrics)
             XCTAssertEqual(expanded.columns.count, ordinary.count * group.members.count, "\(size)")
             for (index, start) in stride(from: 0, to: expanded.columns.count, by: ordinary.count).enumerated() {
@@ -1368,46 +1368,264 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testStackRailSpansExactlyTheExpandedMembersInsideTheListGutter() throws {
+    func testExpandedContainerIsExactlyTheMemberCountTimesTheCardHeight() throws {
         let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
         for size in MenuSize.allCases {
             let metrics = MenuMetrics(scale: size.factor)
-            var cardFrames: [String: CGRect] = [:]
-            var rail: CGRect?
-            let list = StackMemberList(group: group) { member, _ in
-                Color.gray.frame(height: 40)
-                    .background(GeometryReader { proxy in
-                        Color.clear.onAppear { cardFrames[member.pullRequestID] = proxy.frame(in: .named("list")) }
-                    })
+            let width = 800 * size.factor
+            let cards = memberCards(title: Self.longTitle, draft: false)
+            // As many ordinary cards, stacked without gaps, so fractional sizes round the same way.
+            let ordinaryCards = VStack(spacing: 0) {
+                ForEach(group.members, id: \.pullRequestID) { _ in cards[0].1 }
             }
-            .coordinateSpace(name: "list")
-            .overlayPreferenceValue(StackMemberRailAnchorKey.self) { anchor in
+            // Requested member rows and context rows, alternating.
+            let container = StackMemberContainer(group: group, isUnread: false) { _, position in
+                cards[2 + position % 2].1
+            }
+            XCTAssertEqual(
+                measure(container, width: width, metrics: metrics).height,
+                measure(ordinaryCards, width: width, metrics: metrics).height,
+                "\(size)"
+            )
+        }
+    }
+
+    @MainActor
+    func testExpandedContainerUsesTheAccentBorderOnlyForAnUnreadGroup() throws {
+        let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
+        let width: CGFloat = 800
+        let cards = memberCards(title: "Member", draft: false)
+        func container(isUnread: Bool) -> some View {
+            StackMemberContainer(group: group, isUnread: isUnread) { _, position in cards[2 + position % 2].1 }
+        }
+        let read = try renderBitmap(container(isUnread: false), width: width)
+        let unread = try renderBitmap(container(isUnread: true), width: width)
+        let ordinary = try renderBitmap(cards[0].1, width: width)
+        let edge = CGRect(x: 0, y: ordinary.measurement.height / 2, width: 1, height: 1)
+
+        XCTAssertEqual(
+            pixels(of: read.bitmap, in: edge, viewWidth: width),
+            pixels(of: ordinary.bitmap, in: edge, viewWidth: width),
+            "a read group has the ordinary neutral card border"
+        )
+        XCTAssertNotEqual(
+            pixels(of: unread.bitmap, in: edge, viewWidth: width),
+            pixels(of: read.bitmap, in: edge, viewWidth: width),
+            "an unread group has the accent border"
+        )
+    }
+
+    // MARK: - Expanded stacks in the menu
+
+    private struct ResolvedStackControl: Equatable {
+        let frame: CGRect
+        let fractionText: String
+    }
+
+    /// Frames in the hosted menu, top-left origin, as the menu last laid them out.
+    private final class StackMenuFrames {
+        var controls: [String: ResolvedStackControl] = [:]
+        var rows: [String: CGRect] = [:]
+        var positionLabels: [String: CGRect] = [:]
+    }
+
+    @MainActor
+    private func stackMenuController(
+        filters: Set<DashboardController.ReviewRequestFilterOption>? = nil,
+        opened: @escaping (URL) -> Void = { _ in }
+    ) throws -> DashboardController {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .prStacks
+            ),
+            automaticRefreshInterval: 0,
+            urlOpener: opened
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
+        controller.selectedTab = .reviewRequests
+        if let filters {
+            controller.selectedReviewRequestFilters = filters
+        }
+        return controller
+    }
+
+    @MainActor
+    private func hostStackMenu(_ controller: DashboardController, frames: StackMenuFrames) -> (window: NSWindow, view: NSView) {
+        let size = MenuMetrics.standard.panelSize
+        let root = MenuRootView(controller: controller, footerModel: MenuFooterModel(), tooltipController: MenuTooltipController())
+            .overlayPreferenceValue(StackControlAnchorsKey.self) { anchors in
                 GeometryReader { proxy in
-                    Color.clear.onAppear { rail = anchor.map { proxy[$0] } }
+                    let resolved = anchors.mapValues { ResolvedStackControl(frame: proxy[$0.bounds], fractionText: $0.fractionText) }
+                    Color.clear
+                        .onAppear { frames.controls = resolved }
+                        .onChange(of: resolved) { _, new in frames.controls = new }
                 }
             }
-            .frame(width: 400)
-            .padding(.horizontal, metrics.prList.horizontalPadding)
-            .environment(\.menuMetrics, metrics)
-            let hostingView = NSHostingView(rootView: list)
-            hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
-            hostingView.layoutSubtreeIfNeeded()
-            settleRunLoop()
+            .overlayPreferenceValue(StackMemberRowAnchorsKey.self) { anchors in
+                GeometryReader { proxy in
+                    let resolved = anchors.mapValues { proxy[$0] }
+                    Color.clear
+                        .onAppear { frames.rows = resolved }
+                        .onChange(of: resolved) { _, new in frames.rows = new }
+                }
+            }
+            .overlayPreferenceValue(StackPositionLabelAnchorsKey.self) { anchors in
+                GeometryReader { proxy in
+                    let resolved = anchors.mapValues { proxy[$0] }
+                    Color.clear
+                        .onAppear { frames.positionLabels = resolved }
+                        .onChange(of: resolved) { _, new in frames.positionLabels = new }
+                }
+            }
+        let hostingView = NSHostingView(rootView: root)
+        hostingView.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = hostingView
+        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
+        window.orderFrontRegardless()
+        hostingView.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        return (window, hostingView)
+    }
 
-            let frames = group.members.compactMap { cardFrames[$0.pullRequestID] }.sorted { $0.minY < $1.minY }
-            let railFrame = try XCTUnwrap(rail, "\(size)")
-            let first = try XCTUnwrap(frames.first), last = try XCTUnwrap(frames.last)
-            XCTAssertEqual(frames.count, group.members.count)
-            // Layout rounds fractional menu sizes to whole pixels (1 pt in this off-screen host).
-            let pixel: CGFloat = 1
-            XCTAssertEqual(railFrame.minY, first.minY, accuracy: pixel, "\(size)")
-            XCTAssertEqual(railFrame.maxY, last.maxY, accuracy: pixel, "\(size)")
-            XCTAssertEqual(railFrame.width, metrics.prList.stackRailWidth, accuracy: pixel, "\(size)")
-            XCTAssertLessThan(railFrame.maxX, first.minX, "the rail stays outside the cards at \(size)")
-            XCTAssertGreaterThan(railFrame.minX, first.minX - metrics.prList.horizontalPadding, "inside the gutter at \(size)")
-            // The doubled gap: one row gap of padding before the first card and after the last.
-            XCTAssertEqual(first.minY, metrics.prColumns.rowSpacing, accuracy: pixel, "\(size)")
+    @MainActor
+    private func relayout(_ view: NSView) {
+        view.layoutSubtreeIfNeeded()
+        settleRunLoop()
+        view.layoutSubtreeIfNeeded()
+        settleRunLoop()
+    }
+
+    private static let spreadMemberIDs = (1...4).map { "PR_STACK_MOCK_SPREAD_\($0)" }
+
+    @MainActor
+    func testTogglingAStackKeepsItsControlUnderThePointerInAScrolledList() throws {
+        let cases: [(stackID: String, hiddenMemberID: String?, size: Int, representative: Int)] = [
+            ("STACK_MOCK_SPREAD", nil, 4, 2),
+            // With the position-2 member hidden on its own, the position-3 member represents the group.
+            ("STACK_MOCK_ASSIGNED", "PR_STACK_MOCK_ASSIGNED_2", 3, 3)
+        ]
+        for testCase in cases {
+            let label = testCase.stackID
+            let controller = try stackMenuController()
+            if let hiddenMemberID = testCase.hiddenMemberID {
+                let member = try XCTUnwrap(controller.state.pullRequests.first { $0.id == hiddenMemberID }, label)
+                controller.toggleHide(member)
+                // Newest first puts the unstacked assigned PR above the group.
+                controller.reviewRequestSortDirection = .descending
+            }
+            let visibleRows = controller.requestedSections.flatMap(\.visible)
+            XCTAssertGreaterThan(
+                try XCTUnwrap(visibleRows.firstIndex { $0.stack?.stack.id == testCase.stackID }, label), 0,
+                "other cards sit above the group, \(label)"
+            )
+            // Every other group expanded makes the list long enough to scroll.
+            for other in visibleRows.compactMap(\.stack?.stack.id) where other != testCase.stackID {
+                controller.toggleStackExpanded(other)
+            }
+            let frames = StackMenuFrames()
+            let (window, view) = hostStackMenu(controller, frames: frames)
+            defer { window.orderOut(nil) }
+            let unscrolled = try XCTUnwrap(frames.controls[testCase.stackID], label)
+
+            // Scroll the list so the group sits at a nonzero offset, with other cards above it.
+            let scrollView = try XCTUnwrap(scrollViews(in: view).first { $0.documentView != nil }, label)
+            let offset: CGFloat = 30
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            relayout(view)
+            let collapsed = try XCTUnwrap(frames.controls[testCase.stackID], label)
+            XCTAssertEqual(collapsed.frame.minY, unscrolled.frame.minY - offset, accuracy: 0.5, "the list scrolled, \(label)")
+            XCTAssertEqual(collapsed.fractionText, "\(testCase.representative)/\(testCase.size)", label)
+
+            try click(window, atTopLeft: CGPoint(x: collapsed.frame.midX, y: collapsed.frame.midY))
+            relayout(view)
+            XCTAssertTrue(controller.isStackExpanded(testCase.stackID), label)
+            let expanded = try XCTUnwrap(frames.controls[testCase.stackID], label)
+            XCTAssertEqual(expanded.frame, collapsed.frame, "expanded, \(label)")
+            XCTAssertEqual(expanded.fractionText, "1/\(testCase.size)", label)
+            let firstRow = try XCTUnwrap(frames.rows["PR_\(testCase.stackID)_1"], label)
+            XCTAssertTrue(firstRow.contains(expanded.frame), "the control sits on the position-1 row, \(label)")
+
+            try click(window, atTopLeft: CGPoint(x: expanded.frame.midX, y: expanded.frame.midY))
+            relayout(view)
+            XCTAssertFalse(controller.isStackExpanded(testCase.stackID), label)
+            let collapsedAgain = try XCTUnwrap(frames.controls[testCase.stackID], label)
+            XCTAssertEqual(collapsedAgain, collapsed, "collapsed again, \(label)")
         }
+    }
+
+    @MainActor
+    func testClickingEachExpandedRowOpensItsMemberAndTheControlOnlyToggles() throws {
+        var opened: [String] = []
+        let controller = try stackMenuController { opened.append($0.absoluteString) }
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+        let frames = StackMenuFrames()
+        let (window, _) = hostStackMenu(controller, frames: frames)
+        defer { window.orderOut(nil) }
+        let columns = MenuMetrics.standard.prColumns
+
+        for id in Self.spreadMemberIDs {
+            let row = try XCTUnwrap(frames.rows[id], id)
+            let titleX = row.minX + columns.horizontalInset + columns.avatarSize + columns.identitySpacing + 4
+            try click(window, atTopLeft: CGPoint(x: titleX, y: row.minY + columns.verticalInset + 4))
+        }
+        XCTAssertEqual(opened, (201...204).map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" })
+
+        // Position 1 is an open context member; its control stays fully operable.
+        let control = try XCTUnwrap(frames.controls["STACK_MOCK_SPREAD"])
+        XCTAssertTrue(try XCTUnwrap(frames.rows[Self.spreadMemberIDs[0]]).contains(control.frame))
+        try click(window, atTopLeft: CGPoint(x: control.frame.minX + 3, y: control.frame.midY))
+        XCTAssertFalse(controller.isStackExpanded("STACK_MOCK_SPREAD"))
+        XCTAssertEqual(opened.count, 4, "the control opens nothing")
+    }
+
+    @MainActor
+    func testOnlyTheRepresentativeRowHasTheActionsButtonWhereverItLands() throws {
+        var opened: [String] = []
+        let controller = try stackMenuController { opened.append($0.absoluteString) }
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+        let frames = StackMenuFrames()
+        let (window, _) = hostStackMenu(controller, frames: frames)
+        defer { window.orderOut(nil) }
+        let columns = MenuMetrics.standard.prColumns
+        func clickActionsColumn(_ id: String) throws {
+            let row = try XCTUnwrap(frames.rows[id], id)
+            try click(window, atTopLeft: CGPoint(x: row.maxX - columns.horizontalInset - columns.actionsWidth / 2, y: row.midY))
+        }
+
+        // Position 2 is the representative, below the position-1 context row. Elsewhere the empty actions column
+        // is part of the card, so a click there opens that member.
+        for id in [Self.spreadMemberIDs[0], Self.spreadMemberIDs[2], Self.spreadMemberIDs[3]] {
+            try clickActionsColumn(id)
+        }
+        XCTAssertEqual(opened, [201, 203, 204].map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" })
+        try clickActionsColumn(Self.spreadMemberIDs[1])
+        XCTAssertEqual(opened.count, 3, "the representative row's actions button takes the click")
+    }
+
+    @MainActor
+    func testOnlyRowsBelowTheTopShowTheirStackPosition() throws {
+        let controller = try stackMenuController()
+        let frames = StackMenuFrames()
+        let (window, view) = hostStackMenu(controller, frames: frames)
+        defer { window.orderOut(nil) }
+        XCTAssertFalse(frames.controls.isEmpty)
+        XCTAssertEqual(frames.positionLabels, [:], "collapsed cards show no metadata position")
+
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+        relayout(view)
+
+        XCTAssertEqual(Set(frames.positionLabels.keys), ["2/4", "3/4", "4/4"])
+        for position in 2...4 {
+            let row = try XCTUnwrap(frames.rows[Self.spreadMemberIDs[position - 1]])
+            let label = try XCTUnwrap(frames.positionLabels["\(position)/4"])
+            XCTAssertTrue(row.contains(label), "position \(position)")
+            XCTAssertGreaterThan(label.midY, row.midY, "on the metadata line, position \(position)")
+        }
+        XCTAssertEqual(frames.controls["STACK_MOCK_SPREAD"]?.fractionText, "1/4")
     }
 
     @MainActor
@@ -1419,7 +1637,7 @@ final class MenuViewTests: XCTestCase {
             let row = PullRequestRow(
                 pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
                 toggleActions: { toggledActions += 1 }, toggleHide: {}, togglePin: {},
-                titleBadge: AnyView(ReviewRequestedBadge()), showsActions: showsActions
+                showsActions: showsActions
             ) { opened += 1 }
             let (window, view) = host(row, width: 800)
             defer { window.orderOut(nil) }

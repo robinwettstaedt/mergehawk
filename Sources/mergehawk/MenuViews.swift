@@ -1576,16 +1576,27 @@ struct PullRequestListView: View {
     }
 
     /// A requested row shows its representative; a stack group's actions apply to every requested member.
-    /// An expanded group shows every member instead, with the representative keeping the chip and actions.
+    /// An expanded group shows every member in one container instead: the first row has the stack control, so the
+    /// control stays where it was, every other row names its position in its metadata, and the representative's
+    /// row keeps the group actions wherever it lands.
     @ViewBuilder
     private func requestedRow(_ row: ReviewRequestRow) -> some View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
-            StackMemberList(group: group) { member, _ in
+            StackMemberContainer(group: group, isUnread: row.isUnread) { member, position in
+                let isFirst = member.pullRequestID == group.members.first?.pullRequestID
+                let control = isFirst ? stackControl(group, displayedPosition: position, isExpanded: true) : nil
+                let positionLabel = isFirst ? nil : AnyView(StackPositionLabel(position: position, size: group.stack.size))
                 switch member {
                 case .requested(let pullRequest):
-                    requestedMemberCard(pullRequest, row: row)
+                    requestedMemberRow(pullRequest, row: row, stackControl: control, positionLabel: positionLabel)
                 case .context(let entry):
-                    StackContextCard(entry: entry, repo: row.representative.repo) {
+                    StackContextCard(
+                        entry: entry,
+                        repo: row.representative.repo,
+                        chrome: .containerRow,
+                        stackControl: control,
+                        metadataAccessory: positionLabel
+                    ) {
                         controller.openStackMember(member)
                     }
                 }
@@ -1595,11 +1606,25 @@ struct PullRequestListView: View {
         }
     }
 
-    private func representativeCard(_ row: ReviewRequestRow, isMember: Bool = false, isAttention: Bool? = nil) -> some View {
+    private func stackControl(_ group: StackGroup, displayedPosition: Int, isExpanded: Bool) -> AnyView {
+        AnyView(StackControl(
+            presentation: StackControlPresentation(group: group, displayedPosition: displayedPosition, isExpanded: isExpanded)
+        ) {
+            controller.toggleStackExpanded(group.stack.id)
+        })
+    }
+
+    /// The collapsed card, or the representative's row inside an expanded group when `chrome` is `.containerRow`.
+    private func representativeCard(
+        _ row: ReviewRequestRow,
+        chrome: PullRequestCardChrome = .card,
+        stackControl memberControl: AnyView? = nil,
+        positionLabel: AnyView? = nil
+    ) -> some View {
         let pullRequest = row.representative
         return PullRequestRow(
             pullRequest: pullRequest,
-            isAttention: isAttention ?? row.isUnread,
+            isAttention: row.isUnread,
             isPinned: row.isPinned,
             isHidden: row.isHidden,
             isActionsOpen: dropdownState.openMenu == .actions(pullRequest.id),
@@ -1610,37 +1635,36 @@ struct PullRequestListView: View {
             togglePin: {
                 controller.setPinned(row, pinned: !row.isPinned)
             },
-            titleBadge: isMember ? AnyView(ReviewRequestedBadge()) : nil,
-            stackControl: row.stack.map { group in
-                AnyView(StackControl(
-                    presentation: StackControlPresentation(
-                        group: group,
-                        displayedPosition: group.representativePosition,
-                        isExpanded: controller.isStackExpanded(group.stack.id)
-                    )
-                ) {
-                    controller.toggleStackExpanded(group.stack.id)
-                })
-            }
+            metadataAccessory: positionLabel,
+            stackControl: chrome == .card
+                ? row.stack.map { stackControl($0, displayedPosition: $0.representativePosition, isExpanded: false) }
+                : memberControl,
+            chrome: chrome
         ) {
             controller.openPullRequest(pullRequest)
         }
     }
 
     @ViewBuilder
-    private func requestedMemberCard(_ pullRequest: PullRequest, row: ReviewRequestRow) -> some View {
-        let isUnread = controller.isUnreadPullRequest(pullRequest)
+    private func requestedMemberRow(
+        _ pullRequest: PullRequest,
+        row: ReviewRequestRow,
+        stackControl: AnyView?,
+        positionLabel: AnyView?
+    ) -> some View {
         if pullRequest.id == row.representative.id {
-            representativeCard(row, isMember: true, isAttention: isUnread)
+            representativeCard(row, chrome: .containerRow, stackControl: stackControl, positionLabel: positionLabel)
         } else {
             PullRequestRow(
                 pullRequest: pullRequest,
-                isAttention: isUnread,
+                isAttention: false,
                 isPinned: controller.isPinned(pullRequest),
                 isHidden: controller.isHidden(pullRequest),
                 toggleHide: {},
                 togglePin: {},
-                titleBadge: AnyView(ReviewRequestedBadge()),
+                metadataAccessory: positionLabel,
+                stackControl: stackControl,
+                chrome: .containerRow,
                 showsActions: false
             ) {
                 controller.openStackMember(.requested(pullRequest))
@@ -2373,8 +2397,6 @@ struct PullRequestRow: View {
     let togglePin: () -> Void
     /// Shown at the end of the metadata line, after the PR number; it takes width from the repository first.
     var metadataAccessory: AnyView? = nil
-    /// Shown before the title, after the Draft badge.
-    var titleBadge: AnyView? = nil
     /// Shown directly before the changes column.
     var stackControl: AnyView? = nil
     var chrome: PullRequestCardChrome = .card
@@ -2460,7 +2482,6 @@ struct PullRequestRow: View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             PullRequestTitleLine {
                 if pullRequest.draft { DraftPullRequestIndicator() }
-                if let titleBadge { titleBadge }
                 Text(pullRequest.title)
                     .font(metrics.type.cardTitle.font)
                     .lineLimit(1)
@@ -2555,23 +2576,13 @@ struct PullRequestTitleLine<Content: View>: View {
     }
 }
 
-struct ReviewRequestedBadge: View {
-    var body: some View {
-        PullRequestTitleBadge(
-            text: StackMemberBadge.reviewRequested.title,
-            accessibilityLabel: StackMemberBadge.reviewRequested.title,
-            isAccented: true
-        )
-    }
-}
-
 struct DraftPullRequestIndicator: View {
     var body: some View {
         PullRequestTitleBadge(text: "Draft", accessibilityLabel: "Draft PR")
     }
 }
 
-/// A capsule label before a card title, styled like the Draft badge; the accent tint marks review requests.
+/// A capsule label on a card title line, styled like the Draft badge.
 struct PullRequestTitleBadge: View {
     let text: String
     let accessibilityLabel: String
@@ -2592,7 +2603,7 @@ struct PullRequestTitleBadge: View {
     }
 }
 
-private struct TransparentCardStyle: ViewModifier {
+struct TransparentCardStyle: ViewModifier {
     let accentColor: Color?
     let isHovered: Bool
 
@@ -2637,7 +2648,7 @@ private struct TransparentCardStyle: ViewModifier {
     }
 }
 
-private extension View {
+extension View {
     func transparentCardStyle(accentColor: Color?, isHovered: Bool) -> some View {
         modifier(TransparentCardStyle(accentColor: accentColor, isHovered: isHovered))
     }

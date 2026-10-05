@@ -179,8 +179,6 @@ struct MenuMetrics: Equatable {
         var sectionChevronWidth: CGFloat
         var sectionCountHorizontalPadding: CGFloat
         var sectionCountVerticalPadding: CGFloat
-        /// The rail beside an expanded stack's member cards, drawn in the list's leading padding.
-        var stackRailWidth: CGFloat
     }
 
     /// The filter and sort dropdowns under the PR header controls.
@@ -517,8 +515,7 @@ struct MenuMetrics: Equatable {
             sectionHeadingSpacing: s(8),
             sectionChevronWidth: s(12),
             sectionCountHorizontalPadding: s(6),
-            sectionCountVerticalPadding: s(2),
-            stackRailWidth: s(2)
+            sectionCountVerticalPadding: s(2)
         )
         dropdown = Dropdown(
             headerControlsSpacing: s(8),
