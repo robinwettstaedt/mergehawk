@@ -485,7 +485,7 @@ struct MenuMetrics: Equatable {
         )
         prColumns = PRColumns(
             spacing: s(6),
-            rowSpacing: s(6),
+            rowSpacing: s(8),
             headerHeight: s(32),
             horizontalInset: s(8),
             verticalInset: s(8),
