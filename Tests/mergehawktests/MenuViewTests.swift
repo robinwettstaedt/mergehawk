@@ -1242,7 +1242,7 @@ final class MenuViewTests: XCTestCase {
         let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
         for size in MenuSize.allCases {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
-            let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
+            let width = layout.metrics.prList.cardWidth(inPanelWidth: layout.size.width)
             let measured = memberCards(title: Self.longTitle, draft: true).map { name, card in
                 (name, measure(card, width: width, metrics: layout.metrics).columns)
             }
@@ -1270,7 +1270,7 @@ final class MenuViewTests: XCTestCase {
     func testEveryKindOfPRCardStartsItsAvatarTitleAndMetadataAtTheSameX() throws {
         for size in MenuSize.allCases {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
-            let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
+            let width = layout.metrics.prList.cardWidth(inPanelWidth: layout.size.width)
             // Every badge follows the title, so draft and non-draft cards of every kind start their title together.
             let reference = measure(memberCards(title: Self.longTitle, draft: false)[0].1, width: width, metrics: layout.metrics).parts
             for (draft, state) in [false, true].flatMap({ draft in
@@ -1465,7 +1465,7 @@ final class MenuViewTests: XCTestCase {
         for size in [smallest, .standard] {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
             let metrics = layout.metrics
-            let width = layout.size.width - 2 * metrics.prList.horizontalPadding
+            let width = metrics.prList.cardWidth(inPanelWidth: layout.size.width)
             let titleIdealWidth = intrinsicWidth(Text(Self.longTitle).font(metrics.type.cardTitle.font), metrics: metrics)
             let draftWidth = intrinsicWidth(StackMemberBadgeView(badge: .draft), metrics: metrics)
             for state in [PullRequestStackEntry.State.open, .merged, .closed] {
@@ -1518,7 +1518,7 @@ final class MenuViewTests: XCTestCase {
         for size in [smallest, .standard] {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
             let metrics = layout.metrics
-            let width = layout.size.width - 2 * metrics.prList.horizontalPadding
+            let width = metrics.prList.cardWidth(inPanelWidth: layout.size.width)
             let titleIdealWidth = intrinsicWidth(Text(Self.longTitle).font(metrics.type.cardTitle.font), metrics: metrics)
             let draftWidth = intrinsicWidth(DraftPullRequestIndicator(), metrics: metrics)
             // An unstacked card, a collapsed stacked card, and a requested member row.
@@ -1543,7 +1543,7 @@ final class MenuViewTests: XCTestCase {
     func testALongUnstackedTitleReachesTheChangesColumnPastAStackControl() throws {
         for size in MenuSize.allCases {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
-            let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
+            let width = layout.metrics.prList.cardWidth(inPanelWidth: layout.size.width)
             let cards = memberCards(title: Self.longTitle, draft: false)
             let unstacked = measure(cards[0].1, width: width, metrics: layout.metrics)
             let stacked = measure(cards[1].1, width: width, metrics: layout.metrics)
@@ -1802,6 +1802,11 @@ final class MenuViewTests: XCTestCase {
         try XCTUnwrap(scrollViews(in: view).first { $0.documentView != nil })
     }
 
+    private func scrollerStyleViews(in view: NSView) -> [PullRequestListScrollerStyleView] {
+        let own = (view as? PullRequestListScrollerStyleView).map { [$0] } ?? []
+        return own + view.subviews.flatMap { scrollerStyleViews(in: $0) }
+    }
+
     private func isScrollable(_ scrollView: NSScrollView) -> Bool {
         (scrollView.documentView?.frame.height ?? 0) > scrollView.contentView.bounds.height + 0.5
     }
@@ -1821,6 +1826,15 @@ final class MenuViewTests: XCTestCase {
             let (window, view) = hostStackMenu(controller, frames: frames)
             defer { window.orderOut(nil) }
             let scrollView = try listScrollView(in: view)
+            // Whatever this host's scrollbar setting, start from the legacy style the inspected Mac used and let
+            // the list's style view apply its style on first display, as it does when the list appears.
+            scrollView.scrollerStyle = .legacy
+            relayout(view)
+            XCTAssertEqual(scrollView.scrollerStyle, .legacy)
+            let styleViews = scrollerStyleViews(in: scrollView)
+            XCTAssertEqual(styleViews.count, 1, stackID)
+            styleViews.forEach { $0.viewDidMoveToWindow() }
+            relayout(view)
             XCTAssertFalse(isScrollable(scrollView), "the list fits before expanding, \(stackID)")
             let collapsed = try XCTUnwrap(frames.controls[stackID], stackID)
             XCTAssertEqual(collapsed.fractionText, representative)
@@ -1831,6 +1845,8 @@ final class MenuViewTests: XCTestCase {
             controller.toggleStackExpanded(stackID)
             relayout(view)
             XCTAssertTrue(isScrollable(scrollView), "expanding makes the list scrollable, \(stackID)")
+            XCTAssertEqual(scrollView.scrollerStyle, .overlay, stackID)
+            XCTAssertEqual(scrollView.verticalScroller?.controlSize, .small, stackID)
             XCTAssertEqual(frames.controls[stackID]?.frame, collapsed.frame, "expanded, \(stackID)")
             XCTAssertEqual(columnLayout(frames), columns, "expanded, \(stackID)")
             for (id, frame) in otherControls {
@@ -1881,6 +1897,8 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(scrollerFrame.width, PullRequestListScroller.width, accuracy: 0.5)
 
         let cardMaxX = try XCTUnwrap(frames.rows.values.map(\.maxX).max())
+        let cardWidth = try XCTUnwrap(frames.rows.values.first?.width)
+        XCTAssertEqual(cardWidth, MenuMetrics.standard.prList.cardWidth(inPanelWidth: view.bounds.width), accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(
             scrollerFrame.minX, cardMaxX + MenuMetrics.standard.prList.scrollerGap - 0.5,
             "the scroller and its gap sit in the list's right margin"

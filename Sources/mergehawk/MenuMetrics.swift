@@ -187,6 +187,11 @@ struct MenuMetrics: Equatable {
         var trailingPadding: CGFloat {
             max(horizontalPadding, PullRequestListScroller.width + scrollerGap)
         }
+
+        /// The width of a PR card in a list that spans `panelWidth`.
+        func cardWidth(inPanelWidth panelWidth: CGFloat) -> CGFloat {
+            panelWidth - horizontalPadding - trailingPadding
+        }
     }
 
     /// The filter and sort dropdowns under the PR header controls.
