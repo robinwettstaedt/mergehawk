@@ -22,8 +22,10 @@ enum PullRequestListScroller {
     }
 }
 
-/// Placed inside a PR list's ScrollView content; it styles the enclosing NSScrollView and styles it again when
-/// AppKit resets the style after the system scrollbar preference changes. The system setting is never changed.
+/// Placed inside a PR list's ScrollView content; it styles the enclosing NSScrollView and keeps it styled. AppKit and
+/// SwiftUI reset the style to the system preference, for example after the preference changes or when the content
+/// changes size (seen on macOS 15 with the legacy preference), so the view restores it whenever the scroll view's
+/// style changes, the content resizes, or the preference changes. The system setting is never changed.
 struct PullRequestListScrollerStyle: NSViewRepresentable {
     func makeNSView(context: Context) -> PullRequestListScrollerStyleView {
         PullRequestListScrollerStyleView()
@@ -35,11 +37,14 @@ struct PullRequestListScrollerStyle: NSViewRepresentable {
 }
 
 final class PullRequestListScrollerStyleView: NSView {
-    private var observer: NSObjectProtocol?
+    private var preferenceObserver: NSObjectProtocol?
+    private var styleObservation: NSKeyValueObservation?
+    private weak var observedScrollView: NSScrollView?
+    private var isApplying = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        observer = NotificationCenter.default.addObserver(
+        preferenceObserver = NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             // AppKit's own observers reset the scroll view's style during this notification; apply ours after them.
@@ -53,8 +58,8 @@ final class PullRequestListScrollerStyleView: NSView {
     }
 
     deinit {
-        if let observer {
-            NotificationCenter.default.removeObserver(observer)
+        if let preferenceObserver {
+            NotificationCenter.default.removeObserver(preferenceObserver)
         }
     }
 
@@ -63,10 +68,38 @@ final class PullRequestListScrollerStyleView: NSView {
         apply()
     }
 
+    /// The view is the list content's background, so it resizes whenever the list's content does.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        apply()
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func apply() {
         guard let scrollView = enclosingScrollView else { return }
+        if scrollView !== observedScrollView {
+            observe(scrollView)
+        }
+        guard !isApplying else { return }
+        isApplying = true
+        defer { isApplying = false }
         PullRequestListScroller.configure(scrollView)
+    }
+
+    /// Restores the style as soon as anything else sets the scroll view's style, before the list lays out again.
+    private func observe(_ scrollView: NSScrollView) {
+        observedScrollView = scrollView
+        styleObservation = scrollView.observe(\.scrollerStyle, options: [.new]) { [weak self] scrollView, _ in
+            guard scrollView.scrollerStyle != .overlay else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.isApplying {
+                    DispatchQueue.main.async { self.apply() }
+                } else {
+                    self.apply()
+                }
+            }
+        }
     }
 }

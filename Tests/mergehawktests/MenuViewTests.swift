@@ -1078,6 +1078,12 @@ final class MenuViewTests: XCTestCase {
         /// Value columns and the actions column, left to right.
         let columns: [CGRect]
         let parts: [PullRequestCardPart: CGRect]
+        /// One device pixel in points. Layout snaps edges to the pixel grid, so a distance between two edges can
+        /// differ from its metric by up to one pixel (a whole point on a 1x display).
+        let pixel: CGFloat
+
+        /// The tolerance for a distance between two laid-out edges.
+        var edgeTolerance: CGFloat { pixel + 0.01 }
     }
 
     /// Hosts `card` at `width` and returns its fitted height, its column frames, and its part frames.
@@ -1102,8 +1108,9 @@ final class MenuViewTests: XCTestCase {
         let height = hostingView.fittingSize.height
         hostingView.frame = CGRect(x: 0, y: 0, width: width, height: height)
         let host = OffScreenHost(hostingView)
+        let pixel = 1 / host.window.backingScaleFactor
         host.close()
-        return CardMeasurement(height: height, columns: box.frames, parts: box.parts)
+        return CardMeasurement(height: height, columns: box.frames, parts: box.parts, pixel: pixel)
     }
 
     /// A stand-in stack control with a fixed size, for checks of the card layout rather than the control.
@@ -1267,12 +1274,15 @@ final class MenuViewTests: XCTestCase {
                 let changes = try XCTUnwrap(measured.columns.first, name)
                 if let control = measured.parts[.stackControl] {
                     XCTAssertEqual(name, "collapsed stacked card")
-                    XCTAssertEqual(control.minX - identity.maxX, metrics.prColumns.spacing, accuracy: 0.5, "\(name) at \(size)")
-                    XCTAssertEqual(changes.minX - control.maxX, metrics.prColumns.spacing, accuracy: 0.5, "\(name) at \(size)")
+                    let tolerance = measured.edgeTolerance
+                    XCTAssertEqual(control.minX - identity.maxX, metrics.prColumns.spacing, accuracy: tolerance, "\(name) at \(size)")
+                    XCTAssertEqual(changes.minX - control.maxX, metrics.prColumns.spacing, accuracy: tolerance, "\(name) at \(size)")
                     let title = try XCTUnwrap(measured.parts[.title], name)
                     XCTAssertLessThanOrEqual(title.maxX, identity.maxX + 0.5, "the long title stops at the control at \(size)")
                 } else {
-                    XCTAssertEqual(changes.minX - identity.maxX, metrics.prColumns.spacing, accuracy: 0.5, "\(name) at \(size)")
+                    XCTAssertEqual(
+                        changes.minX - identity.maxX, metrics.prColumns.spacing, accuracy: measured.edgeTolerance, "\(name) at \(size)"
+                    )
                 }
             }
         }
@@ -1571,7 +1581,7 @@ final class MenuViewTests: XCTestCase {
                         Color.clear.onAppear { box.connectors = anchors.map { proxy[$0] } }
                     }
                 }
-            _ = measure(hosted, width: width, metrics: metrics)
+            let tolerance = measure(hosted, width: width, metrics: metrics).edgeTolerance
 
             let avatars = try group.members.map { try XCTUnwrap(box.avatars[$0.pullRequestID], "\(size)") }
             let segments = box.connectors.sorted { $0.minY < $1.minY }
@@ -1579,10 +1589,10 @@ final class MenuViewTests: XCTestCase {
             let gap = metrics.prRow.stackConnectorGap
             for (index, segment) in segments.enumerated() {
                 let label = "segment \(index) at \(size)"
-                XCTAssertEqual(segment.midX, avatars[index].midX, accuracy: 0.5, label)
-                XCTAssertEqual(segment.width, metrics.prRow.stackConnectorWidth, accuracy: 0.5, label)
-                XCTAssertEqual(segment.minY, avatars[index].maxY + gap, accuracy: 0.5, label)
-                XCTAssertEqual(segment.maxY, avatars[index + 1].minY - gap, accuracy: 0.5, label)
+                XCTAssertEqual(segment.midX, avatars[index].midX, accuracy: tolerance, label)
+                XCTAssertEqual(segment.width, metrics.prRow.stackConnectorWidth, accuracy: tolerance, label)
+                XCTAssertEqual(segment.minY, avatars[index].maxY + gap, accuracy: tolerance, label)
+                XCTAssertEqual(segment.maxY, avatars[index + 1].minY - gap, accuracy: tolerance, label)
             }
 
             // The line adds no height: the container stays as tall as the same number of ordinary cards.
@@ -1761,11 +1771,6 @@ final class MenuViewTests: XCTestCase {
         try XCTUnwrap(scrollViews(in: view).first { $0.documentView != nil })
     }
 
-    private func scrollerStyleViews(in view: NSView) -> [PullRequestListScrollerStyleView] {
-        let own = (view as? PullRequestListScrollerStyleView).map { [$0] } ?? []
-        return own + view.subviews.flatMap { scrollerStyleViews(in: $0) }
-    }
-
     private func isScrollable(_ scrollView: NSScrollView) -> Bool {
         (scrollView.documentView?.frame.height ?? 0) > scrollView.contentView.bounds.height + 0.5
     }
@@ -1785,14 +1790,10 @@ final class MenuViewTests: XCTestCase {
             let (host, view) = hostStackMenu(controller, frames: frames)
             defer { host.close() }
             let scrollView = try listScrollView(in: view)
-            // Whatever this host's scrollbar setting, start from the legacy style the inspected Mac used and let
-            // the list's style view apply its style on first display, as it does when the list appears.
+            // Whatever this host's scrollbar setting, reset the list to the legacy style the inspected Mac used, as
+            // AppKit and SwiftUI do. The list's style view restores the overlay style before the next layout.
             scrollView.scrollerStyle = .legacy
-            relayout(host)
-            XCTAssertEqual(scrollView.scrollerStyle, .legacy)
-            let styleViews = scrollerStyleViews(in: scrollView)
-            XCTAssertEqual(styleViews.count, 1, stackID)
-            styleViews.forEach { $0.viewDidMoveToWindow() }
+            XCTAssertEqual(scrollView.scrollerStyle, .overlay, "restored at once, \(stackID)")
             relayout(host)
             XCTAssertFalse(isScrollable(scrollView), "the list fits before expanding, \(stackID)")
             let collapsed = try XCTUnwrap(frames.controls[stackID], stackID)
@@ -1812,6 +1813,14 @@ final class MenuViewTests: XCTestCase {
                 XCTAssertEqual(frames.controls[id]?.frame.minX, frame.minX, "\(id) while \(stackID) is expanded")
                 XCTAssertEqual(frames.controls[id]?.frame.width, frame.width, "\(id) while \(stackID) is expanded")
             }
+
+            // A reset while the list scrolls, as macOS 15 makes after the content grows, is undone the same way.
+            scrollView.scrollerStyle = .legacy
+            relayout(host)
+            XCTAssertEqual(scrollView.scrollerStyle, .overlay, "restored while scrollable, \(stackID)")
+            XCTAssertEqual(scrollView.verticalScroller?.controlSize, .small, "restored while scrollable, \(stackID)")
+            XCTAssertEqual(frames.controls[stackID]?.frame, collapsed.frame, "restored while scrollable, \(stackID)")
+            XCTAssertEqual(columnLayout(frames), columns, "restored while scrollable, \(stackID)")
 
             controller.toggleStackExpanded(stackID)
             relayout(host)
@@ -1834,6 +1843,7 @@ final class MenuViewTests: XCTestCase {
 
             // AppKit resets every scroll view to the system style when the preference changes.
             scrollView.scrollerStyle = .legacy
+            XCTAssertEqual(scrollView.scrollerStyle, .overlay, "restored at once, \(tab)")
             NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
             host.settle()
             XCTAssertEqual(scrollView.scrollerStyle, .overlay, "restored, \(tab)")
