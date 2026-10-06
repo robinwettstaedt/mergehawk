@@ -623,15 +623,15 @@ final class MenuViewTests: XCTestCase {
         let tooltips = clock.makeController()
         let controller = signedInMockController()
         controller.selectedTab = .notifications
-        let (window, _) = hostMenuRoot(controller: controller, tooltips: tooltips)
-        defer { window.orderOut(nil) }
+        let (host, _) = hostMenuRoot(controller: controller, tooltips: tooltips)
+        defer { host.close() }
 
         let tabs: [DashboardController.MenuTab] = [.myPRs, .reviewRequests, .notifications]
         var nextTab = tabs.makeIterator()
         assertHookDismissesTooltips(tooltips, clock: clock) {
             let tab = nextTab.next() ?? .myPRs
             controller.selectedTab = tab
-            settleRunLoop()
+            host.settle()
         }
     }
 
@@ -641,8 +641,8 @@ final class MenuViewTests: XCTestCase {
         let tooltips = clock.makeController()
         let controller = signedInMockController()
         controller.selectedTab = .myPRs
-        let (window, size) = hostMenuRoot(controller: controller, tooltips: tooltips)
-        defer { window.orderOut(nil) }
+        let (host, size) = hostMenuRoot(controller: controller, tooltips: tooltips)
+        defer { host.close() }
         let delay = MenuTooltipMetrics.showDelay
 
         // The sort menu button ends just left of the refresh control at the trailing edge of the top bar.
@@ -654,23 +654,23 @@ final class MenuViewTests: XCTestCase {
         // The button acts on mouse up; a click's mouse down already dismisses through the event
         // observer, so show a tooltip in between to isolate the dropdown-open hook. Synthesized
         // events do not drive SwiftUI hover here, so the test reports hover and pointer movement.
-        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseDown, at: sortMenuPoint))
         let visible = UUID()
         clock.moveMouse()
         tooltips.hovering(id: visible)
         clock.advance(by: delay)
         XCTAssertEqual(tooltips.visibleID, visible)
-        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseUp, at: sortMenuPoint))
         XCTAssertNil(tooltips.visibleID, "visible tooltip hidden")
 
         // Close the sort menu again, then open it with a tooltip pending.
-        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
-        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
-        send(window, try mouseEvent(.leftMouseDown, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseDown, at: sortMenuPoint))
+        host.send(try host.mouseEvent(.leftMouseUp, at: sortMenuPoint))
+        host.send(try host.mouseEvent(.leftMouseDown, at: sortMenuPoint))
         let pending = UUID()
         clock.moveMouse()
         tooltips.hovering(id: pending)
-        send(window, try mouseEvent(.leftMouseUp, at: sortMenuPoint, in: window))
+        host.send(try host.mouseEvent(.leftMouseUp, at: sortMenuPoint))
         clock.advance(by: 2)
         XCTAssertNil(tooltips.visibleID, "pending tooltip cancelled")
 
@@ -719,7 +719,7 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    private func hostMenuRoot(controller: DashboardController, tooltips: MenuTooltipController) -> (NSWindow, CGSize) {
+    private func hostMenuRoot(controller: DashboardController, tooltips: MenuTooltipController) -> (OffScreenHost, CGSize) {
         let size = MenuMetrics.standard.panelSize
         let hostingView = NSHostingView(rootView: MenuRootView(
             controller: controller,
@@ -727,32 +727,7 @@ final class MenuViewTests: XCTestCase {
             tooltipController: tooltips
         ))
         hostingView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.contentView = hostingView
-        // SwiftUI buttons only receive synthesized clicks in an ordered-in window; keep it off screen.
-        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-        window.orderFrontRegardless()
-        hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
-        return (window, size)
-    }
-
-    @MainActor
-    private func send(_ window: NSWindow, _ event: NSEvent) {
-        window.sendEvent(event)
-        settleRunLoop()
-    }
-
-    @MainActor
-    private func settleRunLoop() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-    }
-
-    private func mouseEvent(_ type: NSEvent.EventType, at point: CGPoint, in window: NSWindow) throws -> NSEvent {
-        try XCTUnwrap(NSEvent.mouseEvent(
-            with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
-        ))
+        return (OffScreenHost(hostingView), size)
     }
 
     // MARK: - Stack control and card clicks
@@ -873,7 +848,7 @@ final class MenuViewTests: XCTestCase {
         events: RowEvents,
         metrics: MenuMetrics = .standard,
         width: CGFloat = 800
-    ) -> (window: NSWindow, view: NSView) {
+    ) -> (host: OffScreenHost, view: NSView) {
         let control = stacked ? AnyView(StackControl(
             presentation: StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
         ) { events.toggledStack += 1 }
@@ -891,26 +866,20 @@ final class MenuViewTests: XCTestCase {
             .environment(\.menuMetrics, metrics)
         let hostingView = NSHostingView(rootView: content)
         hostingView.frame = CGRect(origin: .zero, size: CGSize(width: width, height: hostingView.fittingSize.height))
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.contentView = hostingView
-        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-        window.orderFrontRegardless()
-        hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
-        return (window, hostingView)
+        return (OffScreenHost(hostingView), hostingView)
     }
 
     @MainActor
-    private func windowPoint(_ window: NSWindow, topLeft point: CGPoint) -> CGPoint {
-        CGPoint(x: point.x, y: window.contentView!.bounds.height - point.y)
+    private func windowPoint(_ host: OffScreenHost, topLeft point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x, y: host.window.contentView!.bounds.height - point.y)
     }
 
     /// Clicks a point given from the card's top-leading corner.
     @MainActor
-    private func click(_ window: NSWindow, atTopLeft point: CGPoint) throws {
-        let location = windowPoint(window, topLeft: point)
-        send(window, try mouseEvent(.leftMouseDown, at: location, in: window))
-        send(window, try mouseEvent(.leftMouseUp, at: location, in: window))
+    private func click(_ host: OffScreenHost, atTopLeft point: CGPoint) throws {
+        let location = windowPoint(host, topLeft: point)
+        host.send(try host.mouseEvent(.leftMouseDown, at: location))
+        host.send(try host.mouseEvent(.leftMouseUp, at: location))
     }
 
     /// Points on the card, from its top-leading corner, for a row of `width` laid out with `metrics`.
@@ -946,8 +915,8 @@ final class MenuViewTests: XCTestCase {
     @MainActor
     func testClickingAnywhereInTheStackControlTogglesExpansionWithoutOpeningThePR() throws {
         let events = RowEvents()
-        let (window, _) = hostRow(stacked: true, events: events)
-        defer { window.orderOut(nil) }
+        let (host, _) = hostRow(stacked: true, events: events)
+        defer { host.close() }
         let frame = events.controlFrame
         XCTAssertGreaterThan(frame.width, 0)
         XCTAssertGreaterThan(frame.height, MenuMetrics.standard.prRow.stackControlHeight - 1)
@@ -964,7 +933,7 @@ final class MenuViewTests: XCTestCase {
             CGPoint(x: frame.midX, y: frame.minY + 1.5)
         ]
         for (index, point) in points.enumerated() {
-            try click(window, atTopLeft: point)
+            try click(host, atTopLeft: point)
             XCTAssertEqual(events.toggledStack, index + 1, "\(point)")
         }
         XCTAssertEqual(events.opened, 0)
@@ -974,8 +943,8 @@ final class MenuViewTests: XCTestCase {
     func testClickingAnywhereElseOnTheCardOpensThePRWithOrWithoutAStackControl() throws {
         for stacked in [false, true] {
             let events = RowEvents()
-            let (window, view) = hostRow(stacked: stacked, events: events)
-            defer { window.orderOut(nil) }
+            let (host, view) = hostRow(stacked: stacked, events: events)
+            defer { host.close() }
             let points = RowPoints(width: view.bounds.width, height: view.bounds.height)
             let targets: [(String, CGPoint)] = [
                 ("title", points.title), ("metadata", points.metadata), ("age column", points.ageColumn),
@@ -984,7 +953,7 @@ final class MenuViewTests: XCTestCase {
             ]
 
             for (index, target) in targets.enumerated() {
-                try click(window, atTopLeft: target.1)
+                try click(host, atTopLeft: target.1)
                 XCTAssertEqual(events.opened, index + 1, "\(target.0), stacked: \(stacked)")
             }
             XCTAssertEqual(events.toggledStack, 0)
@@ -996,10 +965,10 @@ final class MenuViewTests: XCTestCase {
     func testActionsButtonOpensTheActionsMenuWithoutOpeningThePR() throws {
         for stacked in [false, true] {
             let events = RowEvents()
-            let (window, view) = hostRow(stacked: stacked, events: events)
-            defer { window.orderOut(nil) }
+            let (host, view) = hostRow(stacked: stacked, events: events)
+            defer { host.close() }
 
-            try click(window, atTopLeft: RowPoints(width: view.bounds.width, height: view.bounds.height).actionsButton)
+            try click(host, atTopLeft: RowPoints(width: view.bounds.width, height: view.bounds.height).actionsButton)
 
             XCTAssertEqual(events.toggledActions, 1, "stacked: \(stacked)")
             XCTAssertEqual(events.opened, 0, "stacked: \(stacked)")
@@ -1014,8 +983,8 @@ final class MenuViewTests: XCTestCase {
             let unstacked = hostRow(stacked: false, events: RowEvents(), metrics: metrics, width: width)
             let stacked = hostRow(stacked: true, events: RowEvents(), metrics: metrics, width: width)
             defer {
-                unstacked.window.orderOut(nil)
-                stacked.window.orderOut(nil)
+                unstacked.host.close()
+                stacked.host.close()
             }
 
             XCTAssertEqual(stacked.view.bounds.height, unstacked.view.bounds.height, "\(size)")
@@ -1053,8 +1022,8 @@ final class MenuViewTests: XCTestCase {
         }
         let hostingView = NSHostingView(rootView: list.frame(width: 400))
         hostingView.frame = CGRect(x: 0, y: 0, width: 400, height: 200)
-        hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
+        let host = OffScreenHost(hostingView)
+        defer { host.close() }
 
         let topToBottom = rendered.sorted { $0.minY < $1.minY }
         XCTAssertEqual(topToBottom.map(\.position), [1, 2, 4])
@@ -1132,11 +1101,8 @@ final class MenuViewTests: XCTestCase {
         let hostingView = NSHostingView(rootView: measured)
         let height = hostingView.fittingSize.height
         hostingView.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.contentView = hostingView
-        hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
-        window.contentView = nil
+        let host = OffScreenHost(hostingView)
+        host.close()
         return CardMeasurement(height: height, columns: box.frames, parts: box.parts)
     }
 
@@ -1199,8 +1165,8 @@ final class MenuViewTests: XCTestCase {
                     }
                 }
                 .environment(\.menuMetrics, metrics)
-            let (window, _) = host(hosted, width: 800)
-            defer { window.orderOut(nil) }
+            let (host, _) = self.host(hosted, width: 800)
+            defer { host.close() }
             let identity = try XCTUnwrap(measure(card, width: 800, metrics: metrics).parts[.identity])
             return (try XCTUnwrap(box.frames.first), identity)
         }
@@ -1324,14 +1290,13 @@ final class MenuViewTests: XCTestCase {
             .environment(\.menuMetrics, metrics)
         let hostingView = NSHostingView(rootView: content)
         hostingView.frame = CGRect(x: 0, y: 0, width: width, height: measurement.height)
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: .aqua)
-        window.contentView = hostingView
+        let host = OffScreenHost(hostingView)
+        defer { host.close() }
+        host.window.appearance = NSAppearance(named: .aqua)
         hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
+        host.settle()
         let bitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        window.contentView = nil
         return (bitmap, measurement)
     }
 
@@ -1672,7 +1637,7 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    private func hostStackMenu(_ controller: DashboardController, frames: StackMenuFrames) -> (window: NSWindow, view: NSView) {
+    private func hostStackMenu(_ controller: DashboardController, frames: StackMenuFrames) -> (host: OffScreenHost, view: NSView) {
         let size = MenuMetrics.standard.panelSize
         let root = MenuRootView(controller: controller, footerModel: MenuFooterModel(), tooltipController: MenuTooltipController())
             .overlayPreferenceValue(StackControlAnchorsKey.self) { anchors in
@@ -1717,21 +1682,15 @@ final class MenuViewTests: XCTestCase {
             }
         let hostingView = NSHostingView(rootView: root)
         hostingView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.contentView = hostingView
-        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-        window.orderFrontRegardless()
-        hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
-        return (window, hostingView)
+        return (OffScreenHost(hostingView), hostingView)
     }
 
     @MainActor
-    private func relayout(_ view: NSView) {
-        view.layoutSubtreeIfNeeded()
-        settleRunLoop()
-        view.layoutSubtreeIfNeeded()
-        settleRunLoop()
+    private func relayout(_ host: OffScreenHost) {
+        host.window.contentView?.layoutSubtreeIfNeeded()
+        host.settle()
+        host.window.contentView?.layoutSubtreeIfNeeded()
+        host.settle()
     }
 
     private static let spreadMemberIDs = (1...4).map { "PR_STACK_MOCK_SPREAD_\($0)" }
@@ -1760,8 +1719,8 @@ final class MenuViewTests: XCTestCase {
                 controller.toggleStackExpanded(other)
             }
             let frames = StackMenuFrames()
-            let (window, view) = hostStackMenu(controller, frames: frames)
-            defer { window.orderOut(nil) }
+            let (host, view) = hostStackMenu(controller, frames: frames)
+            defer { host.close() }
 
             // Scroll the list until the group sits in the upper part of the list, at a nonzero offset.
             let scrollView = try XCTUnwrap(scrollViews(in: view).first { $0.documentView != nil }, label)
@@ -1770,15 +1729,15 @@ final class MenuViewTests: XCTestCase {
                 offset += 30
                 scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
                 scrollView.reflectScrolledClipView(scrollView.contentView)
-                relayout(view)
+                relayout(host)
             } while (frames.controls[testCase.stackID].map { $0.frame.minY > 400 } ?? true) && offset < 3_000
             XCTAssertEqual(scrollView.contentView.bounds.minY, offset, "the list scrolled, \(label)")
             let collapsed = try XCTUnwrap(frames.controls[testCase.stackID], label)
             XCTAssertGreaterThan(collapsed.frame.minY, 100, label)
             XCTAssertEqual(collapsed.fractionText, "\(testCase.representative)/\(testCase.size)", label)
 
-            try click(window, atTopLeft: CGPoint(x: collapsed.frame.midX, y: collapsed.frame.midY))
-            relayout(view)
+            try click(host, atTopLeft: CGPoint(x: collapsed.frame.midX, y: collapsed.frame.midY))
+            relayout(host)
             XCTAssertTrue(controller.isStackExpanded(testCase.stackID), label)
             XCTAssertEqual(scrollView.contentView.bounds.minY, offset, "expanding keeps the offset, \(label)")
             let expanded = try XCTUnwrap(frames.controls[testCase.stackID], label)
@@ -1787,8 +1746,8 @@ final class MenuViewTests: XCTestCase {
             let firstRow = try XCTUnwrap(frames.rows["PR_\(testCase.stackID)_1"], label)
             XCTAssertTrue(firstRow.contains(expanded.frame), "the control sits on the position-1 row, \(label)")
 
-            try click(window, atTopLeft: CGPoint(x: expanded.frame.midX, y: expanded.frame.midY))
-            relayout(view)
+            try click(host, atTopLeft: CGPoint(x: expanded.frame.midX, y: expanded.frame.midY))
+            relayout(host)
             XCTAssertFalse(controller.isStackExpanded(testCase.stackID), label)
             let collapsedAgain = try XCTUnwrap(frames.controls[testCase.stackID], label)
             XCTAssertEqual(collapsedAgain, collapsed, "collapsed again, \(label)")
@@ -1823,18 +1782,18 @@ final class MenuViewTests: XCTestCase {
             let controller = try stackMenuController()
             controller.toggleRequestedSection(.assigned)
             let frames = StackMenuFrames()
-            let (window, view) = hostStackMenu(controller, frames: frames)
-            defer { window.orderOut(nil) }
+            let (host, view) = hostStackMenu(controller, frames: frames)
+            defer { host.close() }
             let scrollView = try listScrollView(in: view)
             // Whatever this host's scrollbar setting, start from the legacy style the inspected Mac used and let
             // the list's style view apply its style on first display, as it does when the list appears.
             scrollView.scrollerStyle = .legacy
-            relayout(view)
+            relayout(host)
             XCTAssertEqual(scrollView.scrollerStyle, .legacy)
             let styleViews = scrollerStyleViews(in: scrollView)
             XCTAssertEqual(styleViews.count, 1, stackID)
             styleViews.forEach { $0.viewDidMoveToWindow() }
-            relayout(view)
+            relayout(host)
             XCTAssertFalse(isScrollable(scrollView), "the list fits before expanding, \(stackID)")
             let collapsed = try XCTUnwrap(frames.controls[stackID], stackID)
             XCTAssertEqual(collapsed.fractionText, representative)
@@ -1843,7 +1802,7 @@ final class MenuViewTests: XCTestCase {
             let otherControls = frames.controls.filter { $0.key != stackID }.mapValues(\.frame)
 
             controller.toggleStackExpanded(stackID)
-            relayout(view)
+            relayout(host)
             XCTAssertTrue(isScrollable(scrollView), "expanding makes the list scrollable, \(stackID)")
             XCTAssertEqual(scrollView.scrollerStyle, .overlay, stackID)
             XCTAssertEqual(scrollView.verticalScroller?.controlSize, .small, stackID)
@@ -1855,7 +1814,7 @@ final class MenuViewTests: XCTestCase {
             }
 
             controller.toggleStackExpanded(stackID)
-            relayout(view)
+            relayout(host)
             XCTAssertFalse(isScrollable(scrollView), "collapsing makes the list fit again, \(stackID)")
             XCTAssertEqual(frames.controls[stackID], collapsed, "collapsed again, \(stackID)")
             XCTAssertEqual(columnLayout(frames), columns, "collapsed again, \(stackID)")
@@ -1867,8 +1826,8 @@ final class MenuViewTests: XCTestCase {
         let controller = try stackMenuController()
         for tab in [DashboardController.MenuTab.myPRs, .reviewRequests] {
             controller.selectedTab = tab
-            let (window, view) = hostStackMenu(controller, frames: StackMenuFrames())
-            defer { window.orderOut(nil) }
+            let (host, view) = hostStackMenu(controller, frames: StackMenuFrames())
+            defer { host.close() }
             let scrollView = try listScrollView(in: view)
             XCTAssertEqual(scrollView.scrollerStyle, .overlay, "\(tab)")
             XCTAssertEqual(scrollView.verticalScroller?.controlSize, .small, "\(tab)")
@@ -1876,7 +1835,7 @@ final class MenuViewTests: XCTestCase {
             // AppKit resets every scroll view to the system style when the preference changes.
             scrollView.scrollerStyle = .legacy
             NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-            settleRunLoop()
+            host.settle()
             XCTAssertEqual(scrollView.scrollerStyle, .overlay, "restored, \(tab)")
             XCTAssertEqual(scrollView.verticalScroller?.controlSize, .small, "restored, \(tab)")
         }
@@ -1887,8 +1846,8 @@ final class MenuViewTests: XCTestCase {
         let controller = try stackMenuController()
         controller.toggleStackExpanded("STACK_MOCK_SPREAD")
         let frames = StackMenuFrames()
-        let (window, view) = hostStackMenu(controller, frames: frames)
-        defer { window.orderOut(nil) }
+        let (host, view) = hostStackMenu(controller, frames: frames)
+        defer { host.close() }
         let scrollView = try listScrollView(in: view)
         XCTAssertTrue(isScrollable(scrollView))
         let scroller = try XCTUnwrap(scrollView.verticalScroller)
@@ -1914,8 +1873,8 @@ final class MenuViewTests: XCTestCase {
         for tab in [DashboardController.MenuTab.myPRs, .reviewRequests] {
             controller.selectedTab = tab
             let frames = StackMenuFrames()
-            let (window, _) = hostStackMenu(controller, frames: frames)
-            defer { window.orderOut(nil) }
+            let (host, _) = hostStackMenu(controller, frames: frames)
+            defer { host.close() }
             XCTAssertFalse(frames.columns.isEmpty, "\(tab)")
             layouts.append(columnLayout(frames))
         }
@@ -1929,27 +1888,27 @@ final class MenuViewTests: XCTestCase {
         let controller = try stackMenuController { opened.append($0.absoluteString) }
         controller.toggleStackExpanded("STACK_MOCK_SPREAD")
         let frames = StackMenuFrames()
-        let (window, _) = hostStackMenu(controller, frames: frames)
-        defer { window.orderOut(nil) }
+        let (host, _) = hostStackMenu(controller, frames: frames)
+        defer { host.close() }
         let columns = MenuMetrics.standard.prColumns
 
         for id in Self.spreadMemberIDs {
             let row = try XCTUnwrap(frames.rows[id], id)
             let titleX = row.minX + columns.horizontalInset + columns.avatarSize + columns.identitySpacing + 4
-            try click(window, atTopLeft: CGPoint(x: titleX, y: row.minY + columns.verticalInset + 4))
+            try click(host, atTopLeft: CGPoint(x: titleX, y: row.minY + columns.verticalInset + 4))
         }
         XCTAssertEqual(opened, (201...204).map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" })
 
         // The avatar line takes no clicks: a click on it, just below the first avatar, opens the first member.
         let firstSegment = try XCTUnwrap(frames.connectors.min { $0.minY < $1.minY })
-        try click(window, atTopLeft: CGPoint(x: firstSegment.midX, y: firstSegment.minY + 1))
+        try click(host, atTopLeft: CGPoint(x: firstSegment.midX, y: firstSegment.minY + 1))
         XCTAssertEqual(opened.last, "https://github.com/mergehawk-labs/mergehawk/pull/201")
         opened.removeLast()
 
         // Position 1 is an open context member; its control stays fully operable.
         let control = try XCTUnwrap(frames.controls["STACK_MOCK_SPREAD"])
         XCTAssertTrue(try XCTUnwrap(frames.rows[Self.spreadMemberIDs[0]]).contains(control.frame))
-        try click(window, atTopLeft: CGPoint(x: control.frame.minX + 3, y: control.frame.midY))
+        try click(host, atTopLeft: CGPoint(x: control.frame.minX + 3, y: control.frame.midY))
         XCTAssertFalse(controller.isStackExpanded("STACK_MOCK_SPREAD"))
         XCTAssertEqual(opened.count, 4, "the control opens nothing")
     }
@@ -1960,12 +1919,12 @@ final class MenuViewTests: XCTestCase {
         let controller = try stackMenuController { opened.append($0.absoluteString) }
         controller.toggleStackExpanded("STACK_MOCK_SPREAD")
         let frames = StackMenuFrames()
-        let (window, _) = hostStackMenu(controller, frames: frames)
-        defer { window.orderOut(nil) }
+        let (host, _) = hostStackMenu(controller, frames: frames)
+        defer { host.close() }
         let columns = MenuMetrics.standard.prColumns
         func clickActionsColumn(_ id: String) throws {
             let row = try XCTUnwrap(frames.rows[id], id)
-            try click(window, atTopLeft: CGPoint(x: row.maxX - columns.horizontalInset - columns.actionsWidth / 2, y: row.midY))
+            try click(host, atTopLeft: CGPoint(x: row.maxX - columns.horizontalInset - columns.actionsWidth / 2, y: row.midY))
         }
 
         // Position 2 is the representative, below the position-1 context row. Elsewhere the empty actions column
@@ -1982,14 +1941,14 @@ final class MenuViewTests: XCTestCase {
     func testOnlyRowsBelowTheTopShowTheirStackPosition() throws {
         let controller = try stackMenuController()
         let frames = StackMenuFrames()
-        let (window, view) = hostStackMenu(controller, frames: frames)
-        defer { window.orderOut(nil) }
+        let (host, _) = hostStackMenu(controller, frames: frames)
+        defer { host.close() }
         XCTAssertFalse(frames.controls.isEmpty)
         XCTAssertEqual(frames.positionLabels, [:], "collapsed cards show no metadata position")
         XCTAssertEqual(frames.connectors, [], "collapsed and unstacked cards have no avatar line")
 
         controller.toggleStackExpanded("STACK_MOCK_SPREAD")
-        relayout(view)
+        relayout(host)
 
         XCTAssertEqual(Set(frames.positionLabels.keys), Set(Self.spreadMemberIDs.dropFirst()))
         for position in 2...4 {
@@ -2014,10 +1973,10 @@ final class MenuViewTests: XCTestCase {
                 toggleActions: { toggledActions += 1 }, toggleHide: {}, togglePin: {},
                 showsActions: showsActions
             ) { opened += 1 }
-            let (window, view) = host(row, width: 800)
-            defer { window.orderOut(nil) }
+            let (host, view) = self.host(row, width: 800)
+            defer { host.close() }
 
-            try click(window, atTopLeft: RowPoints(width: view.bounds.width, height: view.bounds.height).actionsButton)
+            try click(host, atTopLeft: RowPoints(width: view.bounds.width, height: view.bounds.height).actionsButton)
 
             XCTAssertEqual(toggledActions, showsActions ? 1 : 0, "shows actions: \(showsActions)")
             XCTAssertEqual(opened, showsActions ? 0 : 1, "shows actions: \(showsActions)")
@@ -2030,13 +1989,13 @@ final class MenuViewTests: XCTestCase {
         let card = StackContextCard(entry: Self.contextEntry(draft: false), repo: "mergehawk-labs/mergehawk") {
             opened += 1
         }
-        let (window, view) = host(card, width: 800)
-        defer { window.orderOut(nil) }
+        let (host, view) = self.host(card, width: 800)
+        defer { host.close() }
         let points = RowPoints(width: view.bounds.width, height: view.bounds.height)
 
-        try click(window, atTopLeft: points.title)
-        try click(window, atTopLeft: points.statusColumn)
-        try click(window, atTopLeft: points.actionsButton)
+        try click(host, atTopLeft: points.title)
+        try click(host, atTopLeft: points.statusColumn)
+        try click(host, atTopLeft: points.actionsButton)
 
         XCTAssertEqual(opened, 3)
     }
@@ -2088,28 +2047,21 @@ final class MenuViewTests: XCTestCase {
         )
         .environment(\.menuNow, Date(timeIntervalSince1970: 1_778_100_000)))
         hostingView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: .aqua)
-        window.contentView = hostingView
+        let host = OffScreenHost(hostingView)
+        defer { host.close() }
+        host.window.appearance = NSAppearance(named: .aqua)
         hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
+        host.settle()
         let representation = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: representation)
-        window.contentView = nil
         return try XCTUnwrap(representation.representation(using: .png, properties: [:]))
     }
 
     @MainActor
-    private func host(_ view: some View, width: CGFloat) -> (window: NSWindow, view: NSView) {
+    private func host(_ view: some View, width: CGFloat) -> (host: OffScreenHost, view: NSView) {
         let hostingView = NSHostingView(rootView: view.frame(width: width).fixedSize(horizontal: false, vertical: true))
         hostingView.frame = CGRect(origin: .zero, size: CGSize(width: width, height: hostingView.fittingSize.height))
-        let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.contentView = hostingView
-        window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-        window.orderFrontRegardless()
-        hostingView.layoutSubtreeIfNeeded()
-        settleRunLoop()
-        return (window, hostingView)
+        return (OffScreenHost(hostingView), hostingView)
     }
 
     @MainActor

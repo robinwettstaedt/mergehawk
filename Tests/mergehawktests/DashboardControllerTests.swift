@@ -199,9 +199,26 @@ final class DashboardControllerXCTests: XCTestCase {
         let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
         let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
 
-        XCTAssertEqual(first.viewerTeams.map(\.team.displayName), [
+        XCTAssertEqual(first.viewerTeams.filter { $0.team.organization == "mergehawk-labs" }.map(\.team.displayName), [
             "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
             "@mergehawk-labs/secret-squad"
+        ])
+        // Two more organizations show sibling and deep nesting; no PR requests their teams.
+        let otherTeams = first.viewerTeams.filter { $0.team.organization != "mergehawk-labs" }
+        XCTAssertEqual(otherTeams.map(\.team.displayName), [
+            "@northwind-apps/frontend", "@northwind-apps/design-system", "@northwind-apps/mobile",
+            "@northwind-apps/web", "@northwind-apps/qa", "@northwind-apps/release-checks",
+            "@zenith-infra/platform", "@zenith-infra/runtime", "@zenith-infra/scheduler",
+            "@zenith-infra/queue-workers", "@zenith-infra/observability",
+        ])
+        XCTAssertEqual(otherTeams.map(\.parentTeamID), [
+            nil, "T_MOCK_NW_FRONTEND", "T_MOCK_NW_FRONTEND", "T_MOCK_NW_FRONTEND", nil, "T_MOCK_NW_QA",
+            nil, "T_MOCK_ZI_PLATFORM", "T_MOCK_ZI_RUNTIME", "T_MOCK_ZI_SCHEDULER", "T_MOCK_ZI_PLATFORM",
+        ])
+        XCTAssertEqual(otherTeams.map(\.team.id), [
+            "T_MOCK_NW_FRONTEND", "T_MOCK_NW_DESIGN_SYSTEM", "T_MOCK_NW_MOBILE", "T_MOCK_NW_WEB", "T_MOCK_NW_QA",
+            "T_MOCK_NW_RELEASE_CHECKS", "T_MOCK_ZI_PLATFORM", "T_MOCK_ZI_RUNTIME", "T_MOCK_ZI_SCHEDULER",
+            "T_MOCK_ZI_QUEUE_WORKERS", "T_MOCK_ZI_OBSERVABILITY",
         ])
         XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "developers" }?.parentTeamID, "T_MOCK_ENGINEERING")
         XCTAssertEqual(first.viewerTeams.first { $0.team.slug == "plm-team" }?.parentTeamID, "T_MOCK_DEVELOPERS")

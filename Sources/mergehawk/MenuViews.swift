@@ -3181,9 +3181,17 @@ struct CountBubble: View {
     }
 }
 
+/// An icon and one line; with a detail, the line becomes a headline above the explanation, and an action adds a button.
 struct EmptyMenuState: View {
+    struct Action {
+        let title: String
+        let perform: () -> Void
+    }
+
     let text: String
     var systemImage = "tray"
+    var detail: String? = nil
+    var action: Action? = nil
 
     @Environment(\.menuMetrics) private var metrics
 
@@ -3192,9 +3200,27 @@ struct EmptyMenuState: View {
             Image(systemName: systemImage)
                 .font(metrics.type.emptyStateIcon.font)
                 .foregroundStyle(.secondary)
-            Text(text)
-                .font(metrics.type.emptyStateText.font)
-                .foregroundStyle(.secondary)
+            if let detail {
+                Text(text)
+                    .font(metrics.type.emptyStateText.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                Text(detail)
+                    .font(metrics.type.emptyStateText.font)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(text)
+                    .font(metrics.type.emptyStateText.font)
+                    .foregroundStyle(.secondary)
+            }
+            if let action {
+                Button(action.title, action: action.perform)
+                    .buttonStyle(.bordered)
+                    .padding(.top, metrics.emptyState.spacing)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
