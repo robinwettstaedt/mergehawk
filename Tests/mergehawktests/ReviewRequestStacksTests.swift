@@ -376,7 +376,7 @@ final class ReviewRequestStacksTests: XCTestCase {
                 StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
                 "2/3", stackID
             )
-            XCTAssertEqual(group.members.map(StackMemberBadge.badges(for:)), [[firstState], [], lastBadges], stackID)
+            XCTAssertEqual(group.contextBadges, [[firstState], lastBadges], stackID)
         }
     }
 
@@ -389,7 +389,7 @@ final class ReviewRequestStacksTests: XCTestCase {
             StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
             "3/3"
         )
-        XCTAssertEqual(group.members.map(StackMemberBadge.badges(for:)), [[.merged], [.open], []])
+        XCTAssertEqual(group.contextBadges, [[.merged], [.open]])
     }
 
     func testMergedAndClosedContextMembersNeverRepresentAGroupOrCountInASection() throws {

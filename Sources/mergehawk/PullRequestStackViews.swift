@@ -168,8 +168,8 @@ struct StackPositionLabelAnchorsKey: PreferenceKey {
     }
 }
 
-/// The badges after an expanded stack member's title, in display order: Draft first, then on a context member
-/// its state.
+/// The badges after a context stack member's title, in display order: Draft first, then its state. Requested
+/// members show only the ordinary Draft badge of a PR card.
 enum StackMemberBadge: String, Equatable {
     case draft = "Draft"
     case open = "Open"
@@ -178,19 +178,14 @@ enum StackMemberBadge: String, Equatable {
 
     var title: String { rawValue }
 
-    static func badges(for member: StackGroup.Member) -> [StackMemberBadge] {
-        switch member {
-        case .requested(let pullRequest):
-            pullRequest.draft ? [.draft] : []
-        case .context(let entry):
-            (entry.isDraft ? [.draft] : []) + [{
-                switch entry.state {
-                case .open: .open
-                case .merged: .merged
-                case .closed: .closed
-                }
-            }()]
-        }
+    static func badges(for entry: PullRequestStackEntry) -> [StackMemberBadge] {
+        (entry.isDraft ? [.draft] : []) + [{
+            switch entry.state {
+            case .open: .open
+            case .merged: .merged
+            case .closed: .closed
+            }
+        }()]
     }
 }
 
@@ -337,7 +332,7 @@ struct StackContextCard: View {
     }
 
     private var badges: [StackMemberBadge] {
-        StackMemberBadge.badges(for: .context(entry))
+        StackMemberBadge.badges(for: entry)
     }
 
     private var identity: some View {

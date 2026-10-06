@@ -1064,17 +1064,17 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testStackMembersShowDraftThenTheirStateAfterTheTitle() throws {
+    func testContextMembersShowDraftThenTheirStateAfterTheTitle() throws {
         let unreadable = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
-        // Closed context, requested, draft open context.
-        XCTAssertEqual(unreadable.members.map(StackMemberBadge.badges(for:)), [[.closed], [], [.draft, .open]])
+        // Closed context, then draft open context.
+        XCTAssertEqual(unreadable.contextBadges, [[.closed], [.draft, .open]])
 
         let filter = try XCTUnwrap(try prStacksGroup("STACK_MOCK_FILTER").row.stack)
-        // Draft requested, requested, open context.
-        XCTAssertEqual(filter.members.map(StackMemberBadge.badges(for:)), [[.draft], [], [.open]])
+        // One open context member.
+        XCTAssertEqual(filter.contextBadges, [[.open]])
 
-        let merged = try XCTUnwrap(try prStacksGroup("STACK_MOCK_ASSIGNED").row.stack?.members.first)
-        XCTAssertEqual(StackMemberBadge.badges(for: merged), [.merged])
+        let assigned = try XCTUnwrap(try prStacksGroup("STACK_MOCK_ASSIGNED").row.stack)
+        XCTAssertEqual(assigned.contextBadges, [[.merged]])
         XCTAssertEqual([StackMemberBadge.open, .merged, .closed].map(\.title), ["Open", "Merged", "Closed"])
     }
 
@@ -2662,4 +2662,13 @@ private final class MenuFakeGitHubProvider: GitHubProviding {
         return try installationsResult.get()
     }
 
+}
+
+extension StackGroup {
+    /// The badges of each context member, in position order.
+    var contextBadges: [[StackMemberBadge]] {
+        members.compactMap { member in
+            if case .context(let entry) = member { StackMemberBadge.badges(for: entry) } else { nil }
+        }
+    }
 }
