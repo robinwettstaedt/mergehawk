@@ -1645,6 +1645,8 @@ final class MenuViewTests: XCTestCase {
         var rows: [String: CGRect] = [:]
         var positionLabels: [String: CGRect] = [:]
         var connectors: [CGRect] = []
+        /// Every rendered card's value and actions columns.
+        var columns: [CGRect] = []
     }
 
     @MainActor
@@ -1687,6 +1689,14 @@ final class MenuViewTests: XCTestCase {
                     Color.clear
                         .onAppear { frames.rows = resolved }
                         .onChange(of: resolved) { _, new in frames.rows = new }
+                }
+            }
+            .overlayPreferenceValue(PullRequestCardColumnAnchorsKey.self) { anchors in
+                GeometryReader { proxy in
+                    let resolved = anchors.map { proxy[$0] }
+                    Color.clear
+                        .onAppear { frames.columns = resolved }
+                        .onChange(of: resolved) { _, new in frames.columns = new }
                 }
             }
             .overlayPreferenceValue(StackConnectorAnchorsKey.self) { anchors in
@@ -1783,6 +1793,116 @@ final class MenuViewTests: XCTestCase {
             let collapsedAgain = try XCTUnwrap(frames.controls[testCase.stackID], label)
             XCTAssertEqual(collapsedAgain, collapsed, "collapsed again, \(label)")
         }
+    }
+
+    // MARK: - PR list scroller
+
+    @MainActor
+    private func listScrollView(in view: NSView) throws -> NSScrollView {
+        try XCTUnwrap(scrollViews(in: view).first { $0.documentView != nil })
+    }
+
+    private func isScrollable(_ scrollView: NSScrollView) -> Bool {
+        (scrollView.documentView?.frame.height ?? 0) > scrollView.contentView.bounds.height + 0.5
+    }
+
+    /// The distinct x-positions and widths of every rendered card column, rounded to the point.
+    private func columnLayout(_ frames: StackMenuFrames) -> Set<[CGFloat]> {
+        Set(frames.columns.map { [$0.minX.rounded(), $0.width.rounded()] })
+    }
+
+    @MainActor
+    func testCardsAndStackControlsKeepTheirXWhenTheListBecomesScrollable() throws {
+        // As in the live inspection: Assigned collapsed, so Direct and Team fit until a Direct stack expands.
+        for (stackID, representative) in [("STACK_MOCK_SPREAD", "2/4"), ("STACK_MOCK_POSITION_3", "3/3")] {
+            let controller = try stackMenuController()
+            controller.toggleRequestedSection(.assigned)
+            let frames = StackMenuFrames()
+            let (window, view) = hostStackMenu(controller, frames: frames)
+            defer { window.orderOut(nil) }
+            let scrollView = try listScrollView(in: view)
+            XCTAssertFalse(isScrollable(scrollView), "the list fits before expanding, \(stackID)")
+            let collapsed = try XCTUnwrap(frames.controls[stackID], stackID)
+            XCTAssertEqual(collapsed.fractionText, representative)
+            let columns = columnLayout(frames)
+            XCTAssertEqual(columns.count, 7, stackID)
+            let otherControls = frames.controls.filter { $0.key != stackID }.mapValues(\.frame)
+
+            controller.toggleStackExpanded(stackID)
+            relayout(view)
+            XCTAssertTrue(isScrollable(scrollView), "expanding makes the list scrollable, \(stackID)")
+            XCTAssertEqual(frames.controls[stackID]?.frame, collapsed.frame, "expanded, \(stackID)")
+            XCTAssertEqual(columnLayout(frames), columns, "expanded, \(stackID)")
+            for (id, frame) in otherControls {
+                XCTAssertEqual(frames.controls[id]?.frame.minX, frame.minX, "\(id) while \(stackID) is expanded")
+                XCTAssertEqual(frames.controls[id]?.frame.width, frame.width, "\(id) while \(stackID) is expanded")
+            }
+
+            controller.toggleStackExpanded(stackID)
+            relayout(view)
+            XCTAssertFalse(isScrollable(scrollView), "collapsing makes the list fit again, \(stackID)")
+            XCTAssertEqual(frames.controls[stackID], collapsed, "collapsed again, \(stackID)")
+            XCTAssertEqual(columnLayout(frames), columns, "collapsed again, \(stackID)")
+        }
+    }
+
+    @MainActor
+    func testPRListsUseTheSlimOverlayScrollerAndRestoreItAfterThePreferenceChanges() throws {
+        let controller = try stackMenuController()
+        for tab in [DashboardController.MenuTab.myPRs, .reviewRequests] {
+            controller.selectedTab = tab
+            let (window, view) = hostStackMenu(controller, frames: StackMenuFrames())
+            defer { window.orderOut(nil) }
+            let scrollView = try listScrollView(in: view)
+            XCTAssertEqual(scrollView.scrollerStyle, .overlay, "\(tab)")
+            XCTAssertEqual(scrollView.verticalScroller?.controlSize, .small, "\(tab)")
+
+            // AppKit resets every scroll view to the system style when the preference changes.
+            scrollView.scrollerStyle = .legacy
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+            settleRunLoop()
+            XCTAssertEqual(scrollView.scrollerStyle, .overlay, "restored, \(tab)")
+            XCTAssertEqual(scrollView.verticalScroller?.controlSize, .small, "restored, \(tab)")
+        }
+    }
+
+    @MainActor
+    func testTheScrollerSitsRightOfEveryCard() throws {
+        let controller = try stackMenuController()
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+        let frames = StackMenuFrames()
+        let (window, view) = hostStackMenu(controller, frames: frames)
+        defer { window.orderOut(nil) }
+        let scrollView = try listScrollView(in: view)
+        XCTAssertTrue(isScrollable(scrollView))
+        let scroller = try XCTUnwrap(scrollView.verticalScroller)
+        let scrollerFrame = scroller.convert(scroller.bounds, to: view)
+        XCTAssertGreaterThan(scrollerFrame.width, 0)
+        XCTAssertEqual(scrollerFrame.width, PullRequestListScroller.width, accuracy: 0.5)
+
+        let cardMaxX = try XCTUnwrap(frames.rows.values.map(\.maxX).max())
+        XCTAssertGreaterThanOrEqual(
+            scrollerFrame.minX, cardMaxX + MenuMetrics.standard.prList.scrollerGap - 0.5,
+            "the scroller and its gap sit in the list's right margin"
+        )
+        let actionsMaxX = try XCTUnwrap(frames.columns.map(\.maxX).max())
+        XCTAssertLessThan(actionsMaxX, scrollerFrame.minX)
+    }
+
+    @MainActor
+    func testAuthoredAndRequestedCardsShareOneWidth() throws {
+        let controller = try stackMenuController()
+        var layouts: [Set<[CGFloat]>] = []
+        for tab in [DashboardController.MenuTab.myPRs, .reviewRequests] {
+            controller.selectedTab = tab
+            let frames = StackMenuFrames()
+            let (window, _) = hostStackMenu(controller, frames: frames)
+            defer { window.orderOut(nil) }
+            XCTAssertFalse(frames.columns.isEmpty, "\(tab)")
+            layouts.append(columnLayout(frames))
+        }
+        XCTAssertEqual(layouts[0], layouts[1])
+        XCTAssertEqual(layouts[0].count, 7)
     }
 
     @MainActor

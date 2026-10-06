@@ -179,6 +179,14 @@ struct MenuMetrics: Equatable {
         var sectionChevronWidth: CGFloat
         var sectionCountHorizontalPadding: CGFloat
         var sectionCountVerticalPadding: CGFloat
+        /// Between a card's trailing edge and the PR list's overlay scroller.
+        var scrollerGap: CGFloat
+
+        /// The PR lists' right margin. It always holds the slim overlay scroller's full frame and the gap, so the
+        /// scroller never overlaps a card and showing it never changes the cards' width.
+        var trailingPadding: CGFloat {
+            max(horizontalPadding, PullRequestListScroller.width + scrollerGap)
+        }
     }
 
     /// The filter and sort dropdowns under the PR header controls.
@@ -521,7 +529,8 @@ struct MenuMetrics: Equatable {
             sectionHeadingSpacing: s(8),
             sectionChevronWidth: s(12),
             sectionCountHorizontalPadding: s(6),
-            sectionCountVerticalPadding: s(2)
+            sectionCountVerticalPadding: s(2),
+            scrollerGap: s(2)
         )
         dropdown = Dropdown(
             headerControlsSpacing: s(8),

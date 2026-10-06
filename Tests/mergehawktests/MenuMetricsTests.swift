@@ -36,6 +36,14 @@ final class MenuMetricsTests: XCTestCase {
         XCTAssertEqual(MenuMetrics.hairline, 1)
     }
 
+    func testPRListRightMarginHoldsTheOverlayScrollerAndItsGapAtEverySize() {
+        for size in MenuSize.allCases {
+            let list = MenuMetrics(scale: size.factor).prList
+            XCTAssertGreaterThanOrEqual(list.trailingPadding, PullRequestListScroller.width + list.scrollerGap, "\(size)")
+            XCTAssertGreaterThanOrEqual(list.trailingPadding, list.horizontalPadding, "\(size)")
+        }
+    }
+
     func testActionsColumnIsExactlyTheActionButtonHitSize() {
         XCTAssertEqual(metrics.prColumns.actionsWidth, metrics.prColumns.actionButtonHitSize)
     }
@@ -173,6 +181,8 @@ final class MenuMetricsTests: XCTestCase {
         ("prList.sectionHeadingSpacing", \.prList.sectionHeadingSpacing, 8),
         ("prList.sectionCountHorizontalPadding", \.prList.sectionCountHorizontalPadding, 6),
         ("prList.sectionCountVerticalPadding", \.prList.sectionCountVerticalPadding, 2),
+        // New in MER-64, after the scales were consolidated.
+        ("prList.scrollerGap", \.prList.scrollerGap, 2),
         ("dropdown.headerControlsSpacing", \.dropdown.headerControlsSpacing, 8),
         ("dropdown.gap", \.dropdown.gap, 10),
         ("dropdown.itemSpacing", \.dropdown.itemSpacing, 2),
@@ -237,7 +247,7 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testSpacingIsOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.spacingTokens.count, 92)
+        XCTAssertEqual(Self.spacingTokens.count, 93)
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {

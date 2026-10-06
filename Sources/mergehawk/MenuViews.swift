@@ -1489,9 +1489,11 @@ struct PullRequestListView: View {
                         }
                     }
                 }
-                .padding(.horizontal, metrics.prList.horizontalPadding)
+                .padding(.leading, metrics.prList.horizontalPadding)
+                .padding(.trailing, metrics.prList.trailingPadding)
                 .padding(.top, metrics.prList.topPadding)
                 .padding(.bottom, metrics.prList.bottomPadding)
+                .background(PullRequestListScrollerStyle())
             }
         }
     }
@@ -1503,9 +1505,11 @@ struct PullRequestListView: View {
                     requestedSection(content)
                 }
             }
-            .padding(.horizontal, metrics.prList.horizontalPadding)
+            .padding(.leading, metrics.prList.horizontalPadding)
+            .padding(.trailing, metrics.prList.trailingPadding)
             .padding(.top, metrics.prList.topPadding)
             .padding(.bottom, metrics.prList.bottomPadding)
+            .background(PullRequestListScrollerStyle())
         }
     }
 
