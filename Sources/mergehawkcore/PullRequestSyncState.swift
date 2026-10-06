@@ -70,17 +70,20 @@ public struct CompletePullRequestFetchResult: Equatable, Sendable {
     public let retiringPullRequests: [PullRequest]
     public let quietlyRetiredPullRequestIDs: Set<String>
     public let viewerTeams: [ViewerTeam]
+    public let stacks: [PullRequestStack]
 
     public init(
         activePullRequests: [PullRequest],
         retiringPullRequests: [PullRequest] = [],
         quietlyRetiredPullRequestIDs: Set<String> = [],
-        viewerTeams: [ViewerTeam] = []
+        viewerTeams: [ViewerTeam] = [],
+        stacks: [PullRequestStack] = []
     ) {
         self.activePullRequests = activePullRequests
         self.retiringPullRequests = retiringPullRequests
         self.quietlyRetiredPullRequestIDs = quietlyRetiredPullRequestIDs
         self.viewerTeams = viewerTeams
+        self.stacks = stacks
     }
 }
 
@@ -115,6 +118,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
     public let processedActivityByPullRequestID: [String: ProcessedPullRequestActivity]
     public let events: [PreparedPullRequestEvent]
     public let viewerTeams: [ViewerTeam]
+    public let stacks: [PullRequestStack]
     public let syncedAt: Date
 
     public init(
@@ -125,6 +129,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         processedActivityByPullRequestID: [String: ProcessedPullRequestActivity],
         events: [PreparedPullRequestEvent],
         viewerTeams: [ViewerTeam],
+        stacks: [PullRequestStack],
         syncedAt: Date
     ) {
         self.account = account
@@ -134,6 +139,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         self.processedActivityByPullRequestID = processedActivityByPullRequestID
         self.events = events
         self.viewerTeams = viewerTeams
+        self.stacks = stacks
         self.syncedAt = syncedAt
     }
 }

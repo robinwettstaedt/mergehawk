@@ -66,6 +66,8 @@ struct MenuMetrics: Equatable {
         var metricValue: FontToken
         var signalSymbol: FontToken
         var draftBadge: FontToken
+        /// The stack and chevron symbols in a requested stack card's stack control.
+        var stackControlSymbol: FontToken
         var actionsMenuItem: FontToken
         /// Title of the GitHub buttons in the sign-in view and the repository access prompt.
         var gitHubButtonTitle: FontToken
@@ -177,6 +179,19 @@ struct MenuMetrics: Equatable {
         var sectionChevronWidth: CGFloat
         var sectionCountHorizontalPadding: CGFloat
         var sectionCountVerticalPadding: CGFloat
+        /// Between a card's trailing edge and the PR list's overlay scroller.
+        var scrollerGap: CGFloat
+
+        /// The PR lists' right margin. It always holds the slim overlay scroller's full frame and the gap, so the
+        /// scroller never overlaps a card and showing it never changes the cards' width.
+        var trailingPadding: CGFloat {
+            max(horizontalPadding, PullRequestListScroller.width + scrollerGap)
+        }
+
+        /// The width of a PR card in a list that spans `panelWidth`.
+        func cardWidth(inPanelWidth panelWidth: CGFloat) -> CGFloat {
+            panelWidth - horizontalPadding - trailingPadding
+        }
     }
 
     /// The filter and sort dropdowns under the PR header controls.
@@ -226,6 +241,17 @@ struct MenuMetrics: Equatable {
         var valueColumnHeight: CGFloat
         var draftBadgeHorizontalPadding: CGFloat
         var draftBadgeVerticalPadding: CGFloat
+        var stackControlHorizontalPadding: CGFloat
+        var stackControlSpacing: CGFloat
+        var stackControlCornerRadius: CGFloat
+        /// Spans both identity lines; no taller than the value columns, so a stacked card keeps the standard height.
+        var stackControlHeight: CGFloat
+        /// Between the stack symbol and the fraction in an expanded row's metadata position.
+        var stackPositionSymbolSpacing: CGFloat
+        /// The vertical line joining consecutive avatars of an expanded stack.
+        var stackConnectorWidth: CGFloat
+        /// Between an avatar and each end of a connector segment.
+        var stackConnectorGap: CGFloat
     }
 
     struct Card: Equatable {
@@ -428,6 +454,7 @@ struct MenuMetrics: Equatable {
             metricValue: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
             signalSymbol: FontToken(size: s(body), weight: .semibold),
             draftBadge: FontToken(size: s(caption), weight: .semibold),
+            stackControlSymbol: FontToken(size: s(body), weight: .semibold),
             actionsMenuItem: FontToken(size: s(body)),
             gitHubButtonTitle: FontToken(size: s(title), weight: .semibold),
             signInTitle: FontToken(size: s(title), weight: .bold),
@@ -471,7 +498,7 @@ struct MenuMetrics: Equatable {
         )
         prColumns = PRColumns(
             spacing: s(6),
-            rowSpacing: s(6),
+            rowSpacing: s(8),
             headerHeight: s(32),
             horizontalInset: s(8),
             verticalInset: s(8),
@@ -507,7 +534,8 @@ struct MenuMetrics: Equatable {
             sectionHeadingSpacing: s(8),
             sectionChevronWidth: s(12),
             sectionCountHorizontalPadding: s(6),
-            sectionCountVerticalPadding: s(2)
+            sectionCountVerticalPadding: s(2),
+            scrollerGap: s(2)
         )
         dropdown = Dropdown(
             headerControlsSpacing: s(8),
@@ -548,7 +576,14 @@ struct MenuMetrics: Equatable {
             identityItemSpacing: s(4),
             valueColumnHeight: s(30),
             draftBadgeHorizontalPadding: s(6),
-            draftBadgeVerticalPadding: s(2)
+            draftBadgeVerticalPadding: s(2),
+            stackControlHorizontalPadding: s(8),
+            stackControlSpacing: s(6),
+            stackControlCornerRadius: s(6),
+            stackControlHeight: s(30),
+            stackPositionSymbolSpacing: s(2),
+            stackConnectorWidth: s(1.5),
+            stackConnectorGap: s(3)
         )
         card = Card(cornerRadius: s(8))
         legend = Legend(

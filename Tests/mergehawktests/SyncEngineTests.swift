@@ -529,6 +529,88 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(turnedOff.events.first?.filteringContext.reviewRequestKind, ReviewRequestKind.none)
     }
 
+    func testDashboardStateWithStacksRoundTripsThroughJSON() throws {
+        var dashboard = Self.dashboard([Self.pullRequest(stackID: "STACK_1")])
+        dashboard.pullRequestStacks = [Self.stack]
+
+        let decoded = try JSONDecoder().decode(DashboardState.self, from: JSONEncoder().encode(dashboard))
+
+        XCTAssertEqual(decoded, dashboard)
+        XCTAssertEqual(decoded.pullRequestStacks, [Self.stack])
+    }
+
+    func testPullRequestWithoutStackIDDecodesAsUnstackedAndStackIDRoundTrips() throws {
+        let unstacked = Self.pullRequest()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(unstacked)) as? [String: Any])
+        XCTAssertNil(object["stackID"])
+        object.removeValue(forKey: "stackID")
+        let legacy = try JSONDecoder().decode(PullRequest.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(legacy.stackID)
+
+        let stacked = Self.pullRequest(stackID: "STACK_1")
+        XCTAssertEqual(try JSONDecoder().decode(PullRequest.self, from: JSONEncoder().encode(stacked)).stackID, "STACK_1")
+    }
+
+    func testPrepareReturnsTheFetchResultStacksUnchanged() throws {
+        let prepared = try Self.engine().prepare(
+            previousState: Self.trustedState([]),
+            fetched: FetchedPullRequestRefresh(
+                login: "rw",
+                account: GitHubAccount(login: "rw"),
+                fetchResult: CompletePullRequestFetchResult(
+                    activePullRequests: [Self.pullRequest(stackID: Self.stack.id)],
+                    stacks: [Self.stack]
+                )
+            ),
+            turnedOffTeamIDs: []
+        )
+
+        XCTAssertEqual(prepared.stacks, [Self.stack])
+    }
+
+    func testStackOnlyChangeBetweenRefreshesProducesNoUpdateEvents() throws {
+        let previousPR = Self.pullRequest(reviewRequestKind: .direct, isMine: false)
+        var previous = Self.trustedState([previousPR])
+        previous.dashboard.pullRequestStacks = []
+        let current = Self.pullRequest(reviewRequestKind: .direct, isMine: false, stackID: Self.stack.id)
+
+        let prepared = try Self.engine().prepare(
+            previousState: previous,
+            fetched: FetchedPullRequestRefresh(
+                login: "rw",
+                account: GitHubAccount(login: "rw"),
+                fetchResult: CompletePullRequestFetchResult(activePullRequests: [current], stacks: [Self.stack])
+            ),
+            turnedOffTeamIDs: []
+        )
+
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    private static let stack = PullRequestStack(id: "STACK_1", size: 2, entries: [
+        PullRequestStackEntry(
+            position: 1,
+            pullRequestID: "PR_1",
+            number: 1,
+            title: "Prepared refresh",
+            url: URL(string: "https://github.com/acme/app/pull/1")!,
+            state: .open,
+            isDraft: false,
+            author: "author"
+        ),
+        PullRequestStackEntry(
+            position: 2,
+            pullRequestID: "PR_2",
+            number: 2,
+            title: "Stacked on top",
+            url: URL(string: "https://github.com/acme/app/pull/2")!,
+            state: .merged,
+            isDraft: true,
+            author: "other",
+            authorAvatarURL: URL(string: "https://avatars.githubusercontent.com/u/2")
+        )
+    ])
+
     private static let reviewersTeam = TeamReference(id: "T_REVIEWERS", organization: "acme", slug: "reviewers")
     private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
     private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
@@ -636,7 +718,8 @@ final class SyncEngineTests: XCTestCase {
         requestedTeams: [TeamReference] = [],
         isAssigned: Bool = false,
         isMine: Bool = true,
-        draft: Bool = false
+        draft: Bool = false,
+        stackID: String? = nil
     ) -> PullRequest {
         PullRequest(
             id: id,
@@ -658,7 +741,8 @@ final class SyncEngineTests: XCTestCase {
             isMine: isMine,
             author: isMine ? "rw" : "author",
             mergeable: .mergeable,
-            draft: draft
+            draft: draft,
+            stackID: stackID
         )
     }
 

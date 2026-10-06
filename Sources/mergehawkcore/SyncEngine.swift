@@ -132,6 +132,7 @@ public final class SyncEngine {
             processedActivityByPullRequestID: processed,
             events: events,
             viewerTeams: fetchResult.viewerTeams,
+            stacks: fetchResult.stacks,
             syncedAt: now()
         )
     }
@@ -167,7 +168,8 @@ public final class SyncEngine {
             mergeable: current.mergeable,
             draft: current.draft,
             createdAt: current.createdAt,
-            updatedAt: current.updatedAt
+            updatedAt: current.updatedAt,
+            stackID: current.stackID
         )
     }
 }

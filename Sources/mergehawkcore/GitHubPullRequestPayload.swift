@@ -120,10 +120,16 @@ struct GitHubCompletePullRequestPayload: Decodable, Equatable, Sendable {
     let reviewThreads: GitHubStrictConnection<GitHubPayloadReviewThread>
     let assignees: GitHubStrictConnection<GitHubPayloadUser>
     let reviewRequests: GitHubStrictConnection<GitHubPayloadReviewRequest>
+    /// Only the stack's identity; its size and entries come from the per-stack read.
+    let stack: StackReference?
 
     struct Repository: Decodable, Equatable, Sendable {
         let nameWithOwner: String
         let isArchived: Bool
+    }
+
+    struct StackReference: Decodable, Equatable, Sendable {
+        let id: String
     }
 }
 
@@ -185,6 +191,42 @@ struct GitHubOrganizationViewerTeamsPayload: Decodable, Equatable, Sendable {
 
     struct Organization: Decodable, Equatable, Sendable {
         let teams: GitHubPayloadViewerTeamConnection
+    }
+}
+
+struct GitHubPayloadStackEntry: Decodable, Equatable, Sendable {
+    let position: Int
+    /// Nil when GitHub can't return the PR at this position, for example after a deletion.
+    let pullRequest: PullRequest?
+
+    struct PullRequest: Decodable, Equatable, Sendable {
+        let id: String
+        let number: Int
+        let title: String
+        let url: URL
+        let state: String
+        let isDraft: Bool
+        let author: GitHubPayloadUser?
+    }
+}
+
+struct GitHubPayloadStackEntryConnection: Decodable, Equatable, Sendable {
+    let totalCount: Int
+    let pageInfo: GitHubForwardPageInfo
+    let nodes: [GitHubPayloadStackEntry]
+}
+
+struct GitHubPayloadStack: Decodable, Equatable, Sendable {
+    let id: String
+    let size: Int
+    let entries: GitHubPayloadStackEntryConnection
+}
+
+struct GitHubStackEntriesPayload: Decodable, Equatable, Sendable {
+    let node: Node?
+
+    struct Node: Decodable, Equatable, Sendable {
+        let entries: GitHubPayloadStackEntryConnection
     }
 }
 

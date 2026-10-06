@@ -36,6 +36,14 @@ final class MenuMetricsTests: XCTestCase {
         XCTAssertEqual(MenuMetrics.hairline, 1)
     }
 
+    func testPRListRightMarginHoldsTheOverlayScrollerAndItsGapAtEverySize() {
+        for size in MenuSize.allCases {
+            let list = MenuMetrics(scale: size.factor).prList
+            XCTAssertGreaterThanOrEqual(list.trailingPadding, PullRequestListScroller.width + list.scrollerGap, "\(size)")
+            XCTAssertGreaterThanOrEqual(list.trailingPadding, list.horizontalPadding, "\(size)")
+        }
+    }
+
     func testActionsColumnIsExactlyTheActionButtonHitSize() {
         XCTAssertEqual(metrics.prColumns.actionsWidth, metrics.prColumns.actionButtonHitSize)
     }
@@ -135,6 +143,8 @@ final class MenuMetricsTests: XCTestCase {
         "footer.selectionInsetX", "footer.selectionInsetY", "footer.titleLeading", "footer.shortcutTrailing",
         "footer.separatorHorizontalPadding",
         "controls.sortDividerVerticalInset", "controls.segmentDividerVerticalInset",
+        // The gap between an avatar and the stack connector line is optical, not layout spacing.
+        "prRow.stackConnectorGap",
     ]
 
     /// Every spacing and padding token with its value before the scales were consolidated (MER-86).
@@ -171,6 +181,8 @@ final class MenuMetricsTests: XCTestCase {
         ("prList.sectionHeadingSpacing", \.prList.sectionHeadingSpacing, 8),
         ("prList.sectionCountHorizontalPadding", \.prList.sectionCountHorizontalPadding, 6),
         ("prList.sectionCountVerticalPadding", \.prList.sectionCountVerticalPadding, 2),
+        // New in MER-64, after the scales were consolidated.
+        ("prList.scrollerGap", \.prList.scrollerGap, 2),
         ("dropdown.headerControlsSpacing", \.dropdown.headerControlsSpacing, 8),
         ("dropdown.gap", \.dropdown.gap, 10),
         ("dropdown.itemSpacing", \.dropdown.itemSpacing, 2),
@@ -191,6 +203,11 @@ final class MenuMetricsTests: XCTestCase {
         ("prRow.identityItemSpacing", \.prRow.identityItemSpacing, 4),
         ("prRow.draftBadgeHorizontalPadding", \.prRow.draftBadgeHorizontalPadding, 6),
         ("prRow.draftBadgeVerticalPadding", \.prRow.draftBadgeVerticalPadding, 2),
+        // New in MER-64, after the scales were consolidated.
+        ("prRow.stackControlHorizontalPadding", \.prRow.stackControlHorizontalPadding, 8),
+        ("prRow.stackControlSpacing", \.prRow.stackControlSpacing, 6),
+        ("prRow.stackPositionSymbolSpacing", \.prRow.stackPositionSymbolSpacing, 2),
+        ("prRow.stackConnectorGap", \.prRow.stackConnectorGap, 3),
         ("tooltip.horizontalPadding", \.tooltip.horizontalPadding, 8),
         ("tooltip.verticalPadding", \.tooltip.verticalPadding, 5),
         ("tooltip.gap", \.tooltip.gap, 4),
@@ -230,7 +247,7 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testSpacingIsOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.spacingTokens.count, 88)
+        XCTAssertEqual(Self.spacingTokens.count, 93)
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {
@@ -260,6 +277,8 @@ final class MenuMetricsTests: XCTestCase {
         ("refreshStatus.cornerRadius", \.refreshStatus.cornerRadius, 6),
         ("dropdown.cornerRadius", \.dropdown.cornerRadius, 7),
         ("card.cornerRadius", \.card.cornerRadius, 8),
+        // New in MER-64, after the scales were consolidated.
+        ("prRow.stackControlCornerRadius", \.prRow.stackControlCornerRadius, 6),
         ("tooltip.cornerRadius", \.tooltip.cornerRadius, 6),
         ("actionsMenu.itemCornerRadius", \.actionsMenu.itemCornerRadius, 4),
         ("actionsMenu.cornerRadius", \.actionsMenu.cornerRadius, 7),
@@ -270,7 +289,7 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testCornerRadiiAreOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.cornerRadiusTokens.count, 13)
+        XCTAssertEqual(Self.cornerRadiusTokens.count, 14)
         for token in Self.cornerRadiusTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.cornerRadiusOneOffs.contains(token.name) {
@@ -329,6 +348,7 @@ final class MenuMetricsTests: XCTestCase {
         .init(name: "metricValue", keyPath: \.type.metricValue, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
         .init(name: "signalSymbol", keyPath: \.type.signalSymbol, mer86Size: 12, size: 11, weight: .semibold),
         .init(name: "draftBadge", keyPath: \.type.draftBadge, mer86Size: 9, size: 10, weight: .semibold),
+        .init(name: "stackControlSymbol", keyPath: \.type.stackControlSymbol, mer86Size: 10, size: 11, weight: .semibold),
         .init(name: "actionsMenuItem", keyPath: \.type.actionsMenuItem, mer86Size: 12, size: 11),
         .init(name: "gitHubButtonTitle", keyPath: \.type.gitHubButtonTitle, mer86Size: 13, size: 13, weight: .semibold),
         .init(name: "signInTitle", keyPath: \.type.signInTitle, mer86Size: 13, size: 13, weight: .bold),

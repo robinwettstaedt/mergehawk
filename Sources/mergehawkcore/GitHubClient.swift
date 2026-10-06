@@ -121,11 +121,18 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             }
         }
 
+        // Only stacks reachable from a review request can form a Review requests group.
+        let stackIDs = Set(active.compactMap { pr in
+            !pr.isMine && (pr.isAssignedToViewer || pr.reviewRequestKind != .none) ? pr.stackID : nil
+        })
+        let stacks = try await fetcher.fetchStacks(ids: stackIDs.sorted())
+
         return CompletePullRequestFetchResult(
             activePullRequests: active.sorted { $0.id < $1.id },
             retiringPullRequests: retiring.sorted { $0.id < $1.id },
             quietlyRetiredPullRequestIDs: quietlyRetiredIDs,
-            viewerTeams: viewerTeams
+            viewerTeams: viewerTeams,
+            stacks: stacks
         )
     }
 

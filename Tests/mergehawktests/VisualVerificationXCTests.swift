@@ -13,6 +13,15 @@ final class VisualVerificationXCTests: XCTestCase {
     private var renderedFilenames: Set<String> = []
     private var waitTimeout: TimeInterval = 5
 
+    func testCaptureNamesIncludeFocusedStackCapturesInTheConstrainedFrame() {
+        let names = VisualCaptureSelection.allScenarios
+        for stack in ["all-open", "partially-merged", "closed-dependency", "position-3"] {
+            for state in ["collapsed", "expanded"] {
+                XCTAssertTrue(names.contains("menu-requested-stack-\(stack)-\(state)-1024x632"), "\(stack) \(state)")
+            }
+        }
+    }
+
     func testWritesMockMenuScreenshots() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let outputPath = environment["MERGEHAWK_UI_ARTIFACT_DIR"], !outputPath.isEmpty else {
@@ -31,7 +40,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-nested-teams"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -735,7 +744,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     )
                 }
             }
-            let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.first?.visible.first)
+            let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.first?.visible.first?.representative)
             try renderHeaderTooltips(
                 pullRequest: tooltipPullRequest,
                 to: outputURL.appendingPathComponent("menu-header-tooltips.png")
@@ -1019,6 +1028,74 @@ final class VisualVerificationXCTests: XCTestCase {
                     softwareUpdateController: SoftwareUpdateController.disabled()
                 ),
                 to: outputURL.appendingPathComponent("settings-teams.png")
+            )
+        }
+
+        // Review requests stacks: collapsed and expanded groups, the Ready filter, and a hidden group.
+        let stacksController = await MainActor.run {
+            makeScenarioController(.prStacks, suiteName: "\(suiteName)-stacks")
+        }
+        try await waitUntil(context: "pr-stacks synchronization") {
+            await MainActor.run { stacksController.state.syncedAt != nil && !stacksController.isRefreshing }
+        }
+        try await MainActor.run {
+            stacksController.selectedTab = .reviewRequests
+            let stackIDs = stacksController.state.pullRequestStacks.map(\.id)
+            XCTAssertEqual(stackIDs.count, 9)
+            for size in MenuSizeCaptures.stackSizes {
+                try renderMenu(
+                    controller: stacksController,
+                    to: menuSizeURL(size, "requested-stacks-collapsed"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
+            stackIDs.forEach(stacksController.toggleStackExpanded)
+            for size in MenuSizeCaptures.stackSizes {
+                try renderMenu(
+                    controller: stacksController,
+                    to: menuSizeURL(size, "requested-stacks-expanded"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
+            stackIDs.forEach(stacksController.toggleStackExpanded)
+
+            // Focused captures in the width-constrained frame: each stack collapsed, then expanded on its own.
+            // The position-3 stack is in Direct, so Assigned is collapsed to bring Direct to the top.
+            for stack in MenuSizeCaptures.focusedStacks {
+                if stack.section == .direct { stacksController.toggleRequestedSection(.assigned) }
+                for isExpanded in [false, true] {
+                    if isExpanded { stacksController.toggleStackExpanded(stack.id) }
+                    try renderMenu(
+                        controller: stacksController,
+                        to: outputURL.appendingPathComponent(
+                            MenuSizeCaptures.focusedStackScenario(stack.name, isExpanded: isExpanded) + ".png"
+                        ),
+                        availableFrame: MenuSizeCaptures.largerTextFrame.1
+                    )
+                }
+                stacksController.toggleStackExpanded(stack.id)
+                if stack.section == .direct { stacksController.toggleRequestedSection(.assigned) }
+            }
+
+            stacksController.selectedReviewRequestFilters = [.ready]
+            stacksController.toggleStackExpanded("STACK_MOCK_ASSIGNED")
+            try renderMenu(
+                controller: stacksController,
+                to: outputURL.appendingPathComponent("menu-requested-stacks-ready-filter.png")
+            )
+            stacksController.toggleStackExpanded("STACK_MOCK_ASSIGNED")
+            stacksController.selectedReviewRequestFilters = []
+
+            let spread = try XCTUnwrap(stacksController.requestedSections.flatMap(\.visible).first {
+                $0.stack?.stack.id == "STACK_MOCK_SPREAD"
+            })
+            stacksController.setHidden(spread, hidden: true)
+            try renderHiddenExpanded(
+                controller: stacksController,
+                mode: .reviewRequests,
+                to: outputURL.appendingPathComponent("menu-requested-stacks-hidden.png")
             )
         }
 
@@ -1578,6 +1655,24 @@ private enum MenuSizeCaptures {
         "access-prompt"
     ]
     static let fragments = ["my-prs-hidden-expanded", "review-requests-hidden-expanded", "header-tooltips"]
+    /// Review requests stacks are captured at the default and the largest menu size only.
+    static let stackSizes: [MenuSize] = [.standard, .larger]
+    static let stackStates = ["requested-stacks-collapsed", "requested-stacks-expanded"]
+    /// The pr-stacks acceptance stacks and the position-3 stack, each captured in the width-constrained frame.
+    static let focusedStacks: [(name: String, id: String, section: DashboardController.RequestedSection)] = [
+        ("all-open", "STACK_MOCK_ALL_OPEN", .assigned),
+        ("partially-merged", "STACK_MOCK_PARTIALLY_MERGED", .assigned),
+        ("closed-dependency", "STACK_MOCK_CLOSED_DEPENDENCY", .assigned),
+        ("position-3", "STACK_MOCK_POSITION_3", .direct)
+    ]
+
+    static func focusedStackScenario(_ name: String, isExpanded: Bool) -> String {
+        "menu-requested-stack-\(name)-\(isExpanded ? "expanded" : "collapsed")-\(largerTextFrame.0)"
+    }
+
+    static var focusedStackScenarios: Set<String> {
+        Set(focusedStacks.flatMap { stack in [false, true].map { focusedStackScenario(stack.name, isExpanded: $0) } })
+    }
     /// General is excluded: its Menu Size control shows the selected size by design.
     static let settingsIsolationTabs: [(String, SettingsTab)] = [
         ("github", .github),
@@ -1605,6 +1700,8 @@ private enum MenuSizeCaptures {
         let smallestScaleStateNames = smallestScaleStates.map { "\($0)-\(largerTextFrame.0)" }
         let menuNames = tabFrameNames + states + reducedStateNames + smallestScaleStateNames + fragments
         return Set(MenuSize.allCases.flatMap { size in menuNames.map { scenario(size, $0) } })
+            .union(stackSizes.flatMap { size in stackStates.map { scenario(size, $0) } })
+            .union(focusedStackScenarios)
             .union((settingsIsolationTabs + settingsIsolationPendingSignInTabs).map { settingsIsolationScenario($0.0) })
     }
 }
@@ -1680,6 +1777,8 @@ private struct VisualCaptureSelection {
         "menu-review-requests-filtered-empty",
         "menu-review-requests-draft",
         "menu-review-requests-ready",
+        "menu-requested-stacks-ready-filter",
+        "menu-requested-stacks-hidden",
         "menu-notifications-read",
         "settings-sources",
         "settings-sources-search-example",
