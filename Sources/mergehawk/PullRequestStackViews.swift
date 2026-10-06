@@ -168,8 +168,8 @@ struct StackPositionLabelAnchorsKey: PreferenceKey {
     }
 }
 
-/// The badges on an expanded stack member's title line: Draft before the title, and on a context member its
-/// state after the title.
+/// The badges after an expanded stack member's title, in display order: Draft first, then on a context member
+/// its state.
 enum StackMemberBadge: String, Equatable {
     case draft = "Draft"
     case open = "Open"
@@ -178,26 +178,18 @@ enum StackMemberBadge: String, Equatable {
 
     var title: String { rawValue }
 
-    struct Placement: Equatable {
-        var beforeTitle: [StackMemberBadge]
-        var afterTitle: [StackMemberBadge]
-    }
-
-    static func badges(for member: StackGroup.Member) -> Placement {
+    static func badges(for member: StackGroup.Member) -> [StackMemberBadge] {
         switch member {
         case .requested(let pullRequest):
-            Placement(beforeTitle: pullRequest.draft ? [.draft] : [], afterTitle: [])
+            pullRequest.draft ? [.draft] : []
         case .context(let entry):
-            Placement(
-                beforeTitle: entry.isDraft ? [.draft] : [],
-                afterTitle: [{
-                    switch entry.state {
-                    case .open: .open
-                    case .merged: .merged
-                    case .closed: .closed
-                    }
-                }()]
-            )
+            (entry.isDraft ? [.draft] : []) + [{
+                switch entry.state {
+                case .open: .open
+                case .merged: .merged
+                case .closed: .closed
+                }
+            }()]
         }
     }
 }
@@ -344,29 +336,24 @@ struct StackContextCard: View {
         )
     }
 
-    private var badges: StackMemberBadge.Placement {
+    private var badges: [StackMemberBadge] {
         StackMemberBadge.badges(for: .context(entry))
     }
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             PullRequestTitleLine {
-                ForEach(badges.beforeTitle, id: \.self) { badge in
-                    // Badges keep their full width; only the title truncates.
-                    StackMemberBadgeView(badge: badge)
-                        .layoutPriority(1)
-                        .pullRequestCardPart(.draftBadge)
-                }
                 Text(entry.title)
                     .font(metrics.type.cardTitle.font)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .pullRequestCardPart(.title)
-                ForEach(badges.afterTitle, id: \.self) { badge in
+                ForEach(badges, id: \.self) { badge in
+                    // Badges keep their full width; only the title truncates.
                     StackMemberBadgeView(badge: badge)
                         .layoutPriority(1)
-                        .pullRequestCardPart(.stateBadge)
+                        .pullRequestCardPart(badge == .draft ? .draftBadge : .stateBadge)
                 }
             }
 

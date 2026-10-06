@@ -1064,26 +1064,17 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testContextMembersNameTheirStateAfterTheTitleAndRequestedMembersOnlyDraft() throws {
-        typealias Placement = StackMemberBadge.Placement
+    func testStackMembersShowDraftThenTheirStateAfterTheTitle() throws {
         let unreadable = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
         // Closed context, requested, draft open context.
-        XCTAssertEqual(unreadable.members.map(StackMemberBadge.badges(for:)), [
-            Placement(beforeTitle: [], afterTitle: [.closed]),
-            Placement(beforeTitle: [], afterTitle: []),
-            Placement(beforeTitle: [.draft], afterTitle: [.open])
-        ])
+        XCTAssertEqual(unreadable.members.map(StackMemberBadge.badges(for:)), [[.closed], [], [.draft, .open]])
 
         let filter = try XCTUnwrap(try prStacksGroup("STACK_MOCK_FILTER").row.stack)
         // Draft requested, requested, open context.
-        XCTAssertEqual(filter.members.map(StackMemberBadge.badges(for:)), [
-            Placement(beforeTitle: [.draft], afterTitle: []),
-            Placement(beforeTitle: [], afterTitle: []),
-            Placement(beforeTitle: [], afterTitle: [.open])
-        ])
+        XCTAssertEqual(filter.members.map(StackMemberBadge.badges(for:)), [[.draft], [], [.open]])
 
         let merged = try XCTUnwrap(try prStacksGroup("STACK_MOCK_ASSIGNED").row.stack?.members.first)
-        XCTAssertEqual(StackMemberBadge.badges(for: merged), Placement(beforeTitle: [], afterTitle: [.merged]))
+        XCTAssertEqual(StackMemberBadge.badges(for: merged), [.merged])
         XCTAssertEqual([StackMemberBadge.open, .merged, .closed].map(\.title), ["Open", "Merged", "Closed"])
     }
 
@@ -1280,14 +1271,14 @@ final class MenuViewTests: XCTestCase {
         for size in MenuSize.allCases {
             let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
             let width = layout.size.width - 2 * layout.metrics.prList.horizontalPadding
+            // Every badge follows the title, so draft and non-draft cards of every kind start their title together.
+            let reference = measure(memberCards(title: Self.longTitle, draft: false)[0].1, width: width, metrics: layout.metrics).parts
             for (draft, state) in [false, true].flatMap({ draft in
                 [PullRequestStackEntry.State.open, .merged, .closed].map { (draft, $0) }
             }) {
-                // State badges follow the title, so every context state starts its title where requested cards do.
                 let measured = memberCards(title: Self.longTitle, draft: draft, contextState: state).map { name, card in
                     (name, measure(card, width: width, metrics: layout.metrics).parts)
                 }
-                let reference = measured[0].1
                 for (name, parts) in measured {
                     for part in [PullRequestCardPart.avatar, .title, .metadata] {
                         let label = "\(part) of \(name), draft: \(draft), \(state), at \(size)"
@@ -1501,13 +1492,14 @@ final class MenuViewTests: XCTestCase {
                         accuracy: 0.5, "full state badge, \(label)"
                     )
                     XCTAssertLessThan(title.width, titleIdealWidth - 1, "the title truncates, \(label)")
-                    XCTAssertLessThanOrEqual(title.maxX, badge.minX + 0.5, "the title ends before the badge, \(label)")
                     if draft {
                         let draftBadge = try XCTUnwrap(parts[.draftBadge], label)
                         XCTAssertEqual(draftBadge.width, draftWidth, accuracy: 0.5, "full Draft badge, \(label)")
-                        XCTAssertLessThanOrEqual(draftBadge.maxX, title.minX + 0.5, "Draft before the title, \(label)")
+                        XCTAssertLessThanOrEqual(title.maxX, draftBadge.minX + 0.5, "the title ends before Draft, \(label)")
+                        XCTAssertLessThanOrEqual(draftBadge.maxX, badge.minX + 0.5, "Draft before the state, \(label)")
                     } else {
                         XCTAssertNil(parts[.draftBadge], label)
+                        XCTAssertLessThanOrEqual(title.maxX, badge.minX + 0.5, "the title ends before the badge, \(label)")
                     }
                     let identity = try XCTUnwrap(parts[.identity], label)
                     XCTAssertLessThanOrEqual(badge.maxX, identity.maxX + 0.5, "the badge stays in the identity slot, \(label)")
@@ -1515,6 +1507,33 @@ final class MenuViewTests: XCTestCase {
                         let control = try XCTUnwrap(parts[.stackControl], label)
                         XCTAssertLessThanOrEqual(badge.maxX, control.minX - metrics.prColumns.spacing + 0.5, label)
                     }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testLongDraftPRTitlesTruncateBeforeAFullWidthDraftBadgeAndTheStackControl() throws {
+        let smallest = try XCTUnwrap(MenuSize.allCases.min { $0.factor < $1.factor })
+        for size in [smallest, .standard] {
+            let layout = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
+            let metrics = layout.metrics
+            let width = layout.size.width - 2 * metrics.prList.horizontalPadding
+            let titleIdealWidth = intrinsicWidth(Text(Self.longTitle).font(metrics.type.cardTitle.font), metrics: metrics)
+            let draftWidth = intrinsicWidth(DraftPullRequestIndicator(), metrics: metrics)
+            // An unstacked card, a collapsed stacked card, and a requested member row.
+            for (name, card) in memberCards(title: Self.longTitle, draft: true).prefix(3) {
+                let label = "\(name) at \(size)"
+                let parts = measure(card, width: width, metrics: metrics).parts
+                let title = try XCTUnwrap(parts[.title], label)
+                let draftBadge = try XCTUnwrap(parts[.draftBadge], label)
+                let identity = try XCTUnwrap(parts[.identity], label)
+                XCTAssertLessThan(title.width, titleIdealWidth - 1, "the title truncates, \(label)")
+                XCTAssertEqual(draftBadge.width, draftWidth, accuracy: 0.5, "full Draft badge, \(label)")
+                XCTAssertLessThanOrEqual(title.maxX, draftBadge.minX + 0.5, "the title ends before Draft, \(label)")
+                XCTAssertLessThanOrEqual(draftBadge.maxX, identity.maxX + 0.5, "Draft stays in the identity slot, \(label)")
+                if let control = parts[.stackControl] {
+                    XCTAssertLessThanOrEqual(draftBadge.maxX, control.minX - metrics.prColumns.spacing + 0.5, label)
                 }
             }
         }

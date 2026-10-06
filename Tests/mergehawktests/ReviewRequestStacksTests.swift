@@ -358,11 +358,14 @@ final class ReviewRequestStacksTests: XCTestCase {
     }
 
     func testAcceptanceStacksGroupUnderTheirAssignedPositionTwoMember() throws {
-        let firstStates: [(String, StackMemberBadge)] = [
-            ("STACK_MOCK_ALL_OPEN", .open), ("STACK_MOCK_PARTIALLY_MERGED", .merged), ("STACK_MOCK_CLOSED_DEPENDENCY", .closed)
+        // The all-open stack's position-3 member is a draft, so it shows Draft before its state.
+        let firstStates: [(String, StackMemberBadge, [StackMemberBadge])] = [
+            ("STACK_MOCK_ALL_OPEN", .open, [.draft, .open]),
+            ("STACK_MOCK_PARTIALLY_MERGED", .merged, [.open]),
+            ("STACK_MOCK_CLOSED_DEPENDENCY", .closed, [.open])
         ]
         let assigned = try XCTUnwrap(Self.prStacksSections().first { $0.section == .assigned })
-        for (stackID, firstState) in firstStates {
+        for (stackID, firstState, lastBadges) in firstStates {
             let (row, group) = try Self.prStacksGroup(stackID)
             XCTAssertEqual(row.representative.id, "PR_\(stackID)_2", stackID)
             XCTAssertTrue(assigned.visible.contains(row), "assigned, \(stackID)")
@@ -373,7 +376,7 @@ final class ReviewRequestStacksTests: XCTestCase {
                 StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
                 "2/3", stackID
             )
-            XCTAssertEqual(group.members.map { StackMemberBadge.badges(for: $0).afterTitle }, [[firstState], [], [.open]], stackID)
+            XCTAssertEqual(group.members.map(StackMemberBadge.badges(for:)), [[firstState], [], lastBadges], stackID)
         }
     }
 
@@ -386,7 +389,7 @@ final class ReviewRequestStacksTests: XCTestCase {
             StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
             "3/3"
         )
-        XCTAssertEqual(group.members.map { StackMemberBadge.badges(for: $0).afterTitle }, [[.merged], [.open], []])
+        XCTAssertEqual(group.members.map(StackMemberBadge.badges(for:)), [[.merged], [.open], []])
     }
 
     func testMergedAndClosedContextMembersNeverRepresentAGroupOrCountInASection() throws {

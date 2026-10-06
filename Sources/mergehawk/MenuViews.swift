@@ -2485,13 +2485,18 @@ struct PullRequestRow: View {
     private var identity: some View {
         VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             PullRequestTitleLine {
-                if pullRequest.draft { DraftPullRequestIndicator() }
                 Text(pullRequest.title)
                     .font(metrics.type.cardTitle.font)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .accessibilityLabel(pullRequest.title)
                     .pullRequestCardPart(.title)
+                if pullRequest.draft {
+                    // The badge keeps its full width; only the title truncates.
+                    DraftPullRequestIndicator()
+                        .layoutPriority(1)
+                        .pullRequestCardPart(.draftBadge)
+                }
             }
 
             HStack(spacing: metrics.prRow.identityItemSpacing) {
