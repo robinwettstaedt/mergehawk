@@ -336,7 +336,7 @@ struct StackContextCard: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: metrics.cardLineSpacing) {
+        VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             PullRequestTitleLine {
                 Text(entry.title)
                     .font(metrics.type.cardTitle.font)
@@ -352,30 +352,31 @@ struct StackContextCard: View {
                 }
             }
 
-            HStack(spacing: metrics.prRow.identityItemSpacing) {
-                Text(entry.author)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                Text("·")
-                    .fixedSize()
-                    .accessibilityHidden(true)
-                Text(repo)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text("#\(entry.number)")
-                    .fixedSize(horizontal: true, vertical: false)
-                    .layoutPriority(1)
-                if let metadataAccessory {
-                    metadataAccessory
+            CardMetadataLine {
+                HStack(spacing: metrics.prRow.identityItemSpacing) {
+                    Text(entry.author)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                    Text("·")
                         .fixedSize()
-                        .layoutPriority(2)
+                        .accessibilityHidden(true)
+                    Text(repo)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text("#\(entry.number)")
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
+                    if let metadataAccessory {
+                        metadataAccessory
+                            .fixedSize()
+                            .layoutPriority(2)
+                    }
                 }
+                .font(metrics.type.cardMetadata.font)
+                .foregroundStyle(.tertiary)
+                .pullRequestCardPart(.metadata)
             }
-            .font(metrics.type.cardMetadata.font)
-            .foregroundStyle(.tertiary)
-            .pullRequestCardPart(.metadata)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

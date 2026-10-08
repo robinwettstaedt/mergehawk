@@ -1993,7 +1993,7 @@ struct PullRequestNotificationRow: View {
                         .font(metrics.type.notificationIcon.font)
                         .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
                         .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
-                    VStack(alignment: .leading, spacing: metrics.cardLineSpacing) {
+                    VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
                         // The PR cards' title line, so a notification row is exactly as tall as a PR card.
                         PullRequestTitleLine {
                             HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
@@ -2009,7 +2009,7 @@ struct PullRequestNotificationRow: View {
                                     .fixedSize(horizontal: true, vertical: false)
                             }
                         }
-                        pullRequestLine
+                        CardMetadataLine { pullRequestLine }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -2493,7 +2493,7 @@ struct PullRequestRow: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: metrics.cardLineSpacing) {
+        VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
             PullRequestTitleLine {
                 Text(pullRequest.title)
                     .font(metrics.type.cardTitle.font)
@@ -2509,33 +2509,34 @@ struct PullRequestRow: View {
                 }
             }
 
-            HStack(spacing: metrics.prRow.identityItemSpacing) {
-                Text(pullRequest.author)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                    .accessibilityLabel("Author: \(pullRequest.author)")
-                Text("·")
-                    .fixedSize()
-                    .accessibilityHidden(true)
-                Text(pullRequest.repo)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .accessibilityLabel(pullRequest.repo)
-                Text("#\(pullRequest.number)")
-                    .fixedSize(horizontal: true, vertical: false)
-                    .layoutPriority(1)
-                    .accessibilityLabel("Pull request number \(pullRequest.number)")
-                if let metadataAccessory {
-                    metadataAccessory
+            CardMetadataLine {
+                HStack(spacing: metrics.prRow.identityItemSpacing) {
+                    Text(pullRequest.author)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                        .accessibilityLabel("Author: \(pullRequest.author)")
+                    Text("·")
                         .fixedSize()
-                        .layoutPriority(2)
+                        .accessibilityHidden(true)
+                    Text(pullRequest.repo)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityLabel(pullRequest.repo)
+                    Text("#\(pullRequest.number)")
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
+                        .accessibilityLabel("Pull request number \(pullRequest.number)")
+                    if let metadataAccessory {
+                        metadataAccessory
+                            .fixedSize()
+                            .layoutPriority(2)
+                    }
                 }
+                .font(metrics.type.cardMetadata.font)
+                .foregroundStyle(.secondary)
+                .pullRequestCardPart(.metadata)
             }
-            .font(metrics.type.cardMetadata.font)
-            .foregroundStyle(.secondary)
-            .pullRequestCardPart(.metadata)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -2592,6 +2593,28 @@ struct PullRequestTitleLine<Content: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A card's metadata line. It keeps the height of a metadata line at its former caption size: the text sits on that
+/// box's bottom and rises into the gap above, so the larger metadata font never changes a card's height, whatever
+/// whole-point rounding its line gets at a menu scale.
+struct CardMetadataLine<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.menuMetrics) private var metrics
+
+    var body: some View {
+        Text(verbatim: " ")
+            .font(metrics.type.cardMetadataSlot.font)
+            .hidden()
+            .accessibilityHidden(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottomLeading) {
+                content()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
     }
 }
 

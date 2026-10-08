@@ -52,10 +52,6 @@ final class MenuMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.prColumns.avatarSize, 27)
     }
 
-    func testCardLineSpacingGivesUpTheMetadataLinesExtraPoint() {
-        XCTAssertEqual(metrics.cardLineSpacing, 3)
-    }
-
     func testActionsMenuHeightFollowsItsItemsAndKeepsItsSize() {
         // No capture opens the PR actions menu, so its derived height is checked here.
         XCTAssertEqual(metrics.actionsMenu.height, 94)
@@ -340,6 +336,7 @@ final class MenuMetricsTests: XCTestCase {
         .init(name: "sectionCount", keyPath: \.type.sectionCount, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
         .init(name: "cardTitle", keyPath: \.type.cardTitle, mer86Size: 11, size: 12, weight: .semibold),
         .init(name: "cardMetadata", keyPath: \.type.cardMetadata, mer86Size: 10, size: 11, weight: .medium),
+        .init(name: "cardMetadataSlot", keyPath: \.type.cardMetadataSlot, mer86Size: 10, size: 10, weight: .medium),
         .init(name: "notificationIcon", keyPath: \.type.notificationIcon, mer86Size: 17, size: 17, weight: .medium),
         .init(name: "notificationTimestamp", keyPath: \.type.notificationTimestamp, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
         .init(name: "markReadSymbol", keyPath: \.type.markReadSymbol, mer86Size: 9, size: 10, weight: .medium),
