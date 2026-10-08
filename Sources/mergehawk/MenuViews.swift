@@ -3039,7 +3039,8 @@ enum PullRequestChangesPresentation {
         if scaled.rounded() >= 1_000 && unit < suffixes.count - 1 {
             return "1.0\(suffixes[unit + 1])"
         }
-        return scaled < 10
+        // One decimal below 10; "9.96k" rounds to 10, so it takes the whole-number form "10k".
+        return (scaled * 10).rounded() < 100
             ? String(format: "%.1f%@", scaled, suffixes[unit])
             : String(format: "%.0f%@", scaled, suffixes[unit])
     }

@@ -407,6 +407,8 @@ final class MenuViewTests: XCTestCase {
     }
 
     func testChangeCountRoundingPromotesAtSuffixBoundaries() {
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 9_949, deletions: 9_950), "+9.9k −10k")
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 9_949_999, deletions: 9_999_999), "+9.9m −10m")
         XCTAssertEqual(
             PullRequestChangesPresentation.text(additions: 999_499, deletions: 999_500),
             "+999k −1.0m"
@@ -1245,13 +1247,12 @@ final class MenuViewTests: XCTestCase {
             var before = metrics
             before.type.cardTitle.size = 11 * factor
             before.type.cardMetadata.size = 10 * factor
-            for draft in [false, true] {
-                let card = memberCards(title: "Short title", draft: draft)[0].1
+            for (name, card) in memberCards(title: "Short title", draft: false) {
                 XCTAssertEqual(
                     exactHeight(card, width: 800 * factor, metrics: metrics),
                     exactHeight(card, width: 800 * factor, metrics: before),
                     accuracy: 0.001,
-                    "at \(factor), draft: \(draft)"
+                    "\(name) at \(factor)"
                 )
             }
         }
@@ -1502,8 +1503,8 @@ final class MenuViewTests: XCTestCase {
 
     @MainActor
     func testTheWidestChangeCountsFitTheChangesColumnUnscaled() {
-        // The widest labels of realistic counts, below 10 million lines: "+999k" and "+9.9m".
-        let widest = [999_499, 9_949_999].flatMap { value in
+        // The widest labels of realistic counts, below 10 million lines: "+999k", "+9.9m" and "+10m".
+        let widest = [999_499, 9_949_999, 9_999_999].flatMap { value in
             [PullRequestChangesPresentation.additionsText(value), PullRequestChangesPresentation.deletionsText(value)]
         }
         for size in MenuSize.allCases {
