@@ -336,7 +336,7 @@ struct StackContextCard: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
+        VStack(alignment: .leading, spacing: metrics.cardLineSpacing) {
             PullRequestTitleLine {
                 Text(entry.title)
                     .font(metrics.type.cardTitle.font)

@@ -52,6 +52,10 @@ final class MenuMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.prColumns.avatarSize, 27)
     }
 
+    func testCardLineSpacingGivesUpTheMetadataLinesExtraPoint() {
+        XCTAssertEqual(metrics.cardLineSpacing, 3)
+    }
+
     func testActionsMenuHeightFollowsItsItemsAndKeepsItsSize() {
         // No capture opens the PR actions menu, so its derived height is checked here.
         XCTAssertEqual(metrics.actionsMenu.height, 94)
@@ -145,12 +149,7 @@ final class MenuMetricsTests: XCTestCase {
         "controls.sortDividerVerticalInset", "controls.segmentDividerVerticalInset",
         // The gap between an avatar and the stack connector line is optical, not layout spacing.
         "prRow.stackConnectorGap",
-        // The card title and metadata grew by 1 pt each (MER-95); the line gap shrinks to keep the card height.
-        "prColumns.identityLineSpacing",
     ]
-
-    /// One-offs whose value changed after MER-86.
-    private static let spacingOneOffValues: [String: CGFloat] = ["prColumns.identityLineSpacing": 3]
 
     /// Every spacing and padding token with its value before the scales were consolidated (MER-86).
     private static let spacingTokens: [SizeToken] = [
@@ -255,7 +254,7 @@ final class MenuMetricsTests: XCTestCase {
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {
-                XCTAssertEqual(value, Self.spacingOneOffValues[token.name] ?? token.mer86Value, "one-off \(token.name) keeps its value")
+                XCTAssertEqual(value, token.mer86Value, "one-off \(token.name) keeps its value")
             } else {
                 XCTAssertTrue(Self.spacingScale.contains(value), "\(token.name) = \(value) is off the spacing scale")
             }

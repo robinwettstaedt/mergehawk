@@ -1993,7 +1993,7 @@ struct PullRequestNotificationRow: View {
                         .font(metrics.type.notificationIcon.font)
                         .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
                         .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
-                    VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
+                    VStack(alignment: .leading, spacing: metrics.cardLineSpacing) {
                         // The PR cards' title line, so a notification row is exactly as tall as a PR card.
                         PullRequestTitleLine {
                             HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
@@ -2493,7 +2493,7 @@ struct PullRequestRow: View {
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
+        VStack(alignment: .leading, spacing: metrics.cardLineSpacing) {
             PullRequestTitleLine {
                 Text(pullRequest.title)
                     .font(metrics.type.cardTitle.font)

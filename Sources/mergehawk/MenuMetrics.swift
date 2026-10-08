@@ -16,6 +16,13 @@ struct MenuMetrics: Equatable {
             let font = Font.system(size: size, weight: weight, design: design)
             return monospacedDigits ? font.monospacedDigit() : font
         }
+
+        /// The height SwiftUI lays out for one line of this font: the ascender and the descender, each rounded up
+        /// to whole points. The system font's ascender and descender are the same at every weight.
+        var lineHeight: CGFloat {
+            let font = NSFont.systemFont(ofSize: size)
+            return font.ascender.rounded(.up) + (-font.descender).rounded(.up)
+        }
     }
 
     /// The system menu font at an inspectable point size, used for native-looking menu rows.
@@ -406,7 +413,18 @@ struct MenuMetrics: Equatable {
 
     var panelSize: CGSize { CGSize(width: panel.width, height: panelHeight) }
 
+    /// The gap between a card's title and metadata lines: `prColumns.identityLineSpacing` above a caption-size
+    /// metadata line, less the height the larger metadata line adds. Cards keep their height at every menu size,
+    /// whatever whole-point rounding the metadata line gets.
+    var cardLineSpacing: CGFloat {
+        let captionLineHeight = FontToken(size: Self.captionSize * scale).lineHeight
+        return prColumns.identityLineSpacing - (type.cardMetadata.lineHeight - captionLineHeight)
+    }
+
     static let standard = MenuMetrics(scale: 1)
+
+    /// The smallest type size at the Default menu size.
+    private static let captionSize: CGFloat = 10
 
     /// The applied menu size factor. Every base measurement is its Default value times this;
     /// derived measurements follow from the scaled parts and hairlines stay 1 pt.
@@ -417,7 +435,7 @@ struct MenuMetrics: Equatable {
         func s(_ value: CGFloat) -> CGFloat { value * scale }
 
         // One type size per role; each font token picks its role, weight and design.
-        let caption: CGFloat = 10
+        let caption = Self.captionSize
         let body: CGFloat = 11
         let cardHeading: CGFloat = 12
         let title: CGFloat = 13
@@ -504,10 +522,10 @@ struct MenuMetrics: Equatable {
             verticalInset: s(8),
             avatarSize: s(27),
             identitySpacing: s(8),
-            identityLineSpacing: s(3),
+            identityLineSpacing: s(4),
             commentsWidth: s(30),
             statusWidth: s(30),
-            changesWidth: s(35),
+            changesWidth: s(37),
             ageWidth: s(30),
             actionButtonHitSize: s(28)
         )

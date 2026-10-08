@@ -1210,6 +1210,48 @@ final class MenuViewTests: XCTestCase {
         }
     }
 
+    /// Lays `view` out at `width` with its ideal height and returns that height unrounded, unlike `fittingSize`.
+    @MainActor
+    private func exactHeight(_ view: some View, width: CGFloat, metrics: MenuMetrics) -> CGFloat {
+        let box = ExactHeight()
+        let measured = view
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { proxy in Color.clear.onAppear { box.height = proxy.size.height } })
+            .frame(width: width, height: 200, alignment: .top)
+            .environment(\.menuMetrics, metrics)
+        let hostingView = NSHostingView(rootView: measured)
+        hostingView.frame = CGRect(x: 0, y: 0, width: width, height: 200)
+        OffScreenHost(hostingView).close()
+        XCTAssertGreaterThan(box.height, 0, "the view was laid out")
+        return box.height
+    }
+
+    private final class ExactHeight {
+        var height: CGFloat = 0
+    }
+
+    @MainActor
+    func testLargerCardTextKeepsTheCardHeightAtEveryMenuSize() {
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            // The card text sizes and line gap before MER-95.
+            var before = metrics
+            before.type.cardTitle.size = 11 * size.factor
+            before.type.cardMetadata.size = 10 * size.factor
+            for draft in [false, true] {
+                let card = memberCards(title: "Short title", draft: draft)[0].1
+                let width = 800 * size.factor
+                XCTAssertEqual(
+                    exactHeight(card, width: width, metrics: metrics),
+                    exactHeight(card, width: width, metrics: before),
+                    accuracy: 0.001,
+                    "\(size), draft: \(draft)"
+                )
+            }
+        }
+    }
+
     @MainActor
     func testNotificationRowIsExactlyAsTallAsAPRCardAtEveryMenuSize() {
         let notification = PullRequestNotification(
@@ -1222,8 +1264,9 @@ final class MenuViewTests: XCTestCase {
             let card = memberCards(title: "Short title", draft: false)[0].1
             let row = PullRequestNotificationRow(notification: notification, action: {}, onMarkRead: {})
             XCTAssertEqual(
-                measure(row, width: width, metrics: metrics).height,
-                measure(card, width: width, metrics: metrics).height,
+                exactHeight(row, width: width, metrics: metrics),
+                exactHeight(card, width: width, metrics: metrics),
+                accuracy: 0.001,
                 "\(size)"
             )
         }
@@ -1455,12 +1498,14 @@ final class MenuViewTests: XCTestCase {
 
     @MainActor
     func testTheWidestChangeCountsFitTheChangesColumnUnscaled() {
-        let widest = [
-            PullRequestChangesPresentation.additionsText(999_499),
-            PullRequestChangesPresentation.deletionsText(999_499),
-            PullRequestChangesPresentation.additionsText(1_000_000),
-            PullRequestChangesPresentation.deletionsText(1_000_000_000),
-        ]
+        // The widest label of every compact suffix, from "+999" to "+999q".
+        let widest = (0..<6).flatMap { power -> [String] in
+            let value = 999 * Int(pow(1_000.0, Double(power)))
+            return [
+                PullRequestChangesPresentation.additionsText(value),
+                PullRequestChangesPresentation.deletionsText(value),
+            ]
+        }
         for size in MenuSize.allCases {
             let metrics = MenuMetrics(scale: size.factor)
             for text in widest {
