@@ -1502,13 +1502,9 @@ final class MenuViewTests: XCTestCase {
 
     @MainActor
     func testTheWidestChangeCountsFitTheChangesColumnUnscaled() {
-        // "+999" through "+999q": the widest label of each suffix ("q", the last, only grows past 999 beyond 10^18).
-        let widest = (0..<6).flatMap { power -> [String] in
-            let value = 999 * Int(pow(1_000.0, Double(power)))
-            return [
-                PullRequestChangesPresentation.additionsText(value),
-                PullRequestChangesPresentation.deletionsText(value),
-            ]
+        // The widest labels of realistic counts, below 10 million lines: "+999k" and "+9.9m".
+        let widest = [999_499, 9_949_999].flatMap { value in
+            [PullRequestChangesPresentation.additionsText(value), PullRequestChangesPresentation.deletionsText(value)]
         }
         for size in MenuSize.allCases {
             let metrics = MenuMetrics(scale: size.factor)

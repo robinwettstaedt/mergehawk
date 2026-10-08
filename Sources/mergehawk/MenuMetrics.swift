@@ -509,7 +509,7 @@ struct MenuMetrics: Equatable {
             identityLineSpacing: s(4),
             commentsWidth: s(30),
             statusWidth: s(30),
-            changesWidth: s(37),
+            changesWidth: s(35),
             ageWidth: s(30),
             actionButtonHitSize: s(28)
         )
