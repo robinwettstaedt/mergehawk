@@ -1211,6 +1211,25 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationRowIsExactlyAsTallAsAPRCardAtEveryMenuSize() {
+        let notification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: "PR_1"),
+            pullRequest: Self.pullRequest(title: "Short title", draft: false)
+        )
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            let width = 800 * size.factor
+            let card = memberCards(title: "Short title", draft: false)[0].1
+            let row = PullRequestNotificationRow(notification: notification, action: {}, onMarkRead: {})
+            XCTAssertEqual(
+                measure(row, width: width, metrics: metrics).height,
+                measure(card, width: width, metrics: metrics).height,
+                "\(size)"
+            )
+        }
+    }
+
+    @MainActor
     func testExpandedMemberCardColumnsLineUpWithOrdinaryCardsAtTheReducedWidth() throws {
         let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
         for size in MenuSize.allCases {
@@ -1432,6 +1451,23 @@ final class MenuViewTests: XCTestCase {
     @MainActor
     private func intrinsicWidth(_ view: some View, metrics: MenuMetrics) -> CGFloat {
         NSHostingView(rootView: view.fixedSize().environment(\.menuMetrics, metrics)).fittingSize.width
+    }
+
+    @MainActor
+    func testTheWidestChangeCountsFitTheChangesColumnUnscaled() {
+        let widest = [
+            PullRequestChangesPresentation.additionsText(999_499),
+            PullRequestChangesPresentation.deletionsText(999_499),
+            PullRequestChangesPresentation.additionsText(1_000_000),
+            PullRequestChangesPresentation.deletionsText(1_000_000_000),
+        ]
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            for text in widest {
+                let width = intrinsicWidth(Text(text).font(metrics.type.metricValue.font), metrics: metrics)
+                XCTAssertLessThanOrEqual(width, metrics.prColumns.changesWidth, "\(text) at \(size)")
+            }
+        }
     }
 
     @MainActor

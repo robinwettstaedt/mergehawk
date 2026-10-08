@@ -1145,9 +1145,12 @@ private struct NotificationListView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, list.horizontalPadding)
+                    // The PR lists' margins and scroller, so a notification row is exactly as wide as a PR card.
+                    .padding(.leading, metrics.prList.horizontalPadding)
+                    .padding(.trailing, metrics.prList.trailingPadding)
                     .padding(.top, list.topPadding)
                     .padding(.bottom, list.bottomPadding)
+                    .background(PullRequestListScrollerStyle())
                 }
             }
         }
@@ -1974,7 +1977,7 @@ struct PullRequestHeaderControls: View {
     }
 }
 
-private struct PullRequestNotificationRow: View {
+struct PullRequestNotificationRow: View {
     let notification: PullRequestNotification
     let action: () -> Void
     let onMarkRead: () -> Void
@@ -1991,17 +1994,20 @@ private struct PullRequestNotificationRow: View {
                         .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
                         .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
                     VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
-                        HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
-                            Text(title)
-                                .font(metrics.type.cardTitle.font)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
-                                .font(metrics.type.notificationTimestamp.font)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
+                        // The PR cards' title line, so a notification row is exactly as tall as a PR card.
+                        PullRequestTitleLine {
+                            HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
+                                Text(title)
+                                    .font(metrics.type.cardTitle.font)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
+                                    .font(metrics.type.notificationTimestamp.font)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
                         }
                         pullRequestLine
                     }

@@ -49,7 +49,7 @@ final class MenuMetricsTests: XCTestCase {
     }
 
     func testAvatarKeepsItsSize() {
-        XCTAssertEqual(metrics.prColumns.avatarSize, 22)
+        XCTAssertEqual(metrics.prColumns.avatarSize, 27)
     }
 
     func testActionsMenuHeightFollowsItsItemsAndKeepsItsSize() {
@@ -145,7 +145,12 @@ final class MenuMetricsTests: XCTestCase {
         "controls.sortDividerVerticalInset", "controls.segmentDividerVerticalInset",
         // The gap between an avatar and the stack connector line is optical, not layout spacing.
         "prRow.stackConnectorGap",
+        // The card title and metadata grew by 1 pt each (MER-95); the line gap shrinks to keep the card height.
+        "prColumns.identityLineSpacing",
     ]
+
+    /// One-offs whose value changed after MER-86.
+    private static let spacingOneOffValues: [String: CGFloat] = ["prColumns.identityLineSpacing": 3]
 
     /// Every spacing and padding token with its value before the scales were consolidated (MER-86).
     private static let spacingTokens: [SizeToken] = [
@@ -194,7 +199,6 @@ final class MenuMetricsTests: XCTestCase {
         ("notificationList.headerTopPadding", \.notificationList.headerTopPadding, 10),
         ("notificationList.headerBottomPadding", \.notificationList.headerBottomPadding, 6),
         ("notificationList.rowSpacing", \.notificationList.rowSpacing, 8),
-        ("notificationList.horizontalPadding", \.notificationList.horizontalPadding, 12),
         ("notificationList.topPadding", \.notificationList.topPadding, 5),
         ("notificationList.bottomPadding", \.notificationList.bottomPadding, 12),
         ("notificationRow.titleSpacing", \.notificationRow.titleSpacing, 8),
@@ -247,11 +251,11 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testSpacingIsOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.spacingTokens.count, 93)
+        XCTAssertEqual(Self.spacingTokens.count, 92)
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {
-                XCTAssertEqual(value, token.mer86Value, "one-off \(token.name) keeps its value")
+                XCTAssertEqual(value, Self.spacingOneOffValues[token.name] ?? token.mer86Value, "one-off \(token.name) keeps its value")
             } else {
                 XCTAssertTrue(Self.spacingScale.contains(value), "\(token.name) = \(value) is off the spacing scale")
             }
@@ -335,8 +339,8 @@ final class MenuMetricsTests: XCTestCase {
         .init(name: "sectionChevron", keyPath: \.type.sectionChevron, mer86Size: 12, size: 11, weight: .semibold),
         .init(name: "sectionHeading", keyPath: \.type.sectionHeading, mer86Size: 13, size: 13, weight: .semibold),
         .init(name: "sectionCount", keyPath: \.type.sectionCount, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
-        .init(name: "cardTitle", keyPath: \.type.cardTitle, mer86Size: 11, size: 11, weight: .semibold),
-        .init(name: "cardMetadata", keyPath: \.type.cardMetadata, mer86Size: 10, size: 10, weight: .medium),
+        .init(name: "cardTitle", keyPath: \.type.cardTitle, mer86Size: 11, size: 12, weight: .semibold),
+        .init(name: "cardMetadata", keyPath: \.type.cardMetadata, mer86Size: 10, size: 11, weight: .medium),
         .init(name: "notificationIcon", keyPath: \.type.notificationIcon, mer86Size: 17, size: 17, weight: .medium),
         .init(name: "notificationTimestamp", keyPath: \.type.notificationTimestamp, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
         .init(name: "markReadSymbol", keyPath: \.type.markReadSymbol, mer86Size: 9, size: 10, weight: .medium),
