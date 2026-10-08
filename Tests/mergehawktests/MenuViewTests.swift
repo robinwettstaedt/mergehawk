@@ -407,6 +407,8 @@ final class MenuViewTests: XCTestCase {
     }
 
     func testChangeCountRoundingPromotesAtSuffixBoundaries() {
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 9_949, deletions: 9_950), "+9.9k −10k")
+        XCTAssertEqual(PullRequestChangesPresentation.text(additions: 9_949_999, deletions: 9_999_999), "+9.9m −10m")
         XCTAssertEqual(
             PullRequestChangesPresentation.text(additions: 999_499, deletions: 999_500),
             "+999k −1.0m"
@@ -1210,6 +1212,71 @@ final class MenuViewTests: XCTestCase {
         }
     }
 
+    /// Lays `view` out at `width` with its ideal height and returns that height unrounded, unlike `fittingSize`.
+    @MainActor
+    private func exactHeight(_ view: some View, width: CGFloat, metrics: MenuMetrics) -> CGFloat {
+        let box = ExactHeight()
+        let measured = view
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { proxy in Color.clear.onAppear { box.height = proxy.size.height } })
+            .frame(width: width, height: 200, alignment: .top)
+            .environment(\.menuMetrics, metrics)
+        let hostingView = NSHostingView(rootView: measured)
+        hostingView.frame = CGRect(x: 0, y: 0, width: width, height: 200)
+        OffScreenHost(hostingView).close()
+        XCTAssertGreaterThan(box.height, 0, "the view was laid out")
+        return box.height
+    }
+
+    private final class ExactHeight {
+        var height: CGFloat = 0
+    }
+
+    /// The menu sizes' factors plus factors from 0.70 to 1.30 in 0.02 steps: the panel scales by any factor in
+    /// between when it shrinks to fit the screen.
+    private static let layoutFactors = MenuSize.allCases.map(\.factor) + stride(from: 70, through: 130, by: 2).map {
+        CGFloat($0) / 100
+    }
+
+    @MainActor
+    func testLargerCardTextKeepsTheCardHeightAtEveryScale() {
+        for factor in Self.layoutFactors {
+            let metrics = MenuMetrics(scale: factor)
+            // The card text sizes before MER-95.
+            var before = metrics
+            before.type.cardTitle.size = 11 * factor
+            before.type.cardMetadata.size = 10 * factor
+            for (name, card) in memberCards(title: "Short title", draft: false) {
+                XCTAssertEqual(
+                    exactHeight(card, width: 800 * factor, metrics: metrics),
+                    exactHeight(card, width: 800 * factor, metrics: before),
+                    accuracy: 0.001,
+                    "\(name) at \(factor)"
+                )
+            }
+        }
+    }
+
+    @MainActor
+    func testNotificationRowIsExactlyAsTallAsAPRCardAtEveryScale() {
+        let notification = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: "PR_1"),
+            pullRequest: Self.pullRequest(title: "Short title", draft: false)
+        )
+        for factor in Self.layoutFactors {
+            let metrics = MenuMetrics(scale: factor)
+            let card = memberCards(title: "Short title", draft: false)[0].1
+            let row = PullRequestNotificationRow(notification: notification, action: {}, onMarkRead: {})
+            XCTAssertEqual(
+                exactHeight(row, width: 800 * factor, metrics: metrics),
+                exactHeight(card, width: 800 * factor, metrics: metrics),
+                accuracy: 0.001,
+                "at \(factor)"
+            )
+        }
+    }
+
     @MainActor
     func testExpandedMemberCardColumnsLineUpWithOrdinaryCardsAtTheReducedWidth() throws {
         let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_SPREAD").row.stack)
@@ -1432,6 +1499,21 @@ final class MenuViewTests: XCTestCase {
     @MainActor
     private func intrinsicWidth(_ view: some View, metrics: MenuMetrics) -> CGFloat {
         NSHostingView(rootView: view.fixedSize().environment(\.menuMetrics, metrics)).fittingSize.width
+    }
+
+    @MainActor
+    func testTheWidestChangeCountsFitTheChangesColumnUnscaled() {
+        // The widest labels of realistic counts, below 10 million lines: "+999k", "+9.9m" and "+10m".
+        let widest = [999_499, 9_949_999, 9_999_999].flatMap { value in
+            [PullRequestChangesPresentation.additionsText(value), PullRequestChangesPresentation.deletionsText(value)]
+        }
+        for size in MenuSize.allCases {
+            let metrics = MenuMetrics(scale: size.factor)
+            for text in widest {
+                let width = intrinsicWidth(Text(text).font(metrics.type.metricValue.font), metrics: metrics)
+                XCTAssertLessThanOrEqual(width, metrics.prColumns.changesWidth, "\(text) at \(size)")
+            }
+        }
     }
 
     @MainActor

@@ -1145,9 +1145,12 @@ private struct NotificationListView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, list.horizontalPadding)
+                    // The PR lists' margins and scroller, so a notification row is exactly as wide as a PR card.
+                    .padding(.leading, metrics.prList.horizontalPadding)
+                    .padding(.trailing, metrics.prList.trailingPadding)
                     .padding(.top, list.topPadding)
                     .padding(.bottom, list.bottomPadding)
+                    .background(PullRequestListScrollerStyle())
                 }
             }
         }
@@ -1974,7 +1977,7 @@ struct PullRequestHeaderControls: View {
     }
 }
 
-private struct PullRequestNotificationRow: View {
+struct PullRequestNotificationRow: View {
     let notification: PullRequestNotification
     let action: () -> Void
     let onMarkRead: () -> Void
@@ -1991,19 +1994,22 @@ private struct PullRequestNotificationRow: View {
                         .foregroundStyle(PullRequestNotificationIconPresentation.color(for: notification.eventType))
                         .frame(width: metrics.prColumns.avatarSize, height: metrics.prColumns.avatarSize)
                     VStack(alignment: .leading, spacing: metrics.prColumns.identityLineSpacing) {
-                        HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
-                            Text(title)
-                                .font(metrics.type.cardTitle.font)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
-                                .font(metrics.type.notificationTimestamp.font)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
+                        // The PR cards' title line, so a notification row is exactly as tall as a PR card.
+                        PullRequestTitleLine {
+                            HStack(alignment: .firstTextBaseline, spacing: metrics.notificationRow.titleSpacing) {
+                                Text(title)
+                                    .font(metrics.type.cardTitle.font)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
+                                    .font(metrics.type.notificationTimestamp.font)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
                         }
-                        pullRequestLine
+                        CardMetadataLine { pullRequestLine }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -2503,33 +2509,34 @@ struct PullRequestRow: View {
                 }
             }
 
-            HStack(spacing: metrics.prRow.identityItemSpacing) {
-                Text(pullRequest.author)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                    .accessibilityLabel("Author: \(pullRequest.author)")
-                Text("·")
-                    .fixedSize()
-                    .accessibilityHidden(true)
-                Text(pullRequest.repo)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .accessibilityLabel(pullRequest.repo)
-                Text("#\(pullRequest.number)")
-                    .fixedSize(horizontal: true, vertical: false)
-                    .layoutPriority(1)
-                    .accessibilityLabel("Pull request number \(pullRequest.number)")
-                if let metadataAccessory {
-                    metadataAccessory
+            CardMetadataLine {
+                HStack(spacing: metrics.prRow.identityItemSpacing) {
+                    Text(pullRequest.author)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                        .accessibilityLabel("Author: \(pullRequest.author)")
+                    Text("·")
                         .fixedSize()
-                        .layoutPriority(2)
+                        .accessibilityHidden(true)
+                    Text(pullRequest.repo)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityLabel(pullRequest.repo)
+                    Text("#\(pullRequest.number)")
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
+                        .accessibilityLabel("Pull request number \(pullRequest.number)")
+                    if let metadataAccessory {
+                        metadataAccessory
+                            .fixedSize()
+                            .layoutPriority(2)
+                    }
                 }
+                .font(metrics.type.cardMetadata.font)
+                .foregroundStyle(.secondary)
+                .pullRequestCardPart(.metadata)
             }
-            .font(metrics.type.cardMetadata.font)
-            .foregroundStyle(.secondary)
-            .pullRequestCardPart(.metadata)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -2586,6 +2593,28 @@ struct PullRequestTitleLine<Content: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A card's metadata line. It keeps the height of a metadata line at its former caption size: the text sits on that
+/// box's bottom and rises into the gap above, so the larger metadata font never changes a card's height, whatever
+/// whole-point rounding its line gets at a menu scale.
+struct CardMetadataLine<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.menuMetrics) private var metrics
+
+    var body: some View {
+        Text(verbatim: " ")
+            .font(metrics.type.cardMetadataSlot.font)
+            .hidden()
+            .accessibilityHidden(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottomLeading) {
+                content()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
     }
 }
 
@@ -3010,7 +3039,8 @@ enum PullRequestChangesPresentation {
         if scaled.rounded() >= 1_000 && unit < suffixes.count - 1 {
             return "1.0\(suffixes[unit + 1])"
         }
-        return scaled < 10
+        // One decimal below 10; "9.96k" rounds to 10, so it takes the whole-number form "10k".
+        return (scaled * 10).rounded() < 100
             ? String(format: "%.1f%@", scaled, suffixes[unit])
             : String(format: "%.0f%@", scaled, suffixes[unit])
     }

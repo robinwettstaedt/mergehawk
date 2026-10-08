@@ -54,6 +54,8 @@ struct MenuMetrics: Equatable {
         var cardTitle: FontToken
         /// Author, repository and PR number lines under a card title.
         var cardMetadata: FontToken
+        /// Sizes the card metadata line's box (`CardMetadataLine`); never drawn.
+        var cardMetadataSlot: FontToken
         var notificationIcon: FontToken
         var notificationTimestamp: FontToken
         var markReadSymbol: FontToken
@@ -219,7 +221,6 @@ struct MenuMetrics: Equatable {
         var headerTopPadding: CGFloat
         var headerBottomPadding: CGFloat
         var rowSpacing: CGFloat
-        var horizontalPadding: CGFloat
         var topPadding: CGFloat
         var bottomPadding: CGFloat
     }
@@ -408,7 +409,6 @@ struct MenuMetrics: Equatable {
     var panelSize: CGSize { CGSize(width: panel.width, height: panelHeight) }
 
     static let standard = MenuMetrics(scale: 1)
-
     /// The applied menu size factor. Every base measurement is its Default value times this;
     /// derived measurements follow from the scaled parts and hairlines stay 1 pt.
     let scale: CGFloat
@@ -420,6 +420,7 @@ struct MenuMetrics: Equatable {
         // One type size per role; each font token picks its role, weight and design.
         let caption: CGFloat = 10
         let body: CGFloat = 11
+        let cardHeading: CGFloat = 12
         let title: CGFloat = 13
         let display: CGFloat = 17
         let displayLarge: CGFloat = 34
@@ -441,8 +442,9 @@ struct MenuMetrics: Equatable {
             sectionChevron: FontToken(size: s(body), weight: .semibold),
             sectionHeading: FontToken(size: s(title), weight: .semibold),
             sectionCount: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
-            cardTitle: FontToken(size: s(body), weight: .semibold),
-            cardMetadata: FontToken(size: s(caption), weight: .medium),
+            cardTitle: FontToken(size: s(cardHeading), weight: .semibold),
+            cardMetadata: FontToken(size: s(body), weight: .medium),
+            cardMetadataSlot: FontToken(size: s(caption), weight: .medium),
             notificationIcon: FontToken(size: s(display), weight: .medium),
             notificationTimestamp: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
             markReadSymbol: FontToken(size: s(caption), weight: .medium),
@@ -502,12 +504,12 @@ struct MenuMetrics: Equatable {
             headerHeight: s(32),
             horizontalInset: s(8),
             verticalInset: s(8),
-            avatarSize: s(22),
-            identitySpacing: s(6),
+            avatarSize: s(27),
+            identitySpacing: s(8),
             identityLineSpacing: s(4),
             commentsWidth: s(30),
             statusWidth: s(30),
-            changesWidth: s(49),
+            changesWidth: s(35),
             ageWidth: s(30),
             actionButtonHitSize: s(28)
         )
@@ -559,7 +561,6 @@ struct MenuMetrics: Equatable {
             headerTopPadding: s(8),
             headerBottomPadding: s(6),
             rowSpacing: s(8),
-            horizontalPadding: s(12),
             topPadding: s(4),
             bottomPadding: s(12)
         )
