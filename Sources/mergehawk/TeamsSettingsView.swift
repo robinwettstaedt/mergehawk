@@ -58,6 +58,8 @@ struct TeamsSettingsView: View {
     @ObservedObject var controller: DashboardController
     @Binding var selection: SettingsTab
 
+    @Environment(\.menuMetrics) private var metrics
+
     var body: some View {
         switch ReviewTeamsSettingsPresentation.content(
             authStatus: controller.state.authStatus,
@@ -73,17 +75,18 @@ struct TeamsSettingsView: View {
                 }
             )
         case .noTeams:
-            EmptyMenuState(
-                text: ReviewTeamsSettingsPresentation.noTeamsHeadline,
-                systemImage: "person.3",
-                detail: ReviewTeamsSettingsPresentation.noTeamsDetail,
-                action: .init(
-                    title: ReviewTeamsSettingsPresentation.refreshTeamsTitle,
-                    isInProgress: controller.isRefreshing
-                ) {
-                    controller.refreshTeams()
-                }
-            )
+            VStack(spacing: 0) {
+                EmptyMenuState(
+                    text: ReviewTeamsSettingsPresentation.noTeamsHeadline,
+                    systemImage: "person.3",
+                    detail: ReviewTeamsSettingsPresentation.noTeamsDetail
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                // The same gap EmptyMenuState leaves above its own action button.
+                refreshTeamsControl
+                    .padding(.top, 2 * metrics.emptyState.spacing)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .teams(let groups):
             Form {
                 ForEach(groups) { group in
@@ -95,14 +98,14 @@ struct TeamsSettingsView: View {
                         VStack(alignment: .leading, spacing: 20) {
                             // The caption heads the first section so it reads as plain text above the groups.
                             if group.id == groups.first?.id {
-                                HStack(alignment: .top, spacing: 12) {
+                                HStack(alignment: .firstTextBaseline, spacing: 12) {
                                     Text(ReviewTeamsSettingsPresentation.caption)
                                         .font(.body)
                                         .fontWeight(.regular)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                    refreshTeamsButton
+                                    refreshTeamsControl
                                 }
                             }
                             organizationHeader(group)
@@ -117,27 +120,22 @@ struct TeamsSettingsView: View {
         }
     }
 
-    private var refreshTeamsButton: some View {
-        Button {
-            controller.refreshTeams()
-        } label: {
-            HStack(spacing: 4) {
-                if controller.isRefreshing {
-                    ProgressView()
-                        .controlSize(.mini)
-                        // Keeps the button a single disabled button for VoiceOver, not a busy indicator.
-                        .accessibilityHidden(true)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-                Text(ReviewTeamsSettingsPresentation.refreshTeamsTitle)
-            }
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .fixedSize()
-        .disabled(controller.isRefreshing)
-        .accessibilityLabel(ReviewTeamsSettingsPresentation.refreshTeamsTitle)
+    /// The Sources pane's refresh control, showing when the teams were last read.
+    private var refreshTeamsControl: some View {
+        RefreshStatusControl(
+            indicatorColor: .secondary,
+            isRefreshing: controller.isRefreshing,
+            updatedAt: controller.state.viewerTeamsReadAt,
+            action: controller.refreshTeams,
+            isRefreshEnabled: !controller.isRefreshing,
+            help: ReviewTeamsSettingsPresentation.refreshTeamsTitle,
+            accessibilityLabel: ReviewTeamsSettingsPresentation.refreshTeamsTitle,
+            keyboardShortcut: KeyboardShortcut("r", modifiers: .command),
+            timestampPrefix: "",
+            width: 58,
+            displayMode: .horizontalButton(height: 24),
+            showsIndicator: false
+        )
     }
 
     private var notificationsLink: some View {

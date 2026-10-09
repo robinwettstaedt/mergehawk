@@ -579,7 +579,10 @@ final class SettingsViewTests: XCTestCase {
         host.settle()
         XCTAssertTrue(controller.isRefreshing)
 
-        try withAccessibilityElement(labeled: "Refresh teams", role: .button, in: host, file: #filePath, line: #line) {
+        // While refreshing, the shared refresh control exposes its spinner, labeled with the refreshing state.
+        try withAccessibilityElement(
+            labeled: "Refresh teams, refreshing", role: .busyIndicator, in: host, file: #filePath, line: #line
+        ) {
             XCTAssertEqual(($0 as AnyObject).isAccessibilityEnabled?(), false)
         }
     }
