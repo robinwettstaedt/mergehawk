@@ -819,7 +819,8 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await refreshDashboard()
+            // Teams stored under an earlier credential are not reused, even for the same account.
+            await refreshDashboard(forcesTeamRead: true)
             startCatalogRefreshIfNeeded(force: true)
         } catch {
             errorMessage = error.localizedDescription
@@ -900,7 +901,8 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await refreshDashboard()
+            // Teams stored under an earlier credential are not reused, even for the same account.
+            await refreshDashboard(forcesTeamRead: true)
             guard shouldContinueSignIn(attemptID) else { return }
             startCatalogRefreshIfNeeded(force: true)
             try tokenStore.storeOAuthTokens(tokens)

@@ -1,6 +1,6 @@
 @testable import mergehawk
 import Foundation
-import mergehawkcore
+@testable import mergehawkcore
 import XCTest
 
 private func archiveFixturePR(
@@ -34,6 +34,8 @@ final class ReviewTeamGitHubProvider: GitHubProviding {
     /// Nil fails every complete PR refresh, like a machine without network.
     var result: CompletePullRequestFetchResult?
     var viewerLogin = "rw"
+    /// Thrown by every complete PR refresh while set, before `result` is read.
+    var failure: Error?
     private(set) var fetchCount = 0
     /// The reusable teams each complete PR refresh was handed, nil when it was asked to read teams.
     private(set) var reusableViewerTeams: [[ViewerTeam]?] = []
@@ -45,6 +47,7 @@ final class ReviewTeamGitHubProvider: GitHubProviding {
     func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         self.reusableViewerTeams.append(reusableViewerTeams)
+        if let failure { throw failure }
         guard let result else { throw OfflineError.offline }
         return result
     }
@@ -558,6 +561,30 @@ final class DashboardControllerXCTests: XCTestCase {
         await controller.signInWithToken("github_pat_other")
 
         XCTAssertEqual(controller.state.account?.login, "someone-else")
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, Self.nestedViewerTeams, nil])
+    }
+
+    @MainActor
+    func testSigningBackInAsTheSameAccountAfterAnAuthenticationFailureReadsTeams() async throws {
+        let suiteName = "review-teams-reauth-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        await Self.waitAsync { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.failure = GitHubReadError.authentication
+        controller.refresh()
+        await Self.waitAsync { provider.fetchCount == 2 && !controller.isRefreshing }
+        XCTAssertNotNil(controller.errorMessage)
+        XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState?.dashboard.viewerTeams, Self.nestedViewerTeams)
+
+        provider.failure = nil
+        await controller.signInWithToken("github_pat_again")
+
+        XCTAssertEqual(controller.state.account?.login, "rw")
         XCTAssertEqual(provider.reusableViewerTeams, [nil, Self.nestedViewerTeams, nil])
     }
 
