@@ -791,6 +791,21 @@ final class MenuViewTests: XCTestCase {
         )
     }
 
+    func testStacksExpandAndCollapseWithAnimationUnlessReduceMotionIsOn() {
+        XCTAssertEqual(StackExpansionAnimation.animation(reduceMotion: false), .easeInOut(duration: 0.25))
+        XCTAssertNil(StackExpansionAnimation.animation(reduceMotion: true))
+    }
+
+    func testExpandedStackUnfoldsFromTheCollapsedCardToItsFullHeight() {
+        // Four rows of 60pt: the reveal starts at the first row, where the collapsed card was.
+        func height(_ progress: CGFloat) -> CGFloat {
+            StackUnfoldReveal.revealedHeight(containerHeight: 240, rowCount: 4, progress: progress)
+        }
+        XCTAssertEqual(height(0), 60)
+        XCTAssertEqual(height(0.5), 150)
+        XCTAssertEqual(height(1), 240)
+    }
+
     func testStackControlShowsNoCountOrStackWordAndKeepsRequestsInTheTooltip() {
         let presentation = StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
         XCTAssertEqual(presentation.fractionText, "2/4")
