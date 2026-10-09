@@ -791,6 +791,21 @@ final class MenuViewTests: XCTestCase {
         )
     }
 
+    func testStacksExpandAndCollapseWithAnimationUnlessReduceMotionIsOn() {
+        XCTAssertEqual(StackExpansionAnimation.animation(reduceMotion: false), .easeInOut(duration: 0.15))
+        XCTAssertNil(StackExpansionAnimation.animation(reduceMotion: true))
+    }
+
+    func testExpandedStackUnfoldsFromTheCollapsedCardToItsFullHeight() {
+        // Four rows of 60pt: the reveal starts at the first row, where the collapsed card was.
+        func height(_ progress: CGFloat) -> CGFloat {
+            StackUnfoldReveal.revealedHeight(containerHeight: 240, rowCount: 4, progress: progress)
+        }
+        XCTAssertEqual(height(0), 60)
+        XCTAssertEqual(height(0.5), 150)
+        XCTAssertEqual(height(1), 240)
+    }
+
     func testStackControlShowsNoCountOrStackWordAndKeepsRequestsInTheTooltip() {
         let presentation = StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
         XCTAssertEqual(presentation.fractionText, "2/4")
@@ -1785,6 +1800,14 @@ final class MenuViewTests: XCTestCase {
         host.settle()
     }
 
+    /// Lets a clicked stack control's expand or collapse animation finish, so frames are read at rest whether or
+    /// not Reduce Motion is on.
+    @MainActor
+    private func settleStackToggle(_ host: OffScreenHost) {
+        RunLoop.main.run(until: Date().addingTimeInterval(StackExpansionAnimation.duration + 0.1))
+        relayout(host)
+    }
+
     private static let spreadMemberIDs = (1...4).map { "PR_STACK_MOCK_SPREAD_\($0)" }
 
     @MainActor
@@ -1829,7 +1852,7 @@ final class MenuViewTests: XCTestCase {
             XCTAssertEqual(collapsed.fractionText, "\(testCase.representative)/\(testCase.size)", label)
 
             try click(host, atTopLeft: CGPoint(x: collapsed.frame.midX, y: collapsed.frame.midY))
-            relayout(host)
+            settleStackToggle(host)
             XCTAssertTrue(controller.isStackExpanded(testCase.stackID), label)
             XCTAssertEqual(scrollView.contentView.bounds.minY, offset, "expanding keeps the offset, \(label)")
             let expanded = try XCTUnwrap(frames.controls[testCase.stackID], label)
@@ -1839,7 +1862,7 @@ final class MenuViewTests: XCTestCase {
             XCTAssertTrue(topRow.contains(expanded.frame), "the control sits on the top row, \(label)")
 
             try click(host, atTopLeft: CGPoint(x: expanded.frame.midX, y: expanded.frame.midY))
-            relayout(host)
+            settleStackToggle(host)
             XCTAssertFalse(controller.isStackExpanded(testCase.stackID), label)
             let collapsedAgain = try XCTUnwrap(frames.controls[testCase.stackID], label)
             XCTAssertEqual(collapsedAgain, collapsed, "collapsed again, \(label)")

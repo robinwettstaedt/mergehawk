@@ -1035,6 +1035,36 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testOptionClickingAStackUsesItsStateForEveryStack() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+        let allStackIDs = Set(controller.state.pullRequestStacks.map(\.id))
+        let clicked = "STACK_MOCK_SPREAD"
+        let other = "STACK_MOCK_ASSIGNED"
+
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertEqual(controller.expandedStackIDs, allStackIDs)
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertTrue(controller.expandedStackIDs.isEmpty)
+
+        controller.toggleStackExpanded(other)
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertEqual(controller.expandedStackIDs, allStackIDs, "a collapsed stack expands every stack")
+
+        controller.toggleStackExpanded(other)
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertTrue(controller.expandedStackIDs.isEmpty, "an expanded stack collapses every stack")
+
+        // Stacks the filters hide expand too, so they are still expanded when the filter is cleared.
+        controller.selectedReviewRequestFilters = [.draft]
+        let shownStackIDs = Set(controller.requestedSections.flatMap { $0.visible + $0.hidden }.compactMap(\.stack?.stack.id))
+        let shown = try XCTUnwrap(shownStackIDs.first)
+        XCTAssertNotEqual(shownStackIDs, allStackIDs, "the Draft filter hides some stacks")
+        controller.toggleAllStacks(from: shown)
+        XCTAssertEqual(controller.expandedStackIDs, allStackIDs)
+    }
+
+    @MainActor
     func testReadyFilterMovesTheAssignedAboveTeamGroupFromAssignedToTeam() async throws {
         let controller = makePRStacksController()
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }

@@ -1409,6 +1409,7 @@ struct PullRequestListView: View {
     @State private var isHiddenExpanded: Bool
     @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
     @Environment(\.menuMetrics) private var metrics
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         controller: DashboardController,
@@ -1610,8 +1611,10 @@ struct PullRequestListView: View {
                     }
                 }
             }
+            .transition(StackExpansionAnimation.containerTransition(rowCount: group.members.count))
         } else {
             representativeCard(row)
+                .transition(.opacity)
         }
     }
 
@@ -1619,7 +1622,13 @@ struct PullRequestListView: View {
         AnyView(StackControl(
             presentation: StackControlPresentation(group: group, displayedPosition: displayedPosition, isExpanded: isExpanded)
         ) {
-            controller.toggleStackExpanded(group.stack.id)
+            withAnimation(StackExpansionAnimation.animation(reduceMotion: reduceMotion)) {
+                if NSEvent.modifierFlags.contains(.option) {
+                    controller.toggleAllStacks(from: group.stack.id)
+                } else {
+                    controller.toggleStackExpanded(group.stack.id)
+                }
+            }
         })
     }
 

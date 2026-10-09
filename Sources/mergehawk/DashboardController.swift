@@ -619,6 +619,12 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    /// Option-click on a stack control: as for the Requested sections, the clicked stack's state decides. Expanding
+    /// opens every stack, including ones the filters hide, and collapsing closes them all.
+    func toggleAllStacks(from stackID: String) {
+        expandedStackIDs = isStackExpanded(stackID) ? [] : Set(state.pullRequestStacks.map(\.id))
+    }
+
     func isRequestedSectionExpanded(_ section: RequestedSection) -> Bool {
         !collapsedRequestedSections.contains(section)
     }

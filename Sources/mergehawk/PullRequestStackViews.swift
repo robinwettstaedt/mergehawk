@@ -379,3 +379,50 @@ struct StackContextCard: View {
         }
     }
 }
+
+/// How a stack expands and collapses: the expanded container unfolds down out of the collapsed card while the
+/// rows below slide with its bottom edge, and folds back up on collapse. With Reduce Motion the stack switches at once.
+enum StackExpansionAnimation {
+    static let duration: TimeInterval = 0.15
+
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: duration)
+    }
+
+    /// The expanded container's own transition. The collapsed card only fades.
+    static func containerTransition(rowCount: Int) -> AnyTransition {
+        .opacity.combined(with: .modifier(
+            active: StackUnfoldReveal(progress: 0, rowCount: rowCount),
+            identity: StackUnfoldReveal(progress: 1, rowCount: rowCount)
+        ))
+    }
+}
+
+/// Masks the expanded container to its top part, from its first row (`progress` 0) to all of it (`progress` 1).
+/// Every row keeps a card's height, so the first row is exactly where the collapsed card was.
+struct StackUnfoldReveal: ViewModifier, Animatable {
+    var progress: CGFloat
+    let rowCount: Int
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    static func revealedHeight(containerHeight: CGFloat, rowCount: Int, progress: CGFloat) -> CGFloat {
+        let firstRow = containerHeight / CGFloat(max(rowCount, 1))
+        return firstRow + (containerHeight - firstRow) * progress
+    }
+
+    func body(content: Content) -> some View {
+        content.mask(alignment: .top) {
+            GeometryReader { proxy in
+                Rectangle()
+                    .frame(
+                        width: proxy.size.width,
+                        height: Self.revealedHeight(containerHeight: proxy.size.height, rowCount: rowCount, progress: progress)
+                    )
+            }
+        }
+    }
+}
