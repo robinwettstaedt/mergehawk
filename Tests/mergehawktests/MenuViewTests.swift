@@ -792,7 +792,7 @@ final class MenuViewTests: XCTestCase {
     }
 
     func testStacksExpandAndCollapseWithAnimationUnlessReduceMotionIsOn() {
-        XCTAssertEqual(StackExpansionAnimation.animation(reduceMotion: false), .easeInOut(duration: 0.25))
+        XCTAssertEqual(StackExpansionAnimation.animation(reduceMotion: false), .easeInOut(duration: 0.2))
         XCTAssertNil(StackExpansionAnimation.animation(reduceMotion: true))
     }
 
