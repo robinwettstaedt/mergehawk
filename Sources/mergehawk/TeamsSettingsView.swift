@@ -109,8 +109,8 @@ struct TeamsSettingsView: View {
                     }
                 }
                 .formStyle(.grouped)
-            }
-            .safeAreaInset(edge: .bottom) {
+                // Below the Form, so no row scrolls behind it and it sits on the window background like the
+                // install link at the bottom of Sources.
                 notificationsLink
             }
         }
@@ -156,7 +156,6 @@ struct TeamsSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         // No bottom padding, so the link sits as low as the install link at the bottom of Sources.
         .padding(.top, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func organizationHeader(_ group: ReviewTeamsSettingsPresentation.OrganizationGroup) -> some View {
