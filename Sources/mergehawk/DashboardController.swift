@@ -334,6 +334,8 @@ final class DashboardController: ObservableObject {
     }
     private var automaticRefreshDeferral: AutomaticRefreshDeferral?
     private var refreshTask: Task<Void, Never>?
+    /// Whether `refreshTask` forces a team read.
+    private var refreshTaskForcesTeamRead = false
     private var refreshAttemptID = 0
     private var catalogTask: Task<Void, Never>?
     private var providerGeneration = 0
@@ -1646,8 +1648,16 @@ final class DashboardController: ObservableObject {
         forcesTeamRead: Bool = false
     ) async {
         if isAutomatic, shouldDeferAutomaticRefresh() { return }
-        if let refreshTask {
-            await refreshTask.value
+        if let running = refreshTask {
+            let runningForcesTeamRead = refreshTaskForcesTeamRead
+            await running.value
+            // The running refresh may have reused teams, so a forced team read runs once more after it.
+            guard forcesTeamRead, !runningForcesTeamRead else { return }
+            // Its owner clears `refreshTask` when it resumes; rejoining the finished task would never start the read.
+            while refreshTask == running {
+                await Task.yield()
+            }
+            await refreshDashboard(appliesMockRefreshDelay: appliesMockRefreshDelay, forcesTeamRead: true)
             return
         }
         guard let syncEngine else { return }
@@ -1666,6 +1676,7 @@ final class DashboardController: ObservableObject {
             )
         }
         refreshTask = task
+        refreshTaskForcesTeamRead = forcesTeamRead
         await task.value
         guard refreshAttemptID == attemptID else { return }
         refreshTask = nil
