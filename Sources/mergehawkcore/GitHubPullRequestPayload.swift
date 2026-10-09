@@ -288,7 +288,7 @@ extension GitHubReadError: LocalizedError {
         case .validation(let message):
             "GitHub rejected the request: \(message)"
         case .graphQL(let errors):
-            "GitHub returned an error: \(errors.map(\.message).joined(separator: "; "))"
+            "GitHub returned an error: \(GitHubReadError.sentences(errors.map(\.message)))"
         case .invalidPayload:
             "GitHub sent data MergeHawk could not read."
         case .transport:
@@ -296,6 +296,14 @@ extension GitHubReadError: LocalizedError {
         case .incompleteCoverage:
             "GitHub returned incomplete pull request data. Showing the last complete refresh."
         }
+    }
+
+    /// Joins GitHub's error messages as sentences so the copy needs no semicolons.
+    static func sentences(_ messages: [String]) -> String {
+        messages.map { message in
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.last.map { ".!?".contains($0) } == true ? trimmed : trimmed + "."
+        }.joined(separator: " ")
     }
 }
 
