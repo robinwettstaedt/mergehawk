@@ -787,6 +787,13 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    /// A refresh that reads the viewer's teams even when the stored teams are still fresh.
+    func refreshTeams() {
+        Task {
+            await refreshDashboard(appliesMockRefreshDelay: true, forcesTeamRead: true)
+        }
+    }
+
     func signInWithToken(_ token: String) async {
         guard !isSigningInWithToken else { return }
         cancelDeviceFlowSignIn()
@@ -1524,13 +1531,17 @@ final class DashboardController: ObservableObject {
     private func performSync(
         syncEngine: SyncEngine,
         generation: Int,
-        appliesMockRefreshDelay: Bool
+        appliesMockRefreshDelay: Bool,
+        forcesTeamRead: Bool = false
     ) async {
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
             let previousState = committedSyncState
-            let fetched = try await syncEngine.fetchRefresh(previousState: previousState)
+            let fetched = try await syncEngine.fetchRefresh(
+                previousState: previousState,
+                forcesTeamRead: forcesTeamRead
+            )
             guard !Task.isCancelled, providerGeneration == generation else { return }
             // Read after the fetch, so a team turned off or on during a suspended refresh applies to it.
             let prepared = try syncEngine.prepare(
@@ -1571,7 +1582,8 @@ final class DashboardController: ObservableObject {
                 account: isSignedOut ? nil : prepared.account,
                 authStatus: isSignedOut ? .signedOut : .signedIn,
                 viewerTeams: prepared.viewerTeams,
-                pullRequestStacks: prepared.stacks
+                pullRequestStacks: prepared.stacks,
+                viewerTeamsReadAt: prepared.viewerTeamsReadAt
             )
             if isSignedOut {
                 presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
@@ -1628,7 +1640,8 @@ final class DashboardController: ObservableObject {
 
     private func refreshDashboard(
         appliesMockRefreshDelay: Bool = false,
-        isAutomatic: Bool = false
+        isAutomatic: Bool = false,
+        forcesTeamRead: Bool = false
     ) async {
         if isAutomatic, shouldDeferAutomaticRefresh() { return }
         if let refreshTask {
@@ -1646,7 +1659,8 @@ final class DashboardController: ObservableObject {
             await self.performSync(
                 syncEngine: syncEngine,
                 generation: generation,
-                appliesMockRefreshDelay: appliesMockRefreshDelay
+                appliesMockRefreshDelay: appliesMockRefreshDelay,
+                forcesTeamRead: forcesTeamRead
             )
         }
         refreshTask = task
