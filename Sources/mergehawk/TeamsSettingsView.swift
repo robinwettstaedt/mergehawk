@@ -19,7 +19,7 @@ enum ReviewTeamsSettingsPresentation {
     static let signedOutHeadline = "Sign in to see your teams"
     static let signedOutDetail = "Then choose which teams' review requests show up."
     static let noTeamsHeadline = "No teams found"
-    static let noTeamsDetail = "MergeHawk checks your GitHub teams every 30 minutes. Use Refresh teams to check now."
+    static let noTeamsDetail = "MergeHawk checks your GitHub teams every 30 minutes. Use the refresh button to check now."
     static let caption = "Turn off a team to hide PRs and notifications that reach you only through that team. "
         + "Useful for broad teams that CODEOWNERS adds to every PR."
     static let refreshTeamsTitle = "Refresh teams"

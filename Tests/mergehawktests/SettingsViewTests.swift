@@ -428,7 +428,7 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(ReviewTeamsSettingsPresentation.noTeamsHeadline, "No teams found")
         XCTAssertEqual(
             ReviewTeamsSettingsPresentation.noTeamsDetail,
-            "MergeHawk checks your GitHub teams every 30 minutes. Use Refresh teams to check now."
+            "MergeHawk checks your GitHub teams every 30 minutes. Use the refresh button to check now."
         )
     }
 
