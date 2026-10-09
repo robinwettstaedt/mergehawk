@@ -401,9 +401,6 @@ enum StackExpansionAnimation {
 /// Masks the expanded container to its top part, from its first row (`progress` 0) to all of it (`progress` 1).
 /// Every row keeps a card's height, so the first row is exactly where the collapsed card was.
 struct StackUnfoldReveal: ViewModifier, Animatable {
-    /// Keeps the container's border, drawn half outside its bounds, unclipped once fully revealed.
-    static let outset: CGFloat = 2
-
     var progress: CGFloat
     let rowCount: Int
 
@@ -422,12 +419,9 @@ struct StackUnfoldReveal: ViewModifier, Animatable {
             GeometryReader { proxy in
                 Rectangle()
                     .frame(
-                        width: proxy.size.width + Self.outset * 2,
-                        height: Self.revealedHeight(
-                            containerHeight: proxy.size.height, rowCount: rowCount, progress: progress
-                        ) + Self.outset * 2
+                        width: proxy.size.width,
+                        height: Self.revealedHeight(containerHeight: proxy.size.height, rowCount: rowCount, progress: progress)
                     )
-                    .offset(x: -Self.outset, y: -Self.outset)
             }
         }
     }
