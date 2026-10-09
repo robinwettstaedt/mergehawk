@@ -383,7 +383,7 @@ struct StackContextCard: View {
 /// How a stack expands and collapses: the expanded container unfolds down out of the collapsed card while the
 /// rows below slide with its bottom edge, and folds back up on collapse. With Reduce Motion the stack switches at once.
 enum StackExpansionAnimation {
-    static let duration: TimeInterval = 0.2
+    static let duration: TimeInterval = 0.15
 
     static func animation(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: duration)
