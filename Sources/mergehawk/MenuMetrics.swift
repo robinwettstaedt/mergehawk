@@ -70,6 +70,7 @@ struct MenuMetrics: Equatable {
         var draftBadge: FontToken
         /// The stack and chevron symbols in a requested stack card's stack control.
         var stackControlSymbol: FontToken
+        var stackControlLabel: FontToken
         var actionsMenuItem: FontToken
         /// Title of the GitHub buttons in the sign-in view and the repository access prompt.
         var gitHubButtonTitle: FontToken
@@ -457,6 +458,7 @@ struct MenuMetrics: Equatable {
             signalSymbol: FontToken(size: s(body), weight: .semibold),
             draftBadge: FontToken(size: s(caption), weight: .semibold),
             stackControlSymbol: FontToken(size: s(body), weight: .semibold),
+            stackControlLabel: FontToken(size: s(body), weight: .semibold, monospacedDigits: true),
             actionsMenuItem: FontToken(size: s(body)),
             gitHubButtonTitle: FontToken(size: s(title), weight: .semibold),
             signInTitle: FontToken(size: s(title), weight: .bold),

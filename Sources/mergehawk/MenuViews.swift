@@ -1591,7 +1591,7 @@ struct PullRequestListView: View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
             StackMemberContainer(group: group, isUnread: row.isUnread) { member, position in
                 let isFirst = member.pullRequestID == group.members.first?.pullRequestID
-                let control = isFirst ? stackControl(group, displayedPosition: group.firstMemberPosition, isExpanded: true) : nil
+                let control = isFirst ? stackControl(group, displayedPosition: group.topMemberPosition, isExpanded: true) : nil
                 let positionLabel = isFirst ? nil : AnyView(StackPositionLabel(
                     pullRequestID: member.pullRequestID, position: position, size: group.stack.size
                 ))

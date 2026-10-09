@@ -1172,7 +1172,7 @@ final class DashboardControllerXCTests: XCTestCase {
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
 
         let group = try XCTUnwrap(try Self.row(Self.spreadRepresentative, in: controller).stack)
-        guard case .context(let entry) = try XCTUnwrap(group.members.last) else {
+        guard case .context(let entry) = try XCTUnwrap(group.members.first) else {
             return XCTFail("The viewer's own member should be a context member")
         }
         XCTAssertEqual(entry.pullRequestID, Self.spreadOwnMember)
@@ -1248,12 +1248,12 @@ final class DashboardControllerXCTests: XCTestCase {
         waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
         let group = try XCTUnwrap(try Self.row(requested.id, in: controller).stack)
 
-        controller.openStackMember(group.members[0])
+        controller.openStackMember(group.members[1])
 
         XCTAssertEqual(opened, [stack.entries[0].url])
         XCTAssertEqual(controller.pullRequestNotificationHistory.map(\.read), [false])
 
-        controller.openStackMember(group.members[1])
+        controller.openStackMember(group.members[0])
 
         XCTAssertEqual(opened, [stack.entries[0].url, requested.url])
         XCTAssertEqual(controller.pullRequestNotificationHistory.map(\.read), [true])

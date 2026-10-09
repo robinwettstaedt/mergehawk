@@ -17,8 +17,8 @@ struct StackControlPresentation: Equatable {
 
     var accessibilityLabel: String { tooltip }
 
-    /// `displayedPosition` is the representative's position when collapsed, and the first displayed member's
-    /// position when expanded.
+    /// `displayedPosition` is the representative's position when collapsed, and the top member's position when
+    /// expanded.
     init(group: StackGroup, displayedPosition: Int, isExpanded: Bool) {
         let size = group.stack.size
         stackID = group.stack.id
@@ -42,9 +42,8 @@ struct StackControlPresentation: Equatable {
 }
 
 extension StackGroup {
-    /// The position of the first displayed member of the expanded group, which is position 1 unless GitHub
-    /// returned no readable entry there.
-    var firstMemberPosition: Int {
+    /// The position of the expanded group's top row: the stack's highest readable position.
+    var topMemberPosition: Int {
         members.first.flatMap(position(of:)) ?? representativePosition
     }
 }
@@ -71,7 +70,7 @@ struct StackControl: View {
                         .hidden()
                     Text(presentation.fractionText)
                 }
-                .font(metrics.type.cardTitle.font.monospacedDigit())
+                .font(metrics.type.stackControlLabel.font)
                 ZStack {
                     // Both chevrons, hidden, keep the width equal in both states.
                     Image(systemName: StackControlPresentation.collapsedChevronSymbolName)
@@ -207,10 +206,10 @@ struct StackMemberBadgeView: View {
     }
 }
 
-/// An expanded stack group: one rounded container of borderless rows, position 1 (closest to the base branch)
-/// first, with a hairline between rows and a vertical line joining consecutive avatars. Each row keeps an ordinary
-/// card's height, so the container is exactly as tall as its rows, and its top edge is where the collapsed card's
-/// top edge was.
+/// An expanded stack group: one rounded container of borderless rows in GitHub's order, the top of the stack first
+/// and position 1 (closest to the base branch) last, with a hairline between rows and a vertical line joining
+/// consecutive avatars. Each row keeps an ordinary card's height, so the container is exactly as tall as its rows, and
+/// its top edge is where the collapsed card's top edge was.
 struct StackMemberContainer<Row: View>: View {
     let group: StackGroup
     /// The group unread rule, the same signal the collapsed card shows.

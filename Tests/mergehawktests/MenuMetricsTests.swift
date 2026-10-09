@@ -349,6 +349,7 @@ final class MenuMetricsTests: XCTestCase {
         .init(name: "signalSymbol", keyPath: \.type.signalSymbol, mer86Size: 12, size: 11, weight: .semibold),
         .init(name: "draftBadge", keyPath: \.type.draftBadge, mer86Size: 9, size: 10, weight: .semibold),
         .init(name: "stackControlSymbol", keyPath: \.type.stackControlSymbol, mer86Size: 10, size: 11, weight: .semibold),
+        .init(name: "stackControlLabel", keyPath: \.type.stackControlLabel, mer86Size: 11, size: 11, weight: .semibold, monospacedDigits: true),
         .init(name: "actionsMenuItem", keyPath: \.type.actionsMenuItem, mer86Size: 12, size: 11),
         .init(name: "gitHubButtonTitle", keyPath: \.type.gitHubButtonTitle, mer86Size: 13, size: 13, weight: .semibold),
         .init(name: "signInTitle", keyPath: \.type.signInTitle, mer86Size: 13, size: 13, weight: .bold),

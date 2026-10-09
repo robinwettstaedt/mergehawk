@@ -35,7 +35,7 @@ struct StackGroup: Equatable {
     /// Ignores the Draft/Ready filter.
     let requestedMemberIDs: Set<String>
     let matchingMemberIDs: Set<String>
-    /// In position order.
+    /// As GitHub lists the stack: the top (highest position) first, position 1 (closest to the base branch) last.
     let members: [Member]
 
     var additionalRequestCount: Int { requestedMemberIDs.count - 1 }
@@ -129,7 +129,7 @@ enum ReviewRequestStacks {
                 requestedMemberIDs: Set(requestedByID.keys),
                 matchingMemberIDs: Set(matchingMembers.map(\.id)),
                 // A requested PR that joined another stack's group is left out here, so it is never a context member.
-                members: stack.entries.compactMap { entry in
+                members: stack.entries.reversed().compactMap { entry in
                     if let member = requestedByID[entry.pullRequestID] { return .requested(member) }
                     if let other = stackIDByPullRequestID[entry.pullRequestID], other != stack.id { return nil }
                     return .context(entry)

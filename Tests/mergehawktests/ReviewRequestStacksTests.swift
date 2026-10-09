@@ -98,7 +98,7 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [], .team: ["PR_TEAM"]])
         let group = try XCTUnwrap(Self.row(team.id, in: sections)?.stack)
-        XCTAssertEqual(group.members.last, .requested(assigned))
+        XCTAssertEqual(group.members.first, .requested(assigned))
         XCTAssertEqual(group.filterExcludedRequestCount, 1)
     }
 
@@ -135,7 +135,7 @@ final class ReviewRequestStacksTests: XCTestCase {
             XCTAssertEqual(group.representativePosition, 2)
             XCTAssertEqual(group.requestedMemberIDs, [open.id])
             XCTAssertEqual(group.additionalRequestCount, 0)
-            XCTAssertEqual(group.members.first, .context(stack.entries[0]))
+            XCTAssertEqual(group.members.last, .context(stack.entries[0]))
             XCTAssertEqual(sections.map(\.count), [0, 0, 1])
         }
     }
@@ -163,7 +163,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [unstamped.id], .team: []])
         let group = try XCTUnwrap(Self.row(unstamped.id, in: sections)?.stack)
         XCTAssertEqual(group.requestedMemberIDs, [unstamped.id, member.id])
-        XCTAssertEqual(group.members, [.requested(unstamped), .requested(member)])
+        XCTAssertEqual(group.members, [.requested(member), .requested(unstamped)])
         XCTAssertEqual(sections.map(\.count), [0, 2, 0])
     }
 
@@ -176,7 +176,7 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [moved.id], .team: []])
         let group = try XCTUnwrap(Self.row(moved.id, in: sections)?.stack)
-        XCTAssertEqual(group.members, [.requested(moved), .requested(member)])
+        XCTAssertEqual(group.members, [.requested(member), .requested(moved)])
     }
 
     func testPRListedByTwoStacksJoinsOneGroupAndIsNeverAContextMemberOfTheOther() throws {
@@ -321,7 +321,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         XCTAssertEqual(row?.isUnread, true)
     }
 
-    func testNonRequestedEntriesBecomeContextMembersInPositionOrder() throws {
+    func testNonRequestedEntriesBecomeContextMembersTopOfTheStackFirst() throws {
         let requested = Self.pr("PR_REQUESTED", .direct, stack: "S")
         let stack = Self.stack("S", size: 6, [
             (6, "PR_OWN", .open), (1, "PR_MERGED", .merged), (3, requested.id, .open),
@@ -330,8 +330,8 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         let group = try XCTUnwrap(Self.row(requested.id, in: Self.sections([requested], stacks: [stack]))?.stack)
 
-        XCTAssertEqual(group.members.map(\.pullRequestID), ["PR_MERGED", "PR_CLOSED", "PR_REQUESTED", "PR_OTHER_OPEN", "PR_OWN"])
-        XCTAssertEqual(group.members.map { group.position(of: $0) }, [1, 2, 3, 5, 6])
+        XCTAssertEqual(group.members.map(\.pullRequestID), ["PR_OWN", "PR_OTHER_OPEN", "PR_REQUESTED", "PR_CLOSED", "PR_MERGED"])
+        XCTAssertEqual(group.members.map { group.position(of: $0) }, [6, 5, 3, 2, 1])
         for member in group.members where member.pullRequestID != requested.id {
             guard case .context = member else { return XCTFail("\(member.pullRequestID) should be a context member") }
         }
@@ -359,28 +359,28 @@ final class ReviewRequestStacksTests: XCTestCase {
 
     func testAcceptanceStacksGroupUnderTheirAssignedPositionTwoMember() throws {
         // The all-open stack's position-3 member is a draft, so it shows Draft before its state.
-        let firstStates: [(String, StackMemberBadge, [StackMemberBadge])] = [
+        let positionOneStates: [(String, StackMemberBadge, [StackMemberBadge])] = [
             ("STACK_MOCK_ALL_OPEN", .open, [.draft, .open]),
             ("STACK_MOCK_PARTIALLY_MERGED", .merged, [.open]),
             ("STACK_MOCK_CLOSED_DEPENDENCY", .closed, [.open])
         ]
         let assigned = try XCTUnwrap(Self.prStacksSections().first { $0.section == .assigned })
-        for (stackID, firstState, lastBadges) in firstStates {
+        for (stackID, positionOneState, positionThreeBadges) in positionOneStates {
             let (row, group) = try Self.prStacksGroup(stackID)
             XCTAssertEqual(row.representative.id, "PR_\(stackID)_2", stackID)
             XCTAssertTrue(assigned.visible.contains(row), "assigned, \(stackID)")
             XCTAssertEqual(group.stack.size, 3, stackID)
-            XCTAssertEqual(group.members.map { group.position(of: $0) }, [1, 2, 3], stackID)
+            XCTAssertEqual(group.members.map { group.position(of: $0) }, [3, 2, 1], stackID)
             XCTAssertEqual(group.requestedMemberIDs, [row.representative.id], stackID)
             XCTAssertEqual(
                 StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
                 "2/3", stackID
             )
-            XCTAssertEqual(group.contextBadges, [[firstState], lastBadges], stackID)
+            XCTAssertEqual(group.contextBadges, [positionThreeBadges, [positionOneState]], stackID)
         }
     }
 
-    func testPositionThreeStackIsRepresentedByItsLastMember() throws {
+    func testPositionThreeStackIsRepresentedByItsTopMember() throws {
         let (row, group) = try Self.prStacksGroup("STACK_MOCK_POSITION_3")
 
         XCTAssertEqual(row.representative.id, "PR_STACK_MOCK_POSITION_3_3")
@@ -389,7 +389,7 @@ final class ReviewRequestStacksTests: XCTestCase {
             StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
             "3/3"
         )
-        XCTAssertEqual(group.contextBadges, [[.merged], [.open]])
+        XCTAssertEqual(group.contextBadges, [[.open], [.merged]])
     }
 
     func testMergedAndClosedContextMembersNeverRepresentAGroupOrCountInASection() throws {
