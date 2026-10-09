@@ -776,7 +776,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(collapsed.fractionText, "2/3")
         XCTAssertEqual(collapsed.chevronSymbolName, "chevron.down")
 
-        let expanded = StackControlPresentation(group: group, displayedPosition: group.firstMemberPosition, isExpanded: true)
+        let expanded = StackControlPresentation(group: group, displayedPosition: group.topMemberPosition, isExpanded: true)
         XCTAssertEqual(expanded.fractionText, "1/3")
         XCTAssertEqual(expanded.chevronSymbolName, "chevron.up")
     }
@@ -784,9 +784,9 @@ final class MenuViewTests: XCTestCase {
     func testExpandedStackControlShowsTheFirstReadablePosition() {
         // GitHub returned no readable entry at position 1.
         let group = Self.stackGroup(size: 3, representativePosition: 3, entryPositions: [2, 3])
-        XCTAssertEqual(group.firstMemberPosition, 2)
+        XCTAssertEqual(group.topMemberPosition, 2)
         XCTAssertEqual(
-            StackControlPresentation(group: group, displayedPosition: group.firstMemberPosition, isExpanded: true).fractionText,
+            StackControlPresentation(group: group, displayedPosition: group.topMemberPosition, isExpanded: true).fractionText,
             "2/3"
         )
     }
@@ -1011,7 +1011,7 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testExpandedGroupListsEveryReadableMemberInPositionOrder() throws {
+    func testExpandedGroupListsEveryReadableMemberTopOfTheStackFirst() throws {
         let group = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
         var rendered: [(id: String, position: Int, minY: CGFloat)] = []
         let list = StackMemberContainer(group: group, isUnread: false) { member, position in
@@ -1028,17 +1028,17 @@ final class MenuViewTests: XCTestCase {
         defer { host.close() }
 
         let topToBottom = rendered.sorted { $0.minY < $1.minY }
-        XCTAssertEqual(topToBottom.map(\.position), [1, 2, 4])
+        XCTAssertEqual(topToBottom.map(\.position), [4, 2, 1])
         XCTAssertEqual(topToBottom.map(\.id), [
-            "PR_STACK_MOCK_UNREADABLE_1", "PR_STACK_MOCK_UNREADABLE_2", "PR_STACK_MOCK_UNREADABLE_4"
+            "PR_STACK_MOCK_UNREADABLE_4", "PR_STACK_MOCK_UNREADABLE_2", "PR_STACK_MOCK_UNREADABLE_1"
         ])
     }
 
     @MainActor
     func testContextMembersShowDraftThenTheirStateAfterTheTitle() throws {
         let unreadable = try XCTUnwrap(try prStacksGroup("STACK_MOCK_UNREADABLE").row.stack)
-        // Closed context, then draft open context.
-        XCTAssertEqual(unreadable.contextBadges, [[.closed], [.draft, .open]])
+        // Draft open context, then closed context.
+        XCTAssertEqual(unreadable.contextBadges, [[.draft, .open], [.closed]])
 
         let filter = try XCTUnwrap(try prStacksGroup("STACK_MOCK_FILTER").row.stack)
         // One open context member.
@@ -1834,9 +1834,9 @@ final class MenuViewTests: XCTestCase {
             XCTAssertEqual(scrollView.contentView.bounds.minY, offset, "expanding keeps the offset, \(label)")
             let expanded = try XCTUnwrap(frames.controls[testCase.stackID], label)
             XCTAssertEqual(expanded.frame, collapsed.frame, "expanded, \(label)")
-            XCTAssertEqual(expanded.fractionText, "1/\(testCase.size)", label)
-            let firstRow = try XCTUnwrap(frames.rows["PR_\(testCase.stackID)_1"], label)
-            XCTAssertTrue(firstRow.contains(expanded.frame), "the control sits on the position-1 row, \(label)")
+            XCTAssertEqual(expanded.fractionText, "\(testCase.size)/\(testCase.size)", label)
+            let topRow = try XCTUnwrap(frames.rows["PR_\(testCase.stackID)_\(testCase.size)"], label)
+            XCTAssertTrue(topRow.contains(expanded.frame), "the control sits on the top row, \(label)")
 
             try click(host, atTopLeft: CGPoint(x: expanded.frame.midX, y: expanded.frame.midY))
             relayout(host)
@@ -1991,15 +1991,15 @@ final class MenuViewTests: XCTestCase {
         }
         XCTAssertEqual(opened, (201...204).map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" })
 
-        // The avatar line takes no clicks: a click on it, just below the first avatar, opens the first member.
+        // The avatar line takes no clicks: a click on it, just below the top avatar, opens the top member.
         let firstSegment = try XCTUnwrap(frames.connectors.min { $0.minY < $1.minY })
         try click(host, atTopLeft: CGPoint(x: firstSegment.midX, y: firstSegment.minY + 1))
-        XCTAssertEqual(opened.last, "https://github.com/mergehawk-labs/mergehawk/pull/201")
+        XCTAssertEqual(opened.last, "https://github.com/mergehawk-labs/mergehawk/pull/204")
         opened.removeLast()
 
-        // Position 1 is an open context member; its control stays fully operable.
+        // The top row, position 4, is the viewer's own context member; its control stays fully operable.
         let control = try XCTUnwrap(frames.controls["STACK_MOCK_SPREAD"])
-        XCTAssertTrue(try XCTUnwrap(frames.rows[Self.spreadMemberIDs[0]]).contains(control.frame))
+        XCTAssertTrue(try XCTUnwrap(frames.rows[Self.spreadMemberIDs[3]]).contains(control.frame))
         try click(host, atTopLeft: CGPoint(x: control.frame.minX + 3, y: control.frame.midY))
         XCTAssertFalse(controller.isStackExpanded("STACK_MOCK_SPREAD"))
         XCTAssertEqual(opened.count, 4, "the control opens nothing")
@@ -2042,15 +2042,15 @@ final class MenuViewTests: XCTestCase {
         controller.toggleStackExpanded("STACK_MOCK_SPREAD")
         relayout(host)
 
-        XCTAssertEqual(Set(frames.positionLabels.keys), Set(Self.spreadMemberIDs.dropFirst()))
-        for position in 2...4 {
+        XCTAssertEqual(Set(frames.positionLabels.keys), Set(Self.spreadMemberIDs.dropLast()))
+        for position in 1...3 {
             let id = Self.spreadMemberIDs[position - 1]
             let row = try XCTUnwrap(frames.rows[id])
             let label = try XCTUnwrap(frames.positionLabels[id])
             XCTAssertTrue(row.contains(label), "position \(position)")
             XCTAssertGreaterThan(label.midY, row.midY, "on the metadata line, position \(position)")
         }
-        XCTAssertEqual(frames.controls["STACK_MOCK_SPREAD"]?.fractionText, "1/4")
+        XCTAssertEqual(frames.controls["STACK_MOCK_SPREAD"]?.fractionText, "4/4")
         XCTAssertEqual(frames.connectors.count, 3, "one segment per consecutive pair of the four members")
     }
 
@@ -2111,7 +2111,9 @@ final class MenuViewTests: XCTestCase {
 
         group.members.forEach(controller.openStackMember)
 
-        XCTAssertEqual(opened.map(\.absoluteString), (201...204).map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" })
+        XCTAssertEqual(
+            opened.map(\.absoluteString), (201...204).reversed().map { "https://github.com/mergehawk-labs/mergehawk/pull/\($0)" }
+        )
     }
 
     @MainActor
