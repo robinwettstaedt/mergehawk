@@ -2993,7 +2993,7 @@ struct MergeConflictIndicator: View {
 
         var label: String {
             switch self {
-            case .none: "No merge conflicts; other requirements may still block merging"
+            case .none: "No merge conflicts, but other requirements may still block merging"
             case .conflicting: "Merge conflicts"
             case .unknown: "Mergeability unknown"
             }
@@ -3343,7 +3343,7 @@ struct GitHubAppRepositoryAccessPrompt: View {
         case .noVisibleRepositories:
             [
                 ContextRow(icon: "checkmark.circle", text: "The MergeHawk GitHub App is installed."),
-                ContextRow(icon: "folder", text: "No repositories are selected — manage access on GitHub, then refresh sources.")
+                ContextRow(icon: "folder", text: "No repositories are selected. Manage access on GitHub, then refresh sources.")
             ]
         default:
             [

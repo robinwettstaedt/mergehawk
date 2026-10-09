@@ -294,7 +294,7 @@ private struct GeneralSettingsView: View {
                 Section {
                     Text("Try pressing ")
                         + Text("⌘1").foregroundColor(.accentColor).fontWeight(.semibold)
-                        + Text("–").foregroundColor(.accentColor).fontWeight(.semibold)
+                        + Text(" through ")
                         + Text(GeneralShortcutHintCopy.lastTabShortcut).foregroundColor(.accentColor).fontWeight(.semibold)
                         + Text(" to switch tabs in MergeHawk!")
                 }
@@ -1261,7 +1261,7 @@ private struct PATContextNotes: View {
             Divider()
             noteRow(
                 icon: "lock",
-                text: "MergeHawk only requests read-only access — it never writes to your account."
+                text: "MergeHawk only requests read-only access and never writes to your account."
             )
         }
         .settingsSurface(darkFillOpacity: 0.14, showsBorder: true)
