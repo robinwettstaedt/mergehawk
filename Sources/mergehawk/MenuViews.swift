@@ -1623,7 +1623,11 @@ struct PullRequestListView: View {
             presentation: StackControlPresentation(group: group, displayedPosition: displayedPosition, isExpanded: isExpanded)
         ) {
             withAnimation(StackExpansionAnimation.animation(reduceMotion: reduceMotion)) {
-                controller.toggleStackExpanded(group.stack.id)
+                if NSEvent.modifierFlags.contains(.option) {
+                    controller.toggleAllStacks(from: group.stack.id)
+                } else {
+                    controller.toggleStackExpanded(group.stack.id)
+                }
             }
         })
     }

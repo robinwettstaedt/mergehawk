@@ -1035,6 +1035,28 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testOptionClickingAStackUsesItsStateForEveryStack() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+        let allStackIDs = Set(controller.state.pullRequestStacks.map(\.id))
+        let clicked = "STACK_MOCK_SPREAD"
+        let other = "STACK_MOCK_ASSIGNED"
+
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertEqual(controller.expandedStackIDs, allStackIDs)
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertTrue(controller.expandedStackIDs.isEmpty)
+
+        controller.toggleStackExpanded(other)
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertEqual(controller.expandedStackIDs, allStackIDs, "a collapsed stack expands every stack")
+
+        controller.toggleStackExpanded(other)
+        controller.toggleAllStacks(from: clicked)
+        XCTAssertTrue(controller.expandedStackIDs.isEmpty, "an expanded stack collapses every stack")
+    }
+
+    @MainActor
     func testReadyFilterMovesTheAssignedAboveTeamGroupFromAssignedToTeam() async throws {
         let controller = makePRStacksController()
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
