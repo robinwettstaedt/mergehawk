@@ -1054,6 +1054,14 @@ final class DashboardControllerXCTests: XCTestCase {
         controller.toggleStackExpanded(other)
         controller.toggleAllStacks(from: clicked)
         XCTAssertTrue(controller.expandedStackIDs.isEmpty, "an expanded stack collapses every stack")
+
+        // Stacks the filters hide expand too, so they are still expanded when the filter is cleared.
+        controller.selectedReviewRequestFilters = [.draft]
+        let shownStackIDs = Set(controller.requestedSections.flatMap { $0.visible + $0.hidden }.compactMap(\.stack?.stack.id))
+        let shown = try XCTUnwrap(shownStackIDs.first)
+        XCTAssertNotEqual(shownStackIDs, allStackIDs, "the Draft filter hides some stacks")
+        controller.toggleAllStacks(from: shown)
+        XCTAssertEqual(controller.expandedStackIDs, allStackIDs)
     }
 
     @MainActor
