@@ -574,7 +574,7 @@ private final class CommentProvider: GitHubProviding {
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
 
-    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         if let next { return try next.get() }
         return try await withCheckedThrowingContinuation { continuation = $0 }

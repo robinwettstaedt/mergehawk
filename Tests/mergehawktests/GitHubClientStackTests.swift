@@ -17,7 +17,7 @@ final class GitHubClientStackTests: XCTestCase {
             Self.completePR(id: second.id, number: 2, directRequest: true, stackID: "STACK_A")
         ])
 
-        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([first, second]))
+        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([first, second]), reusableViewerTeams: nil)
 
         XCTAssertEqual(recorder.stackIDBatches, [["STACK_A"]])
         XCTAssertEqual(result.stacks.map(\.id), ["STACK_A"])
@@ -39,7 +39,7 @@ final class GitHubClientStackTests: XCTestCase {
             teamRequestedIDs: [(team.id, team.number)]
         )
 
-        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([assigned, team]))
+        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([assigned, team]), reusableViewerTeams: nil)
 
         XCTAssertEqual(recorder.stackIDBatches, [["STACK_ASSIGNED", "STACK_TEAM"]])
         XCTAssertEqual(result.stacks.map(\.id), ["STACK_ASSIGNED", "STACK_TEAM"])
@@ -52,7 +52,7 @@ final class GitHubClientStackTests: XCTestCase {
             Self.completePR(id: mine.id, number: 1, author: "rw", stackID: "STACK_MINE")
         ])
 
-        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([mine]))
+        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([mine]), reusableViewerTeams: nil)
 
         XCTAssertEqual(result.activePullRequests.map(\.id), [mine.id])
         XCTAssertTrue(recorder.stackIDBatches.isEmpty)
@@ -66,7 +66,7 @@ final class GitHubClientStackTests: XCTestCase {
             Self.completePR(id: merged.id, number: 1, state: "MERGED", directRequest: true, stackID: "STACK_MERGED")
         ])
 
-        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([merged]))
+        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([merged]), reusableViewerTeams: nil)
 
         XCTAssertEqual(result.retiringPullRequests.map(\.id), [merged.id])
         XCTAssertTrue(recorder.stackIDBatches.isEmpty)
@@ -80,7 +80,7 @@ final class GitHubClientStackTests: XCTestCase {
             Self.completePR(id: direct.id, number: 1, directRequest: true)
         ])
 
-        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([direct]))
+        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([direct]), reusableViewerTeams: nil)
 
         XCTAssertEqual(result.activePullRequests.map(\.id), [direct.id])
         XCTAssertTrue(recorder.stackIDBatches.isEmpty)
@@ -103,12 +103,51 @@ final class GitHubClientStackTests: XCTestCase {
         )
 
         do {
-            _ = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([direct]))
+            _ = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([direct]), reusableViewerTeams: nil)
             XCTFail("Expected the stack read failure to fail the complete PR refresh")
         } catch {
             XCTAssertEqual(error as? GitHubReadError, .accessDenied)
         }
         XCTAssertEqual(recorder.stackIDBatches, [["STACK_A"]])
+    }
+
+    func testReusableViewerTeamsSkipTheTeamReadAndAreReturnedAsGiven() async throws {
+        let direct = Self.tracked(id: "PR_DIRECT", number: 1, reviewKind: .direct)
+        let recorder = StackRequestRecorder()
+        Self.serve(previous: [direct], recorder: recorder, nodes: [
+            Self.completePR(id: direct.id, number: 1, directRequest: true)
+        ])
+        let stored = [
+            ViewerTeam(team: TeamReference(id: "T_DEV", organization: "acme", slug: "developers")),
+            ViewerTeam(team: TeamReference(id: "T_PLM", organization: "acme", slug: "plm"), parentTeamID: "T_DEV")
+        ]
+
+        let result = try await Self.client().fetchCompletePullRequests(
+            login: "rw",
+            previousState: Self.state([direct]),
+            reusableViewerTeams: stored
+        )
+
+        XCTAssertEqual(recorder.teamQueries, [])
+        XCTAssertEqual(result.viewerTeams, stored)
+        XCTAssertEqual(result.activePullRequests.map(\.id), [direct.id])
+    }
+
+    func testMissingReusableViewerTeamsReadsTheViewersTeams() async throws {
+        let direct = Self.tracked(id: "PR_DIRECT", number: 1, reviewKind: .direct)
+        let recorder = StackRequestRecorder()
+        Self.serve(previous: [direct], recorder: recorder, nodes: [
+            Self.completePR(id: direct.id, number: 1, directRequest: true)
+        ])
+
+        let result = try await Self.client().fetchCompletePullRequests(
+            login: "rw",
+            previousState: Self.state([direct]),
+            reusableViewerTeams: nil
+        )
+
+        XCTAssertEqual(recorder.teamQueries, ["ViewerTeams"])
+        XCTAssertEqual(result.viewerTeams, [])
     }
 
     // MARK: - Fixtures
@@ -127,7 +166,15 @@ final class GitHubClientStackTests: XCTestCase {
         }, by: \.0).mapValues { $0.map(\.1) }
         StackURLProtocol.handler = { request in
             let query = graphQLQuery(request)
-            if query.contains("query ViewerTeams") { return response(viewerTeams(), request) }
+            if query.contains("query OrganizationViewerTeams") {
+                recorder.recordTeamQuery("OrganizationViewerTeams")
+                XCTFail("Unexpected organization team page")
+                return response(Data(), request, status: 500)
+            }
+            if query.contains("query ViewerTeams") {
+                recorder.recordTeamQuery("ViewerTeams")
+                return response(viewerTeams(), request)
+            }
             if query.contains("DiscoveryBounds") { return response(emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return response(emptyDiscovery(), request) }
             if query.contains("CompletePullRequests") {
@@ -358,6 +405,9 @@ private final class StackURLProtocol: URLProtocol {
 private final class StackRequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var batches: [[String]] = []
+    private var teamQueryNames: [String] = []
     var stackIDBatches: [[String]] { lock.withLock { batches } }
+    var teamQueries: [String] { lock.withLock { teamQueryNames } }
     func record(_ ids: [String]) { lock.withLock { batches.append(ids) } }
+    func recordTeamQuery(_ name: String) { lock.withLock { teamQueryNames.append(name) } }
 }

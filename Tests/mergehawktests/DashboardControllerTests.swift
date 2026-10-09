@@ -38,7 +38,7 @@ private final class ReviewTeamGitHubProvider: GitHubProviding {
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
 
-    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         guard let result else { throw OfflineError.offline }
         return result
@@ -66,7 +66,7 @@ private final class ArchiveFixtureGitHubProvider: GitHubProviding {
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
 
-    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         return CompletePullRequestFetchResult(activePullRequests: pullRequests, viewerTeams: viewerTeams)
     }
@@ -177,7 +177,8 @@ final class DashboardControllerXCTests: XCTestCase {
             for _ in 0..<3 {
                 guard let result = try? await source.fetchCompletePullRequests(
                     login: "agent-fixture",
-                    previousState: nil
+                    previousState: nil,
+                    reusableViewerTeams: nil
                 ) else { break }
                 XCTAssertFalse(result.viewerTeams.isEmpty, scenario.rawValue)
                 XCTAssertEqual(result.viewerTeams, source.viewerTeams, scenario.rawValue)
@@ -196,8 +197,8 @@ final class DashboardControllerXCTests: XCTestCase {
     func testReviewTeamsScenarioHasNestedTeamsAndSecondRefreshAddsPlmTeam() async throws {
         let source = MockPullRequestSource(scenario: .reviewTeams)
 
-        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
-        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
 
         XCTAssertEqual(first.viewerTeams.filter { $0.team.organization == "mergehawk-labs" }.map(\.team.displayName), [
             "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
@@ -963,7 +964,7 @@ final class DashboardControllerXCTests: XCTestCase {
         for scenario in MockPullRequestScenario.allCases where scenario != .prStacks {
             let source = MockPullRequestSource(scenario: scenario)
             XCTAssertEqual(source.stacks, [], scenario.rawValue)
-            let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+            let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
             XCTAssertEqual(result.stacks, [], scenario.rawValue)
         }
     }
@@ -971,7 +972,7 @@ final class DashboardControllerXCTests: XCTestCase {
     @MainActor
     func testEveryRequestedPRStacksMemberNamesAStackThatListsIt() async throws {
         let source = MockPullRequestSource(scenario: .prStacks)
-        let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
         let stacksByID = Dictionary(uniqueKeysWithValues: result.stacks.map { ($0.id, $0) })
         let stacked = result.activePullRequests.filter { $0.stackID != nil }
 
@@ -2338,7 +2339,8 @@ private final class FakeGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
         return CompletePullRequestFetchResult(activePullRequests: pullRequests)
@@ -2379,7 +2381,8 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
         return CompletePullRequestFetchResult(activePullRequests: [])
@@ -2411,7 +2414,8 @@ private final class FailingViewerGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         CompletePullRequestFetchResult(activePullRequests: [])
     }
@@ -2456,7 +2460,8 @@ private final class DelayedSyncGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         await withCheckedContinuation { continuation in
             pullRequestsContinuation = continuation

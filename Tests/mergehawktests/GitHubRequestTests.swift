@@ -147,7 +147,7 @@ final class GitHubRequestTests: XCTestCase {
 
         do {
             _ = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: nil)
+                .fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: nil)
             XCTFail("Expected rate limit")
         } catch let GitHubReadError.rateLimited(retryAt) {
             XCTAssertEqual(try XCTUnwrap(retryAt).timeIntervalSince1970, reset.timeIntervalSince1970, accuracy: 0.001)
@@ -171,7 +171,7 @@ final class GitHubRequestTests: XCTestCase {
 
         do {
             _ = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: nil)
+                .fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: nil)
             XCTFail("Expected rate limit")
         } catch let GitHubReadError.rateLimited(retryAt) {
             let value = try XCTUnwrap(retryAt)

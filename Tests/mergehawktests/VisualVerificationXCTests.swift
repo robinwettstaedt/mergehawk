@@ -1907,7 +1907,8 @@ private final class VisualLoadingGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         await withCheckedContinuation { continuation in
             pullRequestsContinuation = continuation
@@ -1947,7 +1948,8 @@ private final class VisualPATLoadingGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         CompletePullRequestFetchResult(activePullRequests: [])
     }
@@ -1987,7 +1989,8 @@ private final class VisualGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         CompletePullRequestFetchResult(activePullRequests: pullRequests, viewerTeams: viewerTeams)
     }

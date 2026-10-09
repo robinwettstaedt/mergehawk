@@ -277,7 +277,7 @@ private final class PresentationProvider: GitHubProviding {
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
 
-    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         if let next { return next }
         return try await withCheckedThrowingContinuation { continuation = $0 }

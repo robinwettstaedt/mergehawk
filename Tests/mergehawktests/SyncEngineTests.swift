@@ -560,7 +560,8 @@ final class SyncEngineTests: XCTestCase {
                 fetchResult: CompletePullRequestFetchResult(
                     activePullRequests: [Self.pullRequest(stackID: Self.stack.id)],
                     stacks: [Self.stack]
-                )
+                ),
+                viewerTeamsReadAt: Date(timeIntervalSince1970: 100)
             ),
             turnedOffTeamIDs: []
         )
@@ -579,12 +580,202 @@ final class SyncEngineTests: XCTestCase {
             fetched: FetchedPullRequestRefresh(
                 login: "rw",
                 account: GitHubAccount(login: "rw"),
-                fetchResult: CompletePullRequestFetchResult(activePullRequests: [current], stacks: [Self.stack])
+                fetchResult: CompletePullRequestFetchResult(activePullRequests: [current], stacks: [Self.stack]),
+                viewerTeamsReadAt: Date(timeIntervalSince1970: 100)
             ),
             turnedOffTeamIDs: []
         )
 
         XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    // MARK: - Viewer team reuse
+
+    func testFirstRefreshReadsTeamsAtTheEngineClock() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamA])
+        clock.now = Self.minutes(5)
+
+        let fetched = try await engine.fetchRefresh(previousState: nil)
+
+        XCTAssertEqual(source.reusableViewerTeams, [nil])
+        XCTAssertEqual(fetched.viewerTeamsReadAt, Self.minutes(5))
+        XCTAssertEqual(fetched.fetchResult.viewerTeams, [Self.teamA])
+    }
+
+    func testFreshStoredTeamsAreReusedWithTheirReadTime() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamB])
+        clock.now = Self.minutes(29)
+        let previous = Self.teamState(teams: [Self.teamA], readAt: Self.minutes(0))
+
+        let fetched = try await engine.fetchRefresh(previousState: previous)
+        let prepared = try engine.prepare(previousState: previous, fetched: fetched, turnedOffTeamIDs: [])
+
+        XCTAssertEqual(source.reusableViewerTeams, [[Self.teamA]])
+        XCTAssertEqual(fetched.viewerTeamsReadAt, Self.minutes(0))
+        XCTAssertEqual(prepared.viewerTeamsReadAt, Self.minutes(0))
+        XCTAssertEqual(prepared.viewerTeams, [Self.teamA])
+    }
+
+    func testStoredTeamsAtOrPastTheMaxAgeAreReadAgain() async throws {
+        for age in [30.0, 31.0, 120.0] {
+            let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamB])
+            clock.now = Self.minutes(age)
+
+            let fetched = try await engine.fetchRefresh(
+                previousState: Self.teamState(teams: [Self.teamA], readAt: Self.minutes(0))
+            )
+
+            XCTAssertEqual(source.reusableViewerTeams, [nil], "age \(age) min")
+            XCTAssertEqual(fetched.viewerTeamsReadAt, Self.minutes(age), "age \(age) min")
+            XCTAssertEqual(fetched.fetchResult.viewerTeams, [Self.teamB], "age \(age) min")
+        }
+    }
+
+    func testStoredTeamsWithoutAReadTimeAreReadAgain() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamB])
+        clock.now = Self.minutes(1)
+
+        let fetched = try await engine.fetchRefresh(previousState: Self.teamState(teams: [Self.teamA], readAt: nil))
+
+        XCTAssertEqual(source.reusableViewerTeams, [nil])
+        XCTAssertEqual(fetched.viewerTeamsReadAt, Self.minutes(1))
+    }
+
+    func testFreshTeamsStoredForAnotherLoginAreReadAgain() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamB])
+        clock.now = Self.minutes(1)
+
+        let fetched = try await engine.fetchRefresh(
+            previousState: Self.teamState(teams: [Self.teamA], readAt: Self.minutes(0), login: "someone-else")
+        )
+
+        XCTAssertEqual(source.reusableViewerTeams, [nil])
+        XCTAssertEqual(fetched.viewerTeamsReadAt, Self.minutes(1))
+    }
+
+    func testForcedTeamReadIgnoresFreshStoredTeams() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamB])
+        clock.now = Self.minutes(1)
+
+        let fetched = try await engine.fetchRefresh(
+            previousState: Self.teamState(teams: [Self.teamA], readAt: Self.minutes(0)),
+            forcesTeamRead: true
+        )
+
+        XCTAssertEqual(source.reusableViewerTeams, [nil])
+        XCTAssertEqual(fetched.viewerTeamsReadAt, Self.minutes(1))
+        XCTAssertEqual(fetched.fetchResult.viewerTeams, [Self.teamB])
+    }
+
+    func testFreshEmptyStoredTeamListIsReused() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamB])
+        clock.now = Self.minutes(10)
+
+        let fetched = try await engine.fetchRefresh(previousState: Self.teamState(teams: [], readAt: Self.minutes(0)))
+
+        XCTAssertEqual(source.reusableViewerTeams, [[]])
+        XCTAssertEqual(fetched.viewerTeamsReadAt, Self.minutes(0))
+        XCTAssertEqual(fetched.fetchResult.viewerTeams, [])
+    }
+
+    func testRefreshesTwoMinutesApartReadTeamsOncePerHalfHour() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamA])
+        var state: PullRequestSyncState?
+        var readMinutes: [Double] = []
+
+        for step in 0..<30 {
+            let minute = Double(step * 2)
+            clock.now = Self.minutes(minute)
+            let fetched = try await engine.fetchRefresh(previousState: state)
+            if source.reusableViewerTeams.last == .some(nil) { readMinutes.append(minute) }
+            state = Self.state(from: try engine.prepare(previousState: state, fetched: fetched, turnedOffTeamIDs: []))
+        }
+
+        XCTAssertEqual(source.reusableViewerTeams.count, 30)
+        XCTAssertEqual(source.reusableViewerTeams.filter { $0 == nil }.count, 2)
+        XCTAssertEqual(readMinutes, [0, 30])
+    }
+
+    func testTeamJoinedWhileTeamsAreReusedNeverNotifiesItsExistingRequest() async throws {
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamA])
+        var state: PullRequestSyncState?
+        var events: [PreparedPullRequestEvent] = []
+        func refresh(atMinute minute: Double) async throws {
+            clock.now = Self.minutes(minute)
+            let fetched = try await engine.fetchRefresh(previousState: state)
+            let prepared = try engine.prepare(previousState: state, fetched: fetched, turnedOffTeamIDs: [])
+            events += prepared.events
+            state = Self.state(from: prepared)
+        }
+
+        try await refresh(atMinute: 0)
+        source.providerTeams = [Self.teamA, Self.teamB]
+        source.activePullRequests = [Self.teamRequested([Self.teamB.team], id: "PR_TEAM_B")]
+        try await refresh(atMinute: 10)
+        try await refresh(atMinute: 31)
+
+        XCTAssertEqual(source.reusableViewerTeams, [nil, [Self.teamA], nil])
+        XCTAssertEqual(state?.dashboard.viewerTeams, [Self.teamA, Self.teamB])
+        XCTAssertTrue(events.filter { $0.event.type == .relationshipAdded }.isEmpty)
+    }
+
+    func testFreshlyReadTeamChangeAddsNoRelationshipForAnUnchangedRequest() async throws {
+        let pullRequest = Self.teamRequested([Self.teamB.team], isAssigned: true)
+        let (engine, source, clock) = Self.teamEngine(providerTeams: [Self.teamA, Self.teamB])
+        source.activePullRequests = [pullRequest]
+        clock.now = Self.minutes(40)
+        var previous = Self.trustedState([pullRequest])
+        previous.dashboard.viewerTeams = [Self.teamA]
+        previous.dashboard.viewerTeamsReadAt = Self.minutes(0)
+
+        let fetched = try await engine.fetchRefresh(previousState: previous)
+        let prepared = try engine.prepare(previousState: previous, fetched: fetched, turnedOffTeamIDs: [])
+
+        XCTAssertEqual(source.reusableViewerTeams, [nil])
+        XCTAssertEqual(prepared.viewerTeams, [Self.teamA, Self.teamB])
+        XCTAssertTrue(prepared.events.isEmpty)
+    }
+
+    private static let teamA = ViewerTeam(team: TeamReference(id: "T_A", organization: "acme", slug: "team-a"))
+    private static let teamB = ViewerTeam(team: TeamReference(id: "T_B", organization: "acme", slug: "team-b"))
+
+    private static func minutes(_ value: Double) -> Date {
+        Date(timeIntervalSince1970: 1_000_000 + value * 60)
+    }
+
+    private static func teamEngine(
+        providerTeams: [ViewerTeam]
+    ) -> (SyncEngine, TeamRecordingSource, MutableClock) {
+        let source = TeamRecordingSource(providerTeams: providerTeams)
+        let clock = MutableClock()
+        let engine = SyncEngine(
+            source: source,
+            loginProvider: { "rw" },
+            accountProvider: { GitHubAccount(login: "rw") },
+            now: { clock.now }
+        )
+        return (engine, source, clock)
+    }
+
+    private static func teamState(
+        teams: [ViewerTeam],
+        readAt: Date?,
+        login: String = "rw"
+    ) -> PullRequestSyncState {
+        PullRequestSyncState(
+            account: GitHubAccount(login: login),
+            dashboard: DashboardState(
+                pullRequests: [],
+                events: [],
+                syncedAt: readAt,
+                source: .github,
+                account: GitHubAccount(login: login),
+                authStatus: .signedIn,
+                viewerTeams: teams,
+                viewerTeamsReadAt: readAt
+            ),
+            processedActivityByPullRequestID: [:]
+        )
     }
 
     private static let stack = PullRequestStack(id: "STACK_1", size: 2, entries: [
@@ -635,7 +826,8 @@ final class SyncEngineTests: XCTestCase {
                     activePullRequests: active,
                     retiringPullRequests: retiring,
                     viewerTeams: viewerTeams
-                )
+                ),
+                viewerTeamsReadAt: Date(timeIntervalSince1970: 100)
             ),
             turnedOffTeamIDs: turnedOffTeamIDs
         )
@@ -678,7 +870,9 @@ final class SyncEngineTests: XCTestCase {
                 syncedAt: prepared.syncedAt,
                 source: prepared.source,
                 account: prepared.account,
-                authStatus: .signedIn
+                authStatus: .signedIn,
+                viewerTeams: prepared.viewerTeams,
+                viewerTeamsReadAt: prepared.viewerTeamsReadAt
             ),
             processedActivityByPullRequestID: prepared.processedActivityByPullRequestID
         )
@@ -769,6 +963,34 @@ final class SyncEngineTests: XCTestCase {
             state: .approved,
             submittedAt: Date(timeIntervalSince1970: TimeInterval(abs(id.hashValue % 10_000))),
             author: "reviewer"
+        )
+    }
+}
+
+private final class MutableClock {
+    var now = Date(timeIntervalSince1970: 0)
+}
+
+/// Behaves like `GitHubClient` for teams: it returns the reusable teams when given, else the provider's teams.
+private final class TeamRecordingSource: CompletePullRequestFetching {
+    let sourceKind: DashboardSource = .github
+    var providerTeams: [ViewerTeam]
+    var activePullRequests: [PullRequest] = []
+    private(set) var reusableViewerTeams: [[ViewerTeam]?] = []
+
+    init(providerTeams: [ViewerTeam]) {
+        self.providerTeams = providerTeams
+    }
+
+    func fetchCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
+    ) async throws -> CompletePullRequestFetchResult {
+        self.reusableViewerTeams.append(reusableViewerTeams)
+        return CompletePullRequestFetchResult(
+            activePullRequests: activePullRequests,
+            viewerTeams: reusableViewerTeams ?? providerTeams
         )
     }
 }

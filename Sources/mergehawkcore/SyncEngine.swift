@@ -1,6 +1,9 @@
 import Foundation
 
 public final class SyncEngine {
+    /// How long a complete PR refresh reuses the stored viewer teams before it reads them again.
+    public static let viewerTeamsMaxAge: TimeInterval = 30 * 60
+
     private let source: CompletePullRequestFetching
     private let loginProvider: () async throws -> String
     private let accountProvider: () async throws -> GitHubAccount?
@@ -28,7 +31,8 @@ public final class SyncEngine {
             fetched: FetchedPullRequestRefresh(
                 login: login,
                 account: try await resolveAccount(login: login, previousState: previousState),
-                fetchResult: fetchResult
+                fetchResult: fetchResult,
+                viewerTeamsReadAt: now()
             ),
             turnedOffTeamIDs: []
         )
@@ -43,17 +47,42 @@ public final class SyncEngine {
     }
 
     /// The asynchronous half of a refresh: everything that reads the provider or the account.
-    public func fetchRefresh(previousState: PullRequestSyncState?) async throws -> FetchedPullRequestRefresh {
+    /// The stored viewer teams are reused while they are younger than `viewerTeamsMaxAge`, unless the refresh
+    /// forces a team read.
+    public func fetchRefresh(
+        previousState: PullRequestSyncState?,
+        forcesTeamRead: Bool = false
+    ) async throws -> FetchedPullRequestRefresh {
         let login = try await loginProvider()
+        let readStartedAt = now()
+        let reusable = forcesTeamRead ? nil : Self.reusableViewerTeams(
+            in: previousState?.trusted(for: login)?.dashboard,
+            at: readStartedAt
+        )
         let fetchResult = try await source.fetchCompletePullRequests(
             login: login,
-            previousState: previousState
+            previousState: previousState,
+            reusableViewerTeams: reusable?.teams
         )
         return FetchedPullRequestRefresh(
             login: login,
             account: try await resolveAccount(login: login, previousState: previousState),
-            fetchResult: fetchResult
+            fetchResult: fetchResult,
+            viewerTeamsReadAt: reusable?.readAt ?? readStartedAt
         )
+    }
+
+    private static func reusableViewerTeams(
+        in dashboard: DashboardState?,
+        at now: Date
+    ) -> (teams: [ViewerTeam], readAt: Date)? {
+        guard let dashboard,
+              let readAt = dashboard.viewerTeamsReadAt,
+              now.timeIntervalSince(readAt) < viewerTeamsMaxAge
+        else {
+            return nil
+        }
+        return (dashboard.viewerTeams, readAt)
     }
 
     /// Identity always comes from the login the fetch ran as, so another account's state is never trusted.
@@ -133,6 +162,7 @@ public final class SyncEngine {
             events: events,
             viewerTeams: fetchResult.viewerTeams,
             stacks: fetchResult.stacks,
+            viewerTeamsReadAt: fetched.viewerTeamsReadAt,
             syncedAt: now()
         )
     }
