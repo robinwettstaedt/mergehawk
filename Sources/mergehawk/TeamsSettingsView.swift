@@ -22,6 +22,7 @@ enum ReviewTeamsSettingsPresentation {
     static let noTeamsDetail = "Your GitHub teams appear here after the next successful refresh."
     static let caption = "Turn off a team to hide PRs and notifications that reach you only through that team. "
         + "Useful for broad teams that CODEOWNERS adds to every PR."
+    static let refreshTeamsTitle = "Refresh teams"
     static let notificationsLinkTitle = "Set notifications for teams you haven't turned off here ›"
     static let notificationsLinkDestination = SettingsTab.notifications
 
@@ -75,7 +76,13 @@ struct TeamsSettingsView: View {
             EmptyMenuState(
                 text: ReviewTeamsSettingsPresentation.noTeamsHeadline,
                 systemImage: "person.3",
-                detail: ReviewTeamsSettingsPresentation.noTeamsDetail
+                detail: ReviewTeamsSettingsPresentation.noTeamsDetail,
+                action: .init(
+                    title: ReviewTeamsSettingsPresentation.refreshTeamsTitle,
+                    isInProgress: controller.isRefreshing
+                ) {
+                    controller.refreshTeams()
+                }
             )
         case .teams(let groups):
             Form {
@@ -88,11 +95,15 @@ struct TeamsSettingsView: View {
                         VStack(alignment: .leading, spacing: 20) {
                             // The caption heads the first section so it reads as plain text above the groups.
                             if group.id == groups.first?.id {
-                                Text(ReviewTeamsSettingsPresentation.caption)
-                                    .font(.body)
-                                    .fontWeight(.regular)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                HStack(alignment: .top, spacing: 12) {
+                                    Text(ReviewTeamsSettingsPresentation.caption)
+                                        .font(.body)
+                                        .fontWeight(.regular)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    refreshTeamsButton
+                                }
                             }
                             organizationHeader(group)
                         }
@@ -104,6 +115,29 @@ struct TeamsSettingsView: View {
                 notificationsLink
             }
         }
+    }
+
+    private var refreshTeamsButton: some View {
+        Button {
+            controller.refreshTeams()
+        } label: {
+            HStack(spacing: 4) {
+                if controller.isRefreshing {
+                    ProgressView()
+                        .controlSize(.mini)
+                        // Keeps the button a single disabled button for VoiceOver, not a busy indicator.
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+                Text(ReviewTeamsSettingsPresentation.refreshTeamsTitle)
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .fixedSize()
+        .disabled(controller.isRefreshing)
+        .accessibilityLabel(ReviewTeamsSettingsPresentation.refreshTeamsTitle)
     }
 
     private var notificationsLink: some View {

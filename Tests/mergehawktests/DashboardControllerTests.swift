@@ -22,7 +22,8 @@ private func archiveFixturePR(
     )
 }
 
-private final class ReviewTeamGitHubProvider: GitHubProviding {
+/// Also used by the Teams settings pane tests, to see which reusable teams a refresh hands to the source.
+final class ReviewTeamGitHubProvider: GitHubProviding {
     enum OfflineError: Error, LocalizedError {
         case offline
 

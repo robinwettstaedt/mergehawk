@@ -3224,6 +3224,8 @@ struct CountBubble: View {
 struct EmptyMenuState: View {
     struct Action {
         let title: String
+        /// Disables the button and shows a small spinner before its title.
+        var isInProgress = false
         let perform: () -> Void
     }
 
@@ -3256,9 +3258,22 @@ struct EmptyMenuState: View {
                     .foregroundStyle(.secondary)
             }
             if let action {
-                Button(action.title, action: action.perform)
-                    .buttonStyle(.bordered)
-                    .padding(.top, metrics.emptyState.spacing)
+                Button(action: action.perform) {
+                    if action.isInProgress {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityHidden(true)
+                            Text(action.title)
+                        }
+                    } else {
+                        Text(action.title)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(action.isInProgress)
+                .accessibilityLabel(action.title)
+                .padding(.top, metrics.emptyState.spacing)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

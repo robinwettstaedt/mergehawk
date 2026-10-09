@@ -499,6 +499,142 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(controller.turnedOffReviewTeamIDs, [])
     }
 
+    @MainActor
+    func testTeamsRefreshButtonStartsARefreshThatReadsTeams() throws {
+        let (controller, provider, defaults, suite) = makeTeamReadingController(viewerTeams: [
+            ViewerTeam(team: TeamReference(id: "T_DEV", organization: "acme", slug: "developers"))
+        ])
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+        guard case .teams = ReviewTeamsSettingsPresentation.content(
+            authStatus: controller.state.authStatus,
+            rows: controller.reviewTeamRows
+        ) else {
+            return XCTFail("Expected team rows")
+        }
+
+        try clickAccessibilityElement(labeled: "Refresh teams", role: .button, in: host)
+        waitForRefresh(controller, provider, fetchCount: 2)
+
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, nil])
+    }
+
+    @MainActor
+    func testNoTeamsStateOffersRefreshTeams() throws {
+        let (controller, provider, defaults, suite) = makeTeamReadingController(viewerTeams: [])
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.content(authStatus: controller.state.authStatus, rows: controller.reviewTeamRows),
+            .noTeams
+        )
+
+        try clickAccessibilityElement(labeled: "Refresh teams", role: .button, in: host)
+        waitForRefresh(controller, provider, fetchCount: 2)
+
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, nil])
+    }
+
+    @MainActor
+    func testSignedOutTeamsPaneHasNoRefreshTeamsControl() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: nil)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+
+        // The pane is rendered once its sign in link is reachable.
+        try withAccessibilityElement(labeled: "Open Auth settings", role: .button, in: host, file: #filePath, line: #line) { _ in }
+        XCTAssertTrue(accessibilityElements(labeled: "Refresh teams", in: host).isEmpty)
+    }
+
+    @MainActor
+    func testRefreshTeamsIsDisabledWhileARefreshIsInProgress() throws {
+        let suite = "settings-refresh-teams-busy-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true,
+                suppressesMacOSNotifications: true,
+                mockRefreshDelaySeconds: 5,
+                mockPullRequestScenario: .reviewTeams
+            ),
+            automaticRefreshInterval: 0
+        )
+        let deadline = Date().addingTimeInterval(1)
+        while controller.state.syncedAt == nil || controller.isRefreshing, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        let (host, _) = hostSettings(controller: controller, selection: .teams)
+        defer { host.close() }
+        try withAccessibilityElement(labeled: "Refresh teams", role: .button, in: host, file: #filePath, line: #line) {
+            XCTAssertEqual(($0 as AnyObject).isAccessibilityEnabled?(), true)
+        }
+
+        controller.refresh()
+        host.settle()
+        XCTAssertTrue(controller.isRefreshing)
+
+        try withAccessibilityElement(labeled: "Refresh teams", role: .button, in: host, file: #filePath, line: #line) {
+            XCTAssertEqual(($0 as AnyObject).isAccessibilityEnabled?(), false)
+        }
+    }
+
+    /// A PAT controller whose provider records the reusable teams of each refresh, after its first refresh.
+    @MainActor
+    private func makeTeamReadingController(
+        viewerTeams: [ViewerTeam]
+    ) -> (DashboardController, ReviewTeamGitHubProvider, UserDefaults, String) {
+        let suite = "settings-refresh-teams-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        var store = PreferencesStore(defaults: defaults)
+        store.authMethod = .pat
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: viewerTeams
+        ))
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: store,
+            launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider }
+        )
+        waitForRefresh(controller, provider, fetchCount: 1)
+        return (controller, provider, defaults, suite)
+    }
+
+    @MainActor
+    private func waitForRefresh(
+        _ controller: DashboardController,
+        _ provider: ReviewTeamGitHubProvider,
+        fetchCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(1)
+        while provider.fetchCount < fetchCount || controller.isRefreshing, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertEqual(provider.fetchCount, fetchCount, file: file, line: line)
+        XCTAssertFalse(controller.isRefreshing, file: file, line: line)
+    }
+
+    /// Every button with this label in the hosted pane, after the accessibility tree has been built.
+    @MainActor
+    private func accessibilityElements(labeled label: String, in host: OffScreenHost) -> [NSAccessibilityElementProtocol] {
+        let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhancedInterface) }
+        host.settle()
+        guard let root = host.window.contentView else { return [] }
+        return accessibilityElements(labeled: label, role: .button, under: root, until: Date().addingTimeInterval(2))
+    }
+
     /// A controller signed in to a synced mock scenario, or signed out when `scenario` is nil.
     @MainActor
     private func makeSettingsController(
