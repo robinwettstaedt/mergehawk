@@ -52,6 +52,9 @@ enum ReviewTeamsSettingsPresentation {
 
 private enum ReviewTeamsSettingsLayout {
     static let indentPerLevel: CGFloat = 20
+    /// Lines the caption up with the grouped Form's section headers and row content below it.
+    static let captionHorizontalInset: CGFloat = 30
+    static let captionTopPadding: CGFloat = 20
 }
 
 struct TeamsSettingsView: View {
@@ -88,32 +91,25 @@ struct TeamsSettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .teams(let groups):
-            Form {
-                ForEach(groups) { group in
-                    Section {
-                        ForEach(group.rows) { row in
-                            ReviewTeamSettingsRow(row: row, controller: controller)
-                        }
-                    } header: {
-                        VStack(alignment: .leading, spacing: 20) {
-                            // The caption heads the first section so it reads as plain text above the groups.
-                            if group.id == groups.first?.id {
-                                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                    Text(ReviewTeamsSettingsPresentation.caption)
-                                        .font(.body)
-                                        .fontWeight(.regular)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    refreshTeamsControl
-                                }
+            VStack(spacing: 0) {
+                // A plain row above the Form, like the Sources search and refresh row: a grouped Form's section
+                // header restyles its content, which drew the refresh control smaller than in Sources.
+                captionRow
+                    .padding(.horizontal, ReviewTeamsSettingsLayout.captionHorizontalInset)
+                    .padding(.top, ReviewTeamsSettingsLayout.captionTopPadding)
+                Form {
+                    ForEach(groups) { group in
+                        Section {
+                            ForEach(group.rows) { row in
+                                ReviewTeamSettingsRow(row: row, controller: controller)
                             }
+                        } header: {
                             organizationHeader(group)
                         }
                     }
                 }
+                .formStyle(.grouped)
             }
-            .formStyle(.grouped)
             .safeAreaInset(edge: .bottom) {
                 notificationsLink
             }
@@ -136,6 +132,16 @@ struct TeamsSettingsView: View {
             displayMode: .horizontalButton(height: 24),
             showsIndicator: false
         )
+    }
+
+    private var captionRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(ReviewTeamsSettingsPresentation.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            refreshTeamsControl
+        }
     }
 
     private var notificationsLink: some View {
