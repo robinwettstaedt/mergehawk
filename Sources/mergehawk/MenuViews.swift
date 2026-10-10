@@ -509,8 +509,6 @@ struct MenuRootView: View {
                     .font(metrics.type.panelTitle.font)
             }
             Spacer(minLength: 0)
-                .contentShape(Rectangle())
-                .onTapGesture { dropdownState.dismiss() }
             if let mode = activePullRequestMode, controller.state.authStatus == .signedIn {
                 PullRequestHeaderControls(controller: controller, mode: mode, dropdownState: $dropdownState)
                     .padding(.trailing, metrics.topBar.headerControlsTrailingSpacing)
@@ -537,6 +535,13 @@ struct MenuRootView: View {
         .padding(.leading, metrics.topBar.leadingInset)
         .padding(.trailing, metrics.topBar.trailingInset)
         .frame(height: metrics.topBar.height)
+        .background {
+            DropdownOutsideClickView(
+                isActive: dropdownState.openMenu != nil,
+                excludedBounds: [],
+                dismiss: { dropdownState.dismiss() }
+            )
+        }
     }
 
     private var activePullRequestMode: PullRequestListView.Mode? {
@@ -1952,6 +1957,9 @@ struct PullRequestHeaderControls: View {
         }
         .padding(.vertical, dropdown.verticalPadding)
         .background(.ultraThinMaterial)
+        // Padding belongs to the open menu, not the outside-click dismiss area.
+        .contentShape(Rectangle())
+        .onTapGesture {}
         .overlay(
             RoundedRectangle(cornerRadius: dropdown.cornerRadius)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
