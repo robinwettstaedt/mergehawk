@@ -1360,18 +1360,39 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(hydrated.map(\.pullRequest.commentActivityCount), Array(repeating: 5, count: 20))
     }
 
-    func testFiftyPullRequestsWithFiveThreadsEachSplitFirstReadsIntoQueriesOfAHundred() async throws {
+    func testFiftyPullRequestsSplitFirstReadsAndOtherEntriesAtTheirOwnCaps() async throws {
         let ids = (0..<50).map { String(format: "PR_%02d", $0) }
-        let server = GitHubFixtureServer(pullRequests: ids.map { Self.threadedPullRequest($0, threads: 5) })
+        // The first 25 PRs have 11 top-level comments, so each also queues an older comments page.
+        let pullRequests = ids.enumerated().map { index, id in
+            var node = Self.threadedPullRequest(id, threads: 5)
+            if index < 25 {
+                node["comments"] = Self.connection(total: 11, nodes: (0..<11).map { Self.comment("\(id)_C\($0)") })
+            }
+            return node
+        }
+        let server = GitHubFixtureServer(pullRequests: pullRequests)
 
         let hydrated = try await server.fetcher.hydrate(ids.map { Self.discovery(id: $0) }, login: "rw")
 
         XCTAssertEqual(server.queries.filter { $0.contains("CompletePullRequests") }.count, 3)
+        let shapes = server.requests.compactMap(\.batchShape)
         XCTAssertEqual(
-            server.requests.compactMap(\.batchShape),
-            ["first reads: 100", "first reads: 100", "first reads: 50"]
+            shapes,
+            ["other: 20", "first reads: 100", "other: 5", "first reads: 100", "first reads: 50"]
         )
-        XCTAssertEqual(hydrated.map(\.pullRequest.commentActivityCount), Array(repeating: 5, count: 50))
+        for shape in shapes {
+            let parts = shape.split(separator: ":")
+            let count = Int(parts[1].trimmingCharacters(in: .whitespaces))!
+            switch parts[0] {
+            case "first reads": XCTAssertLessThanOrEqual(count, 100, shape)
+            case "other": XCTAssertLessThanOrEqual(count, 20, shape)
+            default: XCTFail("Query mixes groups: \(shape)")
+            }
+        }
+        XCTAssertEqual(
+            hydrated.map(\.pullRequest.commentActivityCount),
+            Array(repeating: 16, count: 25) + Array(repeating: 5, count: 25)
+        )
     }
 
     func testThreadsBeyondTheFirstHundredGetFirstReadsAfterTheirThreadPage() async throws {
