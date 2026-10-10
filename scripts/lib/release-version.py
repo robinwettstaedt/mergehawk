@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Select the next 0.1.x version from published stable release tags on stdin."""
+"""Select the next MAJOR.MINOR.PATCH version from published stable release tags on stdin."""
 
 import re
 import sys
 
 
-TAG = re.compile(r"v0\.1\.(0|[1-9][0-9]*)-[0-9]{14}\Z")
+TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+BUMPS = ("patch", "minor", "major")
 
 
 def main() -> int:
-    patches = []
+    if len(sys.argv) != 2 or sys.argv[1] not in BUMPS:
+        print("Usage: release-version.py <patch|minor|major>", file=sys.stderr)
+        return 2
+    bump = sys.argv[1]
+
+    versions = []
     for line in sys.stdin:
         tag = line.rstrip("\n")
         if not tag:
@@ -18,13 +24,20 @@ def main() -> int:
         if match is None:
             print(f"Unsupported or malformed published release tag: {tag}", file=sys.stderr)
             return 2
-        patches.append(int(match.group(1)))
+        versions.append(tuple(int(part) for part in match.groups()))
 
-    if not patches:
-        print("Cannot establish a 0.1.x baseline: no published stable release tags.", file=sys.stderr)
-        return 2
+    if not versions:
+        print("1.0.0")
+        return 0
 
-    print(f"0.1.{max(patches) + 1}")
+    major, minor, patch = max(versions)
+    if bump == "patch":
+        patch += 1
+    elif bump == "minor":
+        minor, patch = minor + 1, 0
+    else:
+        major, minor, patch = major + 1, 0, 0
+    print(f"{major}.{minor}.{patch}")
     return 0
 
 
