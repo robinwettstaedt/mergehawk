@@ -15,12 +15,13 @@ CALCULATOR = ROOT / 'scripts/lib/release-version.py'
 REPO = 'example/mergehawk'
 
 # The exact version pipeline the release workflow runs.
-PIPELINE = '''set -euo pipefail
-source scripts/lib/release-history.sh
-tags="$(list_published_release_tags "$GITHUB_REPOSITORY")"
-version="$(printf '%s\\n' "$tags" | python3 scripts/lib/release-version.py "$BUMP")"
-printf '%s\\n' "$version"
-'''
+WORKFLOW_VERSION_PIPELINE = [
+    'set -euo pipefail',
+    'source scripts/lib/release-history.sh',
+    'tags="$(list_published_release_tags "$GITHUB_REPOSITORY")"',
+    'version="$(printf \'%s\\n\' "$tags" | python3 scripts/lib/release-version.py "$BUMP")"',
+]
+PIPELINE = '\n'.join(WORKFLOW_VERSION_PIPELINE + ['printf \'%s\\n\' "$version"']) + '\n'
 
 
 def release(tag, draft=False, prerelease=False):
