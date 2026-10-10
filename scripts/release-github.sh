@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Take the Sparkle signing key out of the environment before any child process
+# starts, so no tool inherits it. Only generate_appcast receives it, on stdin.
+sparkle_private_key=""
+if [[ -n "${SPARKLE_PRIVATE_KEY+set}" ]]; then
+  sparkle_private_key="$SPARKLE_PRIVATE_KEY"
+  unset SPARKLE_PRIVATE_KEY
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/release-env.sh
 source "$ROOT_DIR/scripts/lib/release-env.sh"
@@ -59,14 +67,6 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
-
-# Keep the Sparkle signing key out of every child environment.
-# Only generate_appcast receives it, on stdin.
-sparkle_private_key=""
-if [[ -n "${SPARKLE_PRIVATE_KEY+set}" ]]; then
-  sparkle_private_key="$SPARKLE_PRIVATE_KEY"
-  unset SPARKLE_PRIVATE_KEY
-fi
 
 if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || ! "$BUILD_NUMBER" =~ ^[0-9]{14}$ ]]; then
   echo 'Use --version vX.Y.Z and --build UTC YYYYMMDDHHMMSS.' >&2

@@ -87,14 +87,9 @@ class ReleaseBuildTests(unittest.TestCase):
     sys.exit('Unexpected git operation')
 ''')
         self.command('gh', '')
-        python = self.bin / 'python3'
-        python.write_text('#!/bin/bash\n'
-                          'if [[ -n "${SPARKLE_PRIVATE_KEY+set}" ]]; then\n'
-                          '  echo "SPARKLE_PRIVATE_KEY reached python3" >&2\n'
-                          '  exit 97\n'
-                          'fi\n'
-                          f'exec "{sys.executable}" "$@"\n')
-        python.chmod(0o755)
+        # Real tools the script runs directly, wrapped so they refuse the Sparkle key too.
+        self.guarded_passthrough('python3', sys.executable)
+        self.guarded_passthrough('dirname', shutil.which('dirname'))
         self.key_record = self.root / 'appcast-key-record'
         self.env = os.environ.copy()
         self.env.update(PATH=str(self.bin) + os.pathsep + self.env['PATH'],
@@ -115,6 +110,16 @@ class ReleaseBuildTests(unittest.TestCase):
                         + KEY_GUARD + code)
         path.chmod(0o755)
 
+    def guarded_passthrough(self, name, real):
+        path = self.bin / name
+        path.write_text('#!/bin/bash\n'
+                        'if [[ -n "${SPARKLE_PRIVATE_KEY+set}" ]]; then\n'
+                        f'  echo "SPARKLE_PRIVATE_KEY reached {name}" >&2\n'
+                        '  exit 97\n'
+                        'fi\n'
+                        f'exec "{real}" "$@"\n')
+        path.chmod(0o755)
+
     def run_release(self, *args, version='v' + VERSION, build=BUILD):
         return subprocess.run(
             ['bash', str(self.root / 'scripts/release-github.sh'), '--version', version,
@@ -122,7 +127,7 @@ class ReleaseBuildTests(unittest.TestCase):
             env=self.env, capture_output=True, text=True)
 
     def isolate_path(self):
-        for command in ('bash', 'dirname', 'env'):
+        for command in ('bash', 'env'):
             (self.bin / command).symlink_to(shutil.which(command))
         self.env['PATH'] = str(self.bin)
 
