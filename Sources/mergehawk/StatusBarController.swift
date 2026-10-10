@@ -313,6 +313,34 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         }
     }
 
+    // MER-67: until the first click in the open menu, AppKit follows every mouse move with a mouseExited that carries
+    // a screen position instead of a window position, then a mouseEntered. SwiftUI ends hover on each exit, so the
+    // hovered card flickers. An exit while the pointer is still inside the view is dropped, and so is the entry after it.
+    private var isPointerInside = false
+
+    override func mouseEntered(with event: NSEvent) {
+        guard !isPointerInside else {
+            return
+        }
+        isPointerInside = true
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard !containsPointer else {
+            return
+        }
+        isPointerInside = false
+        super.mouseExited(with: event)
+    }
+
+    private var containsPointer: Bool {
+        guard let window else {
+            return false
+        }
+        return bounds.contains(convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil))
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let tab = menuTabShortcut(for: event), tabShortcutHandler(tab) {
             return true
