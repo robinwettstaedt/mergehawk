@@ -1232,6 +1232,38 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
+    func testThreadCommentRestartRereadsTheNewestTenThenPagesOlderCommentsByHundred() async throws {
+        let comments = (0..<16).map { Self.comment("TC\($0)") }
+        let node = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: comments)]))
+        var deleted = false
+        let server = GitHubFixtureServer(pullRequests: [node]) { index, server in
+            // The newest comment is deleted just before the first older page, so its total drops and the thread's
+            // comments restart.
+            guard !deleted, case .string(let cursor) = server.requests[index].variables["cursor0"],
+                  cursor.hasPrefix("comments:T:") else { return }
+            deleted = true
+            server.deleteThreadComment(threadID: "T", commentID: "TC15")
+        }
+
+        let pullRequest = try await server.fetcher.hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(Set(pullRequest.recentCommentActivities.map(\.id)), Set((0..<15).map { "TC\($0)" }))
+        let threadCommentReads = server.requests.filter { $0.query.contains("... on PullRequestReviewThread") }
+        let firstReads = threadCommentReads.filter { $0.variables["cursor0"] == .null }
+        let olderPages = threadCommentReads.filter { $0.variables["cursor0"] != .null }
+        XCTAssertFalse(firstReads.isEmpty)
+        XCTAssertEqual(olderPages.count, 2)
+        for request in firstReads {
+            XCTAssertTrue(request.query.contains("comments(last: 10, before: $cursor0)"), request.query)
+        }
+        for request in olderPages {
+            XCTAssertTrue(request.query.contains("comments(last: 100, before: $cursor0)"), request.query)
+        }
+        // The restart re-read comes after the first older page, and one older page follows it.
+        let restartIndex = try XCTUnwrap(threadCommentReads.lastIndex { $0.variables["cursor0"] == .null })
+        XCTAssertEqual(threadCommentReads[(restartIndex + 1)...].count, 1)
+    }
+
     private static func fetcher(_ transport: HydrationTransport) -> GitHubPullRequestFetcher {
         GitHubPullRequestFetcher { query, variables in
             try await transport.read(query: query, variables: variables)

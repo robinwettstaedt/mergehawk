@@ -2,6 +2,9 @@ import Foundation
 
 enum GitHubPullRequestQueries {
     static let continuationPageSize = 100
+    /// A thread-comment read without a cursor takes the thread's newest comments only. Older ones page at
+    /// `continuationPageSize`.
+    static let threadCommentFirstReadPageSize = 10
     static let hydrationBatchSize = 20
     static let continuationBatchSize = 20
 

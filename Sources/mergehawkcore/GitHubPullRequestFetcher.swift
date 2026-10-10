@@ -706,14 +706,14 @@ struct GitHubPullRequestFetcher: Sendable {
             ["$id\(index): ID!", "$cursor\(index): String"]
         }.joined(separator: ", ")
         let selections = batch.enumerated().map { index, continuation in
-            "c\(index): node(id: $id\(index)) { \(continuationSelection(for: continuation.kind, cursor: "$cursor\(index)")) }"
+            "c\(index): node(id: $id\(index)) { \(continuationSelection(for: continuation, cursor: "$cursor\(index)")) }"
         }.joined(separator: "\n")
         return "query ContinuePullRequestConnections(\(declarations)) {\n\(selections)\n}"
     }
 
-    private func continuationSelection(for kind: ConnectionKind, cursor: String) -> String {
+    private func continuationSelection(for continuation: Continuation, cursor: String) -> String {
         let size = GitHubPullRequestQueries.continuationPageSize
-        switch kind {
+        switch continuation.kind {
         case .comments:
             return "... on PullRequest { comments(last: \(size), before: \(cursor)) { \(GitHubPullRequestQueries.conversationCommentConnectionFields) } }"
         case .reviews:
@@ -737,7 +737,8 @@ struct GitHubPullRequestFetcher: Sendable {
             } }
             """
         case .threadComments:
-            return "... on PullRequestReviewThread { comments(last: \(size), before: \(cursor)) { \(GitHubPullRequestQueries.inlineCommentConnectionFields) } }"
+            let threadSize = continuation.before == nil ? GitHubPullRequestQueries.threadCommentFirstReadPageSize : size
+            return "... on PullRequestReviewThread { comments(last: \(threadSize), before: \(cursor)) { \(GitHubPullRequestQueries.inlineCommentConnectionFields) } }"
         }
     }
 

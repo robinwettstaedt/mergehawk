@@ -81,6 +81,17 @@ final class GitHubFixtureServer: @unchecked Sendable {
         }
     }
 
+    func deleteThreadComment(threadID: String, commentID: String) {
+        lock.withLock {
+            for prIndex in pullRequests.indices {
+                for threadIndex in pullRequests[prIndex].threads.indices
+                where pullRequests[prIndex].threads[threadIndex].id == threadID {
+                    pullRequests[prIndex].threads[threadIndex].comments.removeAll { $0["id"] as? String == commentID }
+                }
+            }
+        }
+    }
+
     func removePullRequest(id: String) {
         lock.withLock { pullRequests.removeAll { $0.id == id } }
     }
