@@ -334,6 +334,8 @@ final class DashboardController: ObservableObject {
     }
     private var automaticRefreshDeferral: AutomaticRefreshDeferral?
     private var refreshTask: Task<Void, Never>?
+    /// Whether `refreshTask` forces a team read.
+    private var refreshTaskForcesTeamRead = false
     private var refreshAttemptID = 0
     private var catalogTask: Task<Void, Never>?
     private var providerGeneration = 0
@@ -787,6 +789,13 @@ final class DashboardController: ObservableObject {
         }
     }
 
+    /// A refresh that reads the viewer's teams even when the stored teams are still fresh.
+    func refreshTeams() {
+        Task {
+            await refreshDashboard(appliesMockRefreshDelay: true, forcesTeamRead: true)
+        }
+    }
+
     func signInWithToken(_ token: String) async {
         guard !isSigningInWithToken else { return }
         cancelDeviceFlowSignIn()
@@ -812,7 +821,8 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await refreshDashboard()
+            // Teams stored under an earlier credential are not reused, even for the same account.
+            await refreshDashboard(forcesTeamRead: true)
             startCatalogRefreshIfNeeded(force: true)
         } catch {
             errorMessage = error.localizedDescription
@@ -893,7 +903,8 @@ final class DashboardController: ObservableObject {
                 loginProvider: { viewer.login },
                 accountProvider: { viewer }
             )
-            await refreshDashboard()
+            // Teams stored under an earlier credential are not reused, even for the same account.
+            await refreshDashboard(forcesTeamRead: true)
             guard shouldContinueSignIn(attemptID) else { return }
             startCatalogRefreshIfNeeded(force: true)
             try tokenStore.storeOAuthTokens(tokens)
@@ -1524,13 +1535,17 @@ final class DashboardController: ObservableObject {
     private func performSync(
         syncEngine: SyncEngine,
         generation: Int,
-        appliesMockRefreshDelay: Bool
+        appliesMockRefreshDelay: Bool,
+        forcesTeamRead: Bool = false
     ) async {
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
             let previousState = committedSyncState
-            let fetched = try await syncEngine.fetchRefresh(previousState: previousState)
+            let fetched = try await syncEngine.fetchRefresh(
+                previousState: previousState,
+                forcesTeamRead: forcesTeamRead
+            )
             guard !Task.isCancelled, providerGeneration == generation else { return }
             // Read after the fetch, so a team turned off or on during a suspended refresh applies to it.
             let prepared = try syncEngine.prepare(
@@ -1571,7 +1586,8 @@ final class DashboardController: ObservableObject {
                 account: isSignedOut ? nil : prepared.account,
                 authStatus: isSignedOut ? .signedOut : .signedIn,
                 viewerTeams: prepared.viewerTeams,
-                pullRequestStacks: prepared.stacks
+                pullRequestStacks: prepared.stacks,
+                viewerTeamsReadAt: prepared.viewerTeamsReadAt
             )
             if isSignedOut {
                 presentation = PublishedPresentation(dashboard: dashboard, notificationHistory: history)
@@ -1628,11 +1644,20 @@ final class DashboardController: ObservableObject {
 
     private func refreshDashboard(
         appliesMockRefreshDelay: Bool = false,
-        isAutomatic: Bool = false
+        isAutomatic: Bool = false,
+        forcesTeamRead: Bool = false
     ) async {
         if isAutomatic, shouldDeferAutomaticRefresh() { return }
-        if let refreshTask {
-            await refreshTask.value
+        if let running = refreshTask {
+            let runningForcesTeamRead = refreshTaskForcesTeamRead
+            await running.value
+            // The running refresh may have reused teams, so a forced team read runs once more after it.
+            guard forcesTeamRead, !runningForcesTeamRead else { return }
+            // Its owner clears `refreshTask` when it resumes; rejoining the finished task would never start the read.
+            while refreshTask == running {
+                await Task.yield()
+            }
+            await refreshDashboard(appliesMockRefreshDelay: appliesMockRefreshDelay, forcesTeamRead: true)
             return
         }
         guard let syncEngine else { return }
@@ -1646,10 +1671,12 @@ final class DashboardController: ObservableObject {
             await self.performSync(
                 syncEngine: syncEngine,
                 generation: generation,
-                appliesMockRefreshDelay: appliesMockRefreshDelay
+                appliesMockRefreshDelay: appliesMockRefreshDelay,
+                forcesTeamRead: forcesTeamRead
             )
         }
         refreshTask = task
+        refreshTaskForcesTeamRead = forcesTeamRead
         await task.value
         guard refreshAttemptID == attemptID else { return }
         refreshTask = nil

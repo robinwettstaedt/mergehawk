@@ -43,13 +43,19 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
 
     public func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         let fetcher = GitHubPullRequestFetcher { [weak self] query, variables in
             guard let self else { throw CancellationError() }
             return try await self.completeGraphQL(query: query, variables: variables)
         }
-        let viewerTeams = try await fetcher.fetchViewerTeams(login: login)
+        let viewerTeams: [ViewerTeam]
+        if let reusableViewerTeams {
+            viewerTeams = reusableViewerTeams
+        } else {
+            viewerTeams = try await fetcher.fetchViewerTeams(login: login)
+        }
         let discovery = try await fetcher.discover(login: login)
         let discoveredIDs = Set(discovery.pullRequests.map(\.id))
         let previousPullRequests = previousState?.trusted(for: login)?.dashboard.pullRequests ?? []

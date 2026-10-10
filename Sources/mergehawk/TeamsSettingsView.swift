@@ -19,9 +19,10 @@ enum ReviewTeamsSettingsPresentation {
     static let signedOutHeadline = "Sign in to see your teams"
     static let signedOutDetail = "Then choose which teams' review requests show up."
     static let noTeamsHeadline = "No teams found"
-    static let noTeamsDetail = "Your GitHub teams appear here after the next successful refresh."
+    static let noTeamsDetail = "MergeHawk checks your GitHub teams every 30 minutes. Use the refresh button to check now."
     static let caption = "Turn off a team to hide PRs and notifications that reach you only through that team. "
         + "Useful for broad teams that CODEOWNERS adds to every PR."
+    static let refreshTeamsTitle = "Refresh teams"
     static let notificationsLinkTitle = "Set notifications for teams you haven't turned off here ›"
     static let notificationsLinkDestination = SettingsTab.notifications
 
@@ -51,11 +52,17 @@ enum ReviewTeamsSettingsPresentation {
 
 private enum ReviewTeamsSettingsLayout {
     static let indentPerLevel: CGFloat = 20
+    /// Lines the caption up with the grouped Form's section headers and row content below it.
+    static let captionHorizontalInset: CGFloat = 30
+    static let captionTopPadding: CGFloat = 20
+    static let emptyStateHorizontalPadding: CGFloat = 20
 }
 
 struct TeamsSettingsView: View {
     @ObservedObject var controller: DashboardController
     @Binding var selection: SettingsTab
+
+    @Environment(\.menuMetrics) private var metrics
 
     var body: some View {
         switch ReviewTeamsSettingsPresentation.content(
@@ -72,37 +79,71 @@ struct TeamsSettingsView: View {
                 }
             )
         case .noTeams:
-            EmptyMenuState(
-                text: ReviewTeamsSettingsPresentation.noTeamsHeadline,
-                systemImage: "person.3",
-                detail: ReviewTeamsSettingsPresentation.noTeamsDetail
-            )
+            VStack(spacing: 0) {
+                EmptyMenuState(
+                    text: ReviewTeamsSettingsPresentation.noTeamsHeadline,
+                    systemImage: "person.3",
+                    detail: ReviewTeamsSettingsPresentation.noTeamsDetail
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                // The same gap EmptyMenuState leaves above its own action button.
+                refreshTeamsControl
+                    .padding(.top, 2 * metrics.emptyState.spacing)
+            }
+            // The side margin of the Sources pane, so the detail wraps inside the window instead of edge to edge.
+            .padding(.horizontal, ReviewTeamsSettingsLayout.emptyStateHorizontalPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .teams(let groups):
-            Form {
-                ForEach(groups) { group in
-                    Section {
-                        ForEach(group.rows) { row in
-                            ReviewTeamSettingsRow(row: row, controller: controller)
-                        }
-                    } header: {
-                        VStack(alignment: .leading, spacing: 20) {
-                            // The caption heads the first section so it reads as plain text above the groups.
-                            if group.id == groups.first?.id {
-                                Text(ReviewTeamsSettingsPresentation.caption)
-                                    .font(.body)
-                                    .fontWeight(.regular)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 0) {
+                // A plain row above the Form, like the Sources search and refresh row: a grouped Form's section
+                // header restyles its content, which drew the refresh control smaller than in Sources.
+                captionRow
+                    .padding(.horizontal, ReviewTeamsSettingsLayout.captionHorizontalInset)
+                    .padding(.top, ReviewTeamsSettingsLayout.captionTopPadding)
+                Form {
+                    ForEach(groups) { group in
+                        Section {
+                            ForEach(group.rows) { row in
+                                ReviewTeamSettingsRow(row: row, controller: controller)
                             }
+                        } header: {
                             organizationHeader(group)
                         }
                     }
                 }
-            }
-            .formStyle(.grouped)
-            .safeAreaInset(edge: .bottom) {
+                .formStyle(.grouped)
+                // Below the Form, so no row scrolls behind it and it sits on the window background like the
+                // install link at the bottom of Sources.
                 notificationsLink
             }
+        }
+    }
+
+    /// The Sources pane's refresh control, showing when the teams were last read.
+    private var refreshTeamsControl: some View {
+        RefreshStatusControl(
+            indicatorColor: .secondary,
+            isRefreshing: controller.isRefreshing,
+            updatedAt: controller.state.viewerTeamsReadAt,
+            action: controller.refreshTeams,
+            isRefreshEnabled: !controller.isRefreshing,
+            help: ReviewTeamsSettingsPresentation.refreshTeamsTitle,
+            accessibilityLabel: ReviewTeamsSettingsPresentation.refreshTeamsTitle,
+            keyboardShortcut: KeyboardShortcut("r", modifiers: .command),
+            timestampPrefix: "",
+            width: 58,
+            displayMode: .horizontalButton(height: 24),
+            showsIndicator: false
+        )
+    }
+
+    private var captionRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(ReviewTeamsSettingsPresentation.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            refreshTeamsControl
         }
     }
 
@@ -117,8 +158,7 @@ struct TeamsSettingsView: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .center)
         // No bottom padding, so the link sits as low as the install link at the bottom of Sources.
-        .padding(.top, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.top, SettingsBottomLinkLayout.topPadding)
     }
 
     private func organizationHeader(_ group: ReviewTeamsSettingsPresentation.OrganizationGroup) -> some View {

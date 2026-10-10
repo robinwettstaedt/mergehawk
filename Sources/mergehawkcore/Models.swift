@@ -1066,6 +1066,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
     public var viewerTeams: [ViewerTeam]
     /// The PR stacks read by the complete PR refresh that produced `pullRequests`.
     public var pullRequestStacks: [PullRequestStack]
+    /// When `viewerTeams` was last read from the provider. Nil means unknown, which counts as stale.
+    public var viewerTeamsReadAt: Date?
 
     public static let empty = DashboardState(
         pullRequests: [],
@@ -1086,7 +1088,8 @@ public struct DashboardState: Codable, Equatable, Sendable {
         account: GitHubAccount?,
         authStatus: AuthStatus,
         viewerTeams: [ViewerTeam] = [],
-        pullRequestStacks: [PullRequestStack] = []
+        pullRequestStacks: [PullRequestStack] = [],
+        viewerTeamsReadAt: Date? = nil
     ) {
         self.pullRequests = pullRequests
         self.events = events
@@ -1096,13 +1099,15 @@ public struct DashboardState: Codable, Equatable, Sendable {
         self.authStatus = authStatus
         self.viewerTeams = viewerTeams
         self.pullRequestStacks = pullRequestStacks
+        self.viewerTeamsReadAt = viewerTeamsReadAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case pullRequests, events, syncedAt, source, account, authStatus, viewerTeams, pullRequestStacks
+        case pullRequests, events, syncedAt, source, account, authStatus, viewerTeams, pullRequestStacks, viewerTeamsReadAt
     }
 
     /// Sync state stored before stacks existed decodes with no stacks; the next refresh fills them in.
+    /// Sync state stored before team read times existed decodes with an unknown read time, so the next refresh reads teams.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.pullRequests = try container.decode([PullRequest].self, forKey: .pullRequests)
@@ -1113,5 +1118,6 @@ public struct DashboardState: Codable, Equatable, Sendable {
         self.authStatus = try container.decode(AuthStatus.self, forKey: .authStatus)
         self.viewerTeams = try container.decode([ViewerTeam].self, forKey: .viewerTeams)
         self.pullRequestStacks = try container.decodeIfPresent([PullRequestStack].self, forKey: .pullRequestStacks) ?? []
+        self.viewerTeamsReadAt = try container.decodeIfPresent(Date.self, forKey: .viewerTeamsReadAt)
     }
 }

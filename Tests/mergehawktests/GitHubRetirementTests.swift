@@ -31,7 +31,7 @@ final class GitHubRetirementTests: XCTestCase {
         }
         let client = GitHubClient(token: "token", session: Self.session())
 
-        let result = try await client.fetchCompletePullRequests(login: "rw", previousState: previous)
+        let result = try await client.fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
         XCTAssertTrue(result.activePullRequests.isEmpty)
         XCTAssertEqual(result.retiringPullRequests.map(\.id), [previousPR.id])
@@ -129,7 +129,7 @@ final class GitHubRetirementTests: XCTestCase {
         }
 
         let result = try await GitHubClient(token: "token", session: Self.session())
-            .fetchCompletePullRequests(login: "rw", previousState: previous)
+            .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
         XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_1"])
         XCTAssertTrue(result.retiringPullRequests.isEmpty)
@@ -158,7 +158,7 @@ final class GitHubRetirementTests: XCTestCase {
         }
 
         let result = try await GitHubClient(token: "token", session: Self.session())
-            .fetchCompletePullRequests(login: "rw", previousState: previous)
+            .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
         XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_1"])
         XCTAssertEqual(result.viewerTeams, [
@@ -186,7 +186,7 @@ final class GitHubRetirementTests: XCTestCase {
 
         do {
             _ = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: previous)
+                .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
             XCTFail("Expected the viewer teams failure to fail the complete PR refresh")
         } catch {
             XCTAssertEqual(error as? GitHubReadError, .accessDenied)
@@ -217,7 +217,7 @@ final class GitHubRetirementTests: XCTestCase {
 
         do {
             _ = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: previous)
+                .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
             XCTFail("Expected the hydration failure to fail the complete PR refresh")
         } catch {
             XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
@@ -248,7 +248,7 @@ final class GitHubRetirementTests: XCTestCase {
             }
 
             let result = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: previous)
+                .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
             XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_1"])
             XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
@@ -296,7 +296,7 @@ final class GitHubRetirementTests: XCTestCase {
             }
 
             let result = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: previous)
+                .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
             XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_KEEP"])
             XCTAssertTrue(result.retiringPullRequests.isEmpty)
@@ -337,7 +337,7 @@ final class GitHubRetirementTests: XCTestCase {
             }
 
             let result = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: previous)
+                .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
             XCTAssertTrue(result.activePullRequests.isEmpty)
             XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_1"])
@@ -409,7 +409,8 @@ final class GitHubRetirementTests: XCTestCase {
                 _ = try await GitHubClient(token: "token", session: Self.session())
                     .fetchCompletePullRequests(
                         login: "rw",
-                        previousState: Self.previousState(Self.previousPR())
+                        previousState: Self.previousState(Self.previousPR()),
+                        reusableViewerTeams: nil
                     )
                 XCTFail("Expected \(failure.name) GraphQL failure")
             } catch let error as GitHubReadError {
@@ -450,7 +451,7 @@ final class GitHubRetirementTests: XCTestCase {
 
         do {
             _ = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: previous)
+                .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
             XCTFail("Expected authentication failure")
         } catch {
             XCTAssertEqual(error as? GitHubReadError, .authentication)
@@ -494,7 +495,7 @@ final class GitHubRetirementTests: XCTestCase {
         }
 
         let result = try await GitHubClient(token: "token", session: Self.session())
-            .fetchCompletePullRequests(login: "rw", previousState: previous)
+            .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
         XCTAssertEqual(Set(result.activePullRequests.map(\.id)), Set(previous.dashboard.pullRequests.map(\.id)))
         XCTAssertEqual(teamQueries.value, 3)
@@ -572,7 +573,7 @@ final class GitHubRetirementTests: XCTestCase {
         }
 
         let result = try await GitHubClient(token: "token", session: Self.session())
-            .fetchCompletePullRequests(login: "rw", previousState: nil)
+            .fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: nil)
 
         XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_DIRECT_TEAM", "PR_TEAM_KEEP"])
         XCTAssertEqual(
@@ -618,7 +619,7 @@ final class GitHubRetirementTests: XCTestCase {
 
             do {
                 _ = try await GitHubClient(token: "token", session: Self.session())
-                    .fetchCompletePullRequests(login: "rw", previousState: previous)
+                    .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
                 XCTFail("Expected \(scenario) failure")
             } catch let error as GitHubReadError {
                 switch scenario {
@@ -667,7 +668,7 @@ final class GitHubRetirementTests: XCTestCase {
         let before = Date()
 
         do {
-            _ = try await client.fetchCompletePullRequests(login: "rw", previousState: previous)
+            _ = try await client.fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
             XCTFail("Expected rate limit")
         } catch let GitHubReadError.rateLimited(retryAt) {
             let retryAt = try XCTUnwrap(retryAt)

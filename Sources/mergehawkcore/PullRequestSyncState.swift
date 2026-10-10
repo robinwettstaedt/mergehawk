@@ -92,11 +92,19 @@ public struct FetchedPullRequestRefresh: Equatable, Sendable {
     public let login: String
     public let account: GitHubAccount
     public let fetchResult: CompletePullRequestFetchResult
+    /// When `fetchResult.viewerTeams` was read from the provider, carried over when the stored teams were reused.
+    public let viewerTeamsReadAt: Date
 
-    public init(login: String, account: GitHubAccount, fetchResult: CompletePullRequestFetchResult) {
+    public init(
+        login: String,
+        account: GitHubAccount,
+        fetchResult: CompletePullRequestFetchResult,
+        viewerTeamsReadAt: Date
+    ) {
         self.login = login
         self.account = account
         self.fetchResult = fetchResult
+        self.viewerTeamsReadAt = viewerTeamsReadAt
     }
 }
 
@@ -119,6 +127,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
     public let events: [PreparedPullRequestEvent]
     public let viewerTeams: [ViewerTeam]
     public let stacks: [PullRequestStack]
+    public let viewerTeamsReadAt: Date
     public let syncedAt: Date
 
     public init(
@@ -130,6 +139,7 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         events: [PreparedPullRequestEvent],
         viewerTeams: [ViewerTeam],
         stacks: [PullRequestStack],
+        viewerTeamsReadAt: Date,
         syncedAt: Date
     ) {
         self.account = account
@@ -140,14 +150,18 @@ public struct PreparedPullRequestRefresh: Equatable, Sendable {
         self.events = events
         self.viewerTeams = viewerTeams
         self.stacks = stacks
+        self.viewerTeamsReadAt = viewerTeamsReadAt
         self.syncedAt = syncedAt
     }
 }
 
 public protocol CompletePullRequestFetching: AnyObject {
     var sourceKind: DashboardSource { get }
+    /// `reusableViewerTeams` nil means read the viewer's teams from the provider. A non-nil array means
+    /// use exactly these teams and don't read them.
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult
 }

@@ -1,6 +1,6 @@
 @testable import mergehawk
 import Foundation
-import mergehawkcore
+@testable import mergehawkcore
 import XCTest
 
 private func archiveFixturePR(
@@ -22,7 +22,8 @@ private func archiveFixturePR(
     )
 }
 
-private final class ReviewTeamGitHubProvider: GitHubProviding {
+/// Also used by the Teams settings pane tests, to see which reusable teams a refresh hands to the source.
+final class ReviewTeamGitHubProvider: GitHubProviding {
     enum OfflineError: Error, LocalizedError {
         case offline
 
@@ -32,16 +33,34 @@ private final class ReviewTeamGitHubProvider: GitHubProviding {
     let sourceKind: DashboardSource = .github
     /// Nil fails every complete PR refresh, like a machine without network.
     var result: CompletePullRequestFetchResult?
+    var viewerLogin = "rw"
+    /// Thrown by every complete PR refresh while set, before `result` is read.
+    var failure: Error?
+    /// While true, each complete PR refresh waits for `releaseHeldFetch()` before it returns.
+    var holdsFetches = false
+    private var heldFetch: CheckedContinuation<Void, Never>?
     private(set) var fetchCount = 0
+    /// The reusable teams each complete PR refresh was handed, nil when it was asked to read teams.
+    private(set) var reusableViewerTeams: [[ViewerTeam]?] = []
 
     init(result: CompletePullRequestFetchResult?) { self.result = result }
 
-    func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
+    func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: viewerLogin) }
 
-    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
+        self.reusableViewerTeams.append(reusableViewerTeams)
+        if holdsFetches {
+            await withCheckedContinuation { heldFetch = $0 }
+        }
+        if let failure { throw failure }
         guard let result else { throw OfflineError.offline }
         return result
+    }
+
+    func releaseHeldFetch() {
+        heldFetch?.resume()
+        heldFetch = nil
     }
 
     func fetchSourceCatalog(accountLogin: String?) async throws -> SourceCatalog {
@@ -51,6 +70,12 @@ private final class ReviewTeamGitHubProvider: GitHubProviding {
     func fetchGitHubAppInstallations() async throws -> GitHubAppInstallations {
         GitHubAppInstallations(installations: [])
     }
+}
+
+private final class ControllerTestClock {
+    var now: Date
+
+    init(_ now: Date) { self.now = now }
 }
 
 private final class ArchiveFixtureGitHubProvider: GitHubProviding {
@@ -66,7 +91,7 @@ private final class ArchiveFixtureGitHubProvider: GitHubProviding {
 
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
 
-    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         return CompletePullRequestFetchResult(activePullRequests: pullRequests, viewerTeams: viewerTeams)
     }
@@ -177,7 +202,8 @@ final class DashboardControllerXCTests: XCTestCase {
             for _ in 0..<3 {
                 guard let result = try? await source.fetchCompletePullRequests(
                     login: "agent-fixture",
-                    previousState: nil
+                    previousState: nil,
+                    reusableViewerTeams: nil
                 ) else { break }
                 XCTAssertFalse(result.viewerTeams.isEmpty, scenario.rawValue)
                 XCTAssertEqual(result.viewerTeams, source.viewerTeams, scenario.rawValue)
@@ -196,8 +222,8 @@ final class DashboardControllerXCTests: XCTestCase {
     func testReviewTeamsScenarioHasNestedTeamsAndSecondRefreshAddsPlmTeam() async throws {
         let source = MockPullRequestSource(scenario: .reviewTeams)
 
-        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
-        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
 
         XCTAssertEqual(first.viewerTeams.filter { $0.team.organization == "mergehawk-labs" }.map(\.team.displayName), [
             "@mergehawk-labs/developers", "@mergehawk-labs/engineering", "@mergehawk-labs/plm-team",
@@ -279,7 +305,9 @@ final class DashboardControllerXCTests: XCTestCase {
     private static func makeReviewTeamController(
         defaults: UserDefaults,
         provider: ReviewTeamGitHubProvider,
-        notifications: RecordingNotificationClient = RecordingNotificationClient()
+        notifications: RecordingNotificationClient = RecordingNotificationClient(),
+        automaticRefreshInterval: TimeInterval = 0,
+        now: @escaping () -> Date = Date.init
     ) -> DashboardController {
         var store = PreferencesStore(defaults: defaults)
         store.authMethod = .pat
@@ -288,8 +316,9 @@ final class DashboardControllerXCTests: XCTestCase {
             preferencesStore: store,
             launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
             notificationClient: notifications,
-            automaticRefreshInterval: 0,
-            patGitHubClientFactory: { _ in provider }
+            automaticRefreshInterval: automaticRefreshInterval,
+            patGitHubClientFactory: { _ in provider },
+            now: now
         )
     }
 
@@ -452,6 +481,188 @@ final class DashboardControllerXCTests: XCTestCase {
         Self.refreshAndWait(controller, provider)
         XCTAssertEqual(controller.reviewTeamRows.first { $0.id == Self.developers.id }?.isCounting, false)
         XCTAssertEqual(PreferencesStore(defaults: defaults).turnedOffReviewTeamIDs, [Self.developers.id, "T_FORMER"])
+    }
+
+    @MainActor
+    func testSuccessfulRefreshCommitsAndStoresTheTeamReadTime() throws {
+        let suiteName = "review-teams-read-time-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let readAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider, now: { readAt })
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+
+        XCTAssertEqual(provider.reusableViewerTeams, [nil])
+        XCTAssertEqual(controller.state.viewerTeamsReadAt, readAt)
+        XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState?.dashboard.viewerTeamsReadAt, readAt)
+    }
+
+    @MainActor
+    func testAutomaticRefreshWithinHalfAnHourHandsTheStoredTeamsToTheSource() throws {
+        let suiteName = "review-teams-reuse-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let clock = ControllerTestClock(Date(timeIntervalSince1970: 1_800_000_000))
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(
+            defaults: defaults,
+            provider: provider,
+            automaticRefreshInterval: 0.05,
+            now: { clock.now }
+        )
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        clock.now += 10 * 60
+
+        waitUntil(timeout: 1) { provider.fetchCount >= 2 && !controller.isRefreshing }
+
+        XCTAssertEqual(Array(provider.reusableViewerTeams.prefix(2)), [nil, Self.nestedViewerTeams])
+        XCTAssertEqual(controller.state.viewerTeamsReadAt, Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    @MainActor
+    func testRefreshTeamsReadsTeamsDespiteFreshStoredTeamsAndPublishesThem() throws {
+        let suiteName = "review-teams-forced-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let clock = ControllerTestClock(Date(timeIntervalSince1970: 1_800_000_000))
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: [ViewerTeam(team: Self.engineering)]
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider, now: { clock.now })
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.result = CompletePullRequestFetchResult(activePullRequests: [], viewerTeams: Self.nestedViewerTeams)
+        clock.now += 60
+
+        controller.refreshTeams()
+        waitUntil(timeout: 1) { provider.fetchCount == 2 && !controller.isRefreshing }
+
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, nil])
+        XCTAssertEqual(
+            controller.reviewTeamRows.map(\.id),
+            [Self.engineering.id, Self.developers.id, Self.plmTeam.id]
+        )
+        XCTAssertEqual(controller.state.viewerTeamsReadAt, clock.now)
+    }
+
+    @MainActor
+    func testFirstRefreshAfterSwitchingAccountsReadsTeams() async throws {
+        let suiteName = "review-teams-switch-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        await Self.waitAsync { provider.fetchCount == 1 && !controller.isRefreshing }
+        controller.refresh()
+        await Self.waitAsync { provider.fetchCount == 2 && !controller.isRefreshing }
+
+        controller.signOut()
+        await Self.waitAsync { !controller.isRefreshing }
+        provider.viewerLogin = "someone-else"
+        await controller.signInWithToken("github_pat_other")
+
+        XCTAssertEqual(controller.state.account?.login, "someone-else")
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, Self.nestedViewerTeams, nil])
+    }
+
+    @MainActor
+    func testSigningBackInAsTheSameAccountAfterAnAuthenticationFailureReadsTeams() async throws {
+        let suiteName = "review-teams-reauth-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        await Self.waitAsync { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.failure = GitHubReadError.authentication
+        controller.refresh()
+        await Self.waitAsync { provider.fetchCount == 2 && !controller.isRefreshing }
+        XCTAssertNotNil(controller.errorMessage)
+        XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState?.dashboard.viewerTeams, Self.nestedViewerTeams)
+
+        provider.failure = nil
+        await controller.signInWithToken("github_pat_again")
+
+        XCTAssertEqual(controller.state.account?.login, "rw")
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, Self.nestedViewerTeams, nil])
+    }
+
+    @MainActor
+    func testRefreshTeamsDuringARunningRefreshReadsTeamsAfterIt() async throws {
+        let suiteName = "review-teams-forced-in-flight-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        await Self.waitAsync { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.holdsFetches = true
+        controller.refresh()
+        await Self.waitAsync { provider.fetchCount == 2 }
+        provider.holdsFetches = false
+
+        controller.refreshTeams()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(provider.fetchCount, 2)
+        provider.releaseHeldFetch()
+        await Self.waitAsync { provider.fetchCount == 3 && !controller.isRefreshing }
+
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, Self.nestedViewerTeams, nil])
+    }
+
+    @MainActor
+    func testFailedRefreshTeamsKeepsTheCommittedTeamsAndShowsTheError() throws {
+        let suiteName = "review-teams-forced-failure-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let clock = ControllerTestClock(Date(timeIntervalSince1970: 1_800_000_000))
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [Self.teamPR("PR_DEV", [Self.developers])],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider, now: { clock.now })
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        let state = controller.state
+        let rows = controller.reviewTeamRows
+        let stored = PreferencesStore(defaults: defaults).pullRequestSyncState
+        provider.result = nil
+        clock.now += 60
+
+        controller.refreshTeams()
+        waitUntil(timeout: 1) { provider.fetchCount == 2 && !controller.isRefreshing }
+
+        XCTAssertEqual(provider.reusableViewerTeams, [nil, nil])
+        XCTAssertEqual(controller.refreshErrorMessage, "Offline")
+        XCTAssertEqual(controller.state, state)
+        XCTAssertEqual(controller.reviewTeamRows, rows)
+        XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState, stored)
+        XCTAssertEqual(stored?.dashboard.viewerTeamsReadAt, Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    @MainActor
+    private static func waitAsync(timeout: TimeInterval = 1, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else {
+                XCTFail("Timed out waiting for condition")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 
     @MainActor
@@ -963,7 +1174,7 @@ final class DashboardControllerXCTests: XCTestCase {
         for scenario in MockPullRequestScenario.allCases where scenario != .prStacks {
             let source = MockPullRequestSource(scenario: scenario)
             XCTAssertEqual(source.stacks, [], scenario.rawValue)
-            let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+            let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
             XCTAssertEqual(result.stacks, [], scenario.rawValue)
         }
     }
@@ -971,7 +1182,7 @@ final class DashboardControllerXCTests: XCTestCase {
     @MainActor
     func testEveryRequestedPRStacksMemberNamesAStackThatListsIt() async throws {
         let source = MockPullRequestSource(scenario: .prStacks)
-        let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
         let stacksByID = Dictionary(uniqueKeysWithValues: result.stacks.map { ($0.id, $0) })
         let stacked = result.activePullRequests.filter { $0.stackID != nil }
 
@@ -2338,7 +2549,8 @@ private final class FakeGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
         return CompletePullRequestFetchResult(activePullRequests: pullRequests)
@@ -2379,7 +2591,8 @@ private final class DelayedViewerGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
         return CompletePullRequestFetchResult(activePullRequests: [])
@@ -2411,7 +2624,8 @@ private final class FailingViewerGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         CompletePullRequestFetchResult(activePullRequests: [])
     }
@@ -2456,7 +2670,8 @@ private final class DelayedSyncGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         await withCheckedContinuation { continuation in
             pullRequestsContinuation = continuation

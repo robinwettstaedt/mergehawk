@@ -1881,7 +1881,8 @@ private final class AtomicGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         switch result {
@@ -1961,7 +1962,8 @@ private final class RateLimitedGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         let count = lock.withLock { () -> Int in
             storedRequestDates.append(Date())

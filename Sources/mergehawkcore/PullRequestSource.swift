@@ -1310,7 +1310,8 @@ extension MockPullRequestSource: SourceCatalogProviding {
 extension EmptyPullRequestSource: CompletePullRequestFetching {
     public func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         CompletePullRequestFetchResult(activePullRequests: [])
     }
@@ -1319,7 +1320,8 @@ extension EmptyPullRequestSource: CompletePullRequestFetching {
 extension MockPullRequestSource: CompletePullRequestFetching {
     public func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         let result = try fetchScenarioPullRequests(previousState: previousState)
         return CompletePullRequestFetchResult(

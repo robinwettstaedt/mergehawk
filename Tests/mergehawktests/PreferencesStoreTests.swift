@@ -288,6 +288,34 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testStoredSyncStateWithoutTeamReadTimeDecodesWithTeamsAndUnknownReadTime() throws {
+        try withThrowingStore { store, defaults in
+            let state = Self.syncStateWithTeams(readAt: Date(timeIntervalSince1970: 20))
+            try store.storePullRequestSyncState(state)
+            let stored = try XCTUnwrap(defaults.data(forKey: "pullRequests.syncState"))
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: stored) as? [String: Any])
+            var dashboard = try XCTUnwrap(object["dashboard"] as? [String: Any])
+            XCTAssertNotNil(dashboard.removeValue(forKey: "viewerTeamsReadAt"))
+            object["dashboard"] = dashboard
+            defaults.set(try JSONSerialization.data(withJSONObject: object), forKey: "pullRequests.syncState")
+
+            let decoded = try XCTUnwrap(PreferencesStore(defaults: defaults).pullRequestSyncState)
+
+            XCTAssertEqual(decoded.dashboard.pullRequests, state.dashboard.pullRequests)
+            XCTAssertEqual(decoded.dashboard.viewerTeams, state.dashboard.viewerTeams)
+            XCTAssertNil(decoded.dashboard.viewerTeamsReadAt)
+        }
+    }
+
+    func testTeamReadTimeRoundTripsThroughStoredSyncState() throws {
+        try withThrowingStore { store, defaults in
+            let readAt = Date(timeIntervalSince1970: 1_700_000_123.5)
+            try store.storePullRequestSyncState(Self.syncStateWithTeams(readAt: readAt))
+
+            XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState?.dashboard.viewerTeamsReadAt, readAt)
+        }
+    }
+
     func testLegacySnapshotImportTreatsActivityThroughItsFetchTimeAsProcessed() {
         withStore { store, _ in
             let pullRequest = Self.pullRequest()
@@ -486,6 +514,19 @@ final class PreferencesStoreTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         var store = PreferencesStore(defaults: defaults)
         try body(&store, defaults)
+    }
+
+    private static func syncStateWithTeams(readAt: Date) -> PullRequestSyncState {
+        PullRequestSyncState(
+            account: GitHubAccount(login: "rw"),
+            dashboard: DashboardState(
+                pullRequests: [pullRequest()], events: [], syncedAt: Date(timeIntervalSince1970: 10),
+                source: .github, account: GitHubAccount(login: "rw"), authStatus: .signedIn,
+                viewerTeams: [ViewerTeam(team: TeamReference(id: "T_1", organization: "example", slug: "developers"))],
+                viewerTeamsReadAt: readAt
+            ),
+            processedActivityByPullRequestID: [:]
+        )
     }
 
     private static func pullRequest(repositoryIsArchived: Bool? = nil) -> PullRequest {
