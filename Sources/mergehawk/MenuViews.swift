@@ -2782,7 +2782,11 @@ struct TransparentCardStyle: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: metrics.card.cornerRadius, style: .continuous)
         return content
+            // Cards sit one step above the controls: the raised fill twice, here and behind the clip below. That makes
+            // them a little lighter than the controls in dark mode and white in light mode.
             .background {
+                shape
+                    .fill(restFill)
                 shape
                     .fill(hoverFill)
             }
@@ -2791,7 +2795,7 @@ struct TransparentCardStyle: ViewModifier {
                     .stroke(borderColor, lineWidth: 1)
             }
             .clipShape(shape)
-            // The rest fill sits outside the clip, so the hover shadow can fall around the card.
+            // Outside the clip, so the hover shadow can fall around the card.
             .background {
                 shape
                     .fill(restFill)
