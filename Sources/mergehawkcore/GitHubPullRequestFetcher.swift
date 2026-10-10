@@ -411,10 +411,22 @@ struct GitHubPullRequestFetcher: Sendable {
             }
             for index in decoded.failedIndices.sorted() where !isSuperseded(batch[index]) {
                 let item = batch[index]
+                // A missing thread's retry also reads its PR, to tell a deleted thread from lost access.
+                let confirmingPRID: String? = if decoded.missingThreadIndices.contains(index),
+                    case .threadComments(let prID, _) = item.kind { prID } else { nil }
                 let retryData = try await read(
-                    continuationQuery([item]),
-                    continuationVariables([item])
+                    continuationQuery([item], pullRequestID: confirmingPRID),
+                    continuationVariables([item], pullRequestID: confirmingPRID)
                 )
+                if confirmingPRID != nil, try isDeletedThreadOfReadablePullRequest(retryData),
+                   case .threadComments(let prID, let threadID) = item.kind {
+                    accumulators[prID]?.threads.removeValue(forKey: threadID)
+                    accumulators[prID]?.threadComments.removeValue(forKey: threadID)
+                    continuations.removeAll { $0.kind == item.kind }
+                    // A later thread page may list the thread again, and its reads then start fresh.
+                    visitedCursors = visitedCursors.filter { $0.key.kind != item.kind }
+                    continue
+                }
                 let retry = try decodeContinuationPages(
                     retryData,
                     batch: [item],
@@ -766,14 +778,19 @@ struct GitHubPullRequestFetcher: Sendable {
         result.append(Continuation(kind: kind, before: cursor, expectedTotal: connection.totalCount, attempt: attempt))
     }
 
-    private func continuationQuery(_ batch: [Continuation]) -> String {
-        let declarations = batch.indices.flatMap { index in
+    /// `pullRequestID` adds a `p` alias that reads only that PR's identity.
+    private func continuationQuery(_ batch: [Continuation], pullRequestID: String? = nil) -> String {
+        var declarations = batch.indices.flatMap { index in
             ["$id\(index): ID!", "$cursor\(index): String"]
-        }.joined(separator: ", ")
-        let selections = batch.enumerated().map { index, continuation in
+        }
+        var selections = batch.enumerated().map { index, continuation in
             "c\(index): node(id: $id\(index)) { \(continuationSelection(for: continuation, cursor: "$cursor\(index)")) }"
-        }.joined(separator: "\n")
-        return "query ContinuePullRequestConnections(\(declarations)) {\n\(selections)\n}"
+        }
+        if pullRequestID != nil {
+            declarations.append("$pr: ID!")
+            selections.append("p: node(id: $pr) { id }")
+        }
+        return "query ContinuePullRequestConnections(\(declarations.joined(separator: ", "))) {\n\(selections.joined(separator: "\n"))\n}"
     }
 
     private func continuationSelection(for continuation: Continuation, cursor: String) -> String {
@@ -807,20 +824,37 @@ struct GitHubPullRequestFetcher: Sendable {
         }
     }
 
-    private func continuationVariables(_ batch: [Continuation]) -> [String: GitHubQueryValue] {
+    private func continuationVariables(
+        _ batch: [Continuation],
+        pullRequestID: String? = nil
+    ) -> [String: GitHubQueryValue] {
         var result: [String: GitHubQueryValue] = [:]
         for (index, continuation) in batch.enumerated() {
             result["id\(index)"] = .string(continuation.kind.parentID)
             result["cursor\(index)"] = continuation.before.map(GitHubQueryValue.string) ?? .null
         }
+        if let pullRequestID {
+            result["pr"] = .string(pullRequestID)
+        }
         return result
+    }
+
+    /// A single-entry retry whose thread is still NOT_FOUND at its alias while its PR, read as `p`, resolves.
+    private func isDeletedThreadOfReadablePullRequest(_ data: Data) throws -> Bool {
+        guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObject = envelope["data"] as? [String: Any] else { return false }
+        let errors = try decodeErrors(envelope["errors"])
+        return !errors.isEmpty
+            && errors.allSatisfy { $0.type?.uppercased() == "NOT_FOUND" && $0.path == [.field("c0")] }
+            && dataObject["c0"] is NSNull
+            && dataObject["p"] is [String: Any]
     }
 
     private func decodeContinuationPages(
         _ data: Data,
         batch: [Continuation],
         allowsScopedErrors: Bool
-    ) throws -> (pages: [Int: ContinuationPage], failedIndices: Set<Int>) {
+    ) throws -> (pages: [Int: ContinuationPage], failedIndices: Set<Int>, missingThreadIndices: Set<Int>) {
         guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw GitHubReadError.invalidPayload
         }
@@ -847,6 +881,14 @@ struct GitHubPullRequestFetcher: Sendable {
         guard let dataObject = envelope["data"] as? [String: Any] else {
             throw GitHubReadError.invalidPayload
         }
+        // A thread deleted since it was listed reads as null at its alias with only NOT_FOUND at exactly that path.
+        let missingThreadIndices = failedIndices.filter { index in
+            guard case .threadComments = batch[index].kind, dataObject["c\(index)"] is NSNull else { return false }
+            let alias = GitHubGraphQLPathComponent.field("c\(index)")
+            return errors.filter { $0.path?.first == alias }.allSatisfy { error in
+                error.type?.uppercased() == "NOT_FOUND" && error.path == [alias]
+            }
+        }
         var pages: [Int: ContinuationPage] = [:]
         for (index, continuation) in batch.enumerated() where !failedIndices.contains(index) {
             guard
@@ -869,7 +911,7 @@ struct GitHubPullRequestFetcher: Sendable {
                 pages[index] = .requests(try decoder.decode(GitHubStrictConnection<GitHubPayloadReviewRequest>.self, from: connectionData))
             }
         }
-        return (pages, failedIndices)
+        return (pages, failedIndices, missingThreadIndices)
     }
 
     private func merge(

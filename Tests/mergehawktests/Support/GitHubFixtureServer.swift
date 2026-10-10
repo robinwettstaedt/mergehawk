@@ -221,7 +221,7 @@ final class GitHubFixtureServer: @unchecked Sendable {
 
     private func answerContinuations(query: String, variables: [String: GitHubQueryValue]) throws -> [String: Any] {
         let aliasPattern = try NSRegularExpression(
-            pattern: #"^(c\d+): node\(id: \$(\w+)\) \{"#,
+            pattern: #"^(c\d+|p): node\(id: \$(\w+)\) \{"#,
             options: [.anchorsMatchLines]
         )
         let text = query as NSString
@@ -232,12 +232,27 @@ final class GitHubFixtureServer: @unchecked Sendable {
         for (position, match) in matches.enumerated() {
             let alias = text.substring(with: match.range(at: 1))
             let index = String(alias.dropFirst())
-            guard text.substring(with: match.range(at: 2)) == "id\(index)" else {
-                throw UnknownShape(description: "alias \(alias) id variable")
-            }
             let selectionEnd = position + 1 < matches.count ? matches[position + 1].range.location : text.length
             let selectionStart = match.range.location + match.range.length
             let selection = text.substring(with: NSRange(location: selectionStart, length: selectionEnd - selectionStart))
+            if alias == "p" {
+                // The PR identity a missing thread's retry reads alongside it.
+                guard text.substring(with: match.range(at: 2)) == "pr",
+                      selection.trimmingCharacters(in: .whitespacesAndNewlines) == "id }\n}",
+                      case .string(let prID) = variables["pr"] else {
+                    throw UnknownShape(description: "PR identity alias \(selection)")
+                }
+                if pullRequests.contains(where: { $0.id == prID }) {
+                    data[alias] = ["id": prID]
+                } else {
+                    data[alias] = NSNull()
+                    errors.append(["type": "NOT_FOUND", "path": [alias], "message": "Not Found"])
+                }
+                continue
+            }
+            guard text.substring(with: match.range(at: 2)) == "id\(index)" else {
+                throw UnknownShape(description: "alias \(alias) id variable")
+            }
             guard case .string(let ownerID) = variables["id\(index)"] else {
                 throw UnknownShape(description: "alias \(alias) id value")
             }

@@ -1591,6 +1591,289 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(transport.shapes, ["other: 1"])
     }
 
+    // MARK: Threads deleted mid-refresh
+
+    func testDeletedThreadIsDroppedAfterAConfirmingRetryWhileSiblingsMerge() async throws {
+        let server = GitHubFixtureServer(
+            pullRequests: [
+                Self.threadedPullRequest("PR_1", threads: 2),
+                Self.threadedPullRequest("PR_2", threads: 2)
+            ],
+            beforeQuery: { index, server in
+                if index == 1 { server.deleteThread(prID: "PR_1", threadID: "PR_1_T0") }
+            }
+        )
+
+        let hydrated = try await server.fetcher.hydrate(
+            [Self.discovery(id: "PR_1"), Self.discovery(id: "PR_2")],
+            login: "rw"
+        )
+
+        XCTAssertEqual(server.requests.compactMap(\.batchShape), ["first reads: 4", "first reads: 1"])
+        let retry = try XCTUnwrap(server.requests.last)
+        XCTAssertTrue(retry.query.contains("p: node(id: $pr) { id }"))
+        XCTAssertEqual(retry.variables["pr"], .string("PR_1"))
+        XCTAssertEqual(retry.aliases.map(\.id), ["PR_1_T0"])
+        XCTAssertEqual(hydrated[0].pullRequest.recentCommentActivities.map(\.id), ["PR_1_T1_C0"])
+        XCTAssertEqual(hydrated[0].pullRequest.commentCount, 1)
+        XCTAssertEqual(Set(hydrated[1].pullRequest.recentCommentActivities.map(\.id)), ["PR_2_T0_C0", "PR_2_T1_C0"])
+        XCTAssertEqual(hydrated[1].pullRequest.commentCount, 2)
+    }
+
+    func testMissingThreadWhoseRetryReturnsDataMergesNormally() async throws {
+        let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
+        let step = LockedCounter()
+        let transport = HydrationTransport { query, variables in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            if step.increment() == 1 {
+                return Self.notFoundAtFirstAlias()
+            }
+            XCTAssertTrue(query.contains("p: node(id: $pr) { id }"))
+            return Self.json(["data": [
+                "c0": ["comments": Self.connection(total: 1, nodes: [Self.comment("T_C0")])],
+                "p": ["id": "PR_1"]
+            ]])
+        }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.recentCommentActivities.map(\.id), ["T_C0"])
+        XCTAssertEqual(transport.shapes, ["first reads: 1", "first reads: 1"])
+    }
+
+    func testThreadDeletedWhileItsOlderPageIsQueuedIsDropped() async throws {
+        let initial = Self.pullRequest(threads: Self.connection(
+            total: 2,
+            nodes: [Self.threadIdentity("T"), Self.threadIdentity("U")]
+        ))
+        let transport = HydrationTransport { query, variables in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            let aliases = GitHubFixtureServer.aliases(query: query, variables: variables)
+            if aliases.allSatisfy({ $0.cursor == nil }) {
+                return Self.answer(query, variables) { alias in
+                    alias.id == "T"
+                        ? Self.connection(total: 11, nodes: (1..<11).map { Self.comment("T_C\($0)") }, previous: "t-older")
+                        : Self.connection(total: 1, nodes: [Self.comment("U_C0")])
+                }
+            }
+            XCTAssertEqual(aliases.map(\.cursor), ["t-older"])
+            if query.contains("p: node(") {
+                return Self.notFoundAtFirstAlias(pullRequest: ["id": "PR_1"])
+            }
+            return Self.notFoundAtFirstAlias()
+        }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(pullRequest.recentCommentActivities.map(\.id), ["U_C0"])
+        XCTAssertEqual(pullRequest.commentCount, 1)
+        XCTAssertEqual(transport.shapes, ["first reads: 2", "other: 1", "other: 1"])
+        XCTAssertTrue(transport.queries.last?.contains("p: node(id: $pr) { id }") == true)
+    }
+
+    func testDeletedThreadOfAnUnreachablePullRequestFailsTheRefresh() async throws {
+        let server = GitHubFixtureServer(
+            pullRequests: [Self.threadedPullRequest("PR_1", threads: 2)],
+            beforeQuery: { index, server in
+                if index == 1 { server.deleteThread(prID: "PR_1", threadID: "PR_1_T0") }
+                if index == 2 { server.removePullRequest(id: "PR_1") }
+            }
+        )
+
+        do {
+            _ = try await server.fetcher.hydrate([Self.discovery()], login: "rw")
+            XCTFail("Expected an unreachable PR to fail the refresh")
+        } catch let error as GitHubReadError {
+            guard case .graphQL = error else { return XCTFail("Unexpected error: \(error)") }
+        }
+        XCTAssertEqual(server.requests.compactMap(\.batchShape), ["first reads: 2", "first reads: 1"])
+        XCTAssertTrue(server.queries.last?.contains("p: node(id: $pr) { id }") == true)
+    }
+
+    func testMissingThreadRetryWithAnErrorOnItsPullRequestFails() async throws {
+        let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
+        let step = LockedCounter()
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            if step.increment() == 1 {
+                return Self.notFoundAtFirstAlias()
+            }
+            return Self.json([
+                "data": ["c0": ["comments": Self.connection(total: 1, nodes: [Self.comment("T_C0")])], "p": NSNull()],
+                "errors": [["type": "INTERNAL", "path": ["p"], "message": "Something went wrong"]]
+            ])
+        }
+
+        do {
+            _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            XCTFail("Expected the PR error to fail the refresh")
+        } catch let error as GitHubReadError {
+            guard case .graphQL = error else { return XCTFail("Unexpected error: \(error)") }
+        }
+        XCTAssertEqual(transport.shapes, ["first reads: 1", "first reads: 1"])
+    }
+
+    func testOtherScopedErrorOnAFirstReadIsRetriedAloneWithoutThePullRequest() async throws {
+        for retrySucceeds in [true, false] {
+            let initial = Self.pullRequest(threads: Self.connection(
+                total: 2,
+                nodes: [Self.threadIdentity("T"), Self.threadIdentity("U")]
+            ))
+            let step = LockedCounter()
+            let transport = HydrationTransport { query, variables in
+                if query.contains("CompletePullRequests") {
+                    return Self.json(["data": ["nodes": [initial]]])
+                }
+                let internalError: [String: Any] = ["type": "INTERNAL", "path": ["c0"], "message": "Something went wrong"]
+                if step.increment() == 1 {
+                    return Self.json([
+                        "data": ["c0": NSNull(), "c1": ["comments": Self.connection(total: 1, nodes: [Self.comment("U_C0")])]],
+                        "errors": [internalError]
+                    ])
+                }
+                XCTAssertFalse(query.contains("p: node("))
+                XCTAssertEqual(GitHubFixtureServer.aliases(query: query, variables: variables).map(\.id), ["T"])
+                return retrySucceeds
+                    ? Self.answer(query, variables) { _ in Self.connection(total: 1, nodes: [Self.comment("T_C0")]) }
+                    : Self.json(["data": ["c0": NSNull()], "errors": [internalError]])
+            }
+
+            do {
+                let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+                XCTAssertTrue(retrySucceeds)
+                XCTAssertEqual(Set(pullRequest.recentCommentActivities.map(\.id)), ["T_C0", "U_C0"])
+            } catch let error as GitHubReadError {
+                XCTAssertFalse(retrySucceeds)
+                guard case .graphQL = error else { return XCTFail("Unexpected error: \(error)") }
+            }
+            XCTAssertEqual(transport.shapes, ["first reads: 2", "first reads: 1"])
+        }
+    }
+
+    func testNotFoundBelowTheThreadAliasIsNotAMissingThread() async throws {
+        let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            XCTAssertFalse(query.contains("p: node("))
+            return Self.json([
+                "data": ["c0": NSNull()],
+                "errors": [["type": "NOT_FOUND", "path": ["c0", "comments"], "message": "Not Found"]]
+            ])
+        }
+
+        do {
+            _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            XCTFail("Expected the retry to fail the refresh")
+        } catch let error as GitHubReadError {
+            guard case .graphQL = error else { return XCTFail("Unexpected error: \(error)") }
+        }
+        XCTAssertEqual(transport.shapes, ["first reads: 1", "first reads: 1"])
+    }
+
+    func testRateLimitOnAMissingThreadRetryStaysARateLimit() async throws {
+        let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
+        let step = LockedCounter()
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            if step.increment() == 1 {
+                return Self.notFoundAtFirstAlias()
+            }
+            XCTAssertTrue(query.contains("p: node(id: $pr) { id }"))
+            return Self.json([
+                "data": ["c0": NSNull(), "p": ["id": "PR_1"]],
+                "errors": [["type": "RATE_LIMITED", "path": ["c0"], "message": "Rate limited"]]
+            ])
+        }
+
+        do {
+            _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            XCTFail("Expected a rate limit")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .rateLimited(retryAt: nil))
+        }
+    }
+
+    func testMissingThreadRetryWithoutErrorsIsNotDropped() async throws {
+        let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
+        let step = LockedCounter()
+        let transport = HydrationTransport { query, _ in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            if step.increment() == 1 {
+                return Self.notFoundAtFirstAlias()
+            }
+            return Self.json(["data": ["c0": NSNull(), "p": ["id": "PR_1"]]])
+        }
+
+        do {
+            _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            XCTFail("Expected an invalid payload")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
+        }
+    }
+
+    func testDroppedThreadListedAgainOnALaterThreadPageIsReadAfresh() async throws {
+        let initial = Self.pullRequest(threads: Self.connection(
+            total: 2,
+            nodes: [Self.threadIdentity("T")],
+            previous: "threads-p2"
+        ))
+        let step = LockedCounter()
+        let transport = HydrationTransport { query, variables in
+            if query.contains("CompletePullRequests") {
+                return Self.json(["data": ["nodes": [initial]]])
+            }
+            switch step.increment() {
+            case 1:
+                return Self.answer(query, variables) { _ in
+                    Self.connection(total: 2, nodes: [Self.threadIdentity("U")], previous: "threads-p3")
+                }
+            case 2:
+                let aliases = GitHubFixtureServer.aliases(query: query, variables: variables)
+                let missing = try XCTUnwrap(aliases.first { $0.id == "T" })
+                var data: [String: Any] = [missing.name: NSNull()]
+                for alias in aliases where alias.id != "T" {
+                    data[alias.name] = ["comments": Self.connection(total: 1, nodes: [Self.comment("U_C0")])]
+                }
+                return Self.json([
+                    "data": data,
+                    "errors": [["type": "NOT_FOUND", "path": [missing.name], "message": "Not Found"]]
+                ])
+            case 3:
+                XCTAssertTrue(query.contains("p: node(id: $pr) { id }"))
+                return Self.notFoundAtFirstAlias(pullRequest: ["id": "PR_1"])
+            case 4:
+                return Self.answer(query, variables) { _ in Self.connection(total: 2, nodes: [Self.threadIdentity("T")]) }
+            default:
+                return Self.answer(query, variables) { _ in Self.connection(total: 1, nodes: [Self.comment("T_C0")]) }
+            }
+        }
+
+        let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+
+        XCTAssertEqual(
+            transport.shapes,
+            ["other: 1", "first reads: 2", "first reads: 1", "other: 1", "first reads: 1"]
+        )
+        XCTAssertEqual(Set(pullRequest.recentCommentActivities.map(\.id)), ["T_C0", "U_C0"])
+        XCTAssertEqual(
+            Set(pullRequest.recentCommentActivities.compactMap(\.threadId)),
+            ["T", "U"]
+        )
+    }
+
     private static func fetcher(_ transport: HydrationTransport) -> GitHubPullRequestFetcher {
         GitHubPullRequestFetcher { query, variables in
             try await transport.read(query: query, variables: variables)
@@ -1754,6 +2037,16 @@ final class GitHubPaginationTests: XCTestCase {
             data[alias.name] = [alias.connection: page(alias)]
         }
         return json(["data": data])
+    }
+
+    /// A single-alias continuation answer whose thread is gone. `pullRequest` answers the `p` alias.
+    static func notFoundAtFirstAlias(pullRequest: [String: Any]? = nil) -> Data {
+        var data: [String: Any] = ["c0": NSNull()]
+        if let pullRequest { data["p"] = pullRequest }
+        return json([
+            "data": data,
+            "errors": [["type": "NOT_FOUND", "path": ["c0"], "message": "Not Found"]]
+        ])
     }
 
     static func request(
