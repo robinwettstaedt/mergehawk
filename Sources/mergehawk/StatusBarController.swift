@@ -160,9 +160,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             showSettings: { [weak self] in
                 self?.controller.showSettings()
             },
-            showAbout: { [weak self] in
-                self?.controller.showSettings(selection: .about)
-            },
             quit: { [weak self] in
                 self?.quitAction()
             }
@@ -262,7 +259,6 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
         dismissMenu: @escaping () -> Void,
         showSettingsPreservingSelection: @escaping () -> Void,
         showSettings: @escaping () -> Void,
-        showAbout: @escaping () -> Void,
         quit: @escaping () -> Void
     ) {
         self.refreshKeyHandler = refreshKeyHandler
@@ -284,7 +280,6 @@ final class MenuRootHostingView: NSHostingView<MenuRootView> {
             initialDropdown: initialDropdown,
             dismissMenu: dismissMenu,
             showSettings: showSettings,
-            showAbout: showAbout,
             quit: quit
         ))
     }

@@ -144,6 +144,8 @@ struct MenuControlButton: View {
     let help: String
     // Off for buttons whose visible title already says the same thing.
     var showsTooltip = true
+    /// Defaults to the shared control height.
+    var height: CGFloat?
     let action: () -> Void
 
     @Environment(\.menuMetrics) private var metrics
@@ -153,6 +155,7 @@ struct MenuControlButton: View {
     var body: some View {
         let controls = metrics.controls
         let shape = RoundedRectangle(cornerRadius: controls.cornerRadius)
+        let height = height ?? controls.height
 
         Button {
             action()
@@ -166,28 +169,42 @@ struct MenuControlButton: View {
                 }
             }
             .font(metrics.type.controlLabel.font)
-            .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
+            .foregroundStyle(isOpen ? Color.accentColor : MenuControlLabelPresentation.color)
             .padding(.horizontal, title.isEmpty ? 0 : controls.horizontalPadding)
-            .frame(width: title.isEmpty ? controls.height : nil, height: controls.height)
+            .frame(width: title.isEmpty ? height : nil, height: height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contentShape(shape)
         .background {
+            shape.fill(MenuRaisedSurfacePresentation.fill(colorScheme: colorScheme))
             shape.fill(hoverFill)
         }
         .overlay(
             shape
-                .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
+                .stroke(
+                    HoverLiftPresentation.border(
+                        rest: MenuControlBorderPresentation.color(colorScheme: colorScheme),
+                        isHovered: isHovered,
+                        colorScheme: colorScheme
+                    ),
+                    lineWidth: 1
+                )
         )
         .clipShape(shape)
+        .compositingGroup()
+        .shadow(
+            color: HoverLiftPresentation.shadowColor(isHovered: isHovered, colorScheme: colorScheme),
+            radius: controls.hoverShadowRadius,
+            y: controls.hoverShadowOffsetY
+        )
         .onHover { isHovered = $0 }
         .menuTooltip(showsTooltip ? help : "")
         .accessibilityLabel(help)
     }
 
     private var hoverFill: Color {
-        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+        HoverLiftPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
     }
 }
 
@@ -213,9 +230,9 @@ struct SortControlButton: View {
             Button(action: toggleDirection) {
                 Image(systemName: directionSymbolName)
                     .font(metrics.type.controlLabel.font)
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(MenuControlLabelPresentation.color)
                     .frame(width: controls.sortDirectionWidth, height: controls.height)
-                    .background(HoverFillPresentation.fill(isHovered: directionHovered, colorScheme: colorScheme))
+                    .background(HoverLiftPresentation.fill(isHovered: directionHovered, colorScheme: colorScheme))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -235,22 +252,42 @@ struct SortControlButton: View {
                         .font(metrics.type.controlChevron.font)
                 }
                 .font(metrics.type.controlLabel.font)
-                .foregroundStyle(isMenuOpen ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isMenuOpen ? Color.accentColor : MenuControlLabelPresentation.color)
                 .padding(.horizontal, controls.horizontalPadding)
                 .frame(height: controls.height)
-                .background(HoverFillPresentation.fill(isHovered: menuHovered, colorScheme: colorScheme))
+                .background(HoverLiftPresentation.fill(isHovered: menuHovered, colorScheme: colorScheme))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { menuHovered = $0 }
             .accessibilityLabel(menuHelp)
         }
+        .background(shape.fill(MenuRaisedSurfacePresentation.fill(colorScheme: colorScheme)))
         .overlay(
             shape
-                .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
+                .stroke(
+                    HoverLiftPresentation.border(
+                        rest: MenuControlBorderPresentation.color(colorScheme: colorScheme),
+                        isHovered: directionHovered || menuHovered,
+                        colorScheme: colorScheme
+                    ),
+                    lineWidth: 1
+                )
         )
         .clipShape(shape)
+        // Dark mode lightens only the hovered half, so it stays clear which one a click hits.
+        .compositingGroup()
+        .shadow(
+            color: HoverLiftPresentation.shadowColor(isHovered: directionHovered || menuHovered, colorScheme: colorScheme),
+            radius: controls.hoverShadowRadius,
+            y: controls.hoverShadowOffsetY
+        )
     }
+}
+
+/// Between the secondary and primary label colors: readable as active without pulling focus from the PR list.
+enum MenuControlLabelPresentation {
+    static let color = Color.primary.opacity(0.8)
 }
 
 enum MenuControlBorderPresentation {
@@ -258,6 +295,56 @@ enum MenuControlBorderPresentation {
         colorScheme == .dark
             ? Color.white.opacity(0.24)
             : Color.black.opacity(0.13)
+    }
+}
+
+/// The fill of surfaces that sit above the menu background: cards and bordered controls.
+enum MenuRaisedSurfacePresentation {
+    static func fill(colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.03)
+            : Color.white.opacity(0.95)
+    }
+}
+
+/// The menu's opaque background.
+struct MenuBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            Color.black.opacity(colorScheme == .light ? 0.06 : 0.1)
+        }
+    }
+}
+
+/// The raised fill on top of the menu background, so a dropdown that opens over cards matches the controls
+/// without letting the cards show through.
+struct OpaqueRaisedSurface: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            MenuBackground()
+            MenuRaisedSurfacePresentation.fill(colorScheme: colorScheme)
+        }
+    }
+}
+
+/// Light mode lifts a hovered card or control off the background with a darker border and a shadow, because a
+/// darkening fill would blend its white surface into the gray background. Dark mode lightens the fill instead.
+enum HoverLiftPresentation {
+    static func fill(isHovered: Bool, colorScheme: ColorScheme) -> Color {
+        colorScheme == .light ? .clear : HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+    }
+
+    static func border(rest: Color, isHovered: Bool, colorScheme: ColorScheme) -> Color {
+        isHovered && colorScheme == .light ? Color.black.opacity(0.3) : rest
+    }
+
+    static func shadowColor(isHovered: Bool, colorScheme: ColorScheme) -> Color {
+        isHovered && colorScheme == .light ? Color.black.opacity(0.12) : .clear
     }
 }
 
@@ -367,9 +454,7 @@ struct MenuRootView: View {
     let resolvedSize: CGSize
     let dismissMenu: () -> Void
     let showSettings: () -> Void
-    let showAbout: () -> Void
     let quit: () -> Void
-    @Environment(\.colorScheme) private var colorScheme
     @State private var dropdownState: PullRequestMenuDropdownState
 
     init(
@@ -381,7 +466,6 @@ struct MenuRootView: View {
         initialDropdown: PullRequestMenuDropdown? = nil,
         dismissMenu: @escaping () -> Void = {},
         showSettings: @escaping () -> Void = {},
-        showAbout: @escaping () -> Void = {},
         quit: @escaping () -> Void = {}
     ) {
         self.controller = controller
@@ -391,7 +475,6 @@ struct MenuRootView: View {
         self.resolvedSize = resolvedSize
         self.dismissMenu = dismissMenu
         self.showSettings = showSettings
-        self.showAbout = showAbout
         self.quit = quit
         _dropdownState = State(initialValue: PullRequestMenuDropdownState(openMenu: initialDropdown))
     }
@@ -420,7 +503,7 @@ struct MenuRootView: View {
         }
         .environment(\.menuNow, controller.currentDate())
         .frame(width: resolvedSize.width, height: resolvedSize.height)
-        .background(menuSurface)
+        .background(MenuBackground())
         .overlayPreferenceValue(PullRequestActionsAnchorKey.self) { anchors in
             if let menu = anchors.openMenu {
                 GeometryReader { geometry in
@@ -479,25 +562,12 @@ struct MenuRootView: View {
                 dismissMenu()
                 showSettings()
             }
-            MenuFooterActionRow(title: "About MergeHawk", shortcutKey: nil) {
-                dismissMenu()
-                showAbout()
-            }
             MenuFooterActionRow(title: "Quit", shortcutKey: "Q") {
                 dismissMenu()
                 quit()
             }
         }
         .padding(.bottom, metrics.footer.bottomPadding)
-    }
-
-    private var menuSurface: some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor).opacity(0.55)
-            if colorScheme == .light {
-                Color.black.opacity(0.03)
-            }
-        }
     }
 
     private var topBar: some View {
@@ -791,7 +861,7 @@ struct RefreshStatusControl: View {
                 } else {
                     Image(systemName: presentation.symbolName)
                         .font(metrics.type.refreshSymbol.font)
-                        .foregroundStyle(presentation.state == .failed ? Color.red : Color.secondary)
+                        .foregroundStyle(presentation.state == .failed ? Color.red : MenuControlLabelPresentation.color)
                         .frame(width: refreshStatus.horizontalIconFrame, height: refreshStatus.horizontalIconFrame)
                 }
                 Text("\(timestampPrefix)\(compactUpdatedText)")
@@ -804,15 +874,29 @@ struct RefreshStatusControl: View {
             .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(MenuControlLabelPresentation.color)
         .background {
+            shape.fill(MenuRaisedSurfacePresentation.fill(colorScheme: colorScheme))
             shape.fill(horizontalHoverFill)
         }
         .overlay(
             shape
-                .stroke(MenuControlBorderPresentation.color(colorScheme: colorScheme), lineWidth: 1)
+                .stroke(
+                    HoverLiftPresentation.border(
+                        rest: MenuControlBorderPresentation.color(colorScheme: colorScheme),
+                        isHovered: isHovered,
+                        colorScheme: colorScheme
+                    ),
+                    lineWidth: 1
+                )
         )
         .clipShape(shape)
+        .compositingGroup()
+        .shadow(
+            color: HoverLiftPresentation.shadowColor(isHovered: isHovered, colorScheme: colorScheme),
+            radius: metrics.controls.hoverShadowRadius,
+            y: metrics.controls.hoverShadowOffsetY
+        )
         .onHover { isHovered = $0 }
         .disabled(!isRefreshEnabled)
         .menuTooltip(presentation.help)
@@ -826,7 +910,7 @@ struct RefreshStatusControl: View {
     }
 
     private var horizontalHoverFill: Color {
-        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+        HoverLiftPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
     }
 
     @ViewBuilder
@@ -1039,7 +1123,9 @@ struct MenuSegmentedControl<Value: Hashable>: View {
     }
 
     private var containerFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.035)
+        colorScheme == .dark
+            ? MenuRaisedSurfacePresentation.fill(colorScheme: colorScheme)
+            : Color.black.opacity(0.035)
     }
 
     private var selectedFill: Color {
@@ -1120,7 +1206,8 @@ private struct NotificationListView: View {
                         title: NotificationReadPresentation.markAllTitle,
                         isOpen: false,
                         help: NotificationReadPresentation.markAllHelp,
-                        showsTooltip: false
+                        showsTooltip: false,
+                        height: list.markAllHeight
                     ) {
                         controller.markAllNotificationsRead()
                     }
@@ -1951,7 +2038,7 @@ struct PullRequestHeaderControls: View {
             content()
         }
         .padding(.vertical, dropdown.verticalPadding)
-        .background(.ultraThinMaterial)
+        .background(OpaqueRaisedSurface())
         .overlay(
             RoundedRectangle(cornerRadius: dropdown.cornerRadius)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
@@ -1967,22 +2054,53 @@ struct PullRequestHeaderControls: View {
         width: CGFloat,
         action: @escaping () -> Void
     ) -> some View {
+        DropdownOptionButton(title: title, isSelected: isSelected, width: width, action: action)
+    }
+}
+
+private struct DropdownOptionButton: View {
+    let title: String
+    let isSelected: Bool
+    let width: CGFloat
+    let action: () -> Void
+
+    @Environment(\.menuMetrics) private var metrics
+    @State private var isHovered = false
+
+    var body: some View {
+        let dropdown = metrics.dropdown
         Button(action: action) {
-            HStack(spacing: metrics.dropdown.itemContentSpacing) {
+            HStack(spacing: dropdown.itemContentSpacing) {
                 Image(systemName: isSelected ? "checkmark" : "")
                     .font(metrics.type.dropdownCheckmark.font)
-                    .frame(width: metrics.dropdown.checkmarkWidth)
+                    .frame(width: dropdown.checkmarkWidth)
                 Text(title)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .font(metrics.type.dropdownItem.font)
-            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, metrics.dropdown.itemHorizontalPadding)
-            .frame(width: width, height: metrics.dropdown.itemHeight, alignment: .leading)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, dropdown.itemHorizontalPadding)
+            .frame(width: width, height: dropdown.itemHeight, alignment: .leading)
+            .background {
+                if isHovered {
+                    RoundedRectangle(cornerRadius: dropdown.itemCornerRadius)
+                        .fill(Color.accentColor)
+                        .padding(.horizontal, dropdown.itemHighlightInset)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+
+    // The PR actions menu's highlight: white on the accent color, like a native menu.
+    private var foreground: Color {
+        if isHovered {
+            return .white
+        }
+        return isSelected ? .accentColor : .secondary
     }
 }
 
@@ -2675,17 +2793,25 @@ struct TransparentCardStyle: ViewModifier {
                     .stroke(borderColor, lineWidth: 1)
             }
             .clipShape(shape)
+            // Outside the clip, so the hover shadow can fall around the card.
+            .background {
+                shape
+                    .fill(restFill)
+                    .shadow(
+                        color: HoverLiftPresentation.shadowColor(isHovered: isHovered, colorScheme: colorScheme),
+                        radius: metrics.card.hoverShadowRadius,
+                        y: metrics.card.hoverShadowOffsetY
+                    )
+            }
             .contentShape(shape)
     }
 
     private var restFill: Color {
-        colorScheme == .light
-            ? Color.white.opacity(0.95)
-            : Color(nsColor: .controlBackgroundColor).opacity(0.5)
+        MenuRaisedSurfacePresentation.fill(colorScheme: colorScheme)
     }
 
     private var hoverFill: Color {
-        HoverFillPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
+        HoverLiftPresentation.fill(isHovered: isHovered, colorScheme: colorScheme)
     }
 
     private var borderColor: Color {
@@ -2693,9 +2819,13 @@ struct TransparentCardStyle: ViewModifier {
             return accentColor
         }
 
-        return colorScheme == .light
-            ? Color.black.opacity(0.17)
-            : MenuControlBorderPresentation.color(colorScheme: colorScheme)
+        return HoverLiftPresentation.border(
+            rest: colorScheme == .light
+                ? Color.black.opacity(0.17)
+                : MenuControlBorderPresentation.color(colorScheme: colorScheme),
+            isHovered: isHovered,
+            colorScheme: colorScheme
+        )
     }
 }
 
@@ -2796,7 +2926,7 @@ struct PullRequestActionsMenu: View {
         }
         .padding(actionsMenu.padding)
         .frame(width: actionsMenu.width, height: actionsMenu.height)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: actionsMenu.cornerRadius))
+        .background(OpaqueRaisedSurface().clipShape(RoundedRectangle(cornerRadius: actionsMenu.cornerRadius)))
         // Padding belongs to the open menu, not the outside-click dismiss area.
         .contentShape(Rectangle())
         .onTapGesture {}

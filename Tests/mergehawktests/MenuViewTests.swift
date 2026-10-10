@@ -136,10 +136,10 @@ final class MenuViewTests: XCTestCase {
         let small = MenuPanelSize.resolve(availableFrame: Self.macBookPro14Frame, menuSize: .small)
         XCTAssertEqual(small.metrics.scale, 0.85)
         XCTAssertEqual(small.size.width, 697, accuracy: 1e-9)
-        XCTAssertEqual(small.size.height, 650.4, accuracy: 1e-9)
+        XCTAssertEqual(small.size.height, 630, accuracy: 1e-9)
         let standard = MenuPanelSize.resolve(availableFrame: Self.macBookPro14Frame, menuSize: .standard)
         XCTAssertEqual(standard.metrics, .standard)
-        XCTAssertEqual(standard.size, CGSize(width: 820, height: 765))
+        XCTAssertEqual(standard.size, CGSize(width: 820, height: 741))
     }
 
     func testLargeAndLargerShrinkOnAMacBookAir13() {
@@ -155,8 +155,8 @@ final class MenuViewTests: XCTestCase {
             let resolved = MenuPanelSize.resolve(availableFrame: Self.largerTextFrame, menuSize: size)
             XCTAssertEqual(resolved.metrics.scale, 614.0 / 820, accuracy: 1e-9, "\(size)")
             XCTAssertEqual(resolved.size.width, 614, accuracy: 1e-9, "\(size)")
-            // 1 + 764 × 614 / 820, below the 608 pt height limit.
-            XCTAssertEqual(resolved.size.height, 573.0682926829269, accuracy: 1e-9, "\(size)")
+            // 1 + 740 × 614 / 820, below the 608 pt height limit.
+            XCTAssertEqual(resolved.size.height, 555.0975609756097, accuracy: 1e-9, "\(size)")
         }
     }
 
@@ -177,12 +177,12 @@ final class MenuViewTests: XCTestCase {
     }
 
     func testEachMenuSizeKeepsItsFullPanelSizeOnA2560Display() throws {
-        // Panel at factor f: width 820f, height 650f + footer (1 + 114f) = 1 + 764f.
+        // Panel at factor f: width 820f, height 650f + footer (1 + 90f) = 1 + 740f.
         let expected: [MenuSize: CGSize] = [
-            .small: CGSize(width: 697, height: 650.4),
-            .standard: CGSize(width: 820, height: 765),
-            .large: CGSize(width: 943, height: 879.6),
-            .larger: CGSize(width: 1066, height: 994.2)
+            .small: CGSize(width: 697, height: 630),
+            .standard: CGSize(width: 820, height: 741),
+            .large: CGSize(width: 943, height: 852),
+            .larger: CGSize(width: 1066, height: 963)
         ]
         for size in MenuSize.allCases {
             let full = try XCTUnwrap(expected[size])

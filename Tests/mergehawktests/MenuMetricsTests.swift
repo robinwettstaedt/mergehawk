@@ -9,9 +9,9 @@ final class MenuMetricsTests: XCTestCase {
     func testStandardPanelKeepsItsCurrentSize() {
         XCTAssertEqual(metrics.panel.width, 820)
         XCTAssertEqual(metrics.panel.contentHeight, 650)
-        XCTAssertEqual(metrics.footer.height, 115)
-        XCTAssertEqual(metrics.panelHeight, 765)
-        XCTAssertEqual(metrics.panelSize, CGSize(width: 820, height: 765))
+        XCTAssertEqual(metrics.footer.height, 91)
+        XCTAssertEqual(metrics.panelHeight, 741)
+        XCTAssertEqual(metrics.panelSize, CGSize(width: 820, height: 741))
     }
 
     func testTabSwitcherSegmentsFillTheSwitcherWidth() {
@@ -24,7 +24,7 @@ final class MenuMetricsTests: XCTestCase {
         let footer = metrics.footer
         XCTAssertEqual(footer.separatorHeight, 13)
         XCTAssertEqual(footer.separatorHeight, 1 + 2 * footer.separatorVerticalPadding)
-        XCTAssertEqual(footer.height, footer.separatorHeight + 4 * footer.rowHeight + footer.bottomPadding)
+        XCTAssertEqual(footer.height, footer.separatorHeight + 3 * footer.rowHeight + footer.bottomPadding)
         XCTAssertEqual(footer.bottomPadding, footer.separatorVerticalPadding)
     }
 
@@ -82,6 +82,14 @@ final class MenuMetricsTests: XCTestCase {
         }
     }
 
+    func testFirstNotificationCardLinesUpWithFirstPRCard() {
+        for factor in factors {
+            let scaled = MenuMetrics(scale: factor)
+            let firstPRCardTop = scaled.prList.topPadding + scaled.prColumns.headerHeight + scaled.prColumns.rowSpacing
+            XCTAssertEqual(scaled.notificationList.firstRowTop, firstPRCardTop, accuracy: 1e-9, "at \(factor)")
+        }
+    }
+
     func testDerivedMeasurementsFollowTheirScaledParts() {
         for factor in factors {
             let scaled = MenuMetrics(scale: factor)
@@ -89,7 +97,7 @@ final class MenuMetricsTests: XCTestCase {
             XCTAssertEqual(footer.separatorHeight, 1 + 2 * footer.separatorVerticalPadding, "at \(factor)")
             XCTAssertEqual(
                 footer.height,
-                footer.separatorHeight + 4 * footer.rowHeight + footer.bottomPadding,
+                footer.separatorHeight + 3 * footer.rowHeight + footer.bottomPadding,
                 "at \(factor)"
             )
             XCTAssertEqual(footer.bottomPadding, footer.separatorVerticalPadding, "at \(factor)")
