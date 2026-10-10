@@ -155,7 +155,7 @@ struct TeamsSettingsView: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .center)
         // No bottom padding, so the link sits as low as the install link at the bottom of Sources.
-        .padding(.top, 14)
+        .padding(.top, SettingsBottomLinkLayout.topPadding)
     }
 
     private func organizationHeader(_ group: ReviewTeamsSettingsPresentation.OrganizationGroup) -> some View {

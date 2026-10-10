@@ -114,6 +114,12 @@ struct SettingsRootView: View {
     }
 }
 
+/// The gap between a pane's list and the link at the bottom of the pane. Sources and Teams share it, so their lists
+/// end at the same height above links that sit at the same height.
+enum SettingsBottomLinkLayout {
+    static let topPadding: CGFloat = 14
+}
+
 enum SettingsTabLayout {
     static let topPadding: CGFloat = 8
     static let bottomPadding: CGFloat = 10
@@ -1112,7 +1118,7 @@ private struct SourcesSettingsView: View {
             if isSignedIn && !controller.showsGitHubAppRepositoryAccessPrompt {
                 GitHubAppInstallationButton(controller: controller)
                     .padding(.horizontal, 20)
-                    .padding(.top, 48)
+                    .padding(.top, SettingsBottomLinkLayout.topPadding)
                     .padding(.bottom, 0)
             }
         }
