@@ -55,6 +55,7 @@ private enum ReviewTeamsSettingsLayout {
     /// Lines the caption up with the grouped Form's section headers and row content below it.
     static let captionHorizontalInset: CGFloat = 30
     static let captionTopPadding: CGFloat = 20
+    static let emptyStateHorizontalPadding: CGFloat = 20
 }
 
 struct TeamsSettingsView: View {
@@ -89,6 +90,8 @@ struct TeamsSettingsView: View {
                 refreshTeamsControl
                     .padding(.top, 2 * metrics.emptyState.spacing)
             }
+            // The side margin of the Sources pane, so the detail wraps inside the window instead of edge to edge.
+            .padding(.horizontal, ReviewTeamsSettingsLayout.emptyStateHorizontalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .teams(let groups):
             VStack(spacing: 0) {
