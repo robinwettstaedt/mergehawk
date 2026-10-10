@@ -206,7 +206,7 @@ private final class BotProvider: GitHubProviding {
     private var continuation: CheckedContinuation<CompletePullRequestFetchResult, Error>?
     private(set) var fetchCount = 0
     func fetchViewer() async throws -> GitHubAccount { GitHubAccount(login: "rw") }
-    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?) async throws -> CompletePullRequestFetchResult {
+    func fetchCompletePullRequests(login: String, previousState: PullRequestSyncState?, reusableViewerTeams: [ViewerTeam]?) async throws -> CompletePullRequestFetchResult {
         fetchCount += 1
         if let result { return result }
         return try await withCheckedThrowingContinuation { continuation = $0 }

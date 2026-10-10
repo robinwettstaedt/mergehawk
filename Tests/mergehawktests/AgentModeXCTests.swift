@@ -96,7 +96,7 @@ final class AgentModeXCTests: XCTestCase {
         for scenario in MockPullRequestScenario.allCases {
             let seeded = MockPullRequestSource(scenario: scenario).firstRefreshPullRequests
             let fetched = try await MockPullRequestSource(scenario: scenario)
-                .fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+                .fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
                 .activePullRequests
             XCTAssertEqual(seeded.map(\.id), fetched.map(\.id), "\(scenario)")
         }
@@ -104,14 +104,14 @@ final class AgentModeXCTests: XCTestCase {
 
     func testLongListsScenarioReturnsOverflowingListsThenNewCommentActivity() async throws {
         let source = MockPullRequestSource(scenario: .longLists)
-        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil).activePullRequests
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil).activePullRequests
         XCTAssertEqual(first.filter(\.isMine).count, 20)
         let requested = first.filter { !$0.isMine }
         XCTAssertEqual(requested.count, 20)
         XCTAssertGreaterThan(Set(requested.compactMap(DashboardController.RequestedSection.section(for:))).count, 1)
         XCTAssertTrue(first.allSatisfy { $0.recentCommentActivities.isEmpty })
 
-        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil).activePullRequests
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil).activePullRequests
         XCTAssertEqual(second.map(\.id), first.map(\.id))
         XCTAssertTrue(second.allSatisfy { $0.recentCommentActivities.count == 1 })
     }
@@ -201,8 +201,8 @@ final class AgentModeXCTests: XCTestCase {
     func testMockPullRequestDatesUseOneStableReferenceAcrossRefreshes() async throws {
         let referenceDate = Date(timeIntervalSince1970: 2_000_000_000)
         let source = MockPullRequestSource(referenceDate: referenceDate)
-        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
-        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil)
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
         let firstDates = Dictionary(uniqueKeysWithValues: first.activePullRequests.map {
             ($0.id, [$0.createdAt, $0.updatedAt])
         })

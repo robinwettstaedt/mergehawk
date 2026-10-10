@@ -2855,7 +2855,8 @@ private final class MenuFakeGitHubProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         CompletePullRequestFetchResult(activePullRequests: [])
     }

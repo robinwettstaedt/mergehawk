@@ -288,7 +288,8 @@ private final class CatalogTestProvider: GitHubProviding {
 
     func fetchCompletePullRequests(
         login: String,
-        previousState: PullRequestSyncState?
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         fetchPullRequestsCount += 1
         return CompletePullRequestFetchResult(activePullRequests: [Self.pullRequest])
