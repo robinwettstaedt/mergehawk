@@ -257,8 +257,21 @@ final class MenuMetricsTests: XCTestCase {
         }
     }
 
+    /// Spacing moved on purpose after the scales were consolidated (MER-86).
+    private static let spacingDeliberateMoves: Set<String> = [
+        // MER-104 matched the header dropdowns' gap to `actionsMenu.anchorGap`.
+        "dropdown.gap",
+    ]
+
+    func testDropdownGapMatchesTheActionsMenuAnchorGap() {
+        XCTAssertEqual(metrics.dropdown.gap, metrics.actionsMenu.anchorGap)
+    }
+
     func testSpacingMovedAtMostTwoPoints() {
-        for token in Self.spacingTokens {
+        let tokenNames = Set(Self.spacingTokens.map(\.name))
+        XCTAssertTrue(Self.spacingDeliberateMoves.isSubset(of: tokenNames))
+        let checked = Self.spacingTokens.filter { !Self.spacingDeliberateMoves.contains($0.name) }
+        for token in checked {
             XCTAssertLessThanOrEqual(abs(metrics[keyPath: token.keyPath] - token.mer86Value), 2, token.name)
         }
     }

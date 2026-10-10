@@ -543,7 +543,7 @@ struct MenuMetrics: Equatable {
         )
         dropdown = Dropdown(
             headerControlsSpacing: s(8),
-            gap: s(8),
+            gap: s(4),
             authoredFilterWidth: s(156),
             requestedFilterWidth: s(112),
             sortWidth: s(132),
