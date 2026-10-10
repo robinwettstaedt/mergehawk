@@ -861,6 +861,62 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(controller.selectedTab, .reviewRequests)
     }
 
+    @MainActor
+    func testClickingTheSortControlWithTheFilterDropdownOpenSwitchesToTheSortDropdown() throws {
+        let controller = try isolatedSignedInMockController()
+        let (host, size) = hostMenuRoot(
+            controller: controller,
+            tooltips: MenuTooltipController(),
+            initialDropdown: .filter
+        )
+        defer { host.close() }
+        let bar = try TopBarPoints(host: host, size: size, controller: controller)
+
+        try clickAsTheCurrentEvent(host, at: CGPoint(x: bar.sortMenuMidX, y: bar.midY))
+        try assertDropdown(in: host, isOpen: true)
+
+        // Only the sort dropdown has an item at this point, and choosing it closes the dropdown.
+        let options = DashboardController.PullRequestSortOption.allCases
+        let index = try XCTUnwrap(options.firstIndex { $0 != controller.pullRequestSortOption })
+        try clickAsTheCurrentEvent(host, at: bar.sortItem(index))
+        XCTAssertEqual(controller.pullRequestSortOption, options[index])
+        try assertDropdown(in: host, isOpen: false)
+    }
+
+    @MainActor
+    func testClickingTheFilterButtonWithTheSortDropdownOpenSwitchesToTheFilterDropdown() throws {
+        let controller = try isolatedSignedInMockController()
+        let (host, size) = hostMenuRoot(
+            controller: controller,
+            tooltips: MenuTooltipController(),
+            initialDropdown: .sort
+        )
+        defer { host.close() }
+        let bar = try TopBarPoints(host: host, size: size, controller: controller)
+
+        try clickAsTheCurrentEvent(host, at: CGPoint(x: bar.filterButton.midX, y: bar.midY))
+        try assertDropdown(in: host, isOpen: true)
+
+        // Only the filter dropdown has an item at this point, and toggling it keeps the dropdown open.
+        let option = DashboardController.PullRequestFilterOption.allCases[1]
+        try clickAsTheCurrentEvent(host, at: bar.filterItem(1))
+        XCTAssertEqual(controller.selectedPullRequestFilters, [option])
+        try assertDropdown(in: host, isOpen: true)
+    }
+
+    /// Checks that every outside-click catcher in the hosted menu reports a dropdown open, or every one reports none.
+    @MainActor
+    private func assertDropdown(
+        in host: OffScreenHost,
+        isOpen: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let catchers = outsideClickCatchers(in: try XCTUnwrap(host.window.contentView))
+        XCTAssertFalse(catchers.isEmpty, file: file, line: line)
+        XCTAssertTrue(catchers.allSatisfy { $0.isActive == isOpen }, "open: \(isOpen)", file: file, line: line)
+    }
+
     /// A signed-in mock controller whose filter and sort choices do not persist past the test.
     @MainActor
     private func isolatedSignedInMockController() throws -> DashboardController {
@@ -3107,6 +3163,8 @@ private struct TopBarPoints {
     /// The sort control starts with its direction part.
     var filterSortGapMidX: CGFloat { (filterButton.maxX + sortDirection.minX) / 2 }
     var sortControlMidX: CGFloat { (sortDirection.minX + sortControlTrailing) / 2 }
+    /// The sort control's menu part follows its direction part and a one point divider.
+    var sortMenuMidX: CGFloat { (sortDirection.maxX + 1 + sortControlTrailing) / 2 }
     var sortRefreshGapMidX: CGFloat { (sortControlTrailing + refreshControlLeading) / 2 }
     var refreshControlMidX: CGFloat { refreshControlLeading + metrics.topBar.refreshStatusWidth / 2 }
     var trailingInsetMidX: CGFloat { size.width - metrics.topBar.trailingInset / 2 }
