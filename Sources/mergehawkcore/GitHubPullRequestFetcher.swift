@@ -140,12 +140,17 @@ struct GitHubPullRequestFetcher: Sendable {
             comments = Dictionary(uniqueKeysWithValues: payload.comments.nodes.map { ($0.id, $0) })
             reviews = Dictionary(uniqueKeysWithValues: payload.reviews.nodes.map { ($0.id, $0) })
             opinionatedReviews = Dictionary(uniqueKeysWithValues: payload.latestOpinionatedReviews.nodes.map { ($0.id, $0) })
-            threads = Dictionary(uniqueKeysWithValues: payload.reviewThreads.nodes.map { ($0.id, $0) })
-            threadComments = Dictionary(uniqueKeysWithValues: payload.reviewThreads.nodes.map { thread in
-                (thread.id, Dictionary(uniqueKeysWithValues: thread.comments.nodes.map { ($0.id, $0) }))
-            })
+            // Threads are recorded with `recordThread` as their reads queue first comment reads.
+            threads = [:]
+            threadComments = [:]
             assignees = Dictionary(uniqueKeysWithValues: payload.assignees.nodes.map { ($0.id ?? $0.login, $0) })
             reviewRequests = Dictionary(uniqueKeysWithValues: payload.reviewRequests.nodes.map { ($0.id, $0) })
+        }
+
+        /// Stores a thread from the PR read or a thread page. A later page's copy replaces a stored one.
+        /// Returns whether the thread was new.
+        mutating func recordThread(_ thread: GitHubPayloadReviewThread) -> Bool {
+            threads.updateValue(thread, forKey: thread.id) == nil
         }
     }
 
@@ -378,8 +383,7 @@ struct GitHubPullRequestFetcher: Sendable {
 
         var visitedCursors: [ContinuationVisit: Set<String?>] = [:]
         while !continuations.isEmpty {
-            let batch = Array(continuations.prefix(GitHubPullRequestQueries.continuationBatchSize))
-            continuations.removeFirst(min(batch.count, continuations.count))
+            let batch = nextContinuationBatch(from: &continuations)
             for item in batch {
                 let visit = ContinuationVisit(kind: item.kind, attempt: item.attempt)
                 guard visitedCursors[visit, default: []].insert(item.before).inserted else {
@@ -426,6 +430,22 @@ struct GitHubPullRequestFetcher: Sendable {
                     queue: &continuations,
                     restartedThreadPRs: &restartedThreadPRs
                 )
+            }
+            // A restarted thread list re-reads every thread's comments from scratch, at cursors that may have
+            // run before. The re-reads always run in later batches.
+            if !restartedThreadPRs.isEmpty {
+                visitedCursors = visitedCursors.filter { visit, _ in
+                    guard case .threadComments(let prID, _) = visit.kind else { return true }
+                    return !restartedThreadPRs.contains(prID)
+                }
+            }
+        }
+
+        // Every listed thread must have had its comments read, or it would publish without its activity.
+        for prID in accumulators.keys.sorted() {
+            let accumulator = accumulators[prID]!
+            if let threadID = accumulator.threads.keys.sorted().first(where: { accumulator.threadComments[$0] == nil }) {
+                throw GitHubReadError.incompleteCoverage("Thread \(threadID) comments were not read")
             }
         }
 
@@ -501,8 +521,9 @@ struct GitHubPullRequestFetcher: Sendable {
         guard accumulators[node.id] == nil else {
             throw GitHubReadError.incompleteCoverage("Duplicate hydration node \(node.id)")
         }
-        accumulators[node.id] = HydrationAccumulator(payload: node, discovery: discovery)
-        continuations.append(contentsOf: try initialContinuations(for: node))
+        var accumulator = HydrationAccumulator(payload: node, discovery: discovery)
+        continuations.append(contentsOf: try initialContinuations(for: node, accumulator: &accumulator))
+        accumulators[node.id] = accumulator
     }
 
     func repositoryTeamRequestedPullRequestIDs(
@@ -655,7 +676,10 @@ struct GitHubPullRequestFetcher: Sendable {
         }
     }
 
-    private func initialContinuations(for payload: GitHubCompletePullRequestPayload) throws -> [Continuation] {
+    private func initialContinuations(
+        for payload: GitHubCompletePullRequestPayload,
+        accumulator: inout HydrationAccumulator
+    ) throws -> [Continuation] {
         var result: [Continuation] = []
         try appendContinuation(
             kind: .comments(prID: payload.id), connection: payload.comments, to: &result
@@ -676,13 +700,54 @@ struct GitHubPullRequestFetcher: Sendable {
             kind: .reviewRequests(prID: payload.id), connection: payload.reviewRequests, to: &result
         )
         for thread in payload.reviewThreads.nodes {
-            try appendContinuation(
-                kind: .threadComments(prID: payload.id, threadID: thread.id),
-                connection: thread.comments,
-                to: &result
-            )
+            queueFirstCommentRead(of: thread, prID: payload.id, attempt: 0, accumulator: &accumulator, queue: &result)
         }
         return result
+    }
+
+    /// Records a listed thread and, when it is new to the PR's hydration state, queues its first comment read.
+    /// A thread repeated on the boundary between two thread pages is already recorded and queues nothing.
+    private func queueFirstCommentRead(
+        of thread: GitHubPayloadReviewThread,
+        prID: String,
+        attempt: Int,
+        accumulator: inout HydrationAccumulator,
+        queue: inout [Continuation]
+    ) {
+        guard accumulator.recordThread(thread) else { return }
+        queue.append(Continuation(
+            kind: .threadComments(prID: prID, threadID: thread.id),
+            before: nil,
+            expectedTotal: nil,
+            attempt: attempt
+        ))
+    }
+
+    private static func isFirstCommentRead(_ continuation: Continuation) -> Bool {
+        guard case .threadComments = continuation.kind else { return false }
+        return continuation.before == nil
+    }
+
+    /// Takes the next batch from one group only: thread-comment reads without a cursor, up to
+    /// `threadCommentFirstReadBatchSize` from anywhere in the queue, or up to `continuationBatchSize` other
+    /// entries. The group of the oldest queued entry goes next. Remaining entries keep their order.
+    private func nextContinuationBatch(from queue: inout [Continuation]) -> [Continuation] {
+        guard let oldest = queue.first else { return [] }
+        let takesFirstReads = Self.isFirstCommentRead(oldest)
+        let limit = takesFirstReads
+            ? GitHubPullRequestQueries.threadCommentFirstReadBatchSize
+            : GitHubPullRequestQueries.continuationBatchSize
+        var batch: [Continuation] = []
+        var remaining: [Continuation] = []
+        for item in queue {
+            if batch.count < limit, Self.isFirstCommentRead(item) == takesFirstReads {
+                batch.append(item)
+            } else {
+                remaining.append(item)
+            }
+        }
+        queue = remaining
+        return batch
     }
 
     private func appendContinuation<Node>(
@@ -821,6 +886,7 @@ struct GitHubPullRequestFetcher: Sendable {
             prID = id
         }
         guard var accumulator = accumulators[prID] else { throw GitHubReadError.invalidPayload }
+        var listedThreads: [GitHubPayloadReviewThread] = []
         if let expected = continuation.expectedTotal, let observed = page.totalCount, observed < expected {
             try retryIncompleteConnection(
                 continuation,
@@ -836,22 +902,16 @@ struct GitHubPullRequestFetcher: Sendable {
         case (.comments, .comments(let value)):
             value.nodes.forEach { accumulator.comments[$0.id] = $0 }
         case (.threadComments(_, let threadID), .comments(let value)):
-            value.nodes.forEach { accumulator.threadComments[threadID, default: [:]][$0.id] = $0 }
+            // The key records that the thread's comment read merged, even for a thread without comments.
+            var comments = accumulator.threadComments[threadID] ?? [:]
+            value.nodes.forEach { comments[$0.id] = $0 }
+            accumulator.threadComments[threadID] = comments
         case (.reviews, .reviews(let value)):
             value.nodes.forEach { accumulator.reviews[$0.id] = $0 }
         case (.opinionatedReviews, .reviews(let value)):
             value.nodes.forEach { accumulator.opinionatedReviews[$0.id] = $0 }
         case (.threads, .threads(let value)):
-            for thread in value.nodes {
-                accumulator.threads[thread.id] = thread
-                thread.comments.nodes.forEach { accumulator.threadComments[thread.id, default: [:]][$0.id] = $0 }
-                try appendContinuation(
-                    kind: .threadComments(prID: prID, threadID: thread.id),
-                    connection: thread.comments,
-                    attempt: continuation.attempt,
-                    to: &queue
-                )
-            }
+            listedThreads = value.nodes
         case (.assignees, .users(let value)):
             value.nodes.forEach { accumulator.assignees[$0.id ?? $0.login] = $0 }
         case (.reviewRequests, .requests(let value)):
@@ -871,7 +931,15 @@ struct GitHubPullRequestFetcher: Sendable {
                 expectedTotal: expectedTotal,
                 attempt: continuation.attempt
             ))
-        } else if let expected = expectedTotal {
+        }
+        // A thread page's first comment reads queue after its own next page. A thread-list restart below
+        // removes them again.
+        for thread in listedThreads {
+            queueFirstCommentRead(
+                of: thread, prID: prID, attempt: continuation.attempt, accumulator: &accumulator, queue: &queue
+            )
+        }
+        if !page.pageInfo.hasPreviousPage, let expected = expectedTotal {
             let actual = accumulatedCount(for: continuation.kind, in: accumulator)
             if actual < expected {
                 try retryIncompleteConnection(
@@ -906,7 +974,7 @@ struct GitHubPullRequestFetcher: Sendable {
         case .reviewRequests: accumulator.reviewRequests = [:]
         case .threadComments(_, let threadID): accumulator.threadComments[threadID] = [:]
         case .threads(let prID):
-            // The re-read threads bring their own comments and thread-comment continuations.
+            // Every re-read thread queues a fresh first comment read.
             accumulator.threads = [:]
             accumulator.threadComments = [:]
             restartedThreadPRs.insert(prID)

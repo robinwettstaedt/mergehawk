@@ -12,6 +12,18 @@ final class GitHubFixtureServer: @unchecked Sendable {
     struct Request {
         let query: String
         let variables: [String: GitHubQueryValue]
+
+        var aliases: [Alias] { GitHubFixtureServer.aliases(query: query, variables: variables) }
+        var batchShape: String? { GitHubFixtureServer.batchShape(query: query, variables: variables) }
+    }
+
+    /// One `cK: node(id: $idK)` read of a continuation query.
+    struct Alias: Equatable {
+        let name: String
+        let id: String
+        let cursor: String?
+        let connection: String
+        let isThreadComments: Bool
     }
 
     struct UnknownShape: Error {
@@ -40,11 +52,19 @@ final class GitHubFixtureServer: @unchecked Sendable {
     private var pullRequests: [PullRequestData]
     private var storedRequests: [Request] = []
     private let beforeQuery: ((Int, GitHubFixtureServer) -> Void)?
+    private let afterQuery: ((Int, Request, inout [String: Any]) -> Void)?
 
     /// Takes PR dictionaries as `GitHubPaginationTests.pullRequest(...)` builds them. Each connection's `nodes`,
     /// and each thread's `comments.nodes`, is the complete list. Input `totalCount` and `pageInfo` are ignored.
-    init(pullRequests: [[String: Any]], beforeQuery: ((Int, GitHubFixtureServer) -> Void)? = nil) {
+    /// `beforeQuery` can change the data before a query is answered. `afterQuery` can rewrite an answer, for
+    /// responses the data alone can't produce.
+    init(
+        pullRequests: [[String: Any]],
+        beforeQuery: ((Int, GitHubFixtureServer) -> Void)? = nil,
+        afterQuery: ((Int, Request, inout [String: Any]) -> Void)? = nil
+    ) {
         self.beforeQuery = beforeQuery
+        self.afterQuery = afterQuery
         self.pullRequests = pullRequests.map { input in
             var fields = input
             var connections: [String: [[String: Any]]] = [:]
@@ -97,13 +117,14 @@ final class GitHubFixtureServer: @unchecked Sendable {
     }
 
     func read(query: String, variables: [String: GitHubQueryValue]) async throws -> Data {
+        let request = Request(query: query, variables: variables)
         let index = lock.withLock {
-            storedRequests.append(Request(query: query, variables: variables))
+            storedRequests.append(request)
             return storedRequests.count - 1
         }
         beforeQuery?(index, self)
         do {
-            let response = try lock.withLock { () throws -> [String: Any] in
+            var response = try lock.withLock { () throws -> [String: Any] in
                 if query.contains("query CompletePullRequests") {
                     return try answerHydration(query: query, variables: variables)
                 }
@@ -112,11 +133,45 @@ final class GitHubFixtureServer: @unchecked Sendable {
                 }
                 throw UnknownShape(description: "query \(query)")
             }
+            afterQuery?(index, request, &response)
             return try JSONSerialization.data(withJSONObject: response)
         } catch let error as UnknownShape {
             XCTFail("GitHubFixtureServer can't answer \(error.description)")
             throw error
         }
+    }
+
+    // MARK: Query shapes
+
+    static func aliases(query: String, variables: [String: GitHubQueryValue]) -> [Alias] {
+        query.split(separator: "\n").compactMap { line -> Alias? in
+            let parts = line.split(separator: " ", maxSplits: 8)
+            guard parts.count == 9, parts[0].hasPrefix("c"), parts[0].hasSuffix(":"), parts[4] == "..." else {
+                return nil
+            }
+            let name = String(parts[0].dropLast())
+            let index = name.dropFirst()
+            guard case .string(let id) = variables["id\(index)"] else { return nil }
+            var cursor: String?
+            if case .string(let value) = variables["cursor\(index)"] { cursor = value }
+            return Alias(
+                name: name,
+                id: id,
+                cursor: cursor,
+                connection: String(parts[8].prefix { $0 != "(" }),
+                isThreadComments: parts[6] == "PullRequestReviewThread"
+            )
+        }
+    }
+
+    /// `"first reads: N"` for a continuation query of thread-comment reads without a cursor, `"other: N"` for
+    /// one without any, and `"mixed: N"` otherwise. Nil for other queries.
+    static func batchShape(query: String, variables: [String: GitHubQueryValue]) -> String? {
+        guard query.contains("query ContinuePullRequestConnections") else { return nil }
+        let aliases = aliases(query: query, variables: variables)
+        let firstReads = aliases.filter { $0.isThreadComments && $0.cursor == nil }.count
+        let group = firstReads == aliases.count ? "first reads" : firstReads == 0 ? "other" : "mixed"
+        return "\(group): \(aliases.count)"
     }
 
     // MARK: Hydration
