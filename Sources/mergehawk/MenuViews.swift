@@ -232,6 +232,7 @@ struct SortControlButton: View {
                     .font(metrics.type.controlLabel.font)
                     .foregroundStyle(MenuControlLabelPresentation.color)
                     .frame(width: controls.sortDirectionWidth, height: controls.height)
+                    // Dark mode lightens only the hovered half, so it stays clear which one a click hits.
                     .background(HoverLiftPresentation.fill(isHovered: directionHovered, colorScheme: colorScheme))
                     .contentShape(Rectangle())
             }
@@ -275,7 +276,6 @@ struct SortControlButton: View {
                 )
         )
         .clipShape(shape)
-        // Dark mode lightens only the hovered half, so it stays clear which one a click hits.
         .compositingGroup()
         .shadow(
             color: HoverLiftPresentation.shadowColor(isHovered: directionHovered || menuHovered, colorScheme: colorScheme),
@@ -2784,8 +2784,6 @@ struct TransparentCardStyle: ViewModifier {
         return content
             .background {
                 shape
-                    .fill(restFill)
-                shape
                     .fill(hoverFill)
             }
             .overlay {
@@ -2793,7 +2791,7 @@ struct TransparentCardStyle: ViewModifier {
                     .stroke(borderColor, lineWidth: 1)
             }
             .clipShape(shape)
-            // Outside the clip, so the hover shadow can fall around the card.
+            // The rest fill sits outside the clip, so the hover shadow can fall around the card.
             .background {
                 shape
                     .fill(restFill)
