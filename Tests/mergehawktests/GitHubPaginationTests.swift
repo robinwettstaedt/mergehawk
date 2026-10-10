@@ -440,11 +440,9 @@ final class GitHubPaginationTests: XCTestCase {
             "id": "USER_RW", "login": "RW",
             "avatarUrl": "https://avatars.example/rw.png"
         ]
-        let transport = HydrationTransport { _, _ in
-            Self.json(["data": ["nodes": [node]]])
-        }
+        let server = GitHubFixtureServer(pullRequests: [node])
 
-        let pullRequest = try await Self.fetcher(transport)
+        let pullRequest = try await server.fetcher
             .hydrate([Self.discovery()], login: "rw")[0].pullRequest
 
         XCTAssertEqual(pullRequest.id, "PR_1")
@@ -510,11 +508,9 @@ final class GitHubPaginationTests: XCTestCase {
             Self.thread("RESOLVED", isResolved: true, comments: [Self.comment("RESOLVED_COMMENT")])
         ]
         let node = Self.pullRequest(threads: Self.connection(total: threads.count, nodes: threads))
-        let transport = HydrationTransport { _, _ in
-            Self.json(["data": ["nodes": [node]]])
-        }
+        let server = GitHubFixtureServer(pullRequests: [node])
 
-        let pullRequest = try await Self.fetcher(transport)
+        let pullRequest = try await server.fetcher
             .hydrate([Self.discovery()], login: "rw")[0].pullRequest
 
         XCTAssertEqual(pullRequest.commentCount, 1)
@@ -1000,8 +996,8 @@ final class GitHubPaginationTests: XCTestCase {
                 threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [comment])]),
                 reviewDecision: "APPROVED"
             )
-            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
-            let pr = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
+            let server = GitHubFixtureServer(pullRequests: [node])
+            let pr = try await server.fetcher.hydrate([Self.discovery()], login: "rw")[0].pullRequest
             let expected = typename.map { $0 == "Bot" }
             XCTAssertTrue(pr.recentCommentActivities.allSatisfy { $0.authorIsBot == expected })
             XCTAssertEqual(pr.recentReviews.map(\.authorIsBot), [expected, expected, expected])
@@ -1098,9 +1094,9 @@ final class GitHubPaginationTests: XCTestCase {
 
         for (payload, expected) in [(pending, nil), (published, Self.date("2026-09-26T10:00:17Z"))] as [([String: Any], Date?)] {
             let node = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [payload])]))
-            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+            let server = GitHubFixtureServer(pullRequests: [node])
 
-            let hydrated = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+            let hydrated = try await server.fetcher.hydrate([Self.discovery()], login: "rw")
             let comment = try XCTUnwrap(hydrated[0].pullRequest.recentCommentActivities.first)
 
             XCTAssertEqual(comment.publishedAt, expected)
@@ -1164,9 +1160,9 @@ final class GitHubPaginationTests: XCTestCase {
             comments: Self.connection(total: 1, nodes: [conversation]),
             threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: [submitted, pending])])
         )
-        let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+        let server = GitHubFixtureServer(pullRequests: [node])
 
-        let comments = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0]
+        let comments = try await server.fetcher.hydrate([Self.discovery()], login: "rw")[0]
             .pullRequest.recentCommentActivities
 
         XCTAssertEqual(comments.first { $0.id == "CONVERSATION" }?.publishedAt, Self.date("2026-03-01T00:00:00Z"))
@@ -1208,9 +1204,9 @@ final class GitHubPaginationTests: XCTestCase {
             ("review invalid update", fullReview { $0["updatedAt"] = "soon" }),
         ]
         for (label, node) in invalidNodes {
-            let transport = HydrationTransport { _, _ in Self.json(["data": ["nodes": [node]]]) }
+            let server = GitHubFixtureServer(pullRequests: [node])
             do {
-                _ = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")
+                _ = try await server.fetcher.hydrate([Self.discovery()], login: "rw")
                 XCTFail("Expected \(label) to fail the fetch")
             } catch {
                 XCTAssertEqual(error as? GitHubReadError, .invalidPayload, label)
@@ -1242,7 +1238,7 @@ final class GitHubPaginationTests: XCTestCase {
         }
     }
 
-    private static func discovery(
+    static func discovery(
         id: String = "PR_1",
         isDirectlyRequested: Bool = true,
         isTeamRequested: Bool = false
@@ -1259,7 +1255,7 @@ final class GitHubPaginationTests: XCTestCase {
         )
     }
 
-    private static func pullRequest(
+    static func pullRequest(
         id: String = "PR_1",
         isArchived: Bool = false,
         comments: [String: Any] = connection(total: 0, nodes: []),
@@ -1287,7 +1283,7 @@ final class GitHubPaginationTests: XCTestCase {
         return result
     }
 
-    private static func connection(
+    static func connection(
         total: Int,
         nodes: [[String: Any]],
         previous: String? = nil
@@ -1302,11 +1298,11 @@ final class GitHubPaginationTests: XCTestCase {
         ]
     }
 
-    private static func user(_ login: String, typename: String = "User") -> [String: Any] {
+    static func user(_ login: String, typename: String = "User") -> [String: Any] {
         ["id": "USER_\(login)", "login": login, "__typename": typename]
     }
 
-    private static func comment(
+    static func comment(
         _ id: String,
         viewerDidAuthor: Bool = false,
         author: String? = nil,
@@ -1334,7 +1330,7 @@ final class GitHubPaginationTests: XCTestCase {
         return query[startRange.lowerBound..<endRange.lowerBound]
     }
 
-    private static func review(
+    static func review(
         _ id: String,
         state: String,
         author: String = "reviewer",
@@ -1351,13 +1347,13 @@ final class GitHubPaginationTests: XCTestCase {
     }
 
     /// A latest-opinionated review node, which never carries summary content.
-    private static func leanReview(_ id: String, state: String = "APPROVED") -> [String: Any] {
+    static func leanReview(_ id: String, state: String = "APPROVED") -> [String: Any] {
         var value = review(id, state: state)
         ["updatedAt", "bodyHTML", "bodyText"].forEach { value.removeValue(forKey: $0) }
         return value
     }
 
-    private static func thread(
+    static func thread(
         _ id: String,
         isResolved: Bool = false,
         viewerCanResolve: Bool = true,
@@ -1370,7 +1366,7 @@ final class GitHubPaginationTests: XCTestCase {
         ]
     }
 
-    private static func request(
+    static func request(
         _ id: String,
         typeName: String = "User",
         login: String = "rw",
@@ -1392,16 +1388,16 @@ final class GitHubPaginationTests: XCTestCase {
         ]
     }
 
-    private static func date(_ value: String) -> Date {
+    static func date(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
     }
 
-    private static func string(_ value: GitHubQueryValue?) -> String? {
+    static func string(_ value: GitHubQueryValue?) -> String? {
         guard case .string(let value) = value else { return nil }
         return value
     }
 
-    private static func json(_ object: Any) -> Data {
+    static func json(_ object: Any) -> Data {
         try! JSONSerialization.data(withJSONObject: object)
     }
 }
