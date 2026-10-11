@@ -2,8 +2,14 @@ import Foundation
 
 enum GitHubPullRequestQueries {
     static let continuationPageSize = 100
+    /// A thread-comment read without a cursor takes the thread's newest comments only. Older ones page at
+    /// `continuationPageSize`.
+    static let threadCommentFirstReadPageSize = 10
     static let hydrationBatchSize = 20
     static let continuationBatchSize = 20
+    /// Thread-comment reads without a cursor batch on their own. Each returns at most
+    /// `threadCommentFirstReadPageSize` comments, so a full batch stays small.
+    static let threadCommentFirstReadBatchSize = 100
 
     static let pageInfoFields = "pageInfo { startCursor endCursor hasPreviousPage hasNextPage }"
 
@@ -21,7 +27,9 @@ enum GitHubPullRequestQueries {
     static let inlineCommentConnectionFields = "totalCount \(pageInfoFields) nodes { \(inlineCommentFields) }"
     static let fullReviewConnectionFields = "totalCount \(pageInfoFields) nodes { \(fullReviewFields) }"
     static let opinionatedReviewConnectionFields = "totalCount \(pageInfoFields) nodes { \(opinionatedReviewFields) }"
-    static let reviewThreadNodeFields = "id isResolved viewerCanResolve comments(last: 10) { \(inlineCommentConnectionFields) }"
+    /// Threads carry identity and state only. Each thread's comments are read through the continuation queue,
+    /// because nested comment connections would multiply the PR read's cost.
+    static let reviewThreadNodeFields = "id isResolved viewerCanResolve"
 
     static let completeNodeFields = """
       id
@@ -45,7 +53,7 @@ enum GitHubPullRequestQueries {
       comments(last: 10) { \(conversationCommentConnectionFields) }
       reviews(last: 10) { \(fullReviewConnectionFields) }
       latestOpinionatedReviews(last: 20) { \(opinionatedReviewConnectionFields) }
-      reviewThreads(last: 20) { totalCount \(pageInfoFields) nodes { \(reviewThreadNodeFields) } }
+      reviewThreads(last: 100) { totalCount \(pageInfoFields) nodes { \(reviewThreadNodeFields) } }
       assignees(last: 20) {
         totalCount
         pageInfo { startCursor endCursor hasPreviousPage hasNextPage }

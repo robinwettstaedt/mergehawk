@@ -46,6 +46,7 @@ struct CountSearchControl: View {
     var isAlwaysExpanded = false
     var showsInlineCount = true
     var expandedWidth: CGFloat?
+    @Environment(\.colorScheme) private var colorScheme
     @State private var searchFieldFocused = false
     @State private var searchFocusRequest = 0
 
@@ -117,7 +118,7 @@ struct CountSearchControl: View {
         .frame(height: 24)
         .frame(width: expandedWidth)
         .frame(maxWidth: expandedWidth == nil ? .infinity : nil)
-        .background(.ultraThinMaterial)
+        .background(MenuRaisedSurfacePresentation.fill(colorScheme: colorScheme))
         .contentShape(RoundedRectangle(cornerRadius: 6))
         .onTapGesture {
             searchState.expand()
