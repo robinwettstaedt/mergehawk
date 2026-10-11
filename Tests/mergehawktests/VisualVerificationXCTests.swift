@@ -45,13 +45,15 @@ final class VisualVerificationXCTests: XCTestCase {
             }
         }
 
+        // The default 2 min interval decides pacing for the General budget section. The automatic loop's wait
+        // never ends during the capture.
         let controller = await MainActor.run {
             DashboardController(
                 tokenStore: InMemoryTokenStore(),
                 preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-                automaticRefreshInterval: 0,
-                now: Self.visualClock
+                now: Self.visualClock,
+                sleep: { _ in try await Task.sleep(for: .seconds(86_400)) }
             )
         }
 
