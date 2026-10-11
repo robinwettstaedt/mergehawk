@@ -97,10 +97,11 @@ final class AutomaticPacingTests: XCTestCase {
         await waitForBudgetCondition { fixture.sleeper.durations.count == 2 }
         XCTAssertEqual(fixture.sleeper.durations.last, 3_005)
 
-        // GitHub has not reset although the Mac's clock passed the reset, and another tool spent 5 points.
+        // GitHub has not reset although the Mac's clock passed the reset. The free budget read leaves `used`
+        // unchanged, so the newer reading wins the tie and stays usable.
         fixture.clock.now = Self.reset.addingTimeInterval(10)
         fixture.provider.budgetRead = {
-            GitHubBudgetReading(limit: 5_000, remaining: 990, used: 4_010, resetAt: Self.reset, receivedAt: fixture.clock.now)
+            GitHubBudgetReading(limit: 5_000, remaining: 995, used: 4_005, resetAt: Self.reset, receivedAt: fixture.clock.now)
         }
         fixture.provider.fetchReading = nil
         fixture.controller.refresh()

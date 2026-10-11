@@ -63,8 +63,21 @@ final class GitHubBudgetTests: XCTestCase {
         XCTAssertEqual(lower.merged(with: higher), higher)
         XCTAssertEqual(higher.merged(with: lower), higher)
 
-        let tie = Self.reading(used: 900, receivedAt: Self.now.addingTimeInterval(9))
-        XCTAssertEqual(lower.merged(with: tie), lower)
+    }
+
+    func testMergeWithEqualUsedKeepsTheLaterReceivedReadingInBothOrders() {
+        let earlier = Self.reading(used: 900, receivedAt: Self.now)
+        let later = Self.reading(used: 900, receivedAt: Self.reset.addingTimeInterval(2))
+
+        XCTAssertEqual(earlier.merged(with: later), later)
+        XCTAssertEqual(later.merged(with: earlier), later)
+
+        let receiver = Self.reading(used: 900, receivedAt: Self.now)
+        let identical = GitHubBudgetReading(
+            limit: 4_000, remaining: 3_100, used: 900, resetAt: Self.reset, receivedAt: Self.now
+        )
+        XCTAssertEqual(receiver.merged(with: identical), receiver)
+        XCTAssertEqual(identical.merged(with: receiver), identical)
     }
 
     func testStaleness() {
