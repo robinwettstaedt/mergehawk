@@ -1153,12 +1153,27 @@ final class VisualVerificationXCTests: XCTestCase {
 
         // Each budget fixture's first refresh reads the budget and records one 55 point sample, so pacing is
         // decided on the mock numbers at the fixed clock: normal, stretched, or paused with manual refresh left.
+        // Pacing uses the default 2 min interval, and the automatic loop's wait never ends during the capture.
         for (name, scenario) in [
             ("normal", MockPullRequestScenario.standard),
             ("stretched", .budgetStretched),
             ("paused", .budgetPaused),
         ] {
-            let budgetController = await makeScenarioController(scenario, suiteName: "\(suiteName)-budget-\(name)")
+            let budgetController = await MainActor.run {
+                DashboardController(
+                    tokenStore: InMemoryTokenStore(),
+                    preferencesStore: PreferencesStore(
+                        defaults: UserDefaults(suiteName: "\(suiteName)-budget-\(name)")!
+                    ),
+                    launchConfiguration: LaunchConfiguration(
+                        usesMockData: true,
+                        suppressesMacOSNotifications: true,
+                        mockPullRequestScenario: scenario
+                    ),
+                    now: Self.visualClock,
+                    sleep: { _ in try await Task.sleep(for: .seconds(86_400)) }
+                )
+            }
             try await waitUntil(context: "budget-\(name) first refresh") {
                 await MainActor.run {
                     budgetController.state.syncedAt != nil && !budgetController.isRefreshing
@@ -1166,6 +1181,16 @@ final class VisualVerificationXCTests: XCTestCase {
                 }
             }
             try await MainActor.run {
+                XCTAssertEqual(budgetController.refreshIntervalMinutes, 2)
+                let statusLine = budgetController.budgetPresentation(at: Self.visualNow).statusLine
+                switch name {
+                case "normal":
+                    XCTAssertNil(statusLine)
+                case "stretched":
+                    XCTAssertEqual(statusLine?.hasPrefix("Refreshing every 6 min until "), true, statusLine ?? "nil")
+                default:
+                    XCTAssertEqual(statusLine?.hasSuffix(" Manual refresh still works."), true, statusLine ?? "nil")
+                }
                 try renderSettings(
                     SettingsRootView(
                         controller: budgetController,
