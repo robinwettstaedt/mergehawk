@@ -2134,6 +2134,11 @@ struct PullRequestNotificationRow: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .fixedSize(horizontal: true, vertical: false)
+                                    // On the title's baseline alone, the smaller digits' tops sit below the title's
+                                    // capitals. Raised by the difference, their tops line up with the capitals.
+                                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                                        dimensions[.firstTextBaseline] + timestampRaise
+                                    }
                             }
                         }
                         CardMetadataLine { pullRequestLine }
@@ -2175,6 +2180,10 @@ struct PullRequestNotificationRow: View {
     }
 
     private var row: MenuMetrics.NotificationRow { metrics.notificationRow }
+
+    private var timestampRaise: CGFloat {
+        metrics.type.cardTitle.capHeight - metrics.type.notificationTimestamp.capHeight
+    }
 
     private var pullRequestLine: some View {
         ViewThatFits(in: .horizontal) {

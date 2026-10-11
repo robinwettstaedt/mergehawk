@@ -16,6 +16,11 @@ struct MenuMetrics: Equatable {
             let font = Font.system(size: size, weight: weight, design: design)
             return monospacedDigits ? font.monospacedDigit() : font
         }
+
+        /// The system font's capital letter height at this size.
+        var capHeight: CGFloat {
+            NSFont.systemFont(ofSize: size).capHeight
+        }
     }
 
     /// The system menu font at an inspectable point size, used for native-looking menu rows.
