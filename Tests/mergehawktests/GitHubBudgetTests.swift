@@ -44,16 +44,47 @@ final class GitHubBudgetTests: XCTestCase {
         }
     }
 
-    func testMergeKeepsTheLaterResetAndIgnoresAnEarlierOne() {
+    func testGenuineNewWindowReplacesEvenWithLowerUsedAndAnEndedWindowNeverReturns() {
         let current = Self.reading(used: 900)
-        let nextWindow = Self.reading(used: 10, resetAt: Self.reset.addingTimeInterval(3_600))
-        let previousWindow = Self.reading(used: 4_000, resetAt: Self.reset.addingTimeInterval(-3_600))
+        // Received after the current reset passed, so this is the next window.
+        let nextWindow = Self.reading(
+            used: 10,
+            resetAt: Self.reset.addingTimeInterval(3_600),
+            receivedAt: Self.reset.addingTimeInterval(1)
+        )
+        // Ended before the current reading was received, even though it reports more used.
+        let previousWindow = Self.reading(
+            used: 4_000,
+            resetAt: Self.now.addingTimeInterval(-600),
+            receivedAt: Self.now.addingTimeInterval(-900)
+        )
 
         XCTAssertEqual(current.merged(with: nextWindow), nextWindow)
         XCTAssertEqual(nextWindow.merged(with: current), nextWindow)
         XCTAssertEqual(current.merged(with: previousWindow), current)
         XCTAssertEqual(previousWindow.merged(with: current), current)
         XCTAssertEqual(current.merged(with: nil), current)
+    }
+
+    func testStrayCounterWithALaterResetAndLowerUsedIsIgnoredInBothOrders() {
+        let main = Self.reading(used: 37, receivedAt: Self.now)
+        let stray = Self.reading(
+            used: 2,
+            resetAt: Self.reset.addingTimeInterval(600),
+            receivedAt: Self.now.addingTimeInterval(5)
+        )
+
+        XCTAssertEqual(main.merged(with: stray), main)
+        XCTAssertEqual(stray.merged(with: main), main)
+
+        // Once the main counter's reset passes, the other counter takes over.
+        let strayAfterReset = Self.reading(
+            used: 2,
+            resetAt: Self.reset.addingTimeInterval(600),
+            receivedAt: Self.reset.addingTimeInterval(1)
+        )
+        XCTAssertEqual(main.merged(with: strayAfterReset), strayAfterReset)
+        XCTAssertEqual(strayAfterReset.merged(with: main), strayAfterReset)
     }
 
     func testMergeInOneWindowKeepsTheHigherUsedInBothOrders() {
@@ -151,11 +182,17 @@ final class GitHubBudgetTests: XCTestCase {
         state.recordLatest(nil)
         XCTAssertEqual(state.reading?.used, 855)
 
-        // Lower readings from the same window never roll the state back. A later window replaces it.
+        // Lower readings never roll the state back, a stray counter with a later reset included. The next
+        // window replaces it once the current reset has passed.
         state.recordRead(Self.reading(used: 820))
         state.recordLatest(Self.reading(used: 830))
+        state.recordRead(Self.reading(used: 2, resetAt: Self.reset.addingTimeInterval(600)))
         XCTAssertEqual(state.reading?.used, 855)
-        state.recordRead(Self.reading(used: 5, resetAt: Self.reset.addingTimeInterval(3_600)))
+        state.recordRead(Self.reading(
+            used: 5,
+            resetAt: Self.reset.addingTimeInterval(3_600),
+            receivedAt: Self.reset.addingTimeInterval(700)
+        ))
         XCTAssertEqual(state.reading?.used, 5)
     }
 

@@ -202,6 +202,25 @@ final class DashboardBudgetTests: XCTestCase {
     }
 
     @MainActor
+    func testStrayCounterFromTheBudgetReadStillGivesASampleAgainstTheMainCounter() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }
+        provider.fetchReading = budgetReading(used: 855, at: Self.start)
+        let controller = makeBudgetController(self, provider: provider, clock: clock)
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        XCTAssertEqual(controller.budgetState.costSamples, [55])
+        // GitHub answers the next budget read from a stray counter with a later reset and almost nothing used.
+        provider.budgetRead = { budgetReading(used: 2, at: Self.start, resetIn: 3_600) }
+        provider.fetchReading = budgetReading(used: 925, at: Self.start)
+
+        controller.refresh()
+        await waitForBudgetCondition { provider.fetchCount == 2 && !controller.isRefreshing }
+
+        XCTAssertEqual(controller.budgetState.costSamples, [55, 70])
+        XCTAssertEqual(controller.budgetState.reading, budgetReading(used: 925, at: Self.start))
+    }
+
+    @MainActor
     func testFailedRefreshRecordsTheErrorResponsesReadingWithoutASample() async throws {
         let clock = ControllerTestClock(Self.start)
         let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }

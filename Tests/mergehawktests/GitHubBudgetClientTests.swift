@@ -75,6 +75,33 @@ final class GitHubBudgetClientTests: XCTestCase {
         XCTAssertEqual(client.latestBudgetReading()?.used, 990)
     }
 
+    func testAlternatingStrayCounterNeverHidesTheMainCounter() async throws {
+        // GitHub alternates between the main counter and a stray one with a later reset and almost nothing used.
+        let recorder = BudgetRequestRecorder()
+        BudgetURLProtocol.handler = { request in
+            let attempt = recorder.record(request)
+            let query = Self.graphQLQuery(request)
+            let headers = attempt.isMultiple(of: 2) ? Self.strayHeaders(used: attempt) : Self.budgetHeaders(used: 20 + attempt)
+            if query == GitHubClient.budgetReadQuery { return Self.response(Self.budgetReadBody(), request, headers: headers) }
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request, headers: headers) }
+            return Self.response(Self.emptyDiscovery(), request, headers: headers)
+        }
+        let client = Self.client()
+
+        let main = try await client.fetchBudgetReading()
+        let stray = try await client.fetchBudgetReading()
+        let result = try await Self.fetch(client)
+        let afterFetch = try await client.fetchBudgetReading()
+
+        XCTAssertEqual(recorder.count, 5)
+        XCTAssertEqual(main, Self.reading(used: 21))
+        XCTAssertEqual(stray, Self.reading(used: 21))
+        // The fetch saw the main counter, then the stray one.
+        XCTAssertEqual(result.budgetReading, Self.reading(used: 23))
+        XCTAssertEqual(afterFetch, Self.reading(used: 25))
+        XCTAssertEqual(client.latestBudgetReading(), Self.reading(used: 25))
+    }
+
     func testBudgetReadSendsTheFreeQueryAndReturnsTheReading() async throws {
         let recorder = BudgetRequestRecorder()
         BudgetURLProtocol.handler = { request in
@@ -166,6 +193,16 @@ final class GitHubBudgetClientTests: XCTestCase {
             "X-RateLimit-Remaining": "\(5_000 - used)",
             "X-RateLimit-Used": "\(used)",
             "X-RateLimit-Reset": "\(Int(reset.timeIntervalSince1970))"
+        ]
+    }
+
+    /// A second counter GitHub sometimes reports for the same user, with a later reset.
+    private static func strayHeaders(used: Int) -> [String: String] {
+        [
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "\(5_000 - used)",
+            "X-RateLimit-Used": "\(used)",
+            "X-RateLimit-Reset": "\(Int(reset.addingTimeInterval(600).timeIntervalSince1970))"
         ]
     }
 

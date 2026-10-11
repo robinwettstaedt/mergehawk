@@ -40,13 +40,17 @@ public struct GitHubBudgetReading: Equatable, Sendable {
         )
     }
 
-    /// A later reset wins. Within one window the higher `used` wins, then the later `receivedAt`, so a reading
-    /// received after its reset replaces an equal older one. A tie on both keeps the receiver. The result never
-    /// depends on arrival order.
+    /// Merges conservatively, because GitHub can alternate between two counters for one user: a main one and a
+    /// stray one with a later reset and almost nothing used. A reading whose reset had passed when the other was
+    /// received gives way to it, so a genuine new window takes over. Otherwise the higher `used` wins, so a stray
+    /// low counter never hides spent points, then the later `receivedAt`. A full tie keeps the receiver.
+    /// The precedence is the same from both sides, so the result never depends on arrival order.
     public func merged(with other: GitHubBudgetReading?) -> GitHubBudgetReading {
         guard let other else { return self }
-        if other.resetAt != resetAt {
-            return other.resetAt > resetAt ? other : self
+        let selfEnded = resetAt <= other.receivedAt
+        let otherEnded = other.resetAt <= receivedAt
+        if selfEnded != otherEnded {
+            return selfEnded ? other : self
         }
         if other.used != used {
             return other.used > used ? other : self

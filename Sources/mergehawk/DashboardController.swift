@@ -1605,9 +1605,11 @@ final class DashboardController: ObservableObject {
             case .readFirst:
                 // Authentication and rate-limit errors end the refresh in the catch below, before any refresh query.
                 do {
-                    baselineReading = try await syncEngine.fetchBudgetReading()
+                    let reading = try await syncEngine.fetchBudgetReading()
                     guard !Task.isCancelled, providerGeneration == generation else { return }
-                    budgetState.recordRead(baselineReading)
+                    budgetState.recordRead(reading)
+                    // The merged reading, so a stray counter in the read never becomes the baseline.
+                    baselineReading = reading == nil ? nil : budgetState.reading
                 } catch where !isAuthenticationFailure(error) && !isGitHubReadRateLimitError(error) {
                     guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else {
                         return
@@ -1895,15 +1897,17 @@ final class DashboardController: ObservableObject {
         // A running refresh serves this wake, as it did before pacing.
         if refreshTask != nil { return now() }
         guard let syncEngine else { return now() }
-        var reading: GitHubBudgetReading?
+        var baseline: GitHubBudgetReading?
         // The read and its decision run before the refresh counts as running, so a manual refresh started
         // meanwhile is never absorbed by an automatic refresh that then stops.
         if syncEngine.sourceKind != .none {
             let generation = providerGeneration
             do {
-                reading = try await syncEngine.fetchBudgetReading()
+                let reading = try await syncEngine.fetchBudgetReading()
                 guard !Task.isCancelled, providerGeneration == generation else { return now() }
                 budgetState.recordRead(reading)
+                // The merged reading, so a stray counter in the read never becomes the baseline.
+                baseline = reading == nil ? nil : budgetState.reading
             } catch {
                 guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else {
                     return now()
@@ -1920,7 +1924,7 @@ final class DashboardController: ObservableObject {
         }
         if nextAutomaticRefreshDate(anchor: anchor) > now() { return anchor }
         let startedAt = now()
-        await refreshDashboard(isAutomatic: true, baseline: .alreadyRead(reading))
+        await refreshDashboard(isAutomatic: true, baseline: .alreadyRead(baseline))
         return startedAt
     }
 
