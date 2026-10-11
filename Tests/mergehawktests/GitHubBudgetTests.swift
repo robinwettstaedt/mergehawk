@@ -46,11 +46,11 @@ final class GitHubBudgetTests: XCTestCase {
 
     func testGenuineNewWindowReplacesEvenWithLowerUsedAndAnEndedWindowNeverReturns() {
         let current = Self.reading(used: 900)
-        // Received after the current reset passed, so this is the next window.
+        // Received after the current reset and its 5 s margin passed, so this is the next window.
         let nextWindow = Self.reading(
             used: 10,
             resetAt: Self.reset.addingTimeInterval(3_600),
-            receivedAt: Self.reset.addingTimeInterval(1)
+            receivedAt: Self.reset.addingTimeInterval(5)
         )
         // Ended before the current reading was received, even though it reports more used.
         let previousWindow = Self.reading(
@@ -77,14 +77,34 @@ final class GitHubBudgetTests: XCTestCase {
         XCTAssertEqual(main.merged(with: stray), main)
         XCTAssertEqual(stray.merged(with: main), main)
 
-        // Once the main counter's reset passes, the other counter takes over.
+        // Once the main counter's reset and its 5 s margin pass, the other counter takes over.
         let strayAfterReset = Self.reading(
             used: 2,
             resetAt: Self.reset.addingTimeInterval(600),
-            receivedAt: Self.reset.addingTimeInterval(1)
+            receivedAt: Self.reset.addingTimeInterval(5)
         )
         XCTAssertEqual(main.merged(with: strayAfterReset), strayAfterReset)
         XCTAssertEqual(strayAfterReset.merged(with: main), strayAfterReset)
+    }
+
+    func testAnotherCounterWaitsOutTheResetMarginInBothOrders() {
+        let main = Self.reading(used: 37, receivedAt: Self.now)
+        // The Mac's clock reaches the reset before GitHub does, so 4 s after it the main counter still holds.
+        let insideMargin = Self.reading(
+            used: 2,
+            resetAt: Self.reset.addingTimeInterval(600),
+            receivedAt: Self.reset.addingTimeInterval(4)
+        )
+        XCTAssertEqual(main.merged(with: insideMargin), main)
+        XCTAssertEqual(insideMargin.merged(with: main), main)
+
+        let atMargin = Self.reading(
+            used: 2,
+            resetAt: Self.reset.addingTimeInterval(600),
+            receivedAt: Self.reset.addingTimeInterval(5)
+        )
+        XCTAssertEqual(main.merged(with: atMargin), atMargin)
+        XCTAssertEqual(atMargin.merged(with: main), atMargin)
     }
 
     func testMergeInOneWindowKeepsTheHigherUsedInBothOrders() {
