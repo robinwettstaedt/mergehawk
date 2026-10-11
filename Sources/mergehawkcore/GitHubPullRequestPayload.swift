@@ -64,7 +64,6 @@ struct GitHubPayloadReviewThread: Decodable, Equatable, Sendable {
     let id: String
     let isResolved: Bool
     let viewerCanResolve: Bool
-    let comments: GitHubStrictConnection<GitHubPayloadComment>
 }
 
 struct GitHubPayloadRequestedReviewer: Decodable, Equatable, Sendable {

@@ -16,6 +16,11 @@ struct MenuMetrics: Equatable {
             let font = Font.system(size: size, weight: weight, design: design)
             return monospacedDigits ? font.monospacedDigit() : font
         }
+
+        /// The system font's capital letter height at this size.
+        var capHeight: CGFloat {
+            NSFont.systemFont(ofSize: size).capHeight
+        }
     }
 
     /// The system menu font at an inspectable point size, used for native-looking menu rows.
@@ -118,6 +123,8 @@ struct MenuMetrics: Equatable {
     struct Controls: Equatable {
         var height: CGFloat
         var cornerRadius: CGFloat
+        var hoverShadowRadius: CGFloat
+        var hoverShadowOffsetY: CGFloat
         var contentSpacing: CGFloat
         var horizontalPadding: CGFloat
         var sortDirectionWidth: CGFloat
@@ -214,16 +221,25 @@ struct MenuMetrics: Equatable {
         var checkmarkWidth: CGFloat
         var itemHorizontalPadding: CGFloat
         var itemHeight: CGFloat
+        /// The hover highlight's inset from the dropdown's sides.
+        var itemHighlightInset: CGFloat
+        var itemCornerRadius: CGFloat
     }
 
     struct NotificationList: Equatable {
         var headerSpacing: CGFloat
         var headerHorizontalPadding: CGFloat
         var headerTopPadding: CGFloat
+        /// Two points taller than the shared control height, so the first notification card's top edge lines up
+        /// with the first PR card's.
+        var markAllHeight: CGFloat
         var headerBottomPadding: CGFloat
         var rowSpacing: CGFloat
         var topPadding: CGFloat
         var bottomPadding: CGFloat
+
+        /// From the top of the list area to the first notification card's top edge.
+        var firstRowTop: CGFloat { headerTopPadding + markAllHeight + headerBottomPadding + topPadding }
     }
 
     struct NotificationRow: Equatable {
@@ -258,6 +274,8 @@ struct MenuMetrics: Equatable {
 
     struct Card: Equatable {
         var cornerRadius: CGFloat
+        var hoverShadowRadius: CGFloat
+        var hoverShadowOffsetY: CGFloat
     }
 
     struct Legend: Equatable {
@@ -356,7 +374,7 @@ struct MenuMetrics: Equatable {
     }
 
     struct Footer: Equatable {
-        static let rowCount: CGFloat = 4
+        static let rowCount: CGFloat = 3
 
         var itemFont: NativeMenuFontToken
         var separatorHorizontalPadding: CGFloat
@@ -489,6 +507,8 @@ struct MenuMetrics: Equatable {
         controls = Controls(
             height: s(24),
             cornerRadius: s(6),
+            hoverShadowRadius: s(3),
+            hoverShadowOffsetY: s(1),
             contentSpacing: s(6),
             horizontalPadding: s(8),
             sortDirectionWidth: s(26),
@@ -555,12 +575,15 @@ struct MenuMetrics: Equatable {
             itemContentSpacing: s(8),
             checkmarkWidth: s(12),
             itemHorizontalPadding: s(8),
-            itemHeight: s(24)
+            itemHeight: s(24),
+            itemHighlightInset: s(4),
+            itemCornerRadius: s(4)
         )
         notificationList = NotificationList(
             headerSpacing: s(8),
             headerHorizontalPadding: s(12),
             headerTopPadding: s(8),
+            markAllHeight: s(26),
             headerBottomPadding: s(6),
             rowSpacing: s(8),
             topPadding: s(4),
@@ -588,7 +611,7 @@ struct MenuMetrics: Equatable {
             stackConnectorWidth: s(1.5),
             stackConnectorGap: s(3)
         )
-        card = Card(cornerRadius: s(8))
+        card = Card(cornerRadius: s(8), hoverShadowRadius: s(6), hoverShadowOffsetY: s(2))
         legend = Legend(
             height: s(22),
             mergeStatusSymbolSize: s(14),
