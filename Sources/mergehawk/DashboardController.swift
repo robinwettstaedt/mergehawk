@@ -983,6 +983,37 @@ final class DashboardController: ObservableObject {
         openSettingsWindow?(selection)
     }
 
+    /// Keeps the Settings budget readout current while it is visible: reads the budget at once, then once more
+    /// 5 s after each reset passes, until the task is cancelled. There is no other polling.
+    func runBudgetReadout() async {
+        while !Task.isCancelled {
+            guard let syncEngine, syncEngine.sourceKind != .none else { return }
+            let generation = providerGeneration
+            do {
+                let reading = try await syncEngine.fetchBudgetReading()
+                guard !Task.isCancelled else { return }
+                // A reading from an earlier account is dropped, and the new account is read at once.
+                guard providerGeneration == generation else { continue }
+                budgetState.recordRead(reading)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                guard providerGeneration == generation else { continue }
+                _ = recordBudgetReadFailure(error, generation: generation)
+            }
+            let date = now()
+            let resumeDate = budgetState.reading?.resetAt.addingTimeInterval(RefreshPacingPolicy.resetMargin)
+            let wait = resumeDate.map { $0 > date ? $0.timeIntervalSince(date) : RefreshPacingPolicy.minimumRecheck }
+                ?? RefreshPacingPolicy.minimumRecheck
+            do {
+                try await sleep(wait)
+            } catch {
+                return
+            }
+        }
+    }
+
     func showSettingsPreservingSelection() {
         openSettingsWindowPreservingSelection?()
     }

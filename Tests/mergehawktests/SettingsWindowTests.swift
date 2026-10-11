@@ -91,6 +91,24 @@ final class SettingsWindowTests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsWindowIsOpenFromShowUntilClose() throws {
+        let delegate = makeDelegate()
+        XCTAssertFalse(delegate.settingsWindowState.isOpen)
+        delegate.showSettingsWindow()
+        let window = try XCTUnwrap(delegate.settingsWindow)
+        XCTAssertTrue(delegate.settingsWindowState.isOpen)
+
+        window.close()
+        XCTAssertFalse(delegate.settingsWindowState.isOpen)
+
+        delegate.showSettingsWindow(selection: .general)
+        XCTAssertTrue(delegate.settingsWindow === window)
+        XCTAssertTrue(delegate.settingsWindowState.isOpen)
+        window.close()
+        XCTAssertFalse(delegate.settingsWindowState.isOpen)
+    }
+
+    @MainActor
     func testReopenNeverCreatesOrShowsSettings() throws {
         let delegate = makeDelegate()
         XCTAssertFalse(delegate.applicationShouldHandleReopen(.shared, hasVisibleWindows: false))
