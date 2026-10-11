@@ -82,7 +82,7 @@ struct StackControl: View {
                 .font(metrics.type.stackControlSymbol.font)
             }
             .lineLimit(1)
-            .foregroundStyle(.primary)
+            .foregroundStyle(MenuControlLabelPresentation.color)
             .padding(.horizontal, row.stackControlHorizontalPadding)
             .frame(height: row.stackControlHeight)
             .background {
@@ -197,7 +197,7 @@ struct StackMemberBadgeView: View {
         case .draft:
             DraftPullRequestIndicator()
         case .open:
-            PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Open PR")
+            PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Open PR", tint: .green)
         case .merged:
             PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Merged PR", tint: .purple)
         case .closed:
