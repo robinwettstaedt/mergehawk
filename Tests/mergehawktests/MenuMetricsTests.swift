@@ -347,7 +347,7 @@ final class MenuMetricsTests: XCTestCase {
         .init(name: "cardMetadataSlot", keyPath: \.type.cardMetadataSlot, mer86Size: 10, size: 10, weight: .medium),
         .init(name: "notificationIcon", keyPath: \.type.notificationIcon, mer86Size: 17, size: 17, weight: .medium),
         .init(name: "notificationTimestamp", keyPath: \.type.notificationTimestamp, mer86Size: 10, size: 10, weight: .semibold, monospacedDigits: true),
-        .init(name: "markReadSymbol", keyPath: \.type.markReadSymbol, mer86Size: 9, size: 10, weight: .medium),
+        .init(name: "markReadSymbol", keyPath: \.type.markReadSymbol, mer86Size: 9, size: 11, weight: .medium),
         .init(name: "legendLabel", keyPath: \.type.legendLabel, mer86Size: 10, size: 10, weight: .semibold),
         .init(name: "legendIcon", keyPath: \.type.legendIcon, mer86Size: 13, size: 13, weight: .semibold),
         .init(name: "tooltip", keyPath: \.type.tooltip, mer86Size: 10, size: 10, weight: .medium),

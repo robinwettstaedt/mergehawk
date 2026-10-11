@@ -466,7 +466,7 @@ struct MenuMetrics: Equatable {
             cardMetadataSlot: FontToken(size: s(caption), weight: .medium),
             notificationIcon: FontToken(size: s(display), weight: .medium),
             notificationTimestamp: FontToken(size: s(caption), weight: .semibold, monospacedDigits: true),
-            markReadSymbol: FontToken(size: s(caption), weight: .medium),
+            markReadSymbol: FontToken(size: s(body), weight: .medium),
             legendLabel: FontToken(size: s(caption), weight: .semibold),
             legendIcon: FontToken(size: s(title), weight: .semibold),
             tooltip: FontToken(size: s(caption), weight: .medium),
@@ -593,7 +593,7 @@ struct MenuMetrics: Equatable {
             titleSpacing: s(8),
             pullRequestLineSpacing: s(4),
             minimumPRTitleWidth: s(40),
-            markReadButtonSize: s(22),
+            markReadButtonSize: s(24),
             markReadOffset: s(6),
             markReadShadowRadius: s(4),
             markReadShadowOffsetY: s(1)
