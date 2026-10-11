@@ -77,12 +77,13 @@ public struct GitHubBudgetState: Equatable, Sendable {
     }
 
     /// Records a budget read that succeeded. Nil means the response carried no budget headers.
+    /// The reading merges with the current one, so a read that finishes after a newer refresh never rolls it back.
     public mutating func recordRead(_ reading: GitHubBudgetReading?) {
         guard let reading else {
             lastReadFailed = true
             return
         }
-        self.reading = reading
+        self.reading = reading.merged(with: self.reading)
         lastReadFailed = false
     }
 
@@ -90,10 +91,10 @@ public struct GitHubBudgetState: Equatable, Sendable {
         lastReadFailed = true
     }
 
-    /// Takes the source's latest merged reading after a refresh, without touching the read failure.
+    /// Merges in the source's latest reading after a refresh, without touching the read failure.
     public mutating func recordLatest(_ reading: GitHubBudgetReading?) {
         guard let reading else { return }
-        self.reading = reading
+        self.reading = reading.merged(with: self.reading)
     }
 
     /// Adds the refresh's cost when the baseline and the fetch share a window and `used` rose.

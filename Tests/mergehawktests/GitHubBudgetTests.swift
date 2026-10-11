@@ -150,6 +150,13 @@ final class GitHubBudgetTests: XCTestCase {
 
         state.recordLatest(nil)
         XCTAssertEqual(state.reading?.used, 855)
+
+        // Lower readings from the same window never roll the state back. A later window replaces it.
+        state.recordRead(Self.reading(used: 820))
+        state.recordLatest(Self.reading(used: 830))
+        XCTAssertEqual(state.reading?.used, 855)
+        state.recordRead(Self.reading(used: 5, resetAt: Self.reset.addingTimeInterval(3_600)))
+        XCTAssertEqual(state.reading?.used, 5)
     }
 
     private static func reading(

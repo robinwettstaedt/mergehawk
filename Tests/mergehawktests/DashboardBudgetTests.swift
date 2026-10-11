@@ -379,6 +379,26 @@ final class DashboardBudgetTests: XCTestCase {
     }
 
     @MainActor
+    func testBudgetReadSnapshotFinishingAfterARefreshKeepsTheRefreshsHigherUsed() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let sleeper = SuspendingTestSleep()
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }
+        provider.fetchReading = budgetReading(used: 855, at: Self.start)
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: { try await sleeper.sleep($0) })
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        XCTAssertEqual(controller.budgetState.reading?.used, 855)
+        // GitHub answered this read before the refresh's last query, but it finishes after the refresh.
+        provider.budgetRead = { budgetReading(used: 830, at: Self.start) }
+
+        let readout = Task { await controller.runBudgetReadout() }
+        defer { readout.cancel() }
+        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+
+        XCTAssertEqual(provider.budgetReadCount, 2)
+        XCTAssertEqual(controller.budgetState.reading?.used, 855)
+    }
+
+    @MainActor
     func testFailedFirstReadoutReadWithoutAReadingSendsOneReadAndEnds() async throws {
         let clock = ControllerTestClock(Self.start)
         let sleeper = SuspendingTestSleep()
