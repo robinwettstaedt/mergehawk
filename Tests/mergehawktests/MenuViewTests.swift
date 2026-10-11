@@ -872,13 +872,13 @@ final class MenuViewTests: XCTestCase {
         defer { host.close() }
         let bar = try TopBarPoints(host: host, size: size, controller: controller)
 
-        try clickAsTheCurrentEvent(host, at: CGPoint(x: bar.sortMenuMidX, y: bar.midY))
+        try host.click(at: CGPoint(x: bar.sortMenuMidX, y: bar.midY))
         try assertDropdown(in: host, isOpen: true)
 
         // Only the sort dropdown has an item at this point, and choosing it closes the dropdown.
         let options = DashboardController.PullRequestSortOption.allCases
         let index = try XCTUnwrap(options.firstIndex { $0 != controller.pullRequestSortOption })
-        try clickAsTheCurrentEvent(host, at: bar.sortItem(index))
+        try host.click(at: bar.sortItem(index))
         XCTAssertEqual(controller.pullRequestSortOption, options[index])
         try assertDropdown(in: host, isOpen: false)
     }
@@ -894,12 +894,12 @@ final class MenuViewTests: XCTestCase {
         defer { host.close() }
         let bar = try TopBarPoints(host: host, size: size, controller: controller)
 
-        try clickAsTheCurrentEvent(host, at: CGPoint(x: bar.filterButton.midX, y: bar.midY))
+        try host.click(at: CGPoint(x: bar.filterButton.midX, y: bar.midY))
         try assertDropdown(in: host, isOpen: true)
 
         // Only the filter dropdown has an item at this point, and toggling it keeps the dropdown open.
         let option = DashboardController.PullRequestFilterOption.allCases[1]
-        try clickAsTheCurrentEvent(host, at: bar.filterItem(1))
+        try host.click(at: bar.filterItem(1))
         XCTAssertEqual(controller.selectedPullRequestFilters, [option])
         try assertDropdown(in: host, isOpen: true)
     }
@@ -948,7 +948,7 @@ final class MenuViewTests: XCTestCase {
         XCTAssertFalse(openCatchers.isEmpty, file: file, line: line)
         XCTAssertTrue(openCatchers.allSatisfy(\.isActive), "opened \(message)", file: file, line: line)
 
-        try clickAsTheCurrentEvent(host, at: point(try TopBarPoints(host: host, size: size, controller: controller)))
+        try host.click(at: point(try TopBarPoints(host: host, size: size, controller: controller)))
 
         // Judge by the catchers present after the click: a tab switch rebuilds the content and its catcher.
         let catchers = outsideClickCatchers(in: try XCTUnwrap(host.window.contentView))
@@ -958,17 +958,6 @@ final class MenuViewTests: XCTestCase {
         } else {
             XCTAssertTrue(catchers.allSatisfy(\.isActive), "still open \(message)", file: file, line: line)
         }
-    }
-
-    /// Clicks with `OffScreenHost.click(at:)` while `NSApp.currentEvent` holds a matching mouse down, as AppKit sets it
-    /// for a real click. The outside-click catchers read the current event to claim only mouse downs, and sending an
-    /// event straight to the window leaves it unset.
-    @MainActor
-    private func clickAsTheCurrentEvent(_ host: OffScreenHost, at point: CGPoint) throws {
-        NSApp.postEvent(try host.mouseEvent(.leftMouseDown, at: point), atStart: true)
-        let current = NSApp.nextEvent(matching: .leftMouseDown, until: .distantPast, inMode: .default, dequeue: true)
-        XCTAssertEqual(current?.type, .leftMouseDown)
-        try host.click(at: point)
     }
 
     /// Every outside-click catcher in the hosted menu. They all read the same dropdown state.

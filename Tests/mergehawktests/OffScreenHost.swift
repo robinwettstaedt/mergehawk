@@ -25,8 +25,19 @@ final class OffScreenHost {
     }
 
     func send(_ event: NSEvent) {
-        window.sendEvent(event)
+        NSApp.postEvent(event, atStart: true)
+        deliverQueuedEvent(matching: NSEvent.EventTypeMask(type: event.type))
         settle()
+    }
+
+    /// Takes the first queued event of these types and sends it to the window. Every event is posted and taken off
+    /// the queue before delivery, as AppKit does with a real event, so it is `NSApp.currentEvent` while the window
+    /// handles it. Code that reads the current event, like the dropdown outside-click catcher, then sees the event
+    /// being handled, and no stale event from an earlier click leaks into later tests.
+    private func deliverQueuedEvent(matching mask: NSEvent.EventTypeMask) {
+        if let event = NSApp.nextEvent(matching: mask, until: .distantPast, inMode: .default, dequeue: true) {
+            window.sendEvent(event)
+        }
     }
 
     /// A mouse event at `point` in window coordinates.
@@ -40,14 +51,12 @@ final class OffScreenHost {
     /// Clicks at `point` in window coordinates. AppKit controls such as bordered buttons and switches track a mouse
     /// down until they dequeue the matching mouse up, so the mouse up is queued before the mouse down is sent.
     func click(at point: CGPoint) throws {
-        let mouseUp = try mouseEvent(.leftMouseUp, at: point)
-        NSApp.postEvent(mouseUp, atStart: false)
-        window.sendEvent(try mouseEvent(.leftMouseDown, at: point))
+        NSApp.postEvent(try mouseEvent(.leftMouseUp, at: point), atStart: false)
+        NSApp.postEvent(try mouseEvent(.leftMouseDown, at: point), atStart: true)
+        deliverQueuedEvent(matching: .leftMouseDown)
         // A control that did not track leaves the mouse up queued; deliver it so the click completes and no stray
         // event reaches a later test.
-        if let queuedMouseUp = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) {
-            window.sendEvent(queuedMouseUp)
-        }
+        deliverQueuedEvent(matching: .leftMouseUp)
         settle()
     }
 }
