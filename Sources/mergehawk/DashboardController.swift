@@ -1797,15 +1797,35 @@ final class DashboardController: ObservableObject {
 
     /// When GitHub permits automatic refreshes again after refusing one. Nil when no deferral applies.
     var rateLimitRetryAt: Date? {
+        rateLimitRetryAt(at: currentDate())
+    }
+
+    private func rateLimitRetryAt(at date: Date) -> Date? {
         guard let deferral = automaticRefreshDeferral,
               deferral.generation == providerGeneration,
               let currentLogin = account?.login ?? committedSyncState?.account.login,
               deferral.accountLogin.caseInsensitiveCompare(currentLogin) == .orderedSame,
-              deferral.retryAt > currentDate()
+              deferral.retryAt > date
         else {
             return nil
         }
         return deferral.retryAt
+    }
+
+    /// The pacing Settings and the menu show at a presentation date.
+    func pacingDisplay(at date: Date) -> PacingDisplay {
+        PacingDisplay(
+            pacing: pacing(at: date),
+            canRefreshManually: RefreshPacingPolicy.canAffordOneRefresh(
+                reading: budgetState.usableReading(at: date),
+                estimatedCost: budgetState.estimatedCost
+            ),
+            rateLimitRetryAt: rateLimitRetryAt(at: date)
+        )
+    }
+
+    func budgetPresentation(at date: Date) -> GitHubBudgetPresentation {
+        GitHubBudgetPresentation(budgetState: budgetState, pacing: pacingDisplay(at: date), now: date)
     }
 
     private func pacing(at date: Date) -> RefreshPacing {
