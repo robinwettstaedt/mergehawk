@@ -1184,13 +1184,17 @@ final class VisualVerificationXCTests: XCTestCase {
             }
             try await MainActor.run {
                 XCTAssertEqual(budgetController.refreshIntervalMinutes, 2)
-                let statusLine = budgetController.budgetPresentation(at: Self.visualNow).statusLine
+                let presentation = budgetController.budgetPresentation(at: Self.visualNow)
+                let statusLine = presentation.statusLine
                 switch name {
                 case "normal":
+                    XCTAssertEqual(presentation.numbersLine, "4145 of 5000 left this hour")
                     XCTAssertNil(statusLine)
                 case "stretched":
+                    XCTAssertEqual(presentation.numbersLine, "1545 of 5000 left this hour")
                     XCTAssertEqual(statusLine?.hasPrefix("Refreshing every 6 min until "), true, statusLine ?? "nil")
                 default:
+                    XCTAssertEqual(presentation.numbersLine, "995 of 5000 left this hour")
                     XCTAssertEqual(statusLine?.hasSuffix(" Manual refresh still works."), true, statusLine ?? "nil")
                 }
                 try renderSettings(

@@ -8,10 +8,10 @@ final class GitHubBudgetPresentationTests: XCTestCase {
     private static let reset = now.addingTimeInterval(3_000)
     private static let twoMinutes: TimeInterval = 120
 
-    func testNumbersLineUsesLocaleAwareGrouping() {
+    func testNumbersLineUsesPlainDigitsWithoutGrouping() {
         let presentation = Self.presentation(remaining: 3_132)
 
-        XCTAssertEqual(presentation.numbersLine, "\(3_132.formatted()) of \(5_000.formatted()) left this hour")
+        XCTAssertEqual(presentation.numbersLine, "3132 of 5000 left this hour")
         XCTAssertEqual(presentation.title, "GitHub API budget")
         XCTAssertEqual(presentation.fillFraction, 3_132.0 / 5_000.0, accuracy: 0.0001)
         XCTAssertEqual(presentation.reserveFraction, 0.2)
@@ -32,7 +32,7 @@ final class GitHubBudgetPresentationTests: XCTestCase {
         failedWithReading.recordReadFailure()
         XCTAssertEqual(
             Self.presentation(state: failedWithReading).numbersLine,
-            "\(3_132.formatted()) of \(5_000.formatted()) left this hour"
+            "3132 of 5000 left this hour"
         )
     }
 

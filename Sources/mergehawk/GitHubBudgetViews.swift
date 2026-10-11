@@ -43,7 +43,7 @@ enum GitHubBudgetCopy {
     }
 
     static func numbers(remaining: Int, limit: Int) -> String {
-        "\(remaining.formatted()) of \(limit.formatted()) left this hour"
+        "\(remaining) of \(limit) left this hour"
     }
 
     static func reset(_ date: Date) -> String {
