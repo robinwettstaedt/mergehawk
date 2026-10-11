@@ -14,6 +14,8 @@ final class BudgetGitHubProvider: GitHubProviding {
     /// Each complete PR refresh's reading. It also becomes the latest reading, even when the refresh fails.
     var fetchReading: GitHubBudgetReading?
     var fetchFailure: Error?
+    /// The budget headers a failing budget read's response carries. They become the latest reading before it throws.
+    var failedBudgetReadReading: GitHubBudgetReading?
     var holdsFetches = false
     var holdsBudgetReads = false
     private var latest: GitHubBudgetReading?
@@ -49,7 +51,13 @@ final class BudgetGitHubProvider: GitHubProviding {
         if holdsBudgetReads {
             await withCheckedContinuation { heldBudgetReads.append($0) }
         }
-        let reading = try budgetRead()
+        let reading: GitHubBudgetReading?
+        do {
+            reading = try budgetRead()
+        } catch {
+            if let failed = failedBudgetReadReading { latest = latest?.merged(with: failed) ?? failed }
+            throw error
+        }
         if let reading { latest = latest?.merged(with: reading) ?? reading }
         return reading
     }
@@ -223,6 +231,49 @@ final class DashboardBudgetTests: XCTestCase {
         XCTAssertEqual(controller.budgetState.costSamples, [])
         XCTAssertEqual(controller.budgetState.reading?.used, 855)
         XCTAssertNil(controller.refreshErrorMessage)
+    }
+
+    @MainActor
+    func testServerErrorFromTheBudgetReadKeepsTheHeadersItCarried() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }
+        provider.holdsFetches = true
+        let controller = makeBudgetController(self, provider: provider, clock: clock)
+        await waitForBudgetCondition { provider.isFetchHeld }
+        provider.releaseFetch()
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.budgetRead = { throw GitHubReadError.http(status: 502) }
+        provider.failedBudgetReadReading = budgetReading(used: 1_400, at: Self.start)
+
+        controller.refresh()
+        // The read failure is recorded before the refresh query, so check while that query is held.
+        await waitForBudgetCondition { provider.isFetchHeld }
+
+        XCTAssertTrue(controller.budgetState.lastReadFailed)
+        XCTAssertEqual(controller.budgetState.reading?.used, 1_400)
+        XCTAssertEqual(provider.log, ["budget", "fetch", "budget", "fetch"])
+        provider.releaseFetch()
+        await waitForBudgetCondition { !controller.isRefreshing }
+        XCTAssertEqual(controller.budgetState.costSamples, [])
+    }
+
+    @MainActor
+    func testBudgetReadoutFailureKeepsTheHeadersItCarried() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let sleeper = SuspendingTestSleep()
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: clock.now) }
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: { try await sleeper.sleep($0) })
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.budgetRead = { throw GitHubReadError.http(status: 503) }
+        provider.failedBudgetReadReading = budgetReading(used: 1_400, at: Self.start)
+
+        let readout = Task { await controller.runBudgetReadout() }
+        defer { readout.cancel() }
+        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+
+        XCTAssertTrue(controller.budgetState.lastReadFailed)
+        XCTAssertEqual(controller.budgetState.reading?.used, 1_400)
+        XCTAssertEqual(sleeper.durations, [3_005])
     }
 
     @MainActor

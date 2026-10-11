@@ -188,6 +188,25 @@ final class AutomaticPacingTests: XCTestCase {
     }
 
     @MainActor
+    func testServerErrorFromTheAutomaticBudgetReadDecidesOnTheHeadersItCarried() async throws {
+        let fixture = makeFixture(baseline: 800, fetched: 855)
+        await waitForLaunch(fixture)
+        fixture.provider.budgetRead = { throw GitHubReadError.http(status: 502) }
+        // The failed response shows other tools spent the budget down to the reserve.
+        fixture.provider.failedBudgetReadReading = budgetReading(used: 4_100, at: fixture.clock.now)
+
+        fixture.clock.now = Self.start.addingTimeInterval(120)
+        fixture.sleeper.releaseNext()
+        await waitForBudgetCondition { fixture.sleeper.durations.count == 2 }
+
+        XCTAssertTrue(fixture.controller.budgetState.lastReadFailed)
+        XCTAssertEqual(fixture.controller.budgetState.reading?.used, 4_100)
+        // Paused on that reading, so no refresh query, and the wait runs until reset plus 5 s.
+        XCTAssertEqual(fixture.provider.log, ["budget", "fetch", "budget"])
+        XCTAssertEqual(fixture.sleeper.durations.last, 2_885)
+    }
+
+    @MainActor
     func testAuthenticationFailureFromTheAutomaticBudgetReadSignsOut() async throws {
         let fixture = makeFixture(baseline: 800, fetched: 855)
         await waitForLaunch(fixture)
