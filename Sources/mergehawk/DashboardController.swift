@@ -1116,6 +1116,10 @@ final class DashboardController: ObservableObject {
         updatePullRequestNotification(notification.id) { $0.read = true }
     }
 
+    func togglePullRequestNotificationRead(_ notification: PullRequestNotification) {
+        updatePullRequestNotification(notification.id) { $0.read.toggle() }
+    }
+
     private func markPullRequestNotificationsRead(for pullRequest: PullRequest) {
         updateNotificationHistory(pullRequestNotificationHistory.map { notification in
             guard notification.prId == pullRequest.id else {
