@@ -1306,7 +1306,8 @@ final class DashboardController: ObservableObject {
         let source = MockPullRequestSource(
             showsNotificationTypeFixtures: launchConfiguration.showsNotificationTypeFixtures,
             referenceDate: now(),
-            scenario: launchConfiguration.mockPullRequestScenario
+            scenario: launchConfiguration.mockPullRequestScenario,
+            now: now
         )
         sourceCatalogProvider = source
         gitHubAppInstallationProvider = nil

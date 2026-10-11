@@ -48,6 +48,8 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case reviewTeams = "review-teams"
     case draftReadyForReview = "draft-ready-for-review"
     case prStacks = "pr-stacks"
+    case budgetStretched = "budget-stretched"
+    case budgetPaused = "budget-paused"
 }
 
 public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
@@ -63,13 +65,18 @@ public final class MockPullRequestSource {
     private var index = 0
     private let snapshots: [[PullRequest]]
     private let scenario: MockPullRequestScenario
+    private let now: () -> Date
+    private var budgetWindow: MockBudgetWindow
 
     public init(
         showsNotificationTypeFixtures: Bool = false,
         referenceDate: Date = Date(),
-        scenario: MockPullRequestScenario = .standard
+        scenario: MockPullRequestScenario = .standard,
+        now: @escaping () -> Date = Date.init
     ) {
         self.scenario = scenario
+        self.now = now
+        self.budgetWindow = MockBudgetWindow(scenario: scenario, referenceDate: referenceDate)
         let minute: TimeInterval = 60
         let hour = 60 * minute
         let day = 24 * hour
@@ -386,7 +393,7 @@ public final class MockPullRequestSource {
     /// The active pull requests the scenario's first refresh returns.
     public var firstRefreshPullRequests: [PullRequest] {
         switch scenario {
-        case .standard, .delayedRefresh:
+        case .standard, .delayedRefresh, .budgetStretched, .budgetPaused:
             snapshots[0]
         case .botNotifications:
             Self.botNotificationPullRequests(includesUpdates: false)
@@ -413,7 +420,8 @@ public final class MockPullRequestSource {
         case .reviewTeams:
             Self.reviewTeamViewerTeams
         case .standard, .botNotifications, .commentNotifications, .delayedRefresh, .refreshFailure,
-             .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview, .prStacks:
+             .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview, .prStacks,
+             .budgetStretched, .budgetPaused:
             Self.standardViewerTeams
         }
     }
@@ -1317,20 +1325,72 @@ extension EmptyPullRequestSource: CompletePullRequestFetching {
     }
 }
 
+/// The fixture GitHub API budget: a 5,000 point window that resets 50 min after the reference date,
+/// spent by 55 points per complete PR refresh and starting at a scenario's level.
+struct MockBudgetWindow {
+    static let limit = 5_000
+    static let costPerRefresh = 55
+
+    let startingUsed: Int
+    var resetAt: Date
+    var used: Int
+
+    init(scenario: MockPullRequestScenario, referenceDate: Date) {
+        switch scenario {
+        case .budgetStretched: startingUsed = 3_400
+        case .budgetPaused: startingUsed = 3_950
+        default: startingUsed = 800
+        }
+        resetAt = referenceDate.addingTimeInterval(50 * 60)
+        used = startingUsed
+    }
+
+    mutating func rollOver(at now: Date) {
+        while now >= resetAt {
+            resetAt = resetAt.addingTimeInterval(60 * 60)
+            used = startingUsed
+        }
+    }
+
+    func reading(at now: Date) -> GitHubBudgetReading {
+        GitHubBudgetReading(
+            limit: Self.limit,
+            remaining: max(Self.limit - used, 0),
+            used: used,
+            resetAt: resetAt,
+            receivedAt: now
+        )
+    }
+}
+
 extension MockPullRequestSource: CompletePullRequestFetching {
     public func fetchCompletePullRequests(
         login: String,
         previousState: PullRequestSyncState?,
         reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
+        let date = now()
+        budgetWindow.rollOver(at: date)
+        budgetWindow.used += MockBudgetWindow.costPerRefresh
         let result = try fetchScenarioPullRequests(previousState: previousState)
         return CompletePullRequestFetchResult(
             activePullRequests: result.activePullRequests,
             retiringPullRequests: result.retiringPullRequests,
             quietlyRetiredPullRequestIDs: result.quietlyRetiredPullRequestIDs,
             viewerTeams: viewerTeams,
-            stacks: stacks
+            stacks: stacks,
+            budgetReading: budgetWindow.reading(at: date)
         )
+    }
+
+    public func fetchBudgetReading() async throws -> GitHubBudgetReading? {
+        latestBudgetReading()
+    }
+
+    public func latestBudgetReading() -> GitHubBudgetReading? {
+        let date = now()
+        budgetWindow.rollOver(at: date)
+        return budgetWindow.reading(at: date)
     }
 
     private func fetchScenarioPullRequests(
@@ -1368,7 +1428,7 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             )
         case .prStacks:
             return CompletePullRequestFetchResult(activePullRequests: Self.prStackPullRequests)
-        case .standard, .delayedRefresh:
+        case .standard, .delayedRefresh, .budgetStretched, .budgetPaused:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:
             guard index > 0 else {

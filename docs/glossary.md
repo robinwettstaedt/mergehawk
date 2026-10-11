@@ -166,6 +166,7 @@ Mock mode should:
 - suppress real macOS local notification delivery
 - optionally record macOS local notification payloads to artifacts
 - offer deterministic delayed, failed, final-activity, and quiet-retirement refresh scenarios
+- report a fixture GitHub API budget, with scenarios for normal, stretched, and paused pacing
 
 ### Agent Slot
 

@@ -161,6 +161,8 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications -
 scripts/run-agent-app.sh --slot local --mock --mock-scenario comment-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario long-lists --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario review-teams --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario budget-stretched --ui settings --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario budget-paused --ui settings --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
@@ -183,6 +185,11 @@ The `review-teams` scenario has nested teams (`engineering` → `developers` →
 each of them, a team the viewer is not in, and combinations. Turn teams off in
 Settings › Teams to see the Requested tab change; the first refresh adds
 `plm-team` to the pull request that only requested `developers`.
+Every scenario reports a fixture GitHub API budget of 5,000 points that resets
+50 minutes after launch, and each complete refresh spends 55 points. The
+`budget-stretched` and `budget-paused` scenarios start with less of it left, so
+after the first refresh pacing becomes stretched or paused (a manual refresh still
+works). The budget shows in Settings › General and in the menu refresh button.
 
 When reusing one verification run, give each additional launch a unique `--stage`
 such as `app-final-activity`. This keeps its app log and mock notification JSONL
