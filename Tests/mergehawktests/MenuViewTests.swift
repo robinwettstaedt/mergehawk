@@ -7,6 +7,9 @@ import SwiftUI
 import XCTest
 
 final class MenuViewTests: XCTestCase {
+    /// What the header dropdown tests' controllers opened. XCTest makes a fresh test case for each test method.
+    private let browserOpens = BrowserOpenRecorder()
+
     override func setUp() async throws {
         try await super.setUp()
         await MainActor.run {
@@ -915,12 +918,18 @@ final class MenuViewTests: XCTestCase {
         let catchers = outsideClickCatchers(in: try XCTUnwrap(host.window.contentView))
         XCTAssertFalse(catchers.isEmpty, file: file, line: line)
         XCTAssertTrue(catchers.allSatisfy { $0.isActive == isOpen }, "open: \(isOpen)", file: file, line: line)
+        // A dropdown item click that misses lands on the PR list and could reach a PR card.
+        XCTAssertEqual(browserOpens.urls, [], "opened a PR", file: file, line: line)
     }
 
-    /// A signed-in mock controller whose filter and sort choices do not persist past the test.
+    /// A signed-in mock controller whose filter and sort choices do not persist past the test, and whose PR opens
+    /// land in `browserOpens`.
     @MainActor
     private func isolatedSignedInMockController() throws -> DashboardController {
-        let controller = signedInMockController(preferencesStore: PreferencesStore(defaults: try isolatedDefaults()))
+        let controller = signedInMockController(
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            browserOpens: browserOpens
+        )
         controller.selectedTab = .myPRs
         return controller
     }
@@ -950,6 +959,8 @@ final class MenuViewTests: XCTestCase {
 
         try host.click(at: point(try TopBarPoints(host: host, size: size, controller: controller)))
 
+        // Dropdown items and padding lie over the PR list, so a click that misses them could reach a PR card.
+        XCTAssertEqual(browserOpens.urls, [], "opened \(message)", file: file, line: line)
         // Judge by the catchers present after the click: a tab switch rebuilds the content and its catcher.
         let catchers = outsideClickCatchers(in: try XCTUnwrap(host.window.contentView))
         XCTAssertFalse(catchers.isEmpty, file: file, line: line)
@@ -3009,13 +3020,23 @@ final class MenuViewTests: XCTestCase {
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all, .draft]).map(\.id) == ["draft-direct", "assigned-draft"])
 }()
 
+/// Records the URLs a controller would open in the browser, so hosted clicks never open a real one.
+private final class BrowserOpenRecorder {
+    var urls: [URL] = []
+}
+
 @MainActor
-private func signedInMockController(preferencesStore: PreferencesStore = PreferencesStore()) -> DashboardController {
+private func signedInMockController(
+    preferencesStore: PreferencesStore = PreferencesStore(),
+    browserOpens: BrowserOpenRecorder = BrowserOpenRecorder()
+) -> DashboardController {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
         preferencesStore: preferencesStore,
         launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-        automaticRefreshInterval: 0
+        automaticRefreshInterval: 0,
+        urlOpener: { browserOpens.urls.append($0) },
+        pullRequestOpener: { browserOpens.urls.append($0.targetURL) }
     )
     waitUntil(timeout: 1.0) {
         controller.state.authStatus == .signedIn
