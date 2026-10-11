@@ -12,8 +12,8 @@ public func gitHubReadRateLimitRetryDate(_ error: Error) -> Date? {
 }
 
 public func isGitHubReadRateLimitError(_ error: Error) -> Bool {
-    gitHubReadRateLimitRetryDate(error) != nil
-        || (error as? GitHubReadError).map { if case .rateLimited = $0 { true } else { false } } == true
+    if case .rateLimited? = error as? GitHubReadError { return true }
+    return false
 }
 
 public protocol SourceCatalogProviding: AnyObject {

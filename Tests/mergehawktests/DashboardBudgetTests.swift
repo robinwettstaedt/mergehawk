@@ -437,6 +437,25 @@ final class DashboardBudgetTests: XCTestCase {
     }
 
     @MainActor
+    func testRateLimitedReadoutReadSetsTheDeferralButNotTheRefreshError() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let sleeper = SuspendingTestSleep()
+        let retryAt = Self.start.addingTimeInterval(600)
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: { try await sleeper.sleep($0) })
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.budgetRead = { throw GitHubReadError.rateLimited(retryAt: retryAt) }
+        provider.failedBudgetReadReading = budgetReading(used: 5_000, at: Self.start)
+
+        await controller.runBudgetReadout()
+
+        XCTAssertNil(controller.refreshErrorMessage)
+        XCTAssertEqual(controller.rateLimitRetryAt, retryAt)
+        XCTAssertEqual(controller.budgetState.reading?.remaining, 0)
+        XCTAssertEqual(sleeper.durations, [])
+    }
+
+    @MainActor
     func testBudgetReadoutSendsNoReadDuringARateLimitDeferral() async throws {
         let clock = ControllerTestClock(Self.start)
         let sleeper = SuspendingTestSleep()

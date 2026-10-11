@@ -1003,7 +1003,12 @@ final class DashboardController: ObservableObject {
                 } catch {
                     guard !Task.isCancelled, !(error is CancellationError) else { return }
                     guard providerGeneration == generation else { continue }
-                    _ = recordBudgetReadFailure(error, generation: generation, syncEngine: syncEngine)
+                    _ = recordBudgetReadFailure(
+                        error,
+                        generation: generation,
+                        syncEngine: syncEngine,
+                        reportsRateLimit: false
+                    )
                     return
                 }
             }
@@ -1903,7 +1908,12 @@ final class DashboardController: ObservableObject {
                 guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else {
                     return now()
                 }
-                guard recordBudgetReadFailure(error, generation: generation, syncEngine: syncEngine) else {
+                guard recordBudgetReadFailure(
+                    error,
+                    generation: generation,
+                    syncEngine: syncEngine,
+                    reportsRateLimit: true
+                ) else {
                     return now()
                 }
             }
@@ -1915,10 +1925,16 @@ final class DashboardController: ObservableObject {
     }
 
     /// Handles a budget read that failed outside a refresh. Authentication failures sign out and rate-limit
-    /// errors set the deferral and error message, which ends the caller's work (false). Any other failure is
-    /// recorded and the caller continues on the latest reading (true). Unless the failure signs out, the latest
-    /// reading includes the headers the failed response carried.
-    private func recordBudgetReadFailure(_ error: Error, generation: Int, syncEngine: SyncEngine) -> Bool {
+    /// errors set the deferral, which ends the caller's work (false). A rate-limit error also sets the refresh
+    /// error message when `reportsRateLimit` is true, which only the automatic refresh path asks for. Any other
+    /// failure is recorded and the caller continues on the latest reading (true). Unless the failure signs out,
+    /// the latest reading includes the headers the failed response carried.
+    private func recordBudgetReadFailure(
+        _ error: Error,
+        generation: Int,
+        syncEngine: SyncEngine,
+        reportsRateLimit: Bool
+    ) -> Bool {
         if isAuthenticationFailure(error) {
             handleAuthenticationFailure(error)
             return false
@@ -1926,7 +1942,9 @@ final class DashboardController: ObservableObject {
         if isGitHubReadRateLimitError(error) {
             budgetState.recordLatest(syncEngine.latestBudgetReading())
             recordRateLimitDeferral(for: error, generation: generation)
-            refreshErrorMessage = error.localizedDescription
+            if reportsRateLimit {
+                refreshErrorMessage = error.localizedDescription
+            }
             return false
         }
         budgetState.recordReadFailure()
