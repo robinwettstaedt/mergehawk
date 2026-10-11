@@ -62,6 +62,15 @@ enum GitHubBudgetCopy {
     static func stretched(interval: TimeInterval, until date: Date) -> String {
         "Refreshing every \(minutes(interval)) min until \(time(date)) to stay within the budget"
     }
+
+    static func menuPaused(until date: Date, canRefreshManually: Bool) -> String {
+        let paused = "Automatic refresh paused until \(time(date)) to stay within the GitHub API budget."
+        return canRefreshManually ? "\(paused) Click to refresh now." : paused
+    }
+
+    static func menuStretched(interval: TimeInterval, until date: Date) -> String {
+        "Refreshing every \(minutes(interval)) min until \(time(date)) to stay within the GitHub API budget."
+    }
 }
 
 /// What the Settings budget readout shows at one date.
