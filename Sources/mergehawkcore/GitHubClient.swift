@@ -19,7 +19,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
     public init(
         token: String,
         session: URLSession = .shared,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.tokenProvider = { token }
         self.session = session
@@ -29,7 +29,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
 
     public init(
         session: URLSession = .shared,
-        now: @escaping @Sendable () -> Date = Date.init,
+        now: @escaping @Sendable () -> Date = { Date() },
         tokenProvider: @escaping @Sendable () async throws -> String
     ) {
         self.tokenProvider = tokenProvider
