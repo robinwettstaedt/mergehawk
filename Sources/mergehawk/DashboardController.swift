@@ -190,6 +190,8 @@ final class DashboardController: ObservableObject {
     @Published private(set) var errorMessage: String?
     /// Set only by a failed complete PR refresh, so the refresh control never reports unrelated errors.
     @Published private(set) var refreshErrorMessage: String?
+    /// The GitHub API budget of the current provider generation.
+    @Published private(set) var budgetState = GitHubBudgetState()
     /// Set when a local change (such as marking a notification read) could not be saved.
     @Published private(set) var saveErrorMessage: String?
     @Published private(set) var launchAtLoginErrorMessage: String?
@@ -333,6 +335,13 @@ final class DashboardController: ObservableObject {
         let retryAt: Date
     }
     private var automaticRefreshDeferral: AutomaticRefreshDeferral?
+    /// Where a complete PR refresh takes its budget baseline from.
+    private enum BudgetBaseline {
+        /// The refresh sends the budget read first.
+        case readFirst
+        /// The automatic loop already sent the budget read. Nil means that read failed.
+        case alreadyRead(GitHubBudgetReading?)
+    }
     private var refreshTask: Task<Void, Never>?
     /// Whether `refreshTask` forces a team read.
     private var refreshTaskForcesTeamRead = false
@@ -1352,6 +1361,7 @@ final class DashboardController: ObservableObject {
     private func beginProviderGeneration() {
         providerGeneration += 1
         automaticRefreshDeferral = nil
+        budgetState = GitHubBudgetState()
         refreshTask?.cancel()
         refreshTask = nil
         refreshAttemptID += 1
@@ -1537,17 +1547,40 @@ final class DashboardController: ObservableObject {
         syncEngine: SyncEngine,
         generation: Int,
         appliesMockRefreshDelay: Bool,
-        forcesTeamRead: Bool = false
+        forcesTeamRead: Bool = false,
+        baseline: BudgetBaseline = .readFirst
     ) async {
         await delayMockRefreshIfNeeded(applies: appliesMockRefreshDelay)
         guard !Task.isCancelled else { return }
         do {
+            let baselineReading: GitHubBudgetReading?
+            switch baseline {
+            case .alreadyRead(let reading):
+                baselineReading = reading
+            case .readFirst where syncEngine.sourceKind == .none:
+                baselineReading = nil
+            case .readFirst:
+                // Authentication and rate-limit errors end the refresh in the catch below, before any refresh query.
+                do {
+                    baselineReading = try await syncEngine.fetchBudgetReading()
+                    guard !Task.isCancelled, providerGeneration == generation else { return }
+                    budgetState.recordRead(baselineReading)
+                } catch where !isAuthenticationFailure(error) && !isGitHubReadRateLimitError(error) {
+                    guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else {
+                        return
+                    }
+                    budgetState.recordReadFailure()
+                    baselineReading = nil
+                }
+            }
             let previousState = committedSyncState
             let fetched = try await syncEngine.fetchRefresh(
                 previousState: previousState,
                 forcesTeamRead: forcesTeamRead
             )
             guard !Task.isCancelled, providerGeneration == generation else { return }
+            budgetState.recordCompleteRefresh(baseline: baselineReading, fetched: fetched.fetchResult.budgetReading)
+            budgetState.recordLatest(syncEngine.latestBudgetReading())
             // Read after the fetch, so a team turned off or on during a suspended refresh applies to it.
             let prepared = try syncEngine.prepare(
                 previousState: previousState,
@@ -1626,6 +1659,7 @@ final class DashboardController: ObservableObject {
             }
         } catch {
             guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else { return }
+            budgetState.recordLatest(syncEngine.latestBudgetReading())
             if let retryAt = gitHubReadRateLimitRetryDate(error),
                retryAt > now(),
                let login = account?.login ?? committedSyncState?.account.login {
@@ -1646,7 +1680,8 @@ final class DashboardController: ObservableObject {
     private func refreshDashboard(
         appliesMockRefreshDelay: Bool = false,
         isAutomatic: Bool = false,
-        forcesTeamRead: Bool = false
+        forcesTeamRead: Bool = false,
+        baseline: BudgetBaseline = .readFirst
     ) async {
         if isAutomatic, shouldDeferAutomaticRefresh() { return }
         if let running = refreshTask {
@@ -1673,7 +1708,8 @@ final class DashboardController: ObservableObject {
                 syncEngine: syncEngine,
                 generation: generation,
                 appliesMockRefreshDelay: appliesMockRefreshDelay,
-                forcesTeamRead: forcesTeamRead
+                forcesTeamRead: forcesTeamRead,
+                baseline: baseline
             )
         }
         refreshTask = task

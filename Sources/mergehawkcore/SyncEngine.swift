@@ -21,6 +21,10 @@ public final class SyncEngine {
         self.now = now
     }
 
+    public var sourceKind: DashboardSource {
+        source.sourceKind
+    }
+
     public func fetchBudgetReading() async throws -> GitHubBudgetReading? {
         try await source.fetchBudgetReading()
     }

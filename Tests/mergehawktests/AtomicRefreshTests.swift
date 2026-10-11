@@ -2007,6 +2007,15 @@ private final class AtomicRateLimitTransport: @unchecked Sendable {
         guard request.url?.path == "/graphql" else {
             return response(Self.json(["message": "unexpected"]), request, status: 404)
         }
+        // The budget read starts every refresh. Only the refresh queries after it count, and the first one is refused.
+        if Self.graphQLQuery(request) == GitHubClient.budgetReadQuery {
+            return response(Self.json(["data": ["rateLimit": ["limit": 5_000]]]), request, headers: [
+                "X-RateLimit-Limit": "5000",
+                "X-RateLimit-Remaining": "4900",
+                "X-RateLimit-Used": "100",
+                "X-RateLimit-Reset": "\(Int(Date().addingTimeInterval(3_600).timeIntervalSince1970))"
+            ])
+        }
         let requestNumber = lock.withLock { () -> Int in
             storedGraphQLRequestDates.append(Date())
             return storedGraphQLRequestDates.count
