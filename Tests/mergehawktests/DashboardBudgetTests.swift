@@ -18,7 +18,7 @@ final class BudgetGitHubProvider: GitHubProviding {
     var holdsBudgetReads = false
     private var latest: GitHubBudgetReading?
     private var heldFetch: CheckedContinuation<Void, Never>?
-    private var heldBudgetRead: CheckedContinuation<Void, Never>?
+    private var heldBudgetReads: [CheckedContinuation<Void, Never>] = []
 
     init(login: String = "rw", budgetRead: @escaping () throws -> GitHubBudgetReading? = { nil }) {
         self.login = login
@@ -27,12 +27,14 @@ final class BudgetGitHubProvider: GitHubProviding {
 
     var fetchCount: Int { log.filter { $0 == "fetch" }.count }
     var budgetReadCount: Int { log.filter { $0 == "budget" }.count }
-    var isBudgetReadHeld: Bool { heldBudgetRead != nil }
+    var heldBudgetReadCount: Int { heldBudgetReads.count }
     var isFetchHeld: Bool { heldFetch != nil }
 
-    func releaseBudgetRead() {
-        heldBudgetRead?.resume()
-        heldBudgetRead = nil
+    /// Resumes every held budget read, in call order.
+    func releaseBudgetReads() {
+        let held = heldBudgetReads
+        heldBudgetReads = []
+        held.forEach { $0.resume() }
     }
 
     func releaseFetch() {
@@ -45,7 +47,7 @@ final class BudgetGitHubProvider: GitHubProviding {
     func fetchBudgetReading() async throws -> GitHubBudgetReading? {
         log.append("budget")
         if holdsBudgetReads {
-            await withCheckedContinuation { heldBudgetRead = $0 }
+            await withCheckedContinuation { heldBudgetReads.append($0) }
         }
         let reading = try budgetRead()
         if let reading { latest = latest?.merged(with: reading) ?? reading }
@@ -85,7 +87,8 @@ func makeBudgetController(
     providers: [String: BudgetGitHubProvider] = [:],
     clock: ControllerTestClock,
     token: String? = "pat",
-    automaticRefreshInterval: TimeInterval = 0
+    automaticRefreshInterval: TimeInterval? = 0,
+    sleep: @escaping (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
 ) -> DashboardController {
     let suiteName = "budget-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -99,7 +102,8 @@ func makeBudgetController(
         notificationClient: RecordingNotificationClient(),
         automaticRefreshInterval: automaticRefreshInterval,
         patGitHubClientFactory: { providers[$0] ?? provider },
-        now: { clock.now }
+        now: { clock.now },
+        sleep: sleep
     )
 }
 
@@ -239,13 +243,17 @@ final class DashboardBudgetTests: XCTestCase {
     func testRateLimitedBudgetReadSetsTheErrorWithoutARefreshQuery() async throws {
         let clock = ControllerTestClock(Self.start)
         let retryAt = Self.start.addingTimeInterval(600)
-        let provider = BudgetGitHubProvider { throw GitHubReadError.rateLimited(retryAt: retryAt) }
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }
         let controller = makeBudgetController(self, provider: provider, clock: clock)
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.budgetRead = { throw GitHubReadError.rateLimited(retryAt: retryAt) }
 
-        await waitForBudgetCondition { controller.refreshErrorMessage != nil }
+        controller.refresh()
+        await waitForBudgetCondition { controller.refreshErrorMessage != nil && !controller.isRefreshing }
 
-        XCTAssertEqual(provider.log, ["budget"])
+        XCTAssertEqual(provider.log, ["budget", "fetch", "budget"])
         XCTAssertEqual(controller.refreshErrorMessage, GitHubReadError.rateLimited(retryAt: retryAt).localizedDescription)
+        XCTAssertEqual(controller.rateLimitRetryAt, retryAt)
         XCTAssertNil(controller.errorMessage)
     }
 

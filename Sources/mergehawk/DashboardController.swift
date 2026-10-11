@@ -329,12 +329,13 @@ final class DashboardController: ObservableObject {
     private var syncEngine: SyncEngine?
     private var account: GitHubAccount?
     private var automaticRefreshTask: Task<Void, Never>?
-    private struct AutomaticRefreshDeferral {
+    private let sleep: (TimeInterval) async throws -> Void
+    struct AutomaticRefreshDeferral: Equatable {
         let generation: Int
         let accountLogin: String
         let retryAt: Date
     }
-    private var automaticRefreshDeferral: AutomaticRefreshDeferral?
+    @Published private(set) var automaticRefreshDeferral: AutomaticRefreshDeferral?
     /// Where a complete PR refresh takes its budget baseline from.
     private enum BudgetBaseline {
         /// The refresh sends the budget read first.
@@ -374,7 +375,8 @@ final class DashboardController: ObservableObject {
         pullRequestOpener: (@MainActor (PullRequestOpenRequest) -> Void)? = nil,
         deviceFlowURLOpener: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
         clipboardWriter: @escaping @MainActor (String) -> Void = DashboardController.copyToPasteboard,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        sleep: @escaping (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
     ) {
         self.tokenStore = tokenStore
         self.oauthSignIn = oauthSignIn ?? GitHubDeviceFlowSignIn()
@@ -394,6 +396,7 @@ final class DashboardController: ObservableObject {
         self.openDeviceFlowURL = deviceFlowURLOpener
         self.copyStringToClipboard = clipboardWriter
         self.now = now
+        self.sleep = sleep
         self.patGitHubClientFactory = patGitHubClientFactory
         self.oauthGitHubClientFactory = oauthGitHubClientFactory
         self.launchAtLoginService = launchAtLoginService
@@ -1660,15 +1663,7 @@ final class DashboardController: ObservableObject {
         } catch {
             guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else { return }
             budgetState.recordLatest(syncEngine.latestBudgetReading())
-            if let retryAt = gitHubReadRateLimitRetryDate(error),
-               retryAt > now(),
-               let login = account?.login ?? committedSyncState?.account.login {
-                automaticRefreshDeferral = AutomaticRefreshDeferral(
-                    generation: generation,
-                    accountLogin: login,
-                    retryAt: retryAt
-                )
-            }
+            recordRateLimitDeferral(for: error, generation: generation)
             if isAuthenticationFailure(error) {
                 handleAuthenticationFailure(error)
             } else {
@@ -1764,22 +1759,59 @@ final class DashboardController: ObservableObject {
         errorMessage = error.localizedDescription
     }
 
+    /// The automatic refresh interval the user chose, before pacing.
+    private var userInterval: TimeInterval {
+        automaticRefreshIntervalOverride ?? TimeInterval(refreshIntervalMinutes * 60)
+    }
+
+    /// When GitHub permits automatic refreshes again after refusing one. Nil when no deferral applies.
+    var rateLimitRetryAt: Date? {
+        guard let deferral = automaticRefreshDeferral,
+              deferral.generation == providerGeneration,
+              let currentLogin = account?.login ?? committedSyncState?.account.login,
+              deferral.accountLogin.caseInsensitiveCompare(currentLogin) == .orderedSame,
+              deferral.retryAt > currentDate()
+        else {
+            return nil
+        }
+        return deferral.retryAt
+    }
+
+    private func pacing(at date: Date) -> RefreshPacing {
+        RefreshPacingPolicy.decide(
+            reading: budgetState.reading,
+            estimatedCost: budgetState.estimatedCost,
+            userInterval: userInterval,
+            now: date
+        )
+    }
+
+    private func nextAutomaticRefreshDate(anchor: Date) -> Date {
+        let date = now()
+        return RefreshPacingPolicy.nextAutomaticRefreshDate(
+            pacing: pacing(at: date),
+            anchor: anchor,
+            userInterval: userInterval,
+            deferralRetryAt: rateLimitRetryAt,
+            now: date
+        )
+    }
+
+    /// Waits for the paced date measured from the start of the previous automatic refresh, then decides again
+    /// on a fresh budget read before any refresh query.
     private func startAutomaticRefresh() {
-        let automaticRefreshInterval = automaticRefreshIntervalOverride
-            ?? TimeInterval(refreshIntervalMinutes * 60)
-        guard automaticRefreshInterval > 0 else {
+        guard userInterval > 0 else {
             return
         }
 
         automaticRefreshTask?.cancel()
         automaticRefreshTask = Task { [weak self] in
+            guard var anchor = self?.now() else { return }
             while !Task.isCancelled {
                 guard let self else { break }
-                let sleepSeconds = self.automaticRefreshSleepDuration(
-                    defaultInterval: automaticRefreshInterval
-                )
+                let wakeAt = self.nextAutomaticRefreshDate(anchor: anchor)
                 do {
-                    try await Task.sleep(for: .seconds(sleepSeconds))
+                    try await self.sleep(max(wakeAt.timeIntervalSince(self.now()), 0))
                 } catch {
                     break
                 }
@@ -1788,9 +1820,70 @@ final class DashboardController: ObservableObject {
                     break
                 }
 
-                await self.refreshDashboard(isAutomatic: true)
+                anchor = await self.automaticRefreshWake(anchor: anchor)
             }
         }
+    }
+
+    /// One wake of the automatic loop. Returns the anchor for the next wait: the start of the refresh it sent,
+    /// the old anchor when pacing or a deferral still holds, or now when the wake ended early, so the loop
+    /// never wakes again at once.
+    private func automaticRefreshWake(anchor: Date) async -> Date {
+        if shouldDeferAutomaticRefresh() { return anchor }
+        // A running refresh serves this wake, as it did before pacing.
+        if refreshTask != nil { return now() }
+        guard let syncEngine else { return now() }
+        var reading: GitHubBudgetReading?
+        // The read and its decision run before the refresh counts as running, so a manual refresh started
+        // meanwhile is never absorbed by an automatic refresh that then stops.
+        if syncEngine.sourceKind != .none {
+            let generation = providerGeneration
+            do {
+                reading = try await syncEngine.fetchBudgetReading()
+                guard !Task.isCancelled, providerGeneration == generation else { return now() }
+                budgetState.recordRead(reading)
+            } catch {
+                guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else {
+                    return now()
+                }
+                guard recordBudgetReadFailure(error, generation: generation) else { return now() }
+            }
+        }
+        if nextAutomaticRefreshDate(anchor: anchor) > now() { return anchor }
+        let startedAt = now()
+        await refreshDashboard(isAutomatic: true, baseline: .alreadyRead(reading))
+        return startedAt
+    }
+
+    /// Handles a budget read that failed outside a refresh. Authentication failures sign out and rate-limit
+    /// errors set the deferral and error message, which ends the caller's work (false). Any other failure is
+    /// recorded and the caller continues on the latest reading (true).
+    private func recordBudgetReadFailure(_ error: Error, generation: Int) -> Bool {
+        if isAuthenticationFailure(error) {
+            handleAuthenticationFailure(error)
+            return false
+        }
+        if isGitHubReadRateLimitError(error) {
+            recordRateLimitDeferral(for: error, generation: generation)
+            refreshErrorMessage = error.localizedDescription
+            return false
+        }
+        budgetState.recordReadFailure()
+        return true
+    }
+
+    private func recordRateLimitDeferral(for error: Error, generation: Int) {
+        guard let retryAt = gitHubReadRateLimitRetryDate(error),
+              retryAt > now(),
+              let login = account?.login ?? committedSyncState?.account.login
+        else {
+            return
+        }
+        automaticRefreshDeferral = AutomaticRefreshDeferral(
+            generation: generation,
+            accountLogin: login,
+            retryAt: retryAt
+        )
     }
 
     private func shouldDeferAutomaticRefresh() -> Bool {
@@ -1798,14 +1891,6 @@ final class DashboardController: ObservableObject {
         if deferral.retryAt > now() { return true }
         automaticRefreshDeferral = nil
         return false
-    }
-
-    private func automaticRefreshSleepDuration(defaultInterval: TimeInterval) -> TimeInterval {
-        guard let deferral = currentAutomaticRefreshDeferral() else { return defaultInterval }
-        let remaining = deferral.retryAt.timeIntervalSince(now())
-        if remaining > 0 { return remaining }
-        automaticRefreshDeferral = nil
-        return 0
     }
 
     private func currentAutomaticRefreshDeferral() -> AutomaticRefreshDeferral? {
