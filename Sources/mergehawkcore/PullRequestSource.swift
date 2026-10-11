@@ -71,7 +71,9 @@ public final class MockPullRequestSource {
     private let snapshots: [[PullRequest]]
     private let scenario: MockPullRequestScenario
     private let now: () -> Date
+    /// Guarded by `budgetLock`, because the budget read and a complete fetch can overlap.
     private var budgetWindow: MockBudgetWindow
+    private let budgetLock = NSLock()
 
     public init(
         showsNotificationTypeFixtures: Bool = false,
@@ -1375,8 +1377,11 @@ extension MockPullRequestSource: CompletePullRequestFetching {
         reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
         let date = now()
-        budgetWindow.rollOver(at: date)
-        budgetWindow.used += MockBudgetWindow.costPerRefresh
+        let budgetReading = budgetLock.withLock { () -> GitHubBudgetReading in
+            budgetWindow.rollOver(at: date)
+            budgetWindow.used += MockBudgetWindow.costPerRefresh
+            return budgetWindow.reading(at: date)
+        }
         let result = try fetchScenarioPullRequests(previousState: previousState)
         return CompletePullRequestFetchResult(
             activePullRequests: result.activePullRequests,
@@ -1384,7 +1389,7 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             quietlyRetiredPullRequestIDs: result.quietlyRetiredPullRequestIDs,
             viewerTeams: viewerTeams,
             stacks: stacks,
-            budgetReading: budgetWindow.reading(at: date)
+            budgetReading: budgetReading
         )
     }
 
@@ -1394,8 +1399,10 @@ extension MockPullRequestSource: CompletePullRequestFetching {
 
     public func latestBudgetReading() -> GitHubBudgetReading? {
         let date = now()
-        budgetWindow.rollOver(at: date)
-        return budgetWindow.reading(at: date)
+        return budgetLock.withLock {
+            budgetWindow.rollOver(at: date)
+            return budgetWindow.reading(at: date)
+        }
     }
 
     private func fetchScenarioPullRequests(
