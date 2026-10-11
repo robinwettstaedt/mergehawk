@@ -1,89 +1,61 @@
-name: GitHub Release
+name: Release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
-      draft:
-        description: "Leave the build as a draft without offering an update"
+      bump:
+        description: "Which part of the version to raise"
         required: true
-        default: false
-        type: boolean
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: read
 
-# Serialize automatic and manual publications to this one feed.
+# One release at a time, and never cancel a run that may be publishing.
 concurrency:
-  group: public-download-release
+  group: release
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build and publish signed installer
-    if: github.ref == 'refs/heads/main'
+  build:
+    name: Build signed and notarized assets
+    if: github.ref == 'refs/heads/main' && github.triggering_actor == github.repository_owner
     runs-on: macos-15
     timeout-minutes: 45
     environment: release
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      build: ${{ steps.release.outputs.build }}
     env:
       DEVELOPER_ID_APPLICATION: ${{ vars.DEVELOPER_ID_APPLICATION }}
       NOTARYTOOL_PROFILE: mergehawk-notary
 
     steps:
-      - name: Require protected main
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF" != refs/heads/main || "${GITHUB_REF_PROTECTED:-false}" != true ]]; then
-            echo 'Public installers must be built from protected main.' >&2
-            exit 2
-          fi
-
-      - name: Check out the triggering commit
+      - name: Check out the release commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - name: Resolve release versions
+      - name: Resolve release version
         id: release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          BUMP: ${{ inputs.bump }}
         run: |
           set -euo pipefail
-          source scripts/lib/release-env.sh
           source scripts/lib/release-history.sh
-          load_release_env_file scripts/release-github.env RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY
-          build="$(date -u +%Y%m%d%H%M%S)"
-          published_tags="$(list_published_release_tags "$RELEASE_REPOSITORY")"
-          marketing_version="$(printf '%s\n' "$published_tags" | python3 scripts/lib/release-version.py)"
-          echo "marketing_version=$marketing_version" >> "$GITHUB_OUTPUT"
-          echo "build=$build" >> "$GITHUB_OUTPUT"
-
-      - name: Validate signing configuration
-        shell: bash
-        env:
-          HAS_DOWNLOADS_TOKEN: ${{ secrets.DOWNLOADS_TOKEN != '' }}
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 }}
-          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [[ "$HAS_DOWNLOADS_TOKEN" != true ]]; then
-            echo 'Set DOWNLOADS_TOKEN with Contents write permission for mergehawk-downloads.' >&2
-            exit 2
-          fi
-          for name in SPARKLE_PRIVATE_KEY DEVELOPER_ID_APPLICATION DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 \
-            DEVELOPER_ID_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing release configuration: $name" >&2
-              exit 2
-            fi
-          done
+          tags="$(list_published_release_tags "$GITHUB_REPOSITORY")"
+          version="$(printf '%s\n' "$tags" | python3 scripts/lib/release-version.py "$BUMP")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
 
       - name: Import signing certificate into temporary Keychain
         shell: bash
@@ -92,6 +64,8 @@ jobs:
           DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
+          : "${DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64:?Missing release secret DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64}"
+          : "${DEVELOPER_ID_CERTIFICATE_PASSWORD:?Missing release secret DEVELOPER_ID_CERTIFICATE_PASSWORD}"
           keychain_path="$RUNNER_TEMP/mergehawk-release.keychain-db"
           certificate_path="$RUNNER_TEMP/mergehawk-developer-id.p12"
           keychain_password="$(uuidgen)"
@@ -115,63 +89,34 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
+          set -euo pipefail
+          : "${APPLE_ID:?Missing release secret APPLE_ID}"
+          : "${APPLE_TEAM_ID:?Missing release secret APPLE_TEAM_ID}"
+          : "${APPLE_APP_SPECIFIC_PASSWORD:?Missing release secret APPLE_APP_SPECIFIC_PASSWORD}"
           xcrun notarytool store-credentials "$NOTARYTOOL_PROFILE" \
             --keychain "$NOTARYTOOL_KEYCHAIN" \
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
 
-      - name: Build signed and notarized installer with Sparkle updates
+      - name: Build signed and notarized release assets
         shell: bash
         env:
-          MARKETING_VERSION: ${{ steps.release.outputs.marketing_version }}
-          BUILD_NUMBER: ${{ steps.release.outputs.build }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: |
-          scripts/release-github.sh --version "v$MARKETING_VERSION" --build "$BUILD_NUMBER" --prepare-only
-
-      - name: Reject stale source before publication
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          BUILD: ${{ steps.release.outputs.build }}
         run: |
           set -euo pipefail
-          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
-          if [[ "$GITHUB_SHA" != "$current_main" ]]; then
-            echo 'Main advanced during this build. A newer workflow run will publish the current source.' >&2
-            exit 2
-          fi
+          : "${SPARKLE_PRIVATE_KEY:?Missing release secret SPARKLE_PRIVATE_KEY}"
+          scripts/release-github.sh --version "v$VERSION" --build "$BUILD"
 
-      - name: Publish public download assets
-        shell: bash
-        env:
-          # This credential can write only to mergehawk-downloads; source checkout is read-only.
-          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
-          MARKETING_VERSION: ${{ steps.release.outputs.marketing_version }}
-          BUILD_NUMBER: ${{ steps.release.outputs.build }}
-          DRAFT: ${{ inputs.draft }}
-        run: |
-          set -euo pipefail
-          : "${GH_TOKEN:?Set DOWNLOADS_TOKEN with Contents write permission for mergehawk-downloads}"
-          args=(--version "v$MARKETING_VERSION" --build "$BUILD_NUMBER" --publish-only)
-          if [[ "$DRAFT" == true ]]; then
-            args+=(--draft)
-          fi
-          scripts/release-github.sh "${args[@]}"
-
-      - name: Link release in run summary
-        env:
-          MARKETING_VERSION: ${{ steps.release.outputs.marketing_version }}
-          BUILD_NUMBER: ${{ steps.release.outputs.build }}
-          DRAFT: ${{ inputs.draft }}
-        run: |
-          source scripts/lib/release-env.sh
-          load_release_env_file scripts/release-github.env RELEASE_REPOSITORY SPARKLE_FEED_URL SPARKLE_PUBLIC_KEY
-          {
-            echo "[MergeHawk releases](https://github.com/$RELEASE_REPOSITORY/releases)"
-            echo "Build: $MARKETING_VERSION ($BUILD_NUMBER)."
-            echo
-            echo "Apple Silicon, macOS 14+. Signed, notarized, and configured for Sparkle software updates."
-            echo "Draft requested: ${DRAFT:-false}. Replace your old private installer manually once to enable updates."
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: |
+            .build/releases/v${{ steps.release.outputs.version }}-${{ steps.release.outputs.build }}/assets/MergeHawk-${{ steps.release.outputs.version }}-apple-silicon.dmg
+            .build/releases/v${{ steps.release.outputs.version }}-${{ steps.release.outputs.build }}/assets/appcast.xml
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Remove temporary signing credentials
         if: always()
@@ -182,3 +127,41 @@ jobs:
             security delete-keychain "$keychain_path"
           fi
           rm -f "$RUNNER_TEMP/mergehawk-developer-id.p12"
+
+  publish:
+    name: Publish the GitHub release
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+            echo "Main has moved since this build. Start a new release run." >&2
+            exit 1
+          fi
+          existing_tags="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v$VERSION" \
+            --jq '[.[] | select(.ref == "refs/tags/v'"$VERSION"'")] | length')"
+          if [[ "$existing_tags" != 0 ]]; then
+            echo "Tag v$VERSION already exists." >&2
+            exit 1
+          fi
+          gh release create "v$VERSION" "release-assets/MergeHawk-$VERSION-apple-silicon.dmg" release-assets/appcast.xml \
+            --target "$GITHUB_SHA" --title "MergeHawk $VERSION" --generate-notes --latest --fail-on-no-commits
