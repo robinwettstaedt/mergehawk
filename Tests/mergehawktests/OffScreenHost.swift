@@ -24,20 +24,28 @@ final class OffScreenHost {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
     }
 
+    /// Sends `event` to the window as its current event. Pair a mouse down with a mouse up: an unpaired mouse down
+    /// stays `NSApp.currentEvent`, and later hit tests, such as the dropdown outside-click catcher's, read it.
     func send(_ event: NSEvent) {
         NSApp.postEvent(event, atStart: true)
-        deliverQueuedEvent(matching: NSEvent.EventTypeMask(type: event.type))
+        if !deliverQueuedEvent(matching: NSEvent.EventTypeMask(type: event.type)) {
+            XCTFail("The sent \(event.type) event never reached the window")
+        }
         settle()
     }
 
-    /// Takes the first queued event of these types and sends it to the window. Every event is posted and taken off
-    /// the queue before delivery, as AppKit does with a real event, so it is `NSApp.currentEvent` while the window
-    /// handles it. Code that reads the current event, like the dropdown outside-click catcher, then sees the event
-    /// being handled, and no stale event from an earlier click leaks into later tests.
-    private func deliverQueuedEvent(matching mask: NSEvent.EventTypeMask) {
-        if let event = NSApp.nextEvent(matching: mask, until: .distantPast, inMode: .default, dequeue: true) {
-            window.sendEvent(event)
+    /// Takes the first queued event of these types and sends it to the window, returning whether there was one.
+    /// Every event is posted and taken off the queue before delivery, as AppKit does with a real event, so it is
+    /// `NSApp.currentEvent` while the window handles it, and code that reads the current event, like the dropdown
+    /// outside-click catcher, sees the event being handled. The queue is left empty, but `NSApp.currentEvent` keeps
+    /// the last delivered event after the test, so each test should finish its clicks with a mouse up.
+    @discardableResult
+    private func deliverQueuedEvent(matching mask: NSEvent.EventTypeMask) -> Bool {
+        guard let event = NSApp.nextEvent(matching: mask, until: .distantPast, inMode: .default, dequeue: true) else {
+            return false
         }
+        window.sendEvent(event)
+        return true
     }
 
     /// A mouse event at `point` in window coordinates.
@@ -53,7 +61,9 @@ final class OffScreenHost {
     func click(at point: CGPoint) throws {
         NSApp.postEvent(try mouseEvent(.leftMouseUp, at: point), atStart: false)
         NSApp.postEvent(try mouseEvent(.leftMouseDown, at: point), atStart: true)
-        deliverQueuedEvent(matching: .leftMouseDown)
+        if !deliverQueuedEvent(matching: .leftMouseDown) {
+            XCTFail("The click's mouse down never reached the window")
+        }
         // A control that did not track leaves the mouse up queued; deliver it so the click completes and no stray
         // event reaches a later test.
         deliverQueuedEvent(matching: .leftMouseUp)

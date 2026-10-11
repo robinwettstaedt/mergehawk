@@ -3035,8 +3035,7 @@ private func signedInMockController(
         preferencesStore: preferencesStore,
         launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
         automaticRefreshInterval: 0,
-        urlOpener: { browserOpens.urls.append($0) },
-        pullRequestOpener: { browserOpens.urls.append($0.targetURL) }
+        urlOpener: { browserOpens.urls.append($0) }
     )
     waitUntil(timeout: 1.0) {
         controller.state.authStatus == .signedIn
