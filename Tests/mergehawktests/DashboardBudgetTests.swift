@@ -146,7 +146,7 @@ func budgetReading(
 }
 
 final class DashboardBudgetTests: XCTestCase {
-    private static let start = Date(timeIntervalSince1970: 1_800_000_000)
+    fileprivate static let start = Date(timeIntervalSince1970: 1_800_000_000)
 
     @MainActor
     func testManualRefreshSendsTheBudgetReadBeforeTheFirstRefreshQuery() async throws {
@@ -202,22 +202,80 @@ final class DashboardBudgetTests: XCTestCase {
     }
 
     @MainActor
-    func testStrayCounterFromTheBudgetReadStillGivesASampleAgainstTheMainCounter() async throws {
-        let clock = ControllerTestClock(Self.start)
-        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }
-        provider.fetchReading = budgetReading(used: 855, at: Self.start)
-        let controller = makeBudgetController(self, provider: provider, clock: clock)
-        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
-        XCTAssertEqual(controller.budgetState.costSamples, [55])
-        // GitHub answers the next budget read from a stray counter with a later reset and almost nothing used.
-        provider.budgetRead = { budgetReading(used: 2, at: Self.start, resetIn: 3_600) }
-        provider.fetchReading = budgetReading(used: 925, at: Self.start)
+    func testStrayAnswerIsReadAgainAndTheFreshMainReadingIsTheBaseline() async throws {
+        let fixture = await makeStrayCounterFixture()
+        let provider = fixture.provider, controller = fixture.controller, clock = fixture.clock
+        // Two minutes later other tools have spent 30 points. GitHub answers the first read from the stray counter.
+        clock.now = Self.start.addingTimeInterval(120)
+        var answers = [fixture.stray(2), fixture.main(885)]
+        provider.budgetRead = { answers.removeFirst() }
+        provider.fetchReading = fixture.main(940)
 
         controller.refresh()
         await waitForBudgetCondition { provider.fetchCount == 2 && !controller.isRefreshing }
 
-        XCTAssertEqual(controller.budgetState.costSamples, [55, 70])
-        XCTAssertEqual(controller.budgetState.reading, budgetReading(used: 925, at: Self.start))
+        XCTAssertEqual(provider.log, ["budget", "fetch", "budget", "budget", "fetch"])
+        // The sample is MergeHawk's own 55 points, not the 85 since the previous refresh's reading.
+        XCTAssertEqual(controller.budgetState.costSamples, [55, 55])
+        XCTAssertEqual(controller.budgetState.reading, fixture.main(940))
+    }
+
+    @MainActor
+    func testThreeStrayAnswersRecordNothingAndTakeNoSample() async throws {
+        let fixture = await makeStrayCounterFixture()
+        let provider = fixture.provider, controller = fixture.controller, clock = fixture.clock
+        clock.now = Self.start.addingTimeInterval(120)
+        provider.budgetRead = { fixture.stray(2) }
+        provider.fetchReading = fixture.main(940)
+        provider.holdsFetches = true
+
+        controller.refresh()
+        await waitForBudgetCondition { provider.isFetchHeld }
+        XCTAssertEqual(provider.log, ["budget", "fetch", "budget", "budget", "budget", "fetch"])
+        XCTAssertEqual(controller.budgetState.reading?.used, 855)
+        XCTAssertEqual(controller.budgetState.reading?.receivedAt, Self.start)
+        XCTAssertFalse(controller.budgetState.lastReadFailed)
+
+        provider.releaseFetch()
+        await waitForBudgetCondition { !controller.isRefreshing }
+        XCTAssertEqual(controller.budgetState.costSamples, [55])
+        XCTAssertEqual(controller.budgetState.reading, fixture.main(940))
+    }
+
+    struct StrayCounterFixture {
+        let controller: DashboardController
+        let provider: BudgetGitHubProvider
+        let clock: ControllerTestClock
+
+        /// The main counter, which resets 3,000 s after the start, read at the clock's time.
+        func main(_ used: Int) -> GitHubBudgetReading {
+            GitHubBudgetReading(
+                limit: 5_000, remaining: 5_000 - used, used: used,
+                resetAt: DashboardBudgetTests.start.addingTimeInterval(3_000), receivedAt: clock.now
+            )
+        }
+
+        /// The stray counter, with a later reset and almost nothing used.
+        func stray(_ used: Int) -> GitHubBudgetReading {
+            GitHubBudgetReading(
+                limit: 5_000, remaining: 5_000 - used, used: used,
+                resetAt: DashboardBudgetTests.start.addingTimeInterval(3_600), receivedAt: clock.now
+            )
+        }
+    }
+
+    /// A controller whose launch refresh read 800 on the main counter and spent 55.
+    @MainActor
+    private func makeStrayCounterFixture() async -> StrayCounterFixture {
+        let clock = ControllerTestClock(Self.start)
+        let provider = BudgetGitHubProvider()
+        let controller = makeBudgetController(self, provider: provider, clock: clock)
+        let fixture = StrayCounterFixture(controller: controller, provider: provider, clock: clock)
+        provider.budgetRead = { fixture.main(800) }
+        provider.fetchReading = fixture.main(855)
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        XCTAssertEqual(controller.budgetState.costSamples, [55])
+        return fixture
     }
 
     @MainActor

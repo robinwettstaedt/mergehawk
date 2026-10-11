@@ -42,11 +42,12 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         budget.reading
     }
 
-    /// Sends the free budget read. Returns nil when its response carried no budget headers.
+    /// Sends the free budget read and returns the reading of its own response, which also merges into
+    /// `latestBudgetReading()`. Returns nil when the response carried no budget headers.
     public func fetchBudgetReading() async throws -> GitHubBudgetReading? {
         let collector = GitHubBudgetCollector()
         _ = try await completeGraphQL(query: Self.budgetReadQuery, variables: [:], collector: collector)
-        return collector.reading == nil ? nil : latestBudgetReading()
+        return collector.reading
     }
 
     public func fetchViewer() async throws -> GitHubAccount {

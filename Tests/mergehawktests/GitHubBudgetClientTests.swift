@@ -90,12 +90,16 @@ final class GitHubBudgetClientTests: XCTestCase {
 
         let main = try await client.fetchBudgetReading()
         let stray = try await client.fetchBudgetReading()
+        // The stray answer still merges into the client-wide reading without hiding the main counter.
+        XCTAssertEqual(client.latestBudgetReading(), Self.reading(used: 21))
         let result = try await Self.fetch(client)
         let afterFetch = try await client.fetchBudgetReading()
 
         XCTAssertEqual(recorder.count, 5)
         XCTAssertEqual(main, Self.reading(used: 21))
-        XCTAssertEqual(stray, Self.reading(used: 21))
+        // The read returns its own response's reading, so the controller can see the stray answer.
+        XCTAssertEqual(stray?.used, 2)
+        XCTAssertEqual(stray?.resetAt, Self.reset.addingTimeInterval(600))
         // The fetch saw the main counter, then the stray one.
         XCTAssertEqual(result.budgetReading, Self.reading(used: 23))
         XCTAssertEqual(afterFetch, Self.reading(used: 25))

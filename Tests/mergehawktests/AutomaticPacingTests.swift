@@ -138,6 +138,27 @@ final class AutomaticPacingTests: XCTestCase {
     }
 
     @MainActor
+    func testWakeDecidesOnTheFreshMainReadingFromARetriedRead() async throws {
+        let fixture = makeFixture(baseline: 800, fetched: 855)
+        await waitForLaunch(fixture)
+        // GitHub answers first from a stray counter, then from the main one, which other tools spent to the reserve.
+        var answers = [
+            budgetReading(used: 2, at: Self.start.addingTimeInterval(120), resetIn: 3_480),
+            budgetReading(used: 4_100, at: Self.start.addingTimeInterval(120), resetIn: 2_880),
+        ]
+        fixture.provider.budgetRead = { answers.removeFirst() }
+
+        fixture.clock.now = Self.start.addingTimeInterval(120)
+        fixture.sleeper.releaseNext()
+        await waitForBudgetCondition { fixture.sleeper.durations.count == 2 }
+
+        XCTAssertEqual(fixture.provider.log, ["budget", "fetch", "budget", "budget"])
+        XCTAssertEqual(fixture.controller.budgetState.reading?.used, 4_100)
+        // Paused on the main reading, so no refresh query, and the wait runs until reset plus 5 s.
+        XCTAssertEqual(fixture.sleeper.durations.last, 2_885)
+    }
+
+    @MainActor
     func testLongerStretchedIntervalAtWakeSleepsOnlyTheRemainder() async throws {
         let fixture = makeFixture(baseline: 3_400, fetched: 3_455)
         await waitForLaunch(fixture)

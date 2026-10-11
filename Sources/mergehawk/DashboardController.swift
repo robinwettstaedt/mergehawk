@@ -994,12 +994,16 @@ final class DashboardController: ObservableObject {
             if readsNow, rateLimitRetryAt == nil {
                 let generation = providerGeneration
                 do {
-                    let reading = try await syncEngine.fetchBudgetReading()
-                    guard !Task.isCancelled else { return }
-                    // A reading from an earlier account is dropped, and the new account is read at once.
-                    guard providerGeneration == generation else { continue }
-                    budgetState.recordRead(reading)
-                    guard reading != nil else { return }
+                    switch try await readBudget(syncEngine: syncEngine, generation: generation) {
+                    case .superseded:
+                        guard !Task.isCancelled else { return }
+                        // A reading from an earlier account is dropped, and the new account is read at once.
+                        continue
+                    case .noHeaders:
+                        return
+                    case .recorded, .allStray:
+                        break
+                    }
                 } catch {
                     guard !Task.isCancelled, !(error is CancellationError) else { return }
                     guard providerGeneration == generation else { continue }
@@ -1605,11 +1609,9 @@ final class DashboardController: ObservableObject {
             case .readFirst:
                 // Authentication and rate-limit errors end the refresh in the catch below, before any refresh query.
                 do {
-                    let reading = try await syncEngine.fetchBudgetReading()
-                    guard !Task.isCancelled, providerGeneration == generation else { return }
-                    budgetState.recordRead(reading)
-                    // The merged reading, so a stray counter in the read never becomes the baseline.
-                    baselineReading = reading == nil ? nil : budgetState.reading
+                    let outcome = try await readBudget(syncEngine: syncEngine, generation: generation)
+                    if case .superseded = outcome { return }
+                    baselineReading = outcome.baseline
                 } catch where !isAuthenticationFailure(error) && !isGitHubReadRateLimitError(error) {
                     guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else {
                         return
@@ -1903,11 +1905,9 @@ final class DashboardController: ObservableObject {
         if syncEngine.sourceKind != .none {
             let generation = providerGeneration
             do {
-                let reading = try await syncEngine.fetchBudgetReading()
-                guard !Task.isCancelled, providerGeneration == generation else { return now() }
-                budgetState.recordRead(reading)
-                // The merged reading, so a stray counter in the read never becomes the baseline.
-                baseline = reading == nil ? nil : budgetState.reading
+                let outcome = try await readBudget(syncEngine: syncEngine, generation: generation)
+                if case .superseded = outcome { return now() }
+                baseline = outcome.baseline
             } catch {
                 guard !Task.isCancelled, providerGeneration == generation, !(error is CancellationError) else {
                     return now()
@@ -1926,6 +1926,48 @@ final class DashboardController: ObservableObject {
         let startedAt = now()
         await refreshDashboard(isAutomatic: true, baseline: .alreadyRead(baseline))
         return startedAt
+    }
+
+    private enum BudgetReadOutcome {
+        /// A reading was recorded. It is the read's own reading, merged into the state.
+        case recorded(GitHubBudgetReading)
+        /// The response carried no budget headers, which counts as a failed read.
+        case noHeaders
+        /// Every answer came from a stray counter, so nothing new was recorded.
+        case allStray
+        /// The provider generation changed or the task was cancelled while reading.
+        case superseded
+
+        /// The cost baseline the read gives a complete PR refresh.
+        var baseline: GitHubBudgetReading? {
+            if case .recorded(let reading) = self { reading } else { nil }
+        }
+    }
+
+    private static let maximumBudgetReads = 3
+
+    /// Sends the budget read, and again when GitHub answers from a stray counter, up to 3 reads in total. They
+    /// are free. The first answer that is not stray is recorded. Errors are thrown to the caller's handling.
+    private func readBudget(syncEngine: SyncEngine, generation: Int) async throws -> BudgetReadOutcome {
+        for _ in 0..<Self.maximumBudgetReads {
+            let reading = try await syncEngine.fetchBudgetReading()
+            guard !Task.isCancelled, providerGeneration == generation else { return .superseded }
+            guard let reading else {
+                budgetState.recordRead(nil)
+                return .noHeaders
+            }
+            guard isStray(reading) else {
+                budgetState.recordRead(reading)
+                return .recorded(budgetState.reading ?? reading)
+            }
+        }
+        return .allStray
+    }
+
+    /// A reading from another counter than the current one: it loses the merge and has a different reset.
+    private func isStray(_ reading: GitHubBudgetReading) -> Bool {
+        guard let current = budgetState.reading else { return false }
+        return reading.resetAt != current.resetAt && current.merged(with: reading) == current
     }
 
     /// Handles a budget read that failed outside a refresh. Authentication failures sign out and rate-limit
