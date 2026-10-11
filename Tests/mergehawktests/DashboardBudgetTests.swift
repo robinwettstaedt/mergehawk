@@ -267,13 +267,11 @@ final class DashboardBudgetTests: XCTestCase {
         provider.budgetRead = { throw GitHubReadError.http(status: 503) }
         provider.failedBudgetReadReading = budgetReading(used: 1_400, at: Self.start)
 
-        let readout = Task { await controller.runBudgetReadout() }
-        defer { readout.cancel() }
-        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+        await controller.runBudgetReadout()
 
         XCTAssertTrue(controller.budgetState.lastReadFailed)
         XCTAssertEqual(controller.budgetState.reading?.used, 1_400)
-        XCTAssertEqual(sleeper.durations, [3_005])
+        XCTAssertEqual(sleeper.durations, [])
     }
 
     @MainActor
@@ -358,7 +356,7 @@ final class DashboardBudgetTests: XCTestCase {
     }
 
     @MainActor
-    func testBudgetReadoutFailureSetsTheFlagAndALaterReadClearsIt() async throws {
+    func testBudgetReadoutEndsAfterAFailedReadAndALaterReadClearsTheFlag() async throws {
         let clock = ControllerTestClock(Self.start)
         let sleeper = SuspendingTestSleep()
         let provider = BudgetGitHubProvider { budgetReading(used: 800, at: clock.now) }
@@ -366,18 +364,78 @@ final class DashboardBudgetTests: XCTestCase {
         await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
         provider.budgetRead = { throw GitHubReadError.http(status: 503) }
 
+        await controller.runBudgetReadout()
+        XCTAssertTrue(controller.budgetState.lastReadFailed)
+        XCTAssertNil(controller.refreshErrorMessage)
+        XCTAssertEqual(provider.budgetReadCount, 2)
+        XCTAssertEqual(sleeper.durations, [])
+
+        provider.budgetRead = { budgetReading(used: 820, at: clock.now) }
         let readout = Task { await controller.runBudgetReadout() }
         defer { readout.cancel() }
         await waitForBudgetCondition { sleeper.waitingCount == 1 }
-        XCTAssertTrue(controller.budgetState.lastReadFailed)
-        XCTAssertNil(controller.refreshErrorMessage)
-
-        provider.budgetRead = { budgetReading(used: 820, at: clock.now) }
-        clock.now = Self.start.addingTimeInterval(3_005)
-        sleeper.releaseNext()
-        await waitForBudgetCondition { sleeper.durations.count == 2 }
         XCTAssertFalse(controller.budgetState.lastReadFailed)
         XCTAssertEqual(controller.budgetState.reading?.used, 820)
+    }
+
+    @MainActor
+    func testFailedFirstReadoutReadWithoutAReadingSendsOneReadAndEnds() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let sleeper = SuspendingTestSleep()
+        let provider = BudgetGitHubProvider { throw GitHubReadError.http(status: 500) }
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: { try await sleeper.sleep($0) })
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        XCTAssertNil(controller.budgetState.reading)
+
+        await controller.runBudgetReadout()
+
+        XCTAssertEqual(provider.log, ["budget", "fetch", "budget"])
+        XCTAssertEqual(sleeper.durations, [])
+    }
+
+    @MainActor
+    func testBudgetReadoutEndsWhenAReadAfterTheResetStillReturnsTheOldReset() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let sleeper = SuspendingTestSleep()
+        let reset = Self.start.addingTimeInterval(3_000)
+        let provider = BudgetGitHubProvider {
+            GitHubBudgetReading(limit: 5_000, remaining: 4_200, used: 800, resetAt: reset, receivedAt: clock.now)
+        }
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: { try await sleeper.sleep($0) })
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+
+        let readout = Task { await controller.runBudgetReadout() }
+        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+        // GitHub has not reset 5 s after the Mac's clock passed the reset.
+        clock.now = reset.addingTimeInterval(5)
+        sleeper.releaseNext()
+        await readout.value
+
+        XCTAssertEqual(provider.budgetReadCount, 3)
+        XCTAssertEqual(sleeper.durations, [3_005])
+        XCTAssertEqual(controller.budgetState.reading?.receivedAt, reset.addingTimeInterval(5))
+    }
+
+    @MainActor
+    func testBudgetReadoutSendsNoReadDuringARateLimitDeferral() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let sleeper = SuspendingTestSleep()
+        let retryAt = Self.start.addingTimeInterval(600)
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: Self.start) }
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: { try await sleeper.sleep($0) })
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        provider.budgetRead = { throw GitHubReadError.rateLimited(retryAt: retryAt) }
+        controller.refresh()
+        await waitForBudgetCondition { controller.rateLimitRetryAt != nil && !controller.isRefreshing }
+        let reads = provider.budgetReadCount
+
+        let readout = Task { await controller.runBudgetReadout() }
+        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+        readout.cancel()
+        await readout.value
+
+        XCTAssertEqual(provider.budgetReadCount, reads)
+        XCTAssertEqual(sleeper.durations, [3_005])
     }
 
     @MainActor

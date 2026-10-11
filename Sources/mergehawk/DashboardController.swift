@@ -983,34 +983,38 @@ final class DashboardController: ObservableObject {
         openSettingsWindow?(selection)
     }
 
-    /// Keeps the Settings budget readout current while it is visible: reads the budget at once, then once more
-    /// 5 s after each reset passes, until the task is cancelled. There is no other polling.
+    /// Keeps the Settings budget readout current while it is visible, with at most one read per reset window.
+    /// It reads once when it starts, unless a rate-limit deferral is active. After that it reads once more 5 s
+    /// after each reset, and only while the reading's reset is still ahead. It ends when there is no reading,
+    /// a read fails, or GitHub has not reset yet. Refreshes keep the readout current from then on.
     func runBudgetReadout() async {
+        var readsNow = true
         while !Task.isCancelled {
             guard let syncEngine, syncEngine.sourceKind != .none else { return }
-            let generation = providerGeneration
-            do {
-                let reading = try await syncEngine.fetchBudgetReading()
-                guard !Task.isCancelled else { return }
-                // A reading from an earlier account is dropped, and the new account is read at once.
-                guard providerGeneration == generation else { continue }
-                budgetState.recordRead(reading)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                guard providerGeneration == generation else { continue }
-                _ = recordBudgetReadFailure(error, generation: generation, syncEngine: syncEngine)
+            if readsNow, rateLimitRetryAt == nil {
+                let generation = providerGeneration
+                do {
+                    let reading = try await syncEngine.fetchBudgetReading()
+                    guard !Task.isCancelled else { return }
+                    // A reading from an earlier account is dropped, and the new account is read at once.
+                    guard providerGeneration == generation else { continue }
+                    budgetState.recordRead(reading)
+                    guard reading != nil else { return }
+                } catch {
+                    guard !Task.isCancelled, !(error is CancellationError) else { return }
+                    guard providerGeneration == generation else { continue }
+                    _ = recordBudgetReadFailure(error, generation: generation, syncEngine: syncEngine)
+                    return
+                }
             }
             let date = now()
-            let resumeDate = budgetState.reading?.resetAt.addingTimeInterval(RefreshPacingPolicy.resetMargin)
-            let wait = resumeDate.map { $0 > date ? $0.timeIntervalSince(date) : RefreshPacingPolicy.minimumRecheck }
-                ?? RefreshPacingPolicy.minimumRecheck
+            guard let resetAt = budgetState.usableReading(at: date)?.resetAt, resetAt > date else { return }
             do {
-                try await sleep(wait)
+                try await sleep(resetAt.addingTimeInterval(RefreshPacingPolicy.resetMargin).timeIntervalSince(date))
             } catch {
                 return
             }
+            readsNow = true
         }
     }
 
