@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/robinwettstaedt/mergehawk-downloads/releases/latest"><strong>Download for Mac</strong></a>
+  <a href="https://github.com/robinwettstaedt/mergehawk/releases/latest"><strong>Download for Mac</strong></a>
   ·
   <a href="https://mergehawk.dev">mergehawk.dev</a>
 </p>
@@ -42,7 +42,7 @@ notifies you about the updates you pick (reviews, CI failures, mentions) and ski
 ## Install
 
 1. Download the latest DMG from
-   [Releases](https://github.com/robinwettstaedt/mergehawk-downloads/releases/latest).
+   [Releases](https://github.com/robinwettstaedt/mergehawk/releases/latest).
 2. Open it and drag MergeHawk into Applications.
 3. Open MergeHawk. It appears in your menu bar, with no Dock icon.
 
