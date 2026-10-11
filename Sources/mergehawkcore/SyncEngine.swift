@@ -21,6 +21,14 @@ public final class SyncEngine {
         self.now = now
     }
 
+    public func fetchBudgetReading() async throws -> GitHubBudgetReading? {
+        try await source.fetchBudgetReading()
+    }
+
+    public func latestBudgetReading() -> GitHubBudgetReading? {
+        source.latestBudgetReading()
+    }
+
     public func prepare(
         previousState: PullRequestSyncState?,
         fetchResult: CompletePullRequestFetchResult
