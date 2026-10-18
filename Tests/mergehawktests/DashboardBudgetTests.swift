@@ -242,6 +242,43 @@ final class DashboardBudgetTests: XCTestCase {
         XCTAssertEqual(controller.budgetState.reading, fixture.main(940))
     }
 
+    @MainActor
+    func testBudgetReadoutReadsAgainAfterAStrayAnswerAndSleepsToTheMainReset() async throws {
+        let sleeper = SuspendingTestSleep()
+        let fixture = await makeStrayCounterFixture(sleep: { try await sleeper.sleep($0) })
+        let provider = fixture.provider, controller = fixture.controller, clock = fixture.clock
+        clock.now = Self.start.addingTimeInterval(120)
+        var answers = [fixture.stray(2), fixture.main(885)]
+        provider.budgetRead = { answers.removeFirst() }
+
+        let readout = Task { await controller.runBudgetReadout() }
+        defer { readout.cancel() }
+        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+
+        XCTAssertEqual(provider.log, ["budget", "fetch", "budget", "budget"])
+        XCTAssertEqual(controller.budgetState.reading, fixture.main(885))
+        XCTAssertEqual(sleeper.durations, [2_885])
+    }
+
+    @MainActor
+    func testBudgetReadoutWithThreeStrayAnswersRecordsNothingAndSleepsToTheMainReset() async throws {
+        let sleeper = SuspendingTestSleep()
+        let fixture = await makeStrayCounterFixture(sleep: { try await sleeper.sleep($0) })
+        let provider = fixture.provider, controller = fixture.controller, clock = fixture.clock
+        clock.now = Self.start.addingTimeInterval(120)
+        provider.budgetRead = { fixture.stray(2) }
+
+        let readout = Task { await controller.runBudgetReadout() }
+        defer { readout.cancel() }
+        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+
+        XCTAssertEqual(provider.log, ["budget", "fetch", "budget", "budget", "budget"])
+        XCTAssertEqual(controller.budgetState.reading?.used, 855)
+        XCTAssertEqual(controller.budgetState.reading?.receivedAt, Self.start)
+        XCTAssertFalse(controller.budgetState.lastReadFailed)
+        XCTAssertEqual(sleeper.durations, [2_885])
+    }
+
     struct StrayCounterFixture {
         let controller: DashboardController
         let provider: BudgetGitHubProvider
@@ -266,10 +303,12 @@ final class DashboardBudgetTests: XCTestCase {
 
     /// A controller whose launch refresh read 800 on the main counter and spent 55.
     @MainActor
-    private func makeStrayCounterFixture() async -> StrayCounterFixture {
+    private func makeStrayCounterFixture(
+        sleep: @escaping (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
+    ) async -> StrayCounterFixture {
         let clock = ControllerTestClock(Self.start)
         let provider = BudgetGitHubProvider()
-        let controller = makeBudgetController(self, provider: provider, clock: clock)
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: sleep)
         let fixture = StrayCounterFixture(controller: controller, provider: provider, clock: clock)
         provider.budgetRead = { fixture.main(800) }
         provider.fetchReading = fixture.main(855)
