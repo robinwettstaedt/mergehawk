@@ -1,11 +1,15 @@
 @testable import mergehawk
 import AppKit
+import Combine
 import Foundation
 import mergehawkcore
 import SwiftUI
 import XCTest
 
 final class MenuViewTests: XCTestCase {
+    /// What the header dropdown tests' controllers opened. XCTest makes a fresh test case for each test method.
+    private let browserOpens = BrowserOpenRecorder()
+
     override func setUp() async throws {
         try await super.setUp()
         await MainActor.run {
@@ -721,15 +725,258 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    private func hostMenuRoot(controller: DashboardController, tooltips: MenuTooltipController) -> (OffScreenHost, CGSize) {
+    private func hostMenuRoot(
+        controller: DashboardController,
+        tooltips: MenuTooltipController,
+        initialDropdown: PullRequestMenuDropdown? = nil
+    ) -> (OffScreenHost, CGSize) {
         let size = MenuMetrics.standard.panelSize
         let hostingView = NSHostingView(rootView: MenuRootView(
             controller: controller,
             footerModel: MenuFooterModel(),
-            tooltipController: tooltips
+            tooltipController: tooltips,
+            initialDropdown: initialDropdown
         ))
         hostingView.frame = CGRect(origin: .zero, size: size)
         return (OffScreenHost(hostingView), size)
+    }
+
+    // MARK: - Header dropdown dismissal
+
+    @MainActor
+    func testClicksInEmptyTopBarSpaceCloseTheFilterDropdown() throws {
+        for (name, point) in [
+            ("leading inset", { (bar: TopBarPoints) in CGPoint(x: bar.leadingInsetMidX, y: bar.midY) }),
+            ("above the controls", { bar in CGPoint(x: bar.filterButton.midX, y: bar.aboveControlsY) }),
+            // The filter dropdown hangs below the filter button, so this point sits below the sort control.
+            ("below the controls", { bar in CGPoint(x: bar.sortControlMidX, y: bar.belowControlsY) }),
+            ("between the filter and sort controls", { bar in CGPoint(x: bar.filterSortGapMidX, y: bar.midY) }),
+            ("between the tab switcher and the filter button", { bar in
+                CGPoint(x: (bar.tabSwitcherTrailing + bar.filterButton.minX) / 2, y: bar.midY)
+            }),
+        ] as [(String, (TopBarPoints) -> CGPoint)] {
+            try assertClickInTopBar(with: .filter, at: point, closesDropdown: true, name)
+        }
+    }
+
+    @MainActor
+    func testClicksInEmptyTopBarSpaceCloseTheSortDropdown() throws {
+        for (name, point) in [
+            ("between the sort and refresh controls", { (bar: TopBarPoints) in
+                CGPoint(x: bar.sortRefreshGapMidX, y: bar.midY)
+            }),
+            ("trailing inset", { bar in CGPoint(x: bar.trailingInsetMidX, y: bar.midY) }),
+        ] as [(String, (TopBarPoints) -> CGPoint)] {
+            try assertClickInTopBar(with: .sort, at: point, closesDropdown: true, name)
+        }
+    }
+
+    @MainActor
+    func testClickInTheTopBarLeadingInsetClosesAPullRequestActionsMenu() throws {
+        let controller = try isolatedSignedInMockController()
+        let firstID = try XCTUnwrap(controller.sortedMyPullRequests.first).id
+        try assertClickInTopBar(
+            controller: controller,
+            with: .actions(firstID),
+            at: { CGPoint(x: $0.leadingInsetMidX, y: $0.midY) },
+            closesDropdown: true
+        )
+    }
+
+    @MainActor
+    func testClickingAFilterItemTogglesItAndKeepsTheDropdownOpen() throws {
+        let options = DashboardController.PullRequestFilterOption.allCases
+        for index in [1, options.count - 1] {
+            let controller = try isolatedSignedInMockController()
+            let option = options[index]
+            XCTAssertFalse(controller.selectedPullRequestFilters.contains(option))
+            try assertClickInTopBar(
+                controller: controller,
+                with: .filter,
+                at: { $0.filterItem(index) },
+                closesDropdown: false,
+                "\(option)"
+            )
+            XCTAssertEqual(controller.selectedPullRequestFilters, [option])
+        }
+    }
+
+    @MainActor
+    func testClickOnTheFilterDropdownPaddingKeepsItOpen() throws {
+        let controller = try isolatedSignedInMockController()
+        let filters = controller.selectedPullRequestFilters
+        // The padding below the last item lies over the PR list.
+        try assertClickInTopBar(
+            controller: controller,
+            with: .filter,
+            at: { $0.filterDropdownBottomPadding },
+            closesDropdown: false
+        )
+        XCTAssertEqual(controller.selectedPullRequestFilters, filters)
+    }
+
+    @MainActor
+    func testClickingASortItemSetsTheSortAndClosesTheDropdown() throws {
+        let controller = try isolatedSignedInMockController()
+        let options = DashboardController.PullRequestSortOption.allCases
+        let index = try XCTUnwrap(options.firstIndex { $0 != controller.pullRequestSortOption })
+        try assertClickInTopBar(controller: controller, with: .sort, at: { $0.sortItem(index) }, closesDropdown: true)
+        XCTAssertEqual(controller.pullRequestSortOption, options[index])
+    }
+
+    @MainActor
+    func testClickingTheSortDirectionFlipsItAndKeepsTheSortDropdownOpen() throws {
+        let controller = try isolatedSignedInMockController()
+        let direction = controller.pullRequestSortDirection
+        try assertClickInTopBar(
+            controller: controller,
+            with: .sort,
+            at: { CGPoint(x: $0.sortDirection.midX, y: $0.midY) },
+            closesDropdown: false
+        )
+        XCTAssertEqual(controller.pullRequestSortDirection, direction.toggled)
+    }
+
+    @MainActor
+    func testClickingRefreshWithADropdownOpenRefreshesAndClosesIt() throws {
+        let controller = try isolatedSignedInMockController()
+        var startedRefresh = false
+        let observation = controller.$isRefreshing.sink { if $0 { startedRefresh = true } }
+        defer { observation.cancel() }
+        try assertClickInTopBar(
+            controller: controller,
+            with: .filter,
+            at: { CGPoint(x: $0.refreshControlMidX, y: $0.midY) },
+            closesDropdown: true
+        )
+        XCTAssertTrue(startedRefresh)
+    }
+
+    @MainActor
+    func testClickingAnotherTabWithADropdownOpenSwitchesTabsAndClosesIt() throws {
+        let controller = try isolatedSignedInMockController()
+        try assertClickInTopBar(
+            controller: controller,
+            with: .sort,
+            at: { CGPoint(x: $0.requestedTabMidX, y: $0.midY) },
+            closesDropdown: true
+        )
+        XCTAssertEqual(controller.selectedTab, .reviewRequests)
+    }
+
+    @MainActor
+    func testClickingTheSortControlWithTheFilterDropdownOpenSwitchesToTheSortDropdown() throws {
+        let controller = try isolatedSignedInMockController()
+        let (host, size) = hostMenuRoot(
+            controller: controller,
+            tooltips: MenuTooltipController(),
+            initialDropdown: .filter
+        )
+        defer { host.close() }
+        let bar = try TopBarPoints(host: host, size: size, controller: controller)
+
+        try host.click(at: CGPoint(x: bar.sortMenuMidX, y: bar.midY))
+        try assertDropdown(in: host, isOpen: true)
+
+        // Only the sort dropdown has an item at this point, and choosing it closes the dropdown.
+        let options = DashboardController.PullRequestSortOption.allCases
+        let index = try XCTUnwrap(options.firstIndex { $0 != controller.pullRequestSortOption })
+        try host.click(at: bar.sortItem(index))
+        XCTAssertEqual(controller.pullRequestSortOption, options[index])
+        try assertDropdown(in: host, isOpen: false)
+    }
+
+    @MainActor
+    func testClickingTheFilterButtonWithTheSortDropdownOpenSwitchesToTheFilterDropdown() throws {
+        let controller = try isolatedSignedInMockController()
+        let (host, size) = hostMenuRoot(
+            controller: controller,
+            tooltips: MenuTooltipController(),
+            initialDropdown: .sort
+        )
+        defer { host.close() }
+        let bar = try TopBarPoints(host: host, size: size, controller: controller)
+
+        try host.click(at: CGPoint(x: bar.filterButton.midX, y: bar.midY))
+        try assertDropdown(in: host, isOpen: true)
+
+        // Only the filter dropdown has an item at this point, and toggling it keeps the dropdown open.
+        let option = DashboardController.PullRequestFilterOption.allCases[1]
+        try host.click(at: bar.filterItem(1))
+        XCTAssertEqual(controller.selectedPullRequestFilters, [option])
+        try assertDropdown(in: host, isOpen: true)
+    }
+
+    /// Checks that every outside-click catcher in the hosted menu reports a dropdown open, or every one reports none.
+    @MainActor
+    private func assertDropdown(
+        in host: OffScreenHost,
+        isOpen: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let catchers = outsideClickCatchers(in: try XCTUnwrap(host.window.contentView))
+        XCTAssertFalse(catchers.isEmpty, file: file, line: line)
+        XCTAssertTrue(catchers.allSatisfy { $0.isActive == isOpen }, "open: \(isOpen)", file: file, line: line)
+        // A dropdown item click that misses lands on the PR list and could reach a PR card.
+        XCTAssertEqual(browserOpens.urls, [], "opened a PR", file: file, line: line)
+    }
+
+    /// A signed-in mock controller whose filter and sort choices do not persist past the test, and whose PR opens
+    /// land in `browserOpens`.
+    @MainActor
+    private func isolatedSignedInMockController() throws -> DashboardController {
+        let controller = signedInMockController(
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            browserOpens: browserOpens
+        )
+        controller.selectedTab = .myPRs
+        return controller
+    }
+
+    /// Hosts the menu on the My PRs tab with `dropdown` open, clicks the point `at` picks, and checks whether every
+    /// outside-click catcher then reports the dropdown closed or open.
+    @MainActor
+    private func assertClickInTopBar(
+        controller: DashboardController? = nil,
+        with dropdown: PullRequestMenuDropdown,
+        at point: (TopBarPoints) -> CGPoint,
+        closesDropdown: Bool,
+        _ message: String = "",
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let controller = try controller ?? isolatedSignedInMockController()
+        let (host, size) = hostMenuRoot(
+            controller: controller,
+            tooltips: MenuTooltipController(),
+            initialDropdown: dropdown
+        )
+        defer { host.close() }
+        let openCatchers = outsideClickCatchers(in: try XCTUnwrap(host.window.contentView))
+        XCTAssertFalse(openCatchers.isEmpty, file: file, line: line)
+        XCTAssertTrue(openCatchers.allSatisfy(\.isActive), "opened \(message)", file: file, line: line)
+
+        try host.click(at: point(try TopBarPoints(host: host, size: size, controller: controller)))
+
+        // Dropdown items and padding lie over the PR list, so a click that misses them could reach a PR card.
+        XCTAssertEqual(browserOpens.urls, [], "opened \(message)", file: file, line: line)
+        // Judge by the catchers present after the click: a tab switch rebuilds the content and its catcher.
+        let catchers = outsideClickCatchers(in: try XCTUnwrap(host.window.contentView))
+        XCTAssertFalse(catchers.isEmpty, file: file, line: line)
+        if closesDropdown {
+            XCTAssertTrue(catchers.allSatisfy { !$0.isActive }, "closed \(message)", file: file, line: line)
+        } else {
+            XCTAssertTrue(catchers.allSatisfy(\.isActive), "still open \(message)", file: file, line: line)
+        }
+    }
+
+    /// Every outside-click catcher in the hosted menu. They all read the same dropdown state.
+    @MainActor
+    private func outsideClickCatchers(in view: NSView) -> [DropdownOutsideClickNSView] {
+        view.subviews.flatMap { subview in
+            [subview as? DropdownOutsideClickNSView].compactMap { $0 } + outsideClickCatchers(in: subview)
+        }
     }
 
     // MARK: - Stack control and card clicks
@@ -2785,12 +3032,22 @@ final class MenuViewTests: XCTestCase {
     precondition(DashboardController.filteredReviewRequests(reviewRequests, by: [.all, .draft]).map(\.id) == ["draft-direct", "assigned-draft"])
 }()
 
+/// Records the URLs a controller would open in the browser, so hosted clicks never open a real one.
+private final class BrowserOpenRecorder {
+    var urls: [URL] = []
+}
+
 @MainActor
-private func signedInMockController() -> DashboardController {
+private func signedInMockController(
+    preferencesStore: PreferencesStore = PreferencesStore(),
+    browserOpens: BrowserOpenRecorder = BrowserOpenRecorder()
+) -> DashboardController {
     let controller = DashboardController(
         tokenStore: InMemoryTokenStore(),
+        preferencesStore: preferencesStore,
         launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-        automaticRefreshInterval: 0
+        automaticRefreshInterval: 0,
+        urlOpener: { browserOpens.urls.append($0) }
     )
     waitUntil(timeout: 1.0) {
         controller.state.authStatus == .signedIn
@@ -2891,4 +3148,109 @@ extension StackGroup {
             if case .context(let entry) = member { StackMemberBadge.badges(for: entry) } else { nil }
         }
     }
+}
+
+/// Window points in the hosted menu's top bar, from `MenuMetrics.standard`. Window coordinates have their origin at the
+/// bottom left, and the top bar is the top `topBar.height` points of the panel. The filter and sort controls move with
+/// their title widths, so their frames come from the accessibility tree, as VoiceOver sees them.
+@MainActor
+private struct TopBarPoints {
+    let size: CGSize
+    let filterButton: CGRect
+    let sortDirection: CGRect
+    private let metrics = MenuMetrics.standard
+
+    init(host: OffScreenHost, size: CGSize, controller: DashboardController) throws {
+        self.size = size
+        filterButton = try accessibilityButtonFrame(labeled: "Filter pull requests", in: host)
+        sortDirection = try accessibilityButtonFrame(
+            labeled: controller.pullRequestSortOption.directionHelp(for: controller.pullRequestSortDirection),
+            in: host
+        )
+    }
+
+    var midY: CGFloat { size.height - metrics.topBar.height / 2 }
+    var aboveControlsY: CGFloat { (size.height + controlsTop) / 2 }
+    var belowControlsY: CGFloat { (size.height - metrics.topBar.height + controlsBottom) / 2 }
+    private var controlsTop: CGFloat { midY + metrics.controls.height / 2 }
+    private var controlsBottom: CGFloat { midY - metrics.controls.height / 2 }
+
+    var leadingInsetMidX: CGFloat { metrics.topBar.leadingInset / 2 }
+    var tabSwitcherTrailing: CGFloat {
+        metrics.topBar.leadingInset + metrics.tabSwitcher.leadingInset + metrics.tabSwitcher.width
+    }
+    /// Requested is the last tab segment.
+    var requestedTabMidX: CGFloat { tabSwitcherTrailing - metrics.tabSwitcher.textSegmentWidth / 2 }
+    /// The sort control starts with its direction part.
+    var filterSortGapMidX: CGFloat { (filterButton.maxX + sortDirection.minX) / 2 }
+    var sortControlMidX: CGFloat { (sortDirection.minX + sortControlTrailing) / 2 }
+    /// The sort control's menu part follows its direction part and a one point divider.
+    var sortMenuMidX: CGFloat { (sortDirection.maxX + 1 + sortControlTrailing) / 2 }
+    var sortRefreshGapMidX: CGFloat { (sortControlTrailing + refreshControlLeading) / 2 }
+    var refreshControlMidX: CGFloat { refreshControlLeading + metrics.topBar.refreshStatusWidth / 2 }
+    var trailingInsetMidX: CGFloat { size.width - metrics.topBar.trailingInset / 2 }
+    private var refreshControlLeading: CGFloat {
+        size.width - metrics.topBar.trailingInset - metrics.topBar.refreshStatusWidth
+    }
+    private var sortControlTrailing: CGFloat { refreshControlLeading - metrics.topBar.headerControlsTrailingSpacing }
+
+    func filterItem(_ index: Int) -> CGPoint {
+        dropdownItem(index, trailing: filterButton.maxX, width: metrics.dropdown.authoredFilterWidth)
+    }
+
+    func sortItem(_ index: Int) -> CGPoint {
+        dropdownItem(index, trailing: sortControlTrailing, width: metrics.dropdown.sortWidth)
+    }
+
+    var filterDropdownBottomPadding: CGPoint {
+        let lastIndex = DashboardController.PullRequestFilterOption.allCases.count - 1
+        let lastItemBottom = dropdownItemTop(lastIndex) - metrics.dropdown.itemHeight
+        return CGPoint(
+            x: filterButton.maxX - metrics.dropdown.authoredFilterWidth / 2,
+            y: lastItemBottom - metrics.dropdown.verticalPadding / 2
+        )
+    }
+
+    // A dropdown hangs from its control's top trailing corner, `dropdownOffset` down.
+    private func dropdownItem(_ index: Int, trailing: CGFloat, width: CGFloat) -> CGPoint {
+        CGPoint(x: trailing - width / 2, y: dropdownItemTop(index) - metrics.dropdown.itemHeight / 2)
+    }
+
+    private func dropdownItemTop(_ index: Int) -> CGFloat {
+        let dropdown = metrics.dropdown
+        return controlsTop - metrics.dropdownOffset - dropdown.verticalPadding
+            - CGFloat(index) * (dropdown.itemHeight + dropdown.itemSpacing)
+    }
+}
+
+/// The window frame of the one accessibility button with this label in the hosted view, found through the in-process
+/// NSAccessibility protocol, so it needs no Accessibility permission.
+@MainActor
+private func accessibilityButtonFrame(labeled label: String, in host: OffScreenHost) throws -> CGRect {
+    // SwiftUI builds its accessibility tree only once an assistive client asks for it.
+    let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+    NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
+    defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhancedInterface) }
+    let deadline = Date().addingTimeInterval(2)
+    var matches: [NSAccessibilityElementProtocol] = []
+    repeat {
+        host.settle()
+        var queue: [AnyObject] = [try XCTUnwrap(host.window.contentView)]
+        var visited: Set<ObjectIdentifier> = []
+        matches = []
+        var index = 0
+        while index < queue.count, visited.count < 5_000 {
+            let object = queue[index]
+            index += 1
+            guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+            if object.accessibilityLabel?() == label, object.accessibilityRole?() == .button,
+               let element = object as? NSAccessibilityElementProtocol {
+                matches.append(element)
+            }
+            queue += ((object.accessibilityChildren?() ?? nil) ?? []).map { $0 as AnyObject }
+        }
+    } while matches.isEmpty && Date() < deadline
+    XCTAssertEqual(matches.count, 1, "buttons labeled \(label)")
+    let screenFrame = try XCTUnwrap(matches.first).accessibilityFrame()
+    return host.window.convertFromScreen(screenFrame)
 }
