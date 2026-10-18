@@ -583,24 +583,28 @@ struct MenuRootView: View {
                 PullRequestHeaderControls(controller: controller, mode: mode, dropdownState: $dropdownState)
                     .padding(.trailing, metrics.topBar.headerControlsTrailingSpacing)
             }
-            RefreshStatusControl(
-                indicatorColor: controller.hasAttention ? .red : .green,
-                isRefreshing: controller.isRefreshing,
-                updatedAt: controller.state.syncedAt,
-                errorMessage: controller.refreshErrorMessage,
-                action: {
-                    dropdownState.dismiss()
-                    controller.refresh()
-                },
-                isRefreshEnabled: controller.state.authStatus == .signedIn,
-                help: "Refresh",
-                accessibilityLabel: "Refresh",
-                timestampPrefix: "",
-                width: metrics.topBar.refreshStatusWidth,
-                // Same height as the filter and sort controls beside it, so the top bar lines up.
-                displayMode: .horizontalButton(height: metrics.controls.height),
-                showsIndicator: false
-            )
+            // Redrawn where pacing ends on its own, so a paused or stretched state ends at the reset.
+            TimelineView(.explicit(pacingScheduleDates)) { _ in
+                RefreshStatusControl(
+                    indicatorColor: controller.hasAttention ? .red : .green,
+                    isRefreshing: controller.isRefreshing,
+                    updatedAt: controller.state.syncedAt,
+                    errorMessage: controller.refreshErrorMessage,
+                    action: {
+                        dropdownState.dismiss()
+                        controller.refresh()
+                    },
+                    isRefreshEnabled: controller.state.authStatus == .signedIn,
+                    help: "Refresh",
+                    accessibilityLabel: "Refresh",
+                    timestampPrefix: "",
+                    width: metrics.topBar.refreshStatusWidth,
+                    // Same height as the filter and sort controls beside it, so the top bar lines up.
+                    displayMode: .horizontalButton(height: metrics.controls.height),
+                    showsIndicator: false,
+                    pacing: controller.pacingDisplay(at: controller.currentDate())
+                )
+            }
         }
         .padding(.leading, metrics.topBar.leadingInset)
         .padding(.trailing, metrics.topBar.trailingInset)
@@ -612,6 +616,11 @@ struct MenuRootView: View {
                 dismiss: { dropdownState.dismiss() }
             )
         }
+    }
+
+    private var pacingScheduleDates: [Date] {
+        let now = controller.currentDate()
+        return [now] + controller.pacingDisplay(at: now).changeDates(after: now)
     }
 
     private var activePullRequestMode: PullRequestListView.Mode? {
@@ -815,6 +824,8 @@ struct RefreshStatusControl: View {
     var width: CGFloat?
     var displayMode = DisplayMode.vertical
     var showsIndicator = true
+    /// The menu top bar's pacing. The Sources and Teams panes leave it nil.
+    var pacing: PacingDisplay? = nil
 
     @Environment(\.menuMetrics) private var metrics
     @Environment(\.colorScheme) private var colorScheme
@@ -969,7 +980,8 @@ struct RefreshStatusControl: View {
             errorMessage: errorMessage,
             lastUpdatedText: compactUpdatedText,
             help: help,
-            accessibilityLabel: accessibilityLabel
+            accessibilityLabel: accessibilityLabel,
+            pacing: pacing
         )
     }
 }
@@ -1007,6 +1019,8 @@ struct RefreshStatusPresentation: Equatable {
         case idle
         case refreshing
         case failed
+        /// Automatic refresh is paused to stay within the GitHub API budget.
+        case paused
     }
 
     let state: State
@@ -1019,7 +1033,8 @@ struct RefreshStatusPresentation: Equatable {
         errorMessage: String?,
         lastUpdatedText: String,
         help: String,
-        accessibilityLabel: String
+        accessibilityLabel: String,
+        pacing: PacingDisplay? = nil
     ) {
         let failure = errorMessage.flatMap { $0.isEmpty ? nil : $0 }
         if isRefreshing {
@@ -1035,6 +1050,18 @@ struct RefreshStatusPresentation: Equatable {
                 ? "No successful refresh yet."
                 : "Last successful refresh at \(lastUpdatedText)."
             self.accessibilityLabel = "\(accessibilityLabel) failed. \(failure) \(lastSuccess) Activate to retry."
+        } else if case .paused(let until) = pacing?.pacing {
+            state = .paused
+            symbolName = "pause.circle"
+            let text = GitHubBudgetCopy.menuPaused(until: until, canRefreshManually: pacing?.canRefreshManually == true)
+            self.help = text
+            self.accessibilityLabel = text
+        } else if case .stretched(let interval, let until) = pacing?.pacing {
+            state = .idle
+            symbolName = "arrow.clockwise"
+            let text = GitHubBudgetCopy.menuStretched(interval: interval, until: until)
+            self.help = "\(help). \(text)"
+            self.accessibilityLabel = "\(accessibilityLabel). \(text)"
         } else {
             state = .idle
             symbolName = "arrow.clockwise"

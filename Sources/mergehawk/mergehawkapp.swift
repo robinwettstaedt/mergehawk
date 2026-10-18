@@ -27,6 +27,8 @@ struct mergehawkApp {
 @MainActor
 final class SettingsWindowState: ObservableObject {
     @Published var selection: SettingsTab
+    /// Whether the Settings window is open. The General pane reads the budget only while it is.
+    @Published var isOpen = false
 
     init(selection: SettingsTab = .general) {
         self.selection = selection
@@ -44,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let softwareUpdateController = SoftwareUpdateController.disabled()
     private var statusBarController: StatusBarController?
     private(set) var settingsWindow: NSWindow?
+    private var settingsWindowCloseObserver: NSObjectProtocol?
     var activateApplication: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
     private var verificationMenuWindow: NSWindow?
 
@@ -228,7 +231,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.collectionBehavior = [.moveToActiveSpace]
             window.center()
             settingsWindow = window
+            settingsWindowCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.settingsWindowState.isOpen = false
+                }
+            }
         }
+        settingsWindowState.isOpen = true
 
         window.setContentSize(SettingsTab.defaultWindowSize)
         if presentation == .background {

@@ -1,5 +1,6 @@
 @testable import mergehawk
 import AppKit
+import mergehawkcore
 import XCTest
 
 final class SettingsWindowTests: XCTestCase {
@@ -88,6 +89,71 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertFalse(window.isMiniaturized)
         XCTAssertTrue(delegate.settingsWindow === window)
         XCTAssertEqual(delegate.settingsWindowState.selection, .about)
+    }
+
+    @MainActor
+    func testSettingsWindowIsOpenFromShowUntilClose() throws {
+        let delegate = makeDelegate()
+        XCTAssertFalse(delegate.settingsWindowState.isOpen)
+        delegate.showSettingsWindow()
+        let window = try XCTUnwrap(delegate.settingsWindow)
+        XCTAssertTrue(delegate.settingsWindowState.isOpen)
+
+        window.close()
+        XCTAssertFalse(delegate.settingsWindowState.isOpen)
+
+        delegate.showSettingsWindow(selection: .general)
+        XCTAssertTrue(delegate.settingsWindow === window)
+        XCTAssertTrue(delegate.settingsWindowState.isOpen)
+        window.close()
+        XCTAssertFalse(delegate.settingsWindowState.isOpen)
+    }
+
+    @MainActor
+    func testSettingsReadoutReadsTheBudgetWhenGeneralIsShown() throws {
+        let clock = ControllerTestClock(Date(timeIntervalSince1970: 1_800_000_000))
+        let sleeper = SuspendingTestSleep()
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: clock.now) }
+        let delegate = AppDelegate()
+        delegate.controller = makeBudgetController(
+            self,
+            provider: provider,
+            clock: clock,
+            sleep: { try await sleeper.sleep($0) }
+        )
+        delegate.activateApplication = {}
+        delegate.configureSettingsRouting()
+        defer { delegate.settingsWindow?.close() }
+        waitUntil { provider.fetchCount == 1 && !delegate.controller.isRefreshing }
+        XCTAssertEqual(delegate.controller.state.authStatus, .signedIn)
+        XCTAssertEqual(provider.budgetReadCount, 1)
+
+        // Opening on General reads once, then waits for the reset.
+        delegate.controller.showSettings(selection: .general)
+        let window = try XCTUnwrap(delegate.settingsWindow)
+        waitUntil { provider.budgetReadCount == 2 && sleeper.waitingCount == 1 }
+        XCTAssertEqual(provider.budgetReadCount, 2)
+        XCTAssertEqual(sleeper.waitingCount, 1)
+
+        // Another tab cancels the readout without a read.
+        delegate.settingsWindowState.selection = .about
+        waitUntil { sleeper.cancelledCount == 1 }
+        XCTAssertEqual(sleeper.cancelledCount, 1)
+        XCTAssertEqual(provider.budgetReadCount, 2)
+
+        // Returning to General reads once more.
+        delegate.settingsWindowState.selection = .general
+        waitUntil { provider.budgetReadCount == 3 && sleeper.waitingCount == 1 }
+        XCTAssertEqual(provider.budgetReadCount, 3)
+        XCTAssertEqual(sleeper.waitingCount, 1)
+
+        // Closing the window cancels the readout.
+        window.close()
+        waitUntil { sleeper.cancelledCount == 2 }
+        XCTAssertEqual(sleeper.cancelledCount, 2)
+        XCTAssertEqual(sleeper.waitingCount, 0)
+        XCTAssertEqual(provider.budgetReadCount, 3)
+        XCTAssertEqual(provider.fetchCount, 1)
     }
 
     @MainActor

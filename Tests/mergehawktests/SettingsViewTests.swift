@@ -587,6 +587,59 @@ final class SettingsViewTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testBudgetSectionSitsBelowRefreshIntervalWhenSignedIn() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: .standard)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .general)
+        defer { host.close() }
+
+        // The 2 min segment stands for the Refresh Interval picker and Default for the Menu Size picker.
+        let interval = try XCTUnwrap(accessibilityFrame(labeled: "2 min", in: host))
+        let budget = try XCTUnwrap(accessibilityFrame(labeled: GitHubBudgetCopy.title, in: host))
+        let menuSize = try XCTUnwrap(accessibilityFrame(labeled: "Default", in: host))
+        // Screen coordinates grow upward, so a lower row has a smaller y.
+        XCTAssertLessThan(budget.maxY, interval.minY)
+        XCTAssertGreaterThan(budget.minY, menuSize.maxY)
+    }
+
+    @MainActor
+    func testBudgetSectionIsAbsentWhenSignedOut() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: nil)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .general)
+        defer { host.close() }
+
+        XCTAssertNotNil(accessibilityFrame(labeled: "2 min", in: host))
+        XCTAssertNil(accessibilityFrame(labeled: GitHubBudgetCopy.title, in: host, timeout: 0.3))
+    }
+
+    /// The screen frame of the first accessibility element with this label, or nil once the timeout passes.
+    @MainActor
+    private func accessibilityFrame(labeled label: String, in host: OffScreenHost, timeout: TimeInterval = 2) -> CGRect? {
+        let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhancedInterface) }
+        guard let root = host.window.contentView else { return nil }
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            host.settle()
+            var queue: [AnyObject] = [root]
+            var visited: Set<ObjectIdentifier> = []
+            var index = 0
+            while index < queue.count, visited.count < 5_000 {
+                let object = queue[index]
+                index += 1
+                guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+                if object.accessibilityLabel?() == label, let frame = object.accessibilityFrame?() {
+                    return frame
+                }
+                queue += ((object.accessibilityChildren?() ?? nil) ?? []).map { $0 as AnyObject }
+            }
+        } while Date() < deadline
+        return nil
+    }
+
     /// A PAT controller whose provider records the reusable teams of each refresh, after its first refresh.
     @MainActor
     private func makeTeamReadingController(

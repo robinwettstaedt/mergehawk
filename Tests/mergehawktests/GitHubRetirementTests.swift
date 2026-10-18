@@ -62,6 +62,7 @@ final class GitHubRetirementTests: XCTestCase {
                 return Self.response(Self.json([]), request)
             }
             let query = Self.graphQLQuery(request)
+            if query == GitHubClient.budgetReadQuery { return Self.budgetReadResponse(request) }
             if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
@@ -655,6 +656,7 @@ final class GitHubRetirementTests: XCTestCase {
                 )
             }
             let query = Self.graphQLQuery(request)
+            if query == GitHubClient.budgetReadQuery { return Self.budgetReadResponse(request) }
             if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
             if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
@@ -905,6 +907,16 @@ final class GitHubRetirementTests: XCTestCase {
             data.append(buffer, count: count)
         }
         return data
+    }
+
+    /// Answers the budget read that starts every controller refresh with a budget that keeps pacing normal.
+    private static func budgetReadResponse(_ request: URLRequest) -> (Data, HTTPURLResponse) {
+        response(json(["data": ["rateLimit": ["limit": 5_000]]]), request, headers: [
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "4900",
+            "X-RateLimit-Used": "100",
+            "X-RateLimit-Reset": "\(Int(Date().addingTimeInterval(3_600).timeIntervalSince1970))"
+        ])
     }
 
     private static func session() -> URLSession {

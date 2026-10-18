@@ -17,6 +17,9 @@ issues, prompts, tests, UI copy, and implementation notes.
 | Update | A provider-derived change MergeHawk notices for a PR, such as a new comment, review, failed CI, or requested changes. |
 | Complete PR refresh | One provider read attempt that discovers relevant PRs, fetches their complete paginated activity, reconciles disappeared PRs, and commits one coherent app state. |
 | Sources refresh | A separate repository catalog and GitHub App installation refresh used by the `Sources` settings pane. |
+| GitHub API budget | GitHub's hourly GraphQL points, shared by every tool acting as the user. |
+| Reserve | The 20% of the GitHub API budget that automatic refreshes leave alone. |
+| Pacing | How automatic refreshes run against the GitHub API budget: normal, stretched, or paused. |
 | Mock mode | Fixture-backed app mode without real provider credentials, provider network calls, or macOS credential prompts. |
 | Agent slot | A named isolated installed app bundle used for agent verification and native human review. |
 | UI artifact | A generated visual verification file, usually a screenshot PNG. |
@@ -150,6 +153,31 @@ A repository catalog and GitHub App installation refresh used by the `Sources`
 settings pane. It is scheduled separately from a complete PR refresh, has its own
 loading/error state, and does not gate dashboard publication.
 
+## Budget Terms
+
+### GitHub API Budget
+
+GitHub's hourly GraphQL rate limit for the signed-in user, counted in points
+(5,000 per hour). It is shared by every tool acting as that user: MergeHawk, `gh`,
+coding agents, and IDE plugins. MergeHawk reads it from the `x-ratelimit-*`
+headers of its GraphQL responses and shows it in Settings › General. The REST
+budget is a separate bucket and is not part of it.
+
+### Reserve
+
+The 20% of the GitHub API budget that automatic refreshes leave alone, so `gh`
+and other tools keep working. Manual refreshes may spend it.
+
+### Pacing
+
+How automatic complete PR refreshes run against the GitHub API budget:
+
+- normal: refresh at the user's interval
+- stretched: refresh at a longer interval until the budget resets
+- paused: no automatic refresh until the budget resets
+
+Settings and the menu refresh button show stretched and paused pacing.
+
 ## Agent Workflow Terms
 
 ### Mock Mode
@@ -166,6 +194,7 @@ Mock mode should:
 - suppress real macOS local notification delivery
 - optionally record macOS local notification payloads to artifacts
 - offer deterministic delayed, failed, final-activity, and quiet-retirement refresh scenarios
+- report a fixture GitHub API budget, with scenarios for normal, stretched, and paused pacing
 
 ### Agent Slot
 
