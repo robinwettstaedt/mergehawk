@@ -514,6 +514,42 @@ final class DashboardBudgetTests: XCTestCase {
     }
 
     @MainActor
+    func testBudgetReadoutStartingJustAfterAResetReadsAgainAfterTheResetMargin() async throws {
+        let clock = ControllerTestClock(Self.start)
+        let sleeper = SuspendingTestSleep()
+        let reset = Self.start.addingTimeInterval(3_000)
+        let provider = BudgetGitHubProvider { budgetReading(used: 800, at: clock.now) }
+        let controller = makeBudgetController(self, provider: provider, clock: clock, sleep: { try await sleeper.sleep($0) })
+        await waitForBudgetCondition { provider.fetchCount == 1 && !controller.isRefreshing }
+        // Settings opens 2 s after the reset, and GitHub already answers from the next window.
+        clock.now = reset.addingTimeInterval(2)
+        provider.budgetRead = {
+            GitHubBudgetReading(
+                limit: 5_000, remaining: 4_990, used: 10,
+                resetAt: reset.addingTimeInterval(3_600), receivedAt: clock.now
+            )
+        }
+
+        let readout = Task { await controller.runBudgetReadout() }
+        await waitForBudgetCondition { sleeper.waitingCount == 1 }
+        // Within the reset margin the new window's answers are stray, so the old reading stays.
+        XCTAssertEqual(provider.budgetReadCount, 4)
+        XCTAssertEqual(controller.budgetState.reading?.used, 800)
+        XCTAssertEqual(sleeper.durations, [3])
+
+        clock.now = reset.addingTimeInterval(5)
+        sleeper.releaseNext()
+        await waitForBudgetCondition { sleeper.durations.count == 2 }
+        XCTAssertEqual(provider.budgetReadCount, 5)
+        XCTAssertEqual(controller.budgetState.reading?.used, 10)
+        XCTAssertEqual(controller.budgetState.reading?.resetAt, reset.addingTimeInterval(3_600))
+        XCTAssertEqual(sleeper.durations.last, 3_600)
+
+        readout.cancel()
+        await readout.value
+    }
+
+    @MainActor
     func testRateLimitedReadoutReadSetsTheDeferralButNotTheRefreshError() async throws {
         let clock = ControllerTestClock(Self.start)
         let sleeper = SuspendingTestSleep()

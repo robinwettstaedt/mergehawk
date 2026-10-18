@@ -983,10 +983,10 @@ final class DashboardController: ObservableObject {
         openSettingsWindow?(selection)
     }
 
-    /// Keeps the Settings budget readout current while it is visible, with at most one read per reset window.
-    /// It reads once when it starts, unless a rate-limit deferral is active. After that it reads once more 5 s
-    /// after each reset, and only while the reading's reset is still ahead. It ends when there is no reading,
-    /// a read fails, or GitHub has not reset yet. Refreshes keep the readout current from then on.
+    /// Keeps the Settings budget readout current while it is visible. It reads once when it starts, unless a
+    /// rate-limit deferral is active. After that it reads once more 5 s after the reading's reset, as long as that
+    /// is still ahead, so a readout that starts in the 5 s after a reset reads again once they pass. It ends when
+    /// there is no reading, a read fails, or GitHub has not reset yet. Refreshes keep the readout current from then on.
     func runBudgetReadout() async {
         var readsNow = true
         while !Task.isCancelled {
@@ -1017,9 +1017,13 @@ final class DashboardController: ObservableObject {
                 }
             }
             let date = now()
-            guard let resetAt = budgetState.usableReading(at: date)?.resetAt, resetAt > date else { return }
+            guard let readAt = budgetState.reading?.resetAt.addingTimeInterval(RefreshPacingPolicy.resetMargin),
+                  readAt > date
+            else {
+                return
+            }
             do {
-                try await sleep(resetAt.addingTimeInterval(RefreshPacingPolicy.resetMargin).timeIntervalSince(date))
+                try await sleep(readAt.timeIntervalSince(date))
             } catch {
                 return
             }
