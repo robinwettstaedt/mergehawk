@@ -1229,7 +1229,9 @@ private struct NotificationListView: View {
             }
             .padding(.horizontal, list.headerHorizontalPadding)
             .padding(.top, list.headerTopPadding)
-            .padding(.bottom, list.headerBottomPadding)
+            // Above the list, the gap belongs to the scroll area instead, so the first row's read button and its
+            // shadow, which reach above the card, aren't clipped. The first card stays at `firstRowTop`.
+            .padding(.bottom, showsList ? 0 : list.headerBottomPadding)
 
             if controller.showsGitHubAppRepositoryAccessPrompt {
                 GitHubAppRepositoryAccessPrompt(controller: controller)
@@ -1249,12 +1251,16 @@ private struct NotificationListView: View {
                     // The PR lists' margins and scroller, so a notification row is exactly as wide as a PR card.
                     .padding(.leading, metrics.prList.horizontalPadding)
                     .padding(.trailing, metrics.prList.trailingPadding)
-                    .padding(.top, list.topPadding)
+                    .padding(.top, list.headerBottomPadding + list.topPadding)
                     .padding(.bottom, list.bottomPadding)
                     .background(PullRequestListScrollerStyle())
                 }
             }
         }
+    }
+
+    private var showsList: Bool {
+        !controller.showsGitHubAppRepositoryAccessPrompt && !controller.visiblePullRequestNotifications.isEmpty
     }
 }
 
@@ -2175,6 +2181,7 @@ struct PullRequestNotificationRow: View {
                 Button(action: onToggleRead) {
                     readToggleSymbol
                         .font(metrics.type.markReadSymbol.font)
+                        .offset(y: -row.markReadSymbolRaise)
                         .frame(width: row.markReadButtonSize, height: row.markReadButtonSize)
                         .background(.regularMaterial, in: Circle())
                         .overlay(

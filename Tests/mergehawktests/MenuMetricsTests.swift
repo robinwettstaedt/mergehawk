@@ -90,6 +90,18 @@ final class MenuMetricsTests: XCTestCase {
         }
     }
 
+    func testNotificationScrollAreaHasRoomForTheFirstRowReadButtonAndItsShadow() {
+        for factor in factors {
+            let scaled = MenuMetrics(scale: factor)
+            let list = scaled.notificationList
+            let row = scaled.notificationRow
+            // The list's scroll area starts right below the header; the button reaches above the first card.
+            let roomAboveFirstCard = list.headerBottomPadding + list.topPadding
+            let buttonReach = row.markReadOffset + row.markReadShadowRadius - row.markReadShadowOffsetY
+            XCTAssertGreaterThanOrEqual(roomAboveFirstCard, buttonReach, "at \(factor)")
+        }
+    }
+
     func testDerivedMeasurementsFollowTheirScaledParts() {
         for factor in factors {
             let scaled = MenuMetrics(scale: factor)

@@ -251,6 +251,9 @@ struct MenuMetrics: Equatable {
         var markReadOffset: CGFloat
         var markReadShadowRadius: CGFloat
         var markReadShadowOffsetY: CGFloat
+        /// Raises the button's envelope glyph so it looks centered: `envelope.open` carries its weight in the body
+        /// below the thin flap, and `envelope.badge`'s body sits below its centered bounds because of the badge dot.
+        var markReadSymbolRaise: CGFloat
     }
 
     struct PRRow: Equatable {
@@ -596,7 +599,8 @@ struct MenuMetrics: Equatable {
             markReadButtonSize: s(24),
             markReadOffset: s(6),
             markReadShadowRadius: s(4),
-            markReadShadowOffsetY: s(1)
+            markReadShadowOffsetY: s(1),
+            markReadSymbolRaise: s(1)
         )
         prRow = PRRow(
             identityItemSpacing: s(4),
