@@ -1529,7 +1529,7 @@ final class MenuViewTests: XCTestCase {
         for factor in Self.layoutFactors {
             let metrics = MenuMetrics(scale: factor)
             let card = memberCards(title: "Short title", draft: false)[0].1
-            let row = PullRequestNotificationRow(notification: notification, action: {}, onMarkRead: {})
+            let row = PullRequestNotificationRow(notification: notification, action: {}, onToggleRead: {})
             XCTAssertEqual(
                 exactHeight(row, width: 800 * factor, metrics: metrics),
                 exactHeight(card, width: 800 * factor, metrics: metrics),
@@ -1537,6 +1537,19 @@ final class MenuViewTests: XCTestCase {
                 "at \(factor)"
             )
         }
+    }
+
+    func testNotificationRowButtonFollowsReadState() {
+        XCTAssertEqual(NotificationReadPresentation.rowSymbolName(isRead: false), "envelope.open")
+        XCTAssertEqual(
+            NotificationReadPresentation.rowAccessibilityLabel(isRead: false),
+            "Mark PR notification as read"
+        )
+        XCTAssertEqual(NotificationReadPresentation.rowSymbolName(isRead: true), "envelope.badge")
+        XCTAssertEqual(
+            NotificationReadPresentation.rowAccessibilityLabel(isRead: true),
+            "Mark PR notification as unread"
+        )
     }
 
     @MainActor
@@ -2587,7 +2600,6 @@ final class MenuViewTests: XCTestCase {
     precondition(NotificationReadPresentation.symbolName == "envelope.open")
     precondition(NotificationReadPresentation.markAllTitle == "Mark all as read")
     precondition(NotificationReadPresentation.markAllHelp == "Mark all notifications as read")
-    precondition(NotificationReadPresentation.markOneHelp == "Mark as read")
     precondition(NotificationReadPresentation.markPRAccessibilityLabel == "Mark PR notification as read")
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests or assigned PRs.")

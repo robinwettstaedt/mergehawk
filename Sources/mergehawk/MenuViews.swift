@@ -32,10 +32,19 @@ struct NotificationTimestampPresentation {
 
 struct NotificationReadPresentation {
     static let symbolName = "envelope.open"
+    static let markUnreadSymbolName = "envelope.badge"
     static let markAllTitle = "Mark all as read"
     static let markAllHelp = "Mark all notifications as read"
-    static let markOneHelp = "Mark as read"
     static let markPRAccessibilityLabel = "Mark PR notification as read"
+    static let markPRUnreadAccessibilityLabel = "Mark PR notification as unread"
+
+    static func rowSymbolName(isRead: Bool) -> String {
+        isRead ? markUnreadSymbolName : symbolName
+    }
+
+    static func rowAccessibilityLabel(isRead: Bool) -> String {
+        isRead ? markPRUnreadAccessibilityLabel : markPRAccessibilityLabel
+    }
 }
 
 enum GitHubAppRepositoryAccessCopy {
@@ -1220,7 +1229,9 @@ private struct NotificationListView: View {
             }
             .padding(.horizontal, list.headerHorizontalPadding)
             .padding(.top, list.headerTopPadding)
-            .padding(.bottom, list.headerBottomPadding)
+            // Above the list, the gap belongs to the scroll area instead, so the first row's read button and its
+            // shadow, which reach above the card, aren't clipped. The first card stays at `firstRowTop`.
+            .padding(.bottom, showsList ? 0 : list.headerBottomPadding)
 
             if controller.showsGitHubAppRepositoryAccessPrompt {
                 GitHubAppRepositoryAccessPrompt(controller: controller)
@@ -1232,20 +1243,24 @@ private struct NotificationListView: View {
                         ForEach(controller.visiblePullRequestNotifications) { notification in
                             PullRequestNotificationRow(notification: notification) {
                                 controller.openPullRequestNotification(notification)
-                            } onMarkRead: {
-                                controller.markPullRequestNotificationRead(notification)
+                            } onToggleRead: {
+                                controller.togglePullRequestNotificationRead(notification)
                             }
                         }
                     }
                     // The PR lists' margins and scroller, so a notification row is exactly as wide as a PR card.
                     .padding(.leading, metrics.prList.horizontalPadding)
                     .padding(.trailing, metrics.prList.trailingPadding)
-                    .padding(.top, list.topPadding)
+                    .padding(.top, list.headerBottomPadding + list.topPadding)
                     .padding(.bottom, list.bottomPadding)
                     .background(PullRequestListScrollerStyle())
                 }
             }
         }
+    }
+
+    private var showsList: Bool {
+        !controller.showsGitHubAppRepositoryAccessPrompt && !controller.visiblePullRequestNotifications.isEmpty
     }
 }
 
@@ -2115,7 +2130,7 @@ private struct DropdownOptionButton: View {
 struct PullRequestNotificationRow: View {
     let notification: PullRequestNotification
     let action: () -> Void
-    let onMarkRead: () -> Void
+    let onToggleRead: () -> Void
 
     @State private var isHovered = false
     @Environment(\.menuMetrics) private var metrics
@@ -2162,11 +2177,11 @@ struct PullRequestNotificationRow: View {
             }
             .buttonStyle(.plain)
 
-            if isHovered && !notification.read {
-                Button(action: onMarkRead) {
-                    Image(systemName: NotificationReadPresentation.symbolName)
+            if isHovered {
+                Button(action: onToggleRead) {
+                    readToggleSymbol
                         .font(metrics.type.markReadSymbol.font)
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .offset(y: -row.markReadSymbolRaise)
                         .frame(width: row.markReadButtonSize, height: row.markReadButtonSize)
                         .background(.regularMaterial, in: Circle())
                         .overlay(
@@ -2177,10 +2192,23 @@ struct PullRequestNotificationRow: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: -row.markReadOffset, y: -row.markReadOffset)
-                .accessibilityLabel(NotificationReadPresentation.markPRAccessibilityLabel)
+                .accessibilityLabel(NotificationReadPresentation.rowAccessibilityLabel(isRead: notification.read))
             }
         }
         .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private var readToggleSymbol: some View {
+        let image = Image(systemName: NotificationReadPresentation.rowSymbolName(isRead: notification.read))
+        if notification.read {
+            // envelope.badge palette slots: badge dot first, envelope second (confirmed by rendering on macOS 27.0.1).
+            image
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(Color.accentColor, Color(nsColor: .secondaryLabelColor))
+        } else {
+            image.foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        }
     }
 
     private var title: String {

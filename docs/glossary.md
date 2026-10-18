@@ -30,7 +30,7 @@ An app-owned notification item shown inside MergeHawk, currently in the
 
 In-app notifications are derived from provider activity such as new comments,
 new reviews, failed CI, or requested changes. They
-are part of the app state and can be rendered, filtered, marked read, and tested
+are part of the app state and can be rendered, filtered, marked read or unread, and tested
 without using macOS Notification Center.
 
 Use this term when referring to:
@@ -48,7 +48,7 @@ MergeHawk-owned PR-related in-app notification rows shown in `Notifications`.
 
 PR notification history is derived from updates detected by MergeHawk, such as
 new comments, new reviews, failed CI, or requested changes. Rows are retained
-locally, can be marked read, and should still open the original PR even if that
+locally, can be marked read or unread, and should still open the original PR even if that
 PR is no longer in the active dashboard list.
 
 ### macOS Local Notification

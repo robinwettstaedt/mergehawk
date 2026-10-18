@@ -575,6 +575,154 @@ final class AgentModeXCTests: XCTestCase {
         }
     }
 
+    func testTogglingAPRNotificationReadStateChangesOnlyThatRow() async {
+        let suiteName = "mergehawk-toggle-pr-notification-read-test-\(UUID().uuidString)"
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let pullRequest = makePullRequest(id: "PR_1", url: "https://github.com/example/mergehawk/pull/42")
+        let toggled = PullRequestNotification(
+            event: PullRequestEvent(type: .newComment, prId: pullRequest.id),
+            pullRequest: pullRequest,
+            read: true
+        )
+        let sibling = PullRequestNotification(
+            event: PullRequestEvent(type: .ciFailed, prId: pullRequest.id),
+            pullRequest: pullRequest,
+            read: true
+        )
+        var preferencesStore = PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!)
+        preferencesStore.pullRequestNotificationHistory = [toggled, sibling]
+        let seededPreferencesStore = preferencesStore
+        let notificationClient = RecordingNotificationClient()
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: seededPreferencesStore,
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                notificationClient: notificationClient,
+                automaticRefreshInterval: 0
+            )
+        }
+
+        await MainActor.run {
+            @MainActor func row(_ id: PullRequestNotification.ID) -> PullRequestNotification? {
+                controller.visiblePullRequestNotifications.first { $0.id == id }
+            }
+            XCTAssertEqual(controller.attentionCount, 0)
+            XCTAssertFalse(controller.hasAttention)
+            XCTAssertFalse(controller.isUnreadPullRequest(pullRequest))
+
+            controller.togglePullRequestNotificationRead(toggled)
+
+            XCTAssertEqual(row(toggled.id)?.read, false)
+            XCTAssertEqual(row(sibling.id)?.read, true)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 2)
+            XCTAssertEqual(controller.attentionCount, 1)
+            XCTAssertTrue(controller.hasAttention)
+            XCTAssertTrue(controller.isUnreadPullRequest(pullRequest))
+
+            // A double-click delivers the same pre-toggle value twice. The second toggle undoes the first.
+            controller.togglePullRequestNotificationRead(toggled)
+
+            XCTAssertEqual(row(toggled.id)?.read, true)
+            XCTAssertEqual(row(sibling.id)?.read, true)
+            XCTAssertEqual(controller.attentionCount, 0)
+            XCTAssertFalse(controller.hasAttention)
+            XCTAssertFalse(controller.isUnreadPullRequest(pullRequest))
+        }
+        XCTAssertTrue(notificationClient.records.isEmpty)
+    }
+
+    func testPRNotificationMarkedUnreadSurvivesRefreshAndRelaunch() async {
+        let suiteName = "mergehawk-pr-notification-unread-persistence-test-\(UUID().uuidString)"
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+
+        let controller = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+        }
+
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.state.syncedAt != nil
+            }
+        }
+        await MainActor.run {
+            controller.refresh()
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.visiblePullRequestNotifications.count == 3
+            }
+        }
+
+        let unreadId = await MainActor.run { () -> PullRequestNotification.ID in
+            controller.markAllNotificationsRead()
+            XCTAssertEqual(controller.attentionCount, 0)
+            let notification = controller.visiblePullRequestNotifications[0]
+            controller.togglePullRequestNotificationRead(notification)
+            XCTAssertEqual(controller.attentionCount, 1)
+            return notification.id
+        }
+
+        let syncedAtBeforeRefresh = await MainActor.run { () -> Date? in
+            let syncedAt = controller.state.syncedAt
+            controller.refresh()
+            return syncedAt
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                controller.state.syncedAt != syncedAtBeforeRefresh
+            }
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(
+                controller.visiblePullRequestNotifications.first { $0.id == unreadId }?.read,
+                false
+            )
+            XCTAssertEqual(controller.attentionCount, 1)
+        }
+
+        let restoredController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
+                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+        }
+
+        let restoredSyncedAt = await MainActor.run { () -> Date? in
+            XCTAssertEqual(
+                restoredController.visiblePullRequestNotifications.first { $0.id == unreadId }?.read,
+                false
+            )
+            XCTAssertEqual(restoredController.attentionCount, 1)
+            return restoredController.state.syncedAt
+        }
+        await waitUntil(timeout: 1.0) {
+            await MainActor.run {
+                restoredController.state.syncedAt != restoredSyncedAt
+            }
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(
+                restoredController.visiblePullRequestNotifications.first { $0.id == unreadId }?.read,
+                false
+            )
+            XCTAssertEqual(restoredController.attentionCount, 1)
+        }
+    }
+
     func testNotificationTypeFixtureModeSeedsAllMockNotificationKinds() async {
         let suiteName = "mergehawk-notification-type-fixtures-test-\(UUID().uuidString)"
         defer {
