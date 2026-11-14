@@ -40,7 +40,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams", "\(suiteName)-budget-normal", "\(suiteName)-budget-stretched", "\(suiteName)-budget-paused", "\(suiteName)-budget-checking"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-relative-times", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams", "\(suiteName)-budget-normal", "\(suiteName)-budget-stretched", "\(suiteName)-budget-paused", "\(suiteName)-budget-checking"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -616,6 +616,74 @@ final class VisualVerificationXCTests: XCTestCase {
                     to: outputURL.appendingPathComponent("menu-archived-notifications-\(suffix).png")
                 )
             }
+        }
+
+        // PR notification history rows at each age bucket, with one unread in-app notification.
+        let relativeTimesCatalog = SourceCatalog(
+            repositories: [RepositorySource(owner: "example", name: "app")],
+            accountLogin: "rw"
+        )
+        let relativeTimeAges: [(TimeInterval, String)] = [
+            (20, "Fix flaky login test"),
+            (2 * 60, "Add retry to webhook delivery"),
+            (3 * 3_600, "Update onboarding copy"),
+            (5 * 86_400, "Migrate settings storage"),
+            (4 * 2_592_000, "Remove legacy sync path")
+        ]
+        let relativeTimePRs = relativeTimeAges.enumerated().map { index, entry in
+            PullRequest(
+                id: "PR_RELATIVE_\(index)", title: entry.1, number: 120 + index,
+                url: URL(string: "https://github.com/example/app/pull/\(120 + index)")!,
+                repo: "example/app", ciState: .passing, reviewDecision: .reviewRequired,
+                commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
+                mergeable: .mergeable, draft: false,
+                createdAt: Self.visualNow.addingTimeInterval(-200 * 86_400),
+                updatedAt: Self.visualNow.addingTimeInterval(-1800)
+            )
+        }
+        let relativeTimeNotifications = zip(relativeTimeAges, relativeTimePRs).enumerated().map { index, pair in
+            PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: pair.1.id, activityId: "RELATIVE_COMMENT_\(index)"),
+                pullRequest: pair.1,
+                createdAt: Self.visualNow.addingTimeInterval(-pair.0.0),
+                read: index != 1
+            )
+        }
+        let relativeTimesProvider = VisualGitHubProvider(
+            sourceCatalog: relativeTimesCatalog,
+            installations: GitHubAppInstallations(installations: []),
+            pullRequests: relativeTimePRs
+        )
+        let relativeTimesController = try await MainActor.run { () throws -> DashboardController in
+            let store = try Self.seededVisualStore(
+                defaults: UserDefaults(suiteName: "\(suiteName)-relative-times")!,
+                pullRequests: relativeTimePRs,
+                catalog: relativeTimesCatalog,
+                notificationHistory: relativeTimeNotifications
+            )
+            return DashboardController(
+                tokenStore: InMemoryTokenStore(token: "visual-fixture"),
+                preferencesStore: store,
+                launchAtLoginService: InMemoryLaunchAtLoginService(),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                patGitHubClientFactory: { _ in relativeTimesProvider },
+                now: Self.visualClock
+            )
+        }
+        try await waitUntil(context: "relative times fixture startup refresh") {
+            await MainActor.run {
+                (relativeTimesController.state.syncedAt ?? .distantPast) > Date(timeIntervalSince1970: 10)
+                    && !relativeTimesController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            XCTAssertEqual(relativeTimesController.visiblePullRequestNotifications.count, relativeTimeAges.count)
+            relativeTimesController.selectedTab = .notifications
+            try renderMenu(
+                controller: relativeTimesController,
+                to: outputURL.appendingPathComponent("menu-notification-relative-times.png")
+            )
         }
 
         // Saving fails only after startup, so the banner comes from a failed mark-as-read, not a failed refresh.
@@ -1825,6 +1893,7 @@ private struct VisualCaptureSelection {
         "menu-archived-prs-off",
         "menu-archived-notifications-on",
         "menu-archived-notifications-off",
+        "menu-notification-relative-times",
         "settings-general",
         "settings-general-updates",
         "settings-general-budget-normal",

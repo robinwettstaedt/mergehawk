@@ -281,6 +281,58 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
+    func testPRNotificationHistoryRowAgeUsesTheMenuNowFromTheEnvironment() throws {
+        // The PR's update time stays fixed, so only an age computed from the in-app notification's
+        // time against menuNow can make the 3h rows match and the 5h row differ.
+        let decade: TimeInterval = 10 * 31_536_000
+        let early = Date(timeIntervalSince1970: 1_000_000_000)
+        let late = early.addingTimeInterval(decade)
+        let pullRequest = Self.pullRequest(title: "Short title", draft: false)
+        let reference = try renderNotificationRow(pullRequest: pullRequest, menuNow: early, createdAgo: 3 * 3_600)
+        XCTAssertEqual(try renderNotificationRow(pullRequest: pullRequest, menuNow: late, createdAgo: 3 * 3_600), reference)
+        XCTAssertNotEqual(try renderNotificationRow(pullRequest: pullRequest, menuNow: early, createdAgo: 5 * 3_600), reference)
+    }
+
+    @MainActor
+    func testPRNotificationHistoryRowShowsTheInAppNotificationTimeNotThePRUpdateTime() throws {
+        let menuNow = Date(timeIntervalSince1970: 1_800_000_000)
+        func pullRequest(updatedAt: Date) -> PullRequest {
+            PullRequest(
+                id: "PR_NOTIFICATION_AGE", title: "Short title", number: 212,
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/212")!,
+                repo: "mergehawk-labs/mergehawk", ciState: .passing, reviewDecision: .reviewRequired,
+                commentCount: 1, reviewCount: 0, isMine: false, author: "docs-lee",
+                mergeable: .mergeable, draft: false,
+                createdAt: menuNow.addingTimeInterval(-2 * 86_400), updatedAt: updatedAt
+            )
+        }
+        XCTAssertEqual(
+            try renderNotificationRow(
+                pullRequest: pullRequest(updatedAt: menuNow.addingTimeInterval(-60)),
+                menuNow: menuNow, createdAgo: 2 * 60
+            ),
+            try renderNotificationRow(
+                pullRequest: pullRequest(updatedAt: menuNow.addingTimeInterval(-7 * 3_600)),
+                menuNow: menuNow, createdAgo: 2 * 60
+            )
+        )
+    }
+
+    @MainActor
+    private func renderNotificationRow(pullRequest: PullRequest, menuNow: Date, createdAgo: TimeInterval) throws -> Data {
+        let notification = PullRequestNotification(
+            id: "NOTIFICATION_AGE",
+            event: PullRequestEvent(type: .newComment, prId: pullRequest.id),
+            pullRequest: pullRequest,
+            createdAt: menuNow.addingTimeInterval(-createdAgo)
+        )
+        return try renderPNG(
+            PullRequestNotificationRow(notification: notification, action: {}, onToggleRead: {}),
+            menuNow: menuNow
+        )
+    }
+
+    @MainActor
     private func renderAgeRow(menuNow: Date, updatedAgo: TimeInterval) throws -> Data {
         let pullRequest = PullRequest(
             id: "PR_AGE", title: "Age", number: 1,
@@ -295,8 +347,12 @@ final class MenuViewTests: XCTestCase {
             pullRequest: pullRequest, isAttention: false, isPinned: false, isHidden: false,
             toggleHide: {}, togglePin: {}, action: {}
         )
-        .environment(\.menuNow, menuNow)
-        let hostingView = NSHostingView(rootView: row)
+        return try renderPNG(row, menuNow: menuNow)
+    }
+
+    @MainActor
+    private func renderPNG(_ view: some View, menuNow: Date) throws -> Data {
+        let hostingView = NSHostingView(rootView: view.environment(\.menuNow, menuNow))
         hostingView.frame = CGRect(x: 0, y: 0, width: 800, height: 60)
         let window = NSWindow(contentRect: hostingView.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = hostingView
@@ -383,6 +439,31 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(
             PullRequestAgePresentation.label(for: now.addingTimeInterval(-3_600), field: .updated, now: now),
             "Updated 1h ago"
+        )
+    }
+
+    func testPRNotificationHistoryRowAgeIsSpokenWithAgo() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(PullRequestAgePresentation.spokenText(for: now.addingTimeInterval(-59), now: now), "just now")
+        XCTAssertEqual(PullRequestAgePresentation.spokenText(for: now.addingTimeInterval(-120), now: now), "2m ago")
+    }
+
+    func testPRNotificationHistoryRowTooltipShowsTheExactDateAndTime() throws {
+        // 2026-11-14 12:30:00 UTC
+        let date = Date(timeIntervalSince1970: 1_794_659_400)
+        let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let plusTwo = try XCTUnwrap(TimeZone(secondsFromGMT: 2 * 3_600))
+        XCTAssertEqual(
+            NotificationTimestampPresentation.exactText(for: date, locale: Locale(identifier: "en_US"), timeZone: utc),
+            "Nov 14, 2026 at 12:30\u{202F}PM"
+        )
+        XCTAssertEqual(
+            NotificationTimestampPresentation.exactText(for: date, locale: Locale(identifier: "en_US"), timeZone: plusTwo),
+            "Nov 14, 2026 at 2:30\u{202F}PM"
+        )
+        XCTAssertEqual(
+            NotificationTimestampPresentation.exactText(for: date, locale: Locale(identifier: "en_US@hours=h23"), timeZone: utc),
+            "Nov 14, 2026 at 12:30"
         )
     }
 
@@ -2708,10 +2789,6 @@ final class MenuViewTests: XCTestCase {
     precondition(CountSearchPresentation.countLabel(for: 0, singular: "PR", plural: "PRs") == "0 PRs")
     precondition(CountSearchPresentation.countLabel(for: 1, singular: "PR", plural: "PRs") == "1 PR")
     precondition(CountSearchPresentation.countLabel(for: 9, singular: "PR", plural: "PRs") == "9 PRs")
-    precondition(NotificationTimestampPresentation.label(
-        for: Date(timeIntervalSince1970: 60 * 60),
-        timeZone: TimeZone(secondsFromGMT: 0)!
-    ) == "01:00")
     precondition(NotificationReadPresentation.symbolName == "envelope.open")
     precondition(NotificationReadPresentation.markAllTitle == "Mark all as read")
     precondition(NotificationReadPresentation.markAllHelp == "Mark all notifications as read")
