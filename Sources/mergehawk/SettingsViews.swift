@@ -94,6 +94,7 @@ struct SettingsRootView: View {
         case .general:
             GeneralSettingsView(
                 controller: controller,
+                settingsWindowState: settingsWindowState,
                 softwareUpdateController: softwareUpdateController
             )
         case .github:
@@ -231,6 +232,7 @@ private struct SettingsTabBar: View {
 
 private struct GeneralSettingsView: View {
     @ObservedObject var controller: DashboardController
+    @ObservedObject var settingsWindowState: SettingsWindowState
     @ObservedObject var softwareUpdateController: SoftwareUpdateController
 
     var body: some View {
@@ -253,6 +255,7 @@ private struct GeneralSettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            GitHubBudgetSection(controller: controller, settingsWindowState: settingsWindowState)
             Picker("Menu Size", selection: $controller.menuSize) {
                 ForEach(MenuSize.allCases, id: \.self) { size in
                     Text(size.title).tag(size)

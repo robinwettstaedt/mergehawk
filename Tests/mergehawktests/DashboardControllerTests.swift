@@ -72,7 +72,7 @@ final class ReviewTeamGitHubProvider: GitHubProviding {
     }
 }
 
-private final class ControllerTestClock {
+final class ControllerTestClock {
     var now: Date
 
     init(_ now: Date) { self.now = now }

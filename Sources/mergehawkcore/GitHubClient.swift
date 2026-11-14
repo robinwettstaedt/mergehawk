@@ -9,19 +9,45 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
     private let tokenProvider: @Sendable () async throws -> String
     private let session: URLSession
     private let decoder = JSONDecoder()
-    private let readRetryPolicy = GitHubReadRetryPolicy()
+    private let readRetryPolicy: GitHubReadRetryPolicy
+    private let now: @Sendable () -> Date
+    /// Every GraphQL response's budget reading, merged. REST responses use a separate bucket and record nothing.
+    private let budget = GitHubBudgetCollector()
 
-    public init(token: String, session: URLSession = .shared) {
+    static let budgetReadQuery = "query { rateLimit { limit } }"
+
+    public init(
+        token: String,
+        session: URLSession = .shared,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.tokenProvider = { token }
         self.session = session
+        self.now = now
+        self.readRetryPolicy = GitHubReadRetryPolicy(now: now)
     }
 
     public init(
         session: URLSession = .shared,
+        now: @escaping @Sendable () -> Date = { Date() },
         tokenProvider: @escaping @Sendable () async throws -> String
     ) {
         self.tokenProvider = tokenProvider
         self.session = session
+        self.now = now
+        self.readRetryPolicy = GitHubReadRetryPolicy(now: now)
+    }
+
+    public func latestBudgetReading() -> GitHubBudgetReading? {
+        budget.reading
+    }
+
+    /// Sends the free budget read and returns the reading of its own response, which also merges into
+    /// `latestBudgetReading()`. Returns nil when the response carried no budget headers.
+    public func fetchBudgetReading() async throws -> GitHubBudgetReading? {
+        let collector = GitHubBudgetCollector()
+        _ = try await completeGraphQL(query: Self.budgetReadQuery, variables: [:], collector: collector)
+        return collector.reading
     }
 
     public func fetchViewer() async throws -> GitHubAccount {
@@ -46,9 +72,10 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         previousState: PullRequestSyncState?,
         reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
+        let collector = GitHubBudgetCollector()
         let fetcher = GitHubPullRequestFetcher { [weak self] query, variables in
             guard let self else { throw CancellationError() }
-            return try await self.completeGraphQL(query: query, variables: variables)
+            return try await self.completeGraphQL(query: query, variables: variables, collector: collector)
         }
         let viewerTeams: [ViewerTeam]
         if let reusableViewerTeams {
@@ -138,13 +165,16 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             retiringPullRequests: retiring.sorted { $0.id < $1.id },
             quietlyRetiredPullRequestIDs: quietlyRetiredIDs,
             viewerTeams: viewerTeams,
-            stacks: stacks
+            stacks: stacks,
+            budgetReading: collector.reading
         )
     }
 
+    /// Every attempt's budget headers count, including retried 5xx attempts and error responses that throw.
     private func completeGraphQL(
         query: String,
-        variables: [String: GitHubQueryValue]
+        variables: [String: GitHubQueryValue],
+        collector: GitHubBudgetCollector?
     ) async throws -> Data {
         try await readRetryPolicy.run { [self] in
             var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
@@ -157,6 +187,10 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw GitHubReadError.http(status: -1)
+            }
+            if let reading = GitHubBudgetReading(response: http, receivedAt: now()) {
+                budget.merge(reading)
+                collector?.merge(reading)
             }
             try classifyReadResponse(http, data: data)
             if let envelope = try? decoder.decode(CompleteGraphQLErrorEnvelope.self, from: data),
@@ -402,6 +436,20 @@ public enum GitHubClientError: Error, LocalizedError {
         case .graphQLErrors(let message):
             message
         }
+    }
+}
+
+/// Merges budget readings from concurrent responses.
+final class GitHubBudgetCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: GitHubBudgetReading?
+
+    var reading: GitHubBudgetReading? {
+        lock.withLock { value }
+    }
+
+    func merge(_ reading: GitHubBudgetReading) {
+        lock.withLock { value = value?.merged(with: reading) ?? reading }
     }
 }
 

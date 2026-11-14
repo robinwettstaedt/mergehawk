@@ -526,6 +526,121 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(sourcesDefault.accessibilityLabel, "Refresh sources")
     }
 
+    func testRefreshStatusPausedShowsThePauseSymbolAndPausedCopy() {
+        let reset = Date(timeIntervalSince1970: 1_800_003_000)
+        let time = reset.formatted(date: .omitted, time: .shortened)
+        let paused = Self.refreshStatus(pacing: PacingDisplay(
+            pacing: .paused(until: reset), canRefreshManually: true, rateLimitRetryAt: nil
+        ))
+        XCTAssertEqual(paused.state, .paused)
+        XCTAssertEqual(paused.symbolName, "pause.circle")
+        let help = "Automatic refresh paused until \(time) to stay within the GitHub API budget. Click to refresh now."
+        XCTAssertEqual(paused.help, help)
+        XCTAssertEqual(paused.accessibilityLabel, help)
+
+        // Without an estimate, or below it, manual refresh is not offered.
+        let short = Self.refreshStatus(pacing: PacingDisplay(
+            pacing: .paused(until: reset), canRefreshManually: false, rateLimitRetryAt: nil
+        ))
+        let shortHelp = "Automatic refresh paused until \(time) to stay within the GitHub API budget."
+        XCTAssertEqual(short.help, shortHelp)
+        XCTAssertEqual(short.accessibilityLabel, shortHelp)
+    }
+
+    func testRefreshStatusStretchedKeepsTheArrowAndExplainsThePacing() {
+        let reset = Date(timeIntervalSince1970: 1_800_003_000)
+        let time = reset.formatted(date: .omitted, time: .shortened)
+        let stretched = Self.refreshStatus(pacing: PacingDisplay(
+            pacing: .stretched(interval: 240, until: reset), canRefreshManually: true, rateLimitRetryAt: nil
+        ))
+
+        XCTAssertEqual(stretched.state, .idle)
+        XCTAssertEqual(stretched.symbolName, "arrow.clockwise")
+        let help = "Refresh. Refreshing every 4 min until \(time) to stay within the GitHub API budget."
+        XCTAssertEqual(stretched.help, help)
+        XCTAssertEqual(stretched.accessibilityLabel, help)
+        XCTAssertEqual(Self.refreshStatus(pacing: PacingDisplay(
+            pacing: .normal, canRefreshManually: true, rateLimitRetryAt: nil
+        )), Self.refreshStatus(pacing: nil))
+        for text in [help, stretched.help] {
+            XCTAssertFalse(text.contains(";") || text.contains("\u{2014}") || text.contains("\u{2013}"), text)
+        }
+    }
+
+    func testRefreshStatusPrecedenceRefreshingThenFailedThenPausedThenStretched() {
+        let reset = Date(timeIntervalSince1970: 1_800_003_000)
+        let paused = PacingDisplay(pacing: .paused(until: reset), canRefreshManually: true, rateLimitRetryAt: nil)
+        let stretched = PacingDisplay(pacing: .stretched(interval: 240, until: reset), canRefreshManually: true, rateLimitRetryAt: nil)
+
+        XCTAssertEqual(Self.refreshStatus(isRefreshing: true, pacing: paused).state, .refreshing)
+        XCTAssertEqual(Self.refreshStatus(errorMessage: "GitHub rate limit reached.", pacing: paused).state, .failed)
+        XCTAssertEqual(Self.refreshStatus(pacing: paused).state, .paused)
+        XCTAssertEqual(Self.refreshStatus(isRefreshing: true, pacing: stretched).help, "Refresh")
+        XCTAssertEqual(
+            Self.refreshStatus(errorMessage: "Offline", pacing: stretched).help,
+            "Refresh failed: Offline Click to retry."
+        )
+    }
+
+    func testRefreshStatusWithoutPacingIsUnchangedForSourcesAndTeams() {
+        let sources = RefreshStatusPresentation(
+            isRefreshing: false,
+            errorMessage: nil,
+            lastUpdatedText: "never",
+            help: "Refresh sources",
+            accessibilityLabel: "Refresh sources"
+        )
+        XCTAssertEqual(sources.state, .idle)
+        XCTAssertEqual(sources.symbolName, "arrow.clockwise")
+        XCTAssertEqual(sources.help, "Refresh sources")
+        XCTAssertEqual(sources.accessibilityLabel, "Refresh sources")
+    }
+
+    @MainActor
+    func testTopBarRefreshControlKeepsItsWidthWhilePaused() {
+        let metrics = MenuMetrics.standard
+        let reset = Date(timeIntervalSince1970: 1_800_003_000)
+        func width(_ pacing: PacingDisplay?) -> CGFloat {
+            NSHostingView(rootView: RefreshStatusControl(
+                indicatorColor: .green,
+                isRefreshing: false,
+                updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                action: {},
+                isRefreshEnabled: true,
+                help: "Refresh",
+                accessibilityLabel: "Refresh",
+                timestampPrefix: "",
+                width: metrics.topBar.refreshStatusWidth,
+                displayMode: .horizontalButton(height: metrics.controls.height),
+                showsIndicator: false,
+                pacing: pacing
+            ).environment(\.menuMetrics, metrics)).fittingSize.width
+        }
+
+        let idle = width(nil)
+        XCTAssertEqual(idle, metrics.topBar.refreshStatusWidth)
+        XCTAssertEqual(width(PacingDisplay(pacing: .paused(until: reset), canRefreshManually: true, rateLimitRetryAt: nil)), idle)
+        XCTAssertEqual(
+            width(PacingDisplay(pacing: .stretched(interval: 240, until: reset), canRefreshManually: true, rateLimitRetryAt: nil)),
+            idle
+        )
+    }
+
+    private static func refreshStatus(
+        isRefreshing: Bool = false,
+        errorMessage: String? = nil,
+        pacing: PacingDisplay?
+    ) -> RefreshStatusPresentation {
+        RefreshStatusPresentation(
+            isRefreshing: isRefreshing,
+            errorMessage: errorMessage,
+            lastUpdatedText: "14:30",
+            help: "Refresh",
+            accessibilityLabel: "Refresh",
+            pacing: pacing
+        )
+    }
+
     // MER-58 regression: during NSMenu tracking, key equivalents are matched against the open
     // menu's native items first and then the app's main menu — the hosted view hierarchy is never
     // consulted. Hidden native trap items are required so ⌘, and ⌘Q do not fall through to the

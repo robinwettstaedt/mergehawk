@@ -40,18 +40,20 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams", "\(suiteName)-budget-normal", "\(suiteName)-budget-stretched", "\(suiteName)-budget-paused", "\(suiteName)-budget-checking"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
 
+        // The default 2 min interval decides pacing for the General budget section. The automatic loop's wait
+        // never ends during the capture.
         let controller = await MainActor.run {
             DashboardController(
                 tokenStore: InMemoryTokenStore(),
                 preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: suiteName)!),
                 launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
-                automaticRefreshInterval: 0,
-                now: Self.visualClock
+                now: Self.visualClock,
+                sleep: { _ in try await Task.sleep(for: .seconds(86_400)) }
             )
         }
 
@@ -1151,6 +1153,94 @@ final class VisualVerificationXCTests: XCTestCase {
             )
         }
 
+        // Each budget fixture's first refresh reads the budget and records one 55 point sample, so pacing is
+        // decided on the mock numbers at the fixed clock: normal, stretched, or paused with manual refresh left.
+        // Pacing uses the default 2 min interval, and the automatic loop's wait never ends during the capture.
+        for (name, scenario) in [
+            ("normal", MockPullRequestScenario.standard),
+            ("stretched", .budgetStretched),
+            ("paused", .budgetPaused),
+        ] {
+            let budgetController = await MainActor.run {
+                DashboardController(
+                    tokenStore: InMemoryTokenStore(),
+                    preferencesStore: PreferencesStore(
+                        defaults: UserDefaults(suiteName: "\(suiteName)-budget-\(name)")!
+                    ),
+                    launchConfiguration: LaunchConfiguration(
+                        usesMockData: true,
+                        suppressesMacOSNotifications: true,
+                        mockPullRequestScenario: scenario
+                    ),
+                    now: Self.visualClock,
+                    sleep: { _ in try await Task.sleep(for: .seconds(86_400)) }
+                )
+            }
+            try await waitUntil(context: "budget-\(name) first refresh") {
+                await MainActor.run {
+                    budgetController.state.syncedAt != nil && !budgetController.isRefreshing
+                        && budgetController.budgetState.estimatedCost != nil
+                }
+            }
+            try await MainActor.run {
+                XCTAssertEqual(budgetController.refreshIntervalMinutes, 2)
+                let presentation = budgetController.budgetPresentation(at: Self.visualNow)
+                let statusLine = presentation.statusLine
+                switch name {
+                case "normal":
+                    XCTAssertEqual(presentation.numbersLine, "4145 of 5000 left this hour")
+                    XCTAssertNil(statusLine)
+                case "stretched":
+                    XCTAssertEqual(presentation.numbersLine, "1545 of 5000 left this hour")
+                    XCTAssertEqual(statusLine?.hasPrefix("Refreshing every 6 min until "), true, statusLine ?? "nil")
+                default:
+                    XCTAssertEqual(presentation.numbersLine, "995 of 5000 left this hour")
+                    XCTAssertEqual(statusLine?.hasSuffix(" Manual refresh still works."), true, statusLine ?? "nil")
+                }
+                try renderSettings(
+                    SettingsRootView(
+                        controller: budgetController,
+                        settingsWindowState: SettingsWindowState(selection: .general),
+                        softwareUpdateController: SoftwareUpdateController.disabled()
+                    ),
+                    to: outputURL.appendingPathComponent("settings-general-budget-\(name).png")
+                )
+                if name != "normal" {
+                    budgetController.selectedTab = .myPRs
+                    try renderMenu(
+                        controller: budgetController,
+                        to: outputURL.appendingPathComponent("menu-budget-\(name).png")
+                    )
+                }
+            }
+        }
+
+        // The reading goes stale once the clock passes its reset, so the readout shows "Checking budget".
+        let checkingClock = ControllerTestClock(Self.visualNow)
+        let checkingController = await MainActor.run {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: UserDefaults(suiteName: "\(suiteName)-budget-checking")!),
+                launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                now: { checkingClock.now }
+            )
+        }
+        try await waitUntil(context: "budget-checking first refresh") {
+            await MainActor.run { checkingController.state.syncedAt != nil && !checkingController.isRefreshing }
+        }
+        try await MainActor.run {
+            checkingClock.now = Self.visualNow.addingTimeInterval(50 * 60)
+            try renderSettings(
+                SettingsRootView(
+                    controller: checkingController,
+                    settingsWindowState: SettingsWindowState(selection: .general),
+                    softwareUpdateController: SoftwareUpdateController.disabled()
+                ),
+                to: outputURL.appendingPathComponent("settings-general-budget-checking.png")
+            )
+        }
+
         let expectedFilenames = captureSelection.expectedFilenames
         guard renderedFilenames == expectedFilenames else {
             let missing = expectedFilenames.subtracting(renderedFilenames).sorted().joined(separator: ", ")
@@ -1737,6 +1827,12 @@ private struct VisualCaptureSelection {
         "menu-archived-notifications-off",
         "settings-general",
         "settings-general-updates",
+        "settings-general-budget-normal",
+        "settings-general-budget-stretched",
+        "settings-general-budget-paused",
+        "settings-general-budget-checking",
+        "menu-budget-stretched",
+        "menu-budget-paused",
         "settings-notifications",
         "settings-bot-notifications-off",
         "settings-bot-notifications-on",

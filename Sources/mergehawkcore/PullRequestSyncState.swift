@@ -71,19 +71,23 @@ public struct CompletePullRequestFetchResult: Equatable, Sendable {
     public let quietlyRetiredPullRequestIDs: Set<String>
     public let viewerTeams: [ViewerTeam]
     public let stacks: [PullRequestStack]
+    /// The highest budget reading among this fetch's own responses, nil when none carried budget headers.
+    public let budgetReading: GitHubBudgetReading?
 
     public init(
         activePullRequests: [PullRequest],
         retiringPullRequests: [PullRequest] = [],
         quietlyRetiredPullRequestIDs: Set<String> = [],
         viewerTeams: [ViewerTeam] = [],
-        stacks: [PullRequestStack] = []
+        stacks: [PullRequestStack] = [],
+        budgetReading: GitHubBudgetReading? = nil
     ) {
         self.activePullRequests = activePullRequests
         self.retiringPullRequests = retiringPullRequests
         self.quietlyRetiredPullRequestIDs = quietlyRetiredPullRequestIDs
         self.viewerTeams = viewerTeams
         self.stacks = stacks
+        self.budgetReading = budgetReading
     }
 }
 
@@ -164,4 +168,13 @@ public protocol CompletePullRequestFetching: AnyObject {
         previousState: PullRequestSyncState?,
         reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult
+    /// Sends the budget read and returns the latest merged reading. Nil means the source has no budget.
+    func fetchBudgetReading() async throws -> GitHubBudgetReading?
+    /// The latest reading merged from every response this source received.
+    func latestBudgetReading() -> GitHubBudgetReading?
+}
+
+public extension CompletePullRequestFetching {
+    func fetchBudgetReading() async throws -> GitHubBudgetReading? { nil }
+    func latestBudgetReading() -> GitHubBudgetReading? { nil }
 }
