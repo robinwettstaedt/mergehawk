@@ -51,6 +51,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case longLists = "long-lists"
     case newReviewRequest = "new-review-request"
     case reviewTeams = "review-teams"
+    case noTeams = "no-teams"
     case draftReadyForReview = "draft-ready-for-review"
     case prStacks = "pr-stacks"
     case budgetStretched = "budget-stretched"
@@ -416,7 +417,7 @@ public final class MockPullRequestSource {
             Self.draftReadyForReviewPullRequests(stage: 0)
         case .prStacks:
             Self.prStackPullRequests
-        case .refreshFailure, .mergedFinalActivity, .quietAccessLoss:
+        case .refreshFailure, .mergedFinalActivity, .quietAccessLoss, .noTeams:
             [Self.scenarioBaselinePullRequest]
         }
     }
@@ -426,6 +427,8 @@ public final class MockPullRequestSource {
         switch scenario {
         case .reviewTeams:
             Self.reviewTeamViewerTeams
+        case .noTeams:
+            []
         case .standard, .botNotifications, .commentNotifications, .delayedRefresh, .refreshFailure,
              .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview, .prStacks,
              .budgetStretched, .budgetPaused:
@@ -1440,6 +1443,9 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             )
         case .prStacks:
             return CompletePullRequestFetchResult(activePullRequests: Self.prStackPullRequests)
+        case .noTeams:
+            // Only an authored PR, because a viewer with no teams gets no team review requests.
+            return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
         case .standard, .delayedRefresh, .budgetStretched, .budgetPaused:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:
