@@ -594,7 +594,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 }
                 XCTAssertEqual(PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!).hideArchivedRepositories, hideArchived)
                 let expectedCount = hideArchived ? 1 : 2
-                XCTAssertEqual(archivedController.sortedMyPullRequests.count, expectedCount)
+                XCTAssertEqual(archivedController.authoredList.visible.count, expectedCount)
                 XCTAssertEqual(archivedController.visiblePullRequestNotifications.count, expectedCount)
                 XCTAssertEqual(archivedController.sourceCatalog.repositoryCount, 2)
                 try renderSettings(
@@ -726,14 +726,14 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-actions-open.png"),
-                initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id)
+                initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id)
             )
             for size in MenuSize.allCases {
                 try renderMenu(
                     controller: controller,
                     to: menuSizeURL(size, "actions-open"),
                     availableFrame: MenuSizeCaptures.stateFrame,
-                    initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id),
+                    initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id),
                     menuSize: size
                 )
                 for (frameName, frame) in MenuSizeCaptures.reducedStateFrames {
@@ -741,7 +741,7 @@ final class VisualVerificationXCTests: XCTestCase {
                         controller: controller,
                         to: menuSizeURL(size, "actions-open-\(frameName)"),
                         availableFrame: frame,
-                        initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id),
+                        initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id),
                         menuSize: size
                     )
                 }
@@ -838,7 +838,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     reviewRequests: true
                 )
             )
-            precondition(controller.sortedMyPullRequests.isEmpty)
+            precondition(controller.authoredList.visible.isEmpty)
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-empty.png"))
             controller.sourcePreferences = populatedSourcePreferences
 

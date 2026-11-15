@@ -889,7 +889,7 @@ final class MenuViewTests: XCTestCase {
     @MainActor
     func testClickInTheTopBarLeadingInsetClosesAPullRequestActionsMenu() throws {
         let controller = try isolatedSignedInMockController()
-        let firstID = try XCTUnwrap(controller.sortedMyPullRequests.first).id
+        let firstID = try XCTUnwrap(controller.authoredList.visible.first).id
         try assertClickInTopBar(
             controller: controller,
             with: .actions(firstID),
@@ -2120,6 +2120,7 @@ final class MenuViewTests: XCTestCase {
 
     @MainActor
     private func stackMenuController(
+        tab: DashboardController.MenuTab = .reviewRequests,
         filters: Set<DashboardController.ReviewRequestFilterOption>? = nil,
         opened: @escaping (URL) -> Void = { _ in }
     ) throws -> DashboardController {
@@ -2133,7 +2134,7 @@ final class MenuViewTests: XCTestCase {
             urlOpener: opened
         )
         waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
-        controller.selectedTab = .reviewRequests
+        controller.selectedTab = tab
         if let filters {
             controller.selectedReviewRequestFilters = filters
         }
@@ -2211,17 +2212,24 @@ final class MenuViewTests: XCTestCase {
     func testTogglingAStackKeepsItsControlUnderThePointerInAScrolledList() throws {
         // The position-3 stack is the oldest Direct card; the reversed sort moves it away from the end of the list,
         // where collapsing shrinks the content below the scroll offset and the scroll view clamps it (accepted).
-        let cases: [(stackID: String, size: Int, representative: Int, reversesSort: Bool)] = [
-            ("STACK_MOCK_SPREAD", 4, 2, false),
-            ("STACK_MOCK_POSITION_3", 3, 3, true)
+        // The several-member authored stack is the fourth Authored card, too close to the end of the short Authored
+        // list to scroll it up at the default sort, so the reversed sort makes it the third.
+        let cases: [(stackID: String, size: Int, representative: Int, reversesSort: Bool, tab: DashboardController.MenuTab)] = [
+            ("STACK_MOCK_SPREAD", 4, 2, false, .reviewRequests),
+            ("STACK_MOCK_POSITION_3", 3, 3, true, .reviewRequests),
+            ("STACK_MOCK_AUTHORED_SEVERAL", 4, 2, true, .myPRs)
         ]
         for testCase in cases {
             let label = testCase.stackID
-            let controller = try stackMenuController()
-            if testCase.reversesSort {
+            let controller = try stackMenuController(tab: testCase.tab)
+            if testCase.reversesSort, testCase.tab == .myPRs {
+                controller.pullRequestSortDirection = controller.pullRequestSortDirection.toggled
+            } else if testCase.reversesSort {
                 controller.reviewRequestSortDirection = controller.reviewRequestSortDirection.toggled
             }
-            let visibleRows = controller.requestedSections.flatMap(\.visible)
+            let visibleRows = testCase.tab == .myPRs
+                ? controller.authoredList.visible
+                : controller.requestedSections.flatMap(\.visible)
             XCTAssertGreaterThan(
                 try XCTUnwrap(visibleRows.firstIndex { $0.stack?.stack.id == testCase.stackID }, label), 0,
                 "other cards sit above the group, \(label)"
@@ -2264,6 +2272,175 @@ final class MenuViewTests: XCTestCase {
             let collapsedAgain = try XCTUnwrap(frames.controls[testCase.stackID], label)
             XCTAssertEqual(collapsedAgain, collapsed, "collapsed again, \(label)")
         }
+    }
+
+    // MARK: - Authored stacks in the menu
+
+    private static let authoredSeveral = "STACK_MOCK_AUTHORED_SEVERAL"
+
+    @MainActor
+    func testAuthoredStackCardsShowTheControlWhichOnlyTogglesAndTheCardOpensTheRepresentative() throws {
+        var opened: [String] = []
+        let controller = try stackMenuController(tab: .myPRs) { opened.append($0.absoluteString) }
+        let frames = StackMenuFrames()
+        let (host, _) = hostStackMenu(controller, frames: frames)
+        defer { host.close() }
+
+        // Only stack groups get a control, so the unstacked #600 card has none.
+        let stackIDs = controller.authoredList.visible.compactMap(\.stack?.stack.id)
+        XCTAssertTrue(controller.authoredList.visible.contains { $0.id == "PR_STACKS_UNSTACKED_MINE" && $0.stack == nil })
+        XCTAssertEqual(Set(frames.controls.keys), Set(stackIDs))
+        XCTAssertEqual(stackIDs.count, 5)
+        let collapsed = try XCTUnwrap(frames.controls[Self.authoredSeveral])
+        XCTAssertEqual(collapsed.fractionText, "2/4")
+
+        for point in [
+            CGPoint(x: collapsed.frame.minX + 3, y: collapsed.frame.minY + 3),
+            CGPoint(x: collapsed.frame.maxX - 3, y: collapsed.frame.maxY - 3)
+        ] {
+            try click(host, atTopLeft: point)
+            settleStackToggle(host)
+            XCTAssertTrue(controller.isStackExpanded(Self.authoredSeveral))
+            let expanded = try XCTUnwrap(frames.controls[Self.authoredSeveral])
+            XCTAssertEqual(expanded.frame, collapsed.frame)
+            XCTAssertEqual(expanded.fractionText, "4/4")
+            try click(host, atTopLeft: CGPoint(x: expanded.frame.midX, y: expanded.frame.midY))
+            settleStackToggle(host)
+            XCTAssertFalse(controller.isStackExpanded(Self.authoredSeveral))
+        }
+        XCTAssertEqual(opened, [], "the control opens nothing")
+
+        // The title sits left of the control on the same lines.
+        try click(host, atTopLeft: CGPoint(x: collapsed.frame.minX - 40, y: collapsed.frame.midY))
+        XCTAssertEqual(opened, ["https://github.com/mergehawk-labs/mergehawk/pull/621"])
+        XCTAssertFalse(controller.isStackExpanded(Self.authoredSeveral))
+    }
+
+    @MainActor
+    func testAuthoredHiddenDisclosureCountsTheHiddenGroupsMembersAndShowsItAsAStackCard() throws {
+        let controller = try stackMenuController(tab: .myPRs)
+        let several = try XCTUnwrap(controller.authoredList.visible.first { $0.stack?.stack.id == Self.authoredSeveral })
+        controller.setHidden(several, hidden: true)
+        let frames = StackMenuFrames()
+        let (host, _) = hostStackMenu(controller, frames: frames)
+        defer { host.close() }
+        XCTAssertNil(frames.controls[Self.authoredSeveral])
+
+        let disclosure = try accessibilityButtonFrame(labeled: "Hidden (3), collapsed", in: host)
+        try click(host, atTopLeft: CGPoint(
+            x: disclosure.midX, y: host.window.contentView!.bounds.height - disclosure.midY
+        ))
+        relayout(host)
+
+        XCTAssertEqual(frames.controls[Self.authoredSeveral]?.fractionText, "2/4")
+        _ = try accessibilityButtonFrame(labeled: "Hidden (3), expanded", in: host)
+    }
+
+    /// The grouped list decides the empty states, so a stale own entry the grouping drops leaves no header-only list.
+    /// Each state is compared with a menu that reaches the same empty state without stacks.
+    @MainActor
+    func testAttentionFilterWithOnlyAStaleOwnMemberUnreadShowsNoFilterMatches() throws {
+        let source = MockPullRequestSource(scenario: .prStacks)
+        let controller = try authoredProviderController(
+            pullRequests: source.firstRefreshPullRequests,
+            stacks: source.stacks,
+            unreadIDs: ["PR_STACK_MOCK_AUTHORED_STALE_1"]
+        )
+        controller.selectedPullRequestFilters = [.needsAttention]
+        XCTAssertEqual(controller.authoredList.visible + controller.authoredList.hidden, [])
+        let attention = try renderAuthoredList(controller)
+
+        // No mock PR has changes requested, so this filter matches nothing through the plain filter.
+        controller.selectedPullRequestFilters = [.changesRequested]
+        XCTAssertEqual(controller.authoredList.visible + controller.authoredList.hidden, [])
+        XCTAssertEqual(attention, try renderAuthoredList(controller))
+
+        let empty = try authoredProviderController(pullRequests: [], stacks: [], unreadIDs: [])
+        XCTAssertNotEqual(attention, try renderAuthoredList(empty), "not the no-authored-PRs state")
+    }
+
+    @MainActor
+    func testASourceWhoseOnlyOwnPRIsAStaleEntryShowsNoAuthoredPRs() throws {
+        let stale = PullRequest(
+            id: "PR_STALE", title: "Rename the refresh scheduler", number: 1,
+            url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, reviewCount: 0,
+            isMine: true, author: "rw", mergeable: .mergeable, draft: false, stackID: "S"
+        )
+        let entries = [(1, stale.id, PullRequestStackEntry.State.merged), (2, "PR_OTHER", .open)].map { position, id, state in
+            PullRequestStackEntry(
+                position: position, pullRequestID: id, number: position, title: id,
+                url: URL(string: "https://github.com/acme/app/pull/\(position)")!, state: state, isDraft: false, author: "rw"
+            )
+        }
+        let controller = try authoredProviderController(
+            pullRequests: [stale], stacks: [PullRequestStack(id: "S", size: 2, entries: entries)], unreadIDs: []
+        )
+        XCTAssertEqual(controller.sourceFilteredMyPullRequests.map(\.id), [stale.id])
+        XCTAssertEqual(controller.authoredList.count, 0)
+
+        let empty = try authoredProviderController(pullRequests: [], stacks: [], unreadIDs: [])
+        XCTAssertEqual(try renderAuthoredList(controller), try renderAuthoredList(empty))
+    }
+
+    /// The Authored list alone, without the top bar, whose filter button shows the selected filters.
+    @MainActor
+    private func renderAuthoredList(_ controller: DashboardController) throws -> Data {
+        let hostingView = NSHostingView(rootView: PullRequestListView(controller: controller, mode: .authored)
+            .environment(\.menuNow, Date(timeIntervalSince1970: 1_778_100_000)))
+        hostingView.frame = CGRect(origin: .zero, size: MenuMetrics.standard.panelSize)
+        let host = OffScreenHost(hostingView)
+        defer { host.close() }
+        host.window.appearance = NSAppearance(named: .aqua)
+        hostingView.layoutSubtreeIfNeeded()
+        host.settle()
+        let representation = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: representation)
+        return try XCTUnwrap(representation.representation(using: .png, properties: [:]))
+    }
+
+    /// A signed-in GitHub controller on the Authored tab whose refreshes return these PRs and stacks, with unread
+    /// in-app notifications for `unreadIDs`. Mock mode drops seeded notification history, so this uses a provider.
+    @MainActor
+    private func authoredProviderController(
+        pullRequests: [PullRequest],
+        stacks: [PullRequestStack],
+        unreadIDs: [String]
+    ) throws -> DashboardController {
+        let defaults = try isolatedDefaults()
+        let account = GitHubAccount(login: "rw")
+        let notifications = try unreadIDs.map { id in
+            PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: id, activityId: "COMMENT_\(id)"),
+                pullRequest: try XCTUnwrap(pullRequests.first { $0.id == id })
+            )
+        }
+        var store = PreferencesStore(defaults: defaults)
+        store.authMethod = .pat
+        try store.storePullRequestSyncState(PullRequestSyncState(
+            account: account,
+            dashboard: DashboardState(
+                pullRequests: pullRequests, events: [], syncedAt: Date(timeIntervalSince1970: 10), source: .github,
+                account: account, authStatus: .signedIn, pullRequestStacks: stacks
+            ),
+            processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues: pullRequests.map {
+                ($0.id, ProcessedPullRequestActivity(pullRequestID: $0.id))
+            }),
+            notificationHistory: notifications
+        ))
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: pullRequests, stacks: stacks
+        ))
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: store,
+            launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider }
+        )
+        waitUntil(timeout: 1.0) { provider.fetchCount == 1 && !controller.isRefreshing }
+        controller.selectedTab = .myPRs
+        return controller
     }
 
     // MARK: - PR list scroller

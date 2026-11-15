@@ -185,7 +185,7 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertEqual(controller.hiddenReviewRequests.map(\.id), [direct.id])
         XCTAssertEqual(Set(controller.visiblePullRequestNotifications.map(\.activityId)), ["ARCHIVED", "ACTIVE", "OLD"])
         XCTAssertEqual(controller.attentionCount, 2)
-        XCTAssertEqual(controller.sortedMyPullRequests.first?.id, authored.id)
+        XCTAssertEqual(controller.authoredList.visible.first?.id, authored.id)
         XCTAssertEqual(PreferencesStore(defaults: defaults).sourcePreferences, preferences)
         XCTAssertEqual(store.pullRequestSyncState, committed)
         XCTAssertEqual(provider.fetchCount, 1)
@@ -832,12 +832,12 @@ final class DashboardControllerXCTests: XCTestCase {
 
         controller.pullRequestSortOption = .changeSize
         controller.reviewRequestSortOption = .changeSize
-        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_4", "PR_6", "PR_1"])
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), ["PR_4", "PR_6", "PR_1"])
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
 
         controller.pullRequestSortDirection = .ascending
         controller.reviewRequestSortDirection = .ascending
-        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), ["PR_6", "PR_1", "PR_4"])
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_2", "PR_5"])
 
         controller.pinnedPullRequestIds = ["PR_5"]
@@ -874,7 +874,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         controller.pullRequestSortOption = .changeSize
         controller.pullRequestSortDirection = .ascending
-        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), ["PR_6", "PR_1", "PR_4"])
         XCTAssertEqual(controller.requestedSections[1].visible.map(\.id), ["PR_5", "PR_2"])
 
         controller.selectedTab = .reviewRequests
@@ -889,7 +889,7 @@ final class DashboardControllerXCTests: XCTestCase {
         controller.selectedTab = .myPRs
         XCTAssertEqual(controller.pullRequestSortOption, .changeSize)
         XCTAssertEqual(controller.pullRequestSortDirection, .ascending)
-        XCTAssertEqual(controller.sortedMyPullRequests.map(\.id), ["PR_6", "PR_1", "PR_4"])
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), ["PR_6", "PR_1", "PR_4"])
         let reopened = PreferencesStore(defaults: defaults)
         XCTAssertEqual(reopened.pullRequestSortOption, .changeSize)
         XCTAssertEqual(reopened.pullRequestSortDirection, .ascending)
@@ -2505,7 +2505,7 @@ private enum TestTimeout: Error {
     precondition(controller.state.source == .mock)
     precondition(controller.state.account?.login == "agent-fixture")
     precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
-    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_1", "PR_4"])
+    precondition(controller.authoredList.visible.map(\.id) == ["PR_6", "PR_1", "PR_4"])
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_7", "PR_2", "PR_5", "PR_3"])
 
     precondition(controller.requestedSections.map(\.section) == [.assigned, .direct, .team])
@@ -2537,41 +2537,45 @@ private enum TestTimeout: Error {
 
     let authored = controller.sourceFilteredMyPullRequests
     let firstAuthored = authored[0]
+    @MainActor func firstAuthoredItem() -> PullRequestListItem {
+        let list = controller.authoredList
+        return (list.visible + list.hidden).first { $0.id == firstAuthored.id }!
+    }
     controller.pinnedPullRequestIds = [firstAuthored.id]
-    controller.toggleHide(firstAuthored)
+    controller.setHidden(firstAuthoredItem(), hidden: true)
     precondition(controller.isHidden(firstAuthored))
     precondition(!controller.isPinned(firstAuthored))
     precondition(PreferencesStore(defaults: defaults).hiddenPullRequestIds == [firstAuthored.id])
 
-    controller.togglePin(firstAuthored)
+    controller.setPinned(firstAuthoredItem(), pinned: true)
     precondition(controller.isPinned(firstAuthored))
     precondition(!controller.isHidden(firstAuthored))
     precondition(PreferencesStore(defaults: defaults).pinnedPullRequestIds == [firstAuthored.id])
     precondition(PreferencesStore(defaults: defaults).hiddenPullRequestIds.isEmpty)
 
-    controller.togglePin(firstAuthored)
-    controller.toggleHide(firstAuthored)
-    controller.toggleHide(firstAuthored)
+    controller.setPinned(firstAuthoredItem(), pinned: false)
+    controller.setHidden(firstAuthoredItem(), hidden: true)
+    controller.setHidden(firstAuthoredItem(), hidden: false)
     precondition(!controller.isHidden(firstAuthored))
     precondition(!controller.isPinned(firstAuthored))
 
     controller.hiddenPullRequestIds = ["PR_1", "PR_4", "PR_6"]
     controller.pullRequestSortOption = .createdDate
     controller.pullRequestSortDirection = .descending
-    precondition(controller.sortedMyPullRequests.isEmpty)
-    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_6", "PR_1", "PR_4"])
+    precondition(controller.authoredList.visible.isEmpty)
+    precondition(controller.authoredList.hidden.map(\.id) == ["PR_6", "PR_1", "PR_4"])
     controller.pullRequestSortDirection = .ascending
-    precondition(controller.hiddenMyPullRequests.map(\.id) == ["PR_4", "PR_1", "PR_6"])
+    precondition(controller.authoredList.hidden.map(\.id) == ["PR_4", "PR_1", "PR_6"])
 
     controller.hiddenPullRequestIds = ["PR_4"]
     controller.pullRequestSortDirection = .descending
-    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_6", "PR_1"])
+    precondition(controller.authoredList.visible.map(\.id) == ["PR_6", "PR_1"])
     controller.pullRequestSortDirection = .ascending
-    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_1", "PR_6"])
+    precondition(controller.authoredList.visible.map(\.id) == ["PR_1", "PR_6"])
 
     controller.selectedPullRequestFilters = [.draft]
-    precondition(controller.hiddenMyPullRequests.isEmpty)
-    precondition(controller.sortedMyPullRequests.map(\.id) == ["PR_1"])
+    precondition(controller.authoredList.hidden.isEmpty)
+    precondition(controller.authoredList.visible.map(\.id) == ["PR_1"])
 
     controller.selectedPullRequestFilters = []
     controller.hiddenPullRequestIds = ["PR_2", "PR_3", "PR_5", "PR_7"]
@@ -2630,7 +2634,7 @@ private enum TestTimeout: Error {
             reviewRequests: true
         )
     )
-    precondition(controller.sortedMyPullRequests.isEmpty)
+    precondition(controller.authoredList.visible.isEmpty)
     precondition(controller.sortedReviewRequests.map(\.id) == ["PR_5", "PR_7", "PR_3", "PR_2"])
 
     controller.setRepositoryPreferences(

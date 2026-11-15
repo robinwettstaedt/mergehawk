@@ -574,23 +574,6 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    var sortedMyPullRequests: [PullRequest] {
-        Self.sortedWithPins(
-            filteredMyPullRequests.filter { !hiddenPullRequestIds.contains($0.id) },
-            pinnedIds: pinnedPullRequestIds,
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
-        )
-    }
-
-    var hiddenMyPullRequests: [PullRequest] {
-        Self.sorted(
-            filteredMyPullRequests.filter { hiddenPullRequestIds.contains($0.id) },
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
-        )
-    }
-
     var sortedReviewRequests: [PullRequest] {
         Self.sortedWithPins(
             filteredReviewRequests.filter { !hiddenPullRequestIds.contains($0.id) },
@@ -1112,24 +1095,6 @@ final class DashboardController: ObservableObject {
 
     func isHidden(_ pullRequest: PullRequest) -> Bool {
         hiddenPullRequestIds.contains(pullRequest.id)
-    }
-
-    func togglePin(_ pullRequest: PullRequest) {
-        if pinnedPullRequestIds.contains(pullRequest.id) {
-            pinnedPullRequestIds.remove(pullRequest.id)
-        } else {
-            hiddenPullRequestIds.remove(pullRequest.id)
-            pinnedPullRequestIds.insert(pullRequest.id)
-        }
-    }
-
-    func toggleHide(_ pullRequest: PullRequest) {
-        if hiddenPullRequestIds.contains(pullRequest.id) {
-            hiddenPullRequestIds.remove(pullRequest.id)
-        } else {
-            pinnedPullRequestIds.remove(pullRequest.id)
-            hiddenPullRequestIds.insert(pullRequest.id)
-        }
     }
 
     /// Group actions set state on every full member of a stack group, or on the standalone PR.
