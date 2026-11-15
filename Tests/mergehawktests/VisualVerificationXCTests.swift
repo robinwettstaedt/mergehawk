@@ -1043,7 +1043,7 @@ final class VisualVerificationXCTests: XCTestCase {
         try await MainActor.run {
             stacksController.selectedTab = .reviewRequests
             let stackIDs = stacksController.state.pullRequestStacks.map(\.id)
-            XCTAssertEqual(stackIDs.count, 9)
+            XCTAssertEqual(stackIDs.count, 13)
             for size in MenuSizeCaptures.stackSizes {
                 try renderMenu(
                     controller: stacksController,

@@ -492,7 +492,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let rows = sections.flatMap { $0.visible + $0.hidden }
 
         let finished = Set(entries.values.filter { $0.state != .open }.map(\.pullRequestID))
-        XCTAssertEqual(finished.count, 6)
+        XCTAssertEqual(finished.count, 8)
         for row in rows {
             XCTAssertFalse(finished.contains(row.representative.id), row.id)
             XCTAssertTrue(row.stack?.fullMemberIDs.isDisjoint(with: finished) ?? true, row.id)

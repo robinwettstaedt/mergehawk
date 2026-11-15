@@ -1190,7 +1190,7 @@ final class DashboardControllerXCTests: XCTestCase {
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
 
         let expected = MockPullRequestSource(scenario: .prStacks).stacks
-        XCTAssertEqual(expected.count, 9)
+        XCTAssertEqual(expected.count, 13)
         XCTAssertEqual(controller.state.pullRequestStacks, expected)
     }
 
@@ -1204,7 +1204,7 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
-    func testEveryRequestedPRStacksMemberNamesAStackThatListsIt() async throws {
+    func testEveryFetchedPRStacksMemberNamesAStackThatListsIt() async throws {
         let source = MockPullRequestSource(scenario: .prStacks)
         let result = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
         let stacksByID = Dictionary(uniqueKeysWithValues: result.stacks.map { ($0.id, $0) })
@@ -1218,6 +1218,19 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertTrue(result.activePullRequests.contains {
             $0.stackID == nil && DashboardController.isRequestedPullRequest($0)
         })
+        XCTAssertTrue(result.activePullRequests.contains { $0.stackID == nil && $0.isMine })
+    }
+
+    @MainActor
+    func testPRStacksStaleOwnMembersEntryReportsMergedWhileItsPRStaysActive() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        let stack = try XCTUnwrap(controller.state.pullRequestStacks.first { $0.id == "STACK_MOCK_AUTHORED_STALE" })
+        XCTAssertEqual(stack.entries.first { $0.pullRequestID == Self.authoredStaleMember }?.state, .merged)
+        let stale = try XCTUnwrap(controller.state.pullRequests.first { $0.id == Self.authoredStaleMember })
+        XCTAssertTrue(stale.isMine)
+        XCTAssertEqual(stale.stackID, stack.id)
     }
 
     func testPRStacksUnreadableEntryStackKeepsItsSizeAndGitHubPositions() throws {
@@ -1238,6 +1251,10 @@ final class DashboardControllerXCTests: XCTestCase {
         "PR_STACK_MOCK_ALL_OPEN_2", "PR_STACK_MOCK_CLOSED_DEPENDENCY_2", "PR_STACK_MOCK_PARTIALLY_MERGED_2"
     ]
     private static let positionThreeRepresentative = "PR_STACK_MOCK_POSITION_3_3"
+    private static let authoredStackIDs: Set<String> = [
+        "STACK_MOCK_AUTHORED_SEVERAL", "STACK_MOCK_AUTHORED_BASE", "STACK_MOCK_AUTHORED_FILTER", "STACK_MOCK_AUTHORED_STALE"
+    ]
+    private static let authoredStaleMember = "PR_STACK_MOCK_AUTHORED_STALE_1"
 
     @MainActor
     private static func rowIDs(_ controller: DashboardController) -> [DashboardController.RequestedSection: [String]] {
@@ -1265,8 +1282,12 @@ final class DashboardControllerXCTests: XCTestCase {
             .team: ["PR_STACKS_UNSTACKED_TEAM"]
         ])
         XCTAssertEqual(controller.requestedSections.map(\.count), [6, 8, 1])
+        // The authored stacks hold no requested member, so they never show here.
         let stackIDs = controller.requestedSections.flatMap { $0.visible + $0.hidden }.compactMap(\.stack?.stack.id)
-        XCTAssertEqual(stackIDs.sorted(), controller.state.pullRequestStacks.map(\.id).sorted())
+        XCTAssertEqual(
+            stackIDs.sorted(),
+            controller.state.pullRequestStacks.map(\.id).filter { !Self.authoredStackIDs.contains($0) }.sorted()
+        )
     }
 
     @MainActor
