@@ -96,7 +96,7 @@ final class GitHubHydrationGoldenTests: XCTestCase {
     }
 
     /// Tied timestamps keep dictionary order in the fetcher, so lists are compared in (time, id) order.
-    private static func normalizedJSON(_ pullRequests: [PullRequest]) throws -> Data {
+    static func normalizedJSON(_ pullRequests: [PullRequest]) throws -> Data {
         let normalized = pullRequests.map { pullRequest in
             var value = pullRequest
             value.recentCommentActivities.sort { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }

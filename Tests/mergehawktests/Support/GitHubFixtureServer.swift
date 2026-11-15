@@ -118,6 +118,11 @@ final class GitHubFixtureServer: @unchecked Sendable {
     }
 
     func read(query: String, variables: [String: GitHubQueryValue]) async throws -> Data {
+        try respond(query: query, variables: variables)
+    }
+
+    /// Answers one hydration or continuation query. `read` and URL protocol stubs both answer through it.
+    func respond(query: String, variables: [String: GitHubQueryValue]) throws -> Data {
         let request = Request(query: query, variables: variables)
         lock.withLock { storedRequests.append(request) }
         beforeQuery?(request, self)
