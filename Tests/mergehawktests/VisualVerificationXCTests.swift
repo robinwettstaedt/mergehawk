@@ -22,6 +22,17 @@ final class VisualVerificationXCTests: XCTestCase {
         }
     }
 
+    func testCaptureNamesIncludeAuthoredStackCaptures() {
+        let names = VisualCaptureSelection.allScenarios
+        for size in ["default", "larger"] {
+            for state in ["collapsed", "expanded"] {
+                XCTAssertTrue(names.contains("menu-size-\(size)-authored-stacks-\(state)"), "\(size) \(state)")
+            }
+        }
+        XCTAssertTrue(names.contains("menu-authored-stacks-ready-filter"))
+        XCTAssertTrue(names.contains("menu-authored-stacks-hidden"))
+    }
+
     func testWritesMockMenuScreenshots() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let outputPath = environment["MERGEHAWK_UI_ARTIFACT_DIR"], !outputPath.isEmpty else {
@@ -1099,6 +1110,51 @@ final class VisualVerificationXCTests: XCTestCase {
                 mode: .reviewRequests,
                 to: outputURL.appendingPathComponent("menu-requested-stacks-hidden.png")
             )
+            stacksController.setHidden(spread, hidden: false)
+
+            // Authored stacks: collapsed and expanded groups, the Ready filter, and a hidden group.
+            stacksController.selectedTab = .myPRs
+            let authoredStackIDs = stacksController.authoredList.visible.compactMap(\.stack?.stack.id)
+            XCTAssertEqual(authoredStackIDs.count, 5)
+            for size in MenuSizeCaptures.stackSizes {
+                try renderMenu(
+                    controller: stacksController,
+                    to: menuSizeURL(size, "authored-stacks-collapsed"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
+            authoredStackIDs.forEach(stacksController.toggleStackExpanded)
+            for size in MenuSizeCaptures.stackSizes {
+                try renderMenu(
+                    controller: stacksController,
+                    to: menuSizeURL(size, "authored-stacks-expanded"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
+            authoredStackIDs.forEach(stacksController.toggleStackExpanded)
+
+            stacksController.selectedPullRequestFilters = [.ready]
+            stacksController.toggleStackExpanded("STACK_MOCK_AUTHORED_FILTER")
+            try renderMenu(
+                controller: stacksController,
+                to: outputURL.appendingPathComponent("menu-authored-stacks-ready-filter.png")
+            )
+            stacksController.toggleStackExpanded("STACK_MOCK_AUTHORED_FILTER")
+            stacksController.selectedPullRequestFilters = []
+
+            let several = try XCTUnwrap(stacksController.authoredList.visible.first {
+                $0.stack?.stack.id == "STACK_MOCK_AUTHORED_SEVERAL"
+            })
+            stacksController.setHidden(several, hidden: true)
+            try renderHiddenExpanded(
+                controller: stacksController,
+                mode: .authored,
+                to: outputURL.appendingPathComponent("menu-authored-stacks-hidden.png")
+            )
+            stacksController.setHidden(several, hidden: false)
+            stacksController.selectedTab = .reviewRequests
         }
 
         // Two organizations: a parent with three children (one with its own child, one with a long slug, one
@@ -1745,9 +1801,11 @@ private enum MenuSizeCaptures {
         "access-prompt"
     ]
     static let fragments = ["my-prs-hidden-expanded", "review-requests-hidden-expanded", "header-tooltips"]
-    /// Review requests stacks are captured at the default and the largest menu size only.
+    /// Review requests and Authored stacks are captured at the default and the largest menu size only.
     static let stackSizes: [MenuSize] = [.standard, .larger]
-    static let stackStates = ["requested-stacks-collapsed", "requested-stacks-expanded"]
+    static let stackStates = [
+        "requested-stacks-collapsed", "requested-stacks-expanded", "authored-stacks-collapsed", "authored-stacks-expanded"
+    ]
     /// The pr-stacks acceptance stacks and the position-3 stack, each captured in the width-constrained frame.
     static let focusedStacks: [(name: String, id: String, section: DashboardController.RequestedSection)] = [
         ("all-open", "STACK_MOCK_ALL_OPEN", .assigned),
@@ -1875,6 +1933,8 @@ private struct VisualCaptureSelection {
         "menu-review-requests-ready",
         "menu-requested-stacks-ready-filter",
         "menu-requested-stacks-hidden",
+        "menu-authored-stacks-ready-filter",
+        "menu-authored-stacks-hidden",
         "menu-notifications-read",
         "settings-sources",
         "settings-sources-search-example",
