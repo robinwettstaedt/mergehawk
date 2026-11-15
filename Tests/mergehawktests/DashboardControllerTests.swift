@@ -205,7 +205,7 @@ final class DashboardControllerXCTests: XCTestCase {
                     previousState: nil,
                     reusableViewerTeams: nil
                 ) else { break }
-                XCTAssertFalse(result.viewerTeams.isEmpty, scenario.rawValue)
+                XCTAssertEqual(result.viewerTeams.isEmpty, scenario == .noTeams, scenario.rawValue)
                 XCTAssertEqual(result.viewerTeams, source.viewerTeams, scenario.rawValue)
                 fetchedPullRequests += result.activePullRequests + result.retiringPullRequests
             }
@@ -685,6 +685,30 @@ final class DashboardControllerXCTests: XCTestCase {
         for section in DashboardController.RequestedSection.allCases {
             XCTAssertEqual(Self.requestedIDs(controller)[section], rawSections[section] ?? [], section.rawValue)
         }
+    }
+
+    @MainActor
+    func testNoTeamsMockScenarioShowsTheTeamsEmptyState() async throws {
+        let suiteName = "review-teams-none-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true,
+                suppressesMacOSNotifications: true,
+                mockPullRequestScenario: .noTeams
+            ),
+            automaticRefreshInterval: 0
+        )
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        XCTAssertFalse(controller.state.pullRequests.isEmpty)
+        XCTAssertEqual(
+            ReviewTeamsSettingsPresentation.content(authStatus: controller.state.authStatus, rows: controller.reviewTeamRows),
+            .noTeams
+        )
     }
 
     @MainActor
