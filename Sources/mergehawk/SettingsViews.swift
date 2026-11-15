@@ -256,6 +256,12 @@ private struct GeneralSettingsView: View {
             }
             .pickerStyle(.segmented)
             GitHubBudgetSection(controller: controller, settingsWindowState: settingsWindowState)
+            Picker("Appearance", selection: $controller.appearance) {
+                ForEach(AppAppearance.allCases, id: \.self) { appearance in
+                    Text(appearance.title).tag(appearance)
+                }
+            }
+            .pickerStyle(.segmented)
             Picker("Menu Size", selection: $controller.menuSize) {
                 ForEach(MenuSize.allCases, id: \.self) { size in
                     Text(size.title).tag(size)
