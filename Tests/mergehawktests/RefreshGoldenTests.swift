@@ -16,9 +16,10 @@ final class RefreshGoldenTests: XCTestCase {
         let outcome = try await RefreshGoldenFixture(includesNewPullRequests: false).refresh(reusesViewerTeams: false)
 
         Self.assertCoverage(outcome.result, newPullRequests: false)
-        // The serial read's hash. Continuation rounds add one request to the serial read's 19.
+        // The serial read's hash and count. Known PRs hydrate in one set of batches, one fewer than the serial
+        // read's discovered and dropped-out sets, and continuation rounds add one.
         XCTAssertEqual(outcome.hash, "584baa0120cb6208b708e50c1f84920d5c3200cd1cad42e5d3ac4cc50155b3c9")
-        XCTAssertEqual(outcome.graphQLRequests, 20)
+        XCTAssertEqual(outcome.graphQLRequests, 19)
     }
 
     func testRefreshWithNewPullRequestsMatchesTheSerialRead() async throws {
@@ -35,8 +36,8 @@ final class RefreshGoldenTests: XCTestCase {
 
         XCTAssertFalse(outcome.queryNames.contains("ViewerTeams"))
         XCTAssertEqual(outcome.result.viewerTeams, [RefreshGoldenFixture.viewerTeam])
-        // Continuation rounds add one request to the serial read's 18.
-        XCTAssertEqual(outcome.graphQLRequests, 19)
+        // The serial read's count, as in the steady state with teams read.
+        XCTAssertEqual(outcome.graphQLRequests, 18)
     }
 
     /// The fixture's cases each reach the result: the rechecked team PR stays active, the merged PR retires, the

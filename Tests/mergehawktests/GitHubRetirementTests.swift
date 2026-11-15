@@ -6,6 +6,7 @@ import XCTest
 final class GitHubRetirementTests: XCTestCase {
     override func tearDown() {
         RetirementURLProtocol.handler = nil
+        RetirementURLProtocol.delay = nil
         super.tearDown()
     }
 
@@ -168,9 +169,11 @@ final class GitHubRetirementTests: XCTestCase {
         ])
     }
 
-    func testViewerTeamsFailureFailsTheCompletePRRefreshBeforeDiscovery() async throws {
+    func testViewerTeamsFailureFailsTheCompletePRRefreshBeforeDiscoveryReadsItsPullRequests() async throws {
         let previous = Self.previousState(Self.previousPR())
-        let discoveryRequests = LockedBox(0)
+        let discoveryPageRequests = LockedBox(0)
+        // The teams failure arrives while the bounds read, sent alongside it, is still out.
+        RetirementURLProtocol.delay = { Self.graphQLQuery($0).contains("DiscoveryBounds") ? 0.2 : 0 }
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
             if query.contains("query ViewerTeams") {
@@ -179,9 +182,11 @@ final class GitHubRetirementTests: XCTestCase {
                     "errors": [["message": "Resource not accessible by integration", "type": "FORBIDDEN"]]
                 ]), request)
             }
-            discoveryRequests.increment()
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
-            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("DiscoverPullRequests") {
+                discoveryPageRequests.increment()
+                return Self.response(Self.emptyDiscovery(), request)
+            }
             return Self.response(Self.hydration(nodes: [Self.completePR(state: "OPEN")]), request)
         }
 
@@ -192,12 +197,15 @@ final class GitHubRetirementTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? GitHubReadError, .accessDenied)
         }
-        XCTAssertEqual(discoveryRequests.value, 0)
+        XCTAssertEqual(discoveryPageRequests.value, 0)
     }
 
-    func testHydrationFailureAfterViewerTeamsFailsTheCompletePRRefresh() async throws {
+    func testKnownPRHydrationFailureFailsTheCompletePRRefreshBeforeDiscoveryReadsItsPullRequests() async throws {
         let previous = Self.previousState(Self.previousPR())
         let viewerTeamRequests = LockedBox(0)
+        let discoveryPageRequests = LockedBox(0)
+        // The hydration failure arrives while the bounds read, sent alongside it, is still out.
+        RetirementURLProtocol.delay = { Self.graphQLQuery($0).contains("DiscoveryBounds") ? 0.2 : 0 }
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
             if query.contains("query ViewerTeams") {
@@ -208,7 +216,10 @@ final class GitHubRetirementTests: XCTestCase {
                 ]]), request)
             }
             if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
-            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("DiscoverPullRequests") {
+                discoveryPageRequests.increment()
+                return Self.response(Self.emptyDiscovery(), request)
+            }
             if query.contains("CompletePullRequests") {
                 return Self.response(Self.json(["data": ["nodes": []]]), request)
             }
@@ -224,6 +235,250 @@ final class GitHubRetirementTests: XCTestCase {
             XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
         }
         XCTAssertEqual(viewerTeamRequests.value, 1)
+        XCTAssertEqual(discoveryPageRequests.value, 0)
+    }
+
+    // MARK: Concurrent failures
+
+    func testRateLimitArrivingAfterAnInvalidPayloadEndsTheRefreshWithTheLatestRetryDate() async throws {
+        let before = Date()
+        RetirementURLProtocol.delay = { request in
+            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0.05 : 0.2
+        }
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("CompletePullRequests") { return Self.response(Self.json(["data": ["nodes": []]]), request) }
+            let retryAfter = query.contains("query ViewerTeams") ? "60" : "120"
+            return Self.response(Self.json(["message": "secondary rate limit"]), request, status: 403, headers: ["Retry-After": retryAfter])
+        }
+
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: Self.previousState(Self.previousPR()), reusableViewerTeams: nil)
+            XCTFail("Expected a rate limit")
+        } catch let GitHubReadError.rateLimited(retryAt) {
+            let retryAt = try XCTUnwrap(retryAt)
+            XCTAssertGreaterThanOrEqual(retryAt, before.addingTimeInterval(120))
+            XCTAssertLessThan(retryAt.timeIntervalSince(before), 121)
+        }
+    }
+
+    func testAuthenticationWinsOverConcurrentInvalidPayloadAndRateLimit() async throws {
+        RetirementURLProtocol.delay = { request in
+            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0.05 : 0.2
+        }
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("CompletePullRequests") { return Self.response(Self.json(["data": ["nodes": []]]), request) }
+            if query.contains("DiscoveryBounds") { return Self.response(Data(), request, status: 401) }
+            return Self.response(Self.json(["message": "secondary rate limit"]), request, status: 403, headers: ["Retry-After": "60"])
+        }
+
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: Self.previousState(Self.previousPR()), reusableViewerTeams: nil)
+            XCTFail("Expected authentication")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .authentication)
+        }
+    }
+
+    func testTokenProviderErrorReachesTheCallerOverAConcurrentRateLimit() async throws {
+        struct ProviderFailure: Error, Equatable {}
+        // The first token goes out at once. The second token request fails after the first read is sent.
+        let tokenCalls = LockedBox(0)
+        RetirementURLProtocol.delay = { _ in 0.1 }
+        RetirementURLProtocol.handler = { request in
+            Self.response(Self.json(["message": "secondary rate limit"]), request, status: 403, headers: ["Retry-After": "60"])
+        }
+        let client = GitHubClient(session: Self.session()) {
+            if tokenCalls.increment() == 1 { return "token" }
+            try await Task.sleep(for: .milliseconds(30))
+            throw ProviderFailure()
+        }
+
+        do {
+            _ = try await client.fetchCompletePullRequests(
+                login: "rw", previousState: Self.previousState(Self.previousPR()), reusableViewerTeams: []
+            )
+            XCTFail("Expected the token provider's error")
+        } catch {
+            XCTAssertEqual(error as? ProviderFailure, ProviderFailure())
+        }
+        XCTAssertEqual(tokenCalls.value, 2)
+    }
+
+    func testTokenProviderTransportErrorIsRetriedAndSurfacesAsTransport() async throws {
+        let tokenCalls = LockedBox(0)
+        RetirementURLProtocol.handler = { request in
+            XCTFail("Unexpected request \(request)")
+            return Self.response(Data(), request, status: 500)
+        }
+        let client = GitHubClient(session: Self.session()) {
+            tokenCalls.increment()
+            throw URLError(.notConnectedToInternet)
+        }
+
+        do {
+            _ = try await client.fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: [])
+            XCTFail("Expected a transport error")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .transport(.notConnectedToInternet))
+        }
+        XCTAssertEqual(tokenCalls.value, 3)
+    }
+
+    func testReadInFlightAtTheFirstFailureCompletesAndItsBudgetCounts() async throws {
+        let boundsAnswered = LockedBox(false)
+        RetirementURLProtocol.delay = { request in
+            Self.graphQLQuery(request).contains("DiscoveryBounds") ? 0.2 : 0
+        }
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("DiscoveryBounds") {
+                boundsAnswered.withValue { $0 = true }
+                return Self.response(Self.emptyBounds(), request, headers: [
+                    "X-RateLimit-Limit": "5000", "X-RateLimit-Remaining": "4223", "X-RateLimit-Used": "777",
+                    "X-RateLimit-Reset": "\(Int(Date().addingTimeInterval(3_600).timeIntervalSince1970))"
+                ])
+            }
+            return Self.response(Self.json(["data": ["nodes": []]]), request)
+        }
+        let client = GitHubClient(token: "token", session: Self.session())
+
+        do {
+            _ = try await client.fetchCompletePullRequests(
+                login: "rw", previousState: Self.previousState(Self.previousPR()), reusableViewerTeams: []
+            )
+            XCTFail("Expected invalid payload")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
+        }
+        XCTAssertTrue(boundsAnswered.value)
+        XCTAssertEqual(client.latestBudgetReading()?.used, 777)
+    }
+
+    func testFirstFailureSendsNoQueuedReadAndEndsABackoff() async throws {
+        // Six reads start against four permits: every hydration batch fails, so the two queued reads never go out.
+        let requests = LockedBox<[String]>([])
+        RetirementURLProtocol.delay = { request in
+            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0.05 : 0.2
+        }
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            let name = ["CompletePullRequests", "DiscoveryBounds", "DiscoverPullRequests"].first { query.contains($0) }
+            requests.withValue { $0.append(name ?? query) }
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            return Self.response(Self.json(["data": ["nodes": []]]), request)
+        }
+        let many = (0..<100).map { Self.previousPR(id: String(format: "PR_%03d", $0), number: $0 + 1) }
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: Self.previousState(many), reusableViewerTeams: [])
+            XCTFail("Expected invalid payload")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
+        }
+        XCTAssertEqual(requests.value.count, 4)
+        XCTAssertFalse(requests.value.contains("DiscoverPullRequests"))
+
+        // A bounds read in its 5xx backoff when the hydration fails sends no second attempt.
+        let boundsAttempts = LockedBox(0)
+        RetirementURLProtocol.delay = { request in
+            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0.1 : 0
+        }
+        RetirementURLProtocol.handler = { request in
+            if Self.graphQLQuery(request).contains("DiscoveryBounds") {
+                boundsAttempts.increment()
+                return Self.response(Data(), request, status: 502)
+            }
+            return Self.response(Self.json(["data": ["nodes": []]]), request)
+        }
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: Self.previousState(Self.previousPR()), reusableViewerTeams: [])
+            XCTFail("Expected invalid payload")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .invalidPayload)
+        }
+        XCTAssertEqual(boundsAttempts.value, 1)
+    }
+
+    func testRefusedPRThatDiscoveryStillFindsFailsTheRefresh() async throws {
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("DiscoveryBounds") {
+                var data: [String: Any] = [:]
+                for lane in GitHubDiscoveryLane.allCases {
+                    let nodes = lane == .authored ? [Self.discoveryNode(id: "PR_1", number: 1, second: 0)] : []
+                    data["\(lane.rawValue)Oldest"] = ["nodes": nodes]
+                    data["\(lane.rawValue)Newest"] = ["nodes": nodes]
+                }
+                return Self.response(Self.json(["data": data]), request)
+            }
+            if query.contains("DiscoverPullRequests") {
+                var data: [String: Any] = [:]
+                for lane in GitHubDiscoveryLane.allCases {
+                    let nodes = lane == .authored ? [Self.discoveryNode(id: "PR_1", number: 1, second: 0)] : []
+                    data[lane.rawValue] = [
+                        "issueCount": nodes.count, "nodes": nodes,
+                        "pageInfo": ["startCursor": NSNull(), "endCursor": NSNull(), "hasPreviousPage": false, "hasNextPage": false]
+                    ]
+                }
+                return Self.response(Self.json(["data": data]), request)
+            }
+            if query.contains("CompletePullRequests") {
+                return Self.response(Self.hydration(
+                    nodes: [NSNull()],
+                    errors: [["message": "SAML enforcement", "type": "FORBIDDEN", "path": ["nodes", 0]]]
+                ), request)
+            }
+            XCTFail("Unexpected request \(request)")
+            return Self.response(Data(), request, status: 500)
+        }
+
+        do {
+            _ = try await GitHubClient(token: "token", session: Self.session())
+                .fetchCompletePullRequests(login: "rw", previousState: Self.previousState(Self.previousPR()), reusableViewerTeams: [])
+            XCTFail("Expected access denied")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .accessDenied)
+        }
+    }
+
+    func testOpenPRDiscoveryNoLongerFindsStaysActiveAndRetiresWithItsFinalActivityNextRefresh() async throws {
+        let previousPR = Self.previousPR()
+        let state = LockedBox("OPEN")
+        RetirementURLProtocol.handler = { request in
+            let query = Self.graphQLQuery(request)
+            if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
+            if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
+            if query.contains("CompletePullRequests") {
+                let merged = state.value == "MERGED"
+                return Self.response(Self.hydration(nodes: [Self.completePR(
+                    state: state.value,
+                    comments: merged ? [Self.comment("FINAL_COMMENT")] : []
+                )]), request)
+            }
+            XCTFail("Unexpected request \(request)")
+            return Self.response(Data(), request, status: 500)
+        }
+        let client = GitHubClient(token: "token", session: Self.session())
+
+        // Merged after its hydration read, so this refresh's hydration still says open.
+        let first = try await client.fetchCompletePullRequests(
+            login: "rw", previousState: Self.previousState(previousPR), reusableViewerTeams: []
+        )
+        XCTAssertEqual(first.activePullRequests.map(\.id), [previousPR.id])
+        XCTAssertTrue(first.retiringPullRequests.isEmpty)
+
+        state.withValue { $0 = "MERGED" }
+        let second = try await client.fetchCompletePullRequests(
+            login: "rw", previousState: Self.previousState(first.activePullRequests), reusableViewerTeams: []
+        )
+        XCTAssertTrue(second.activePullRequests.isEmpty)
+        XCTAssertEqual(second.retiringPullRequests.map(\.id), [previousPR.id])
+        XCTAssertEqual(second.retiringPullRequests.first?.recentCommentActivities.map(\.id), ["FINAL_COMMENT"])
     }
 
     func testResource404And410RequireFreshMatchingViewerBeforeQuietRetirement() async throws {
@@ -944,9 +1199,15 @@ final class GitHubRetirementTests: XCTestCase {
 
 private final class RetirementURLProtocol: URLProtocol {
     static var handler: ((URLRequest) throws -> (Data, HTTPURLResponse))?
+    /// Seconds a request waits before its answer, so tests can order concurrent responses.
+    static var delay: ((URLRequest) -> TimeInterval)?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        guard let delay = Self.delay?(request), delay > 0 else { return respond() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { self.respond() }
+    }
+    private func respond() {
         do {
             guard let result = try Self.handler?(request) else { throw URLError(.badServerResponse) }
             client?.urlProtocol(self, didReceive: result.1, cacheStoragePolicy: .notAllowed)

@@ -72,41 +72,48 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         previousState: PullRequestSyncState?,
         reusableViewerTeams: [ViewerTeam]?
     ) async throws -> CompletePullRequestFetchResult {
+        do {
+            return try await readCompletePullRequests(
+                login: login,
+                previousState: previousState,
+                reusableViewerTeams: reusableViewerTeams
+            )
+        } catch let error as GitHubTokenProviderError {
+            throw error.underlying
+        }
+    }
+
+    private func readCompletePullRequests(
+        login: String,
+        previousState: PullRequestSyncState?,
+        reusableViewerTeams: [ViewerTeam]?
+    ) async throws -> CompletePullRequestFetchResult {
         let collector = GitHubBudgetCollector()
-        let fetcher = GitHubPullRequestFetcher { [weak self] query, variables in
+        // One limiter per refresh caps its reads in flight and stops them all at its first failure.
+        let limiter = GitHubReadLimiter()
+        let fetcher = GitHubPullRequestFetcher(read: { [weak self] query, variables in
             guard let self else { throw CancellationError() }
-            return try await self.completeGraphQL(query: query, variables: variables, collector: collector)
-        }
-        let viewerTeams: [ViewerTeam]
-        if let reusableViewerTeams {
-            viewerTeams = reusableViewerTeams
-        } else {
-            viewerTeams = try await fetcher.fetchViewerTeams(login: login)
-        }
-        let discovery = try await fetcher.discover(login: login)
-        let discoveredIDs = Set(discovery.pullRequests.map(\.id))
+            return try await self.completeGraphQL(query: query, variables: variables, collector: collector, limiter: limiter)
+        }, limiter: limiter)
         let previousPullRequests = previousState?.trusted(for: login)?.dashboard.pullRequests ?? []
         let previousByID = Dictionary(uniqueKeysWithValues: previousPullRequests.map { ($0.id, $0) })
+        let knownIdentities = previousPullRequests.map(Self.discoveryIdentity(from:))
 
-        let discoveredHydration = try await fetcher.hydrateForReconciliation(
-            discovery.pullRequests,
-            login: login
-        )
-        let absentIdentities = previousPullRequests
-            .filter { !discoveredIDs.contains($0.id) }
-            .map(Self.discoveryIdentity(from:))
-        let absentHydration = try await fetcher.hydrateForReconciliation(
-            absentIdentities,
+        let read = try await fetcher.readRefresh(
             login: login,
-            includesForbiddenNodes: true
+            known: knownIdentities,
+            reusableViewerTeams: reusableViewerTeams
         )
+        let viewerTeams = read.viewerTeams
+        let discoveredIDs = Set(read.discovery.pullRequests.map(\.id))
 
-        var missingIDs = discoveredHydration.missingPullRequestIDs
-            .union(absentHydration.missingPullRequestIDs)
+        var missingIDs = read.missingPullRequestIDs
         var quietlyRetiredIDs = Set<String>()
         var verifiedViewer = false
+        // A PR discovery found takes its identity from discovery. One that dropped out keeps its previous one.
         let allIdentities = Dictionary(
-            uniqueKeysWithValues: (discovery.pullRequests + absentIdentities).map { ($0.id, $0) }
+            (knownIdentities + read.discovery.pullRequests).map { ($0.id, $0) },
+            uniquingKeysWith: { _, discovered in discovered }
         )
         for id in missingIDs.sorted() {
             guard let identity = allIdentities[id] else { throw GitHubReadError.invalidPayload }
@@ -122,7 +129,7 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
         }
         guard missingIDs.isEmpty else { throw GitHubReadError.invalidPayload }
 
-        let hydrated = discoveredHydration.pullRequests + absentHydration.pullRequests
+        let hydrated = read.pullRequests
         var teamMembershipByRepository: [String: Set<String>] = [:]
         var active: [PullRequest] = []
         var retiring: [PullRequest] = []
@@ -171,15 +178,26 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
     }
 
     /// Every attempt's budget headers count, including retried 5xx attempts and error responses that throw.
+    ///
+    /// `limiter` marks a complete PR refresh read: a backoff retry ends once the refresh has failed, and an error
+    /// from the token provider is tagged so it keeps its precedence among concurrent failures. A token refresh
+    /// `URLError` stays retried and surfaces as `transport`.
     private func completeGraphQL(
         query: String,
         variables: [String: GitHubQueryValue],
-        collector: GitHubBudgetCollector?
+        collector: GitHubBudgetCollector?,
+        limiter: GitHubReadLimiter? = nil
     ) async throws -> Data {
-        try await readRetryPolicy.run { [self] in
+        try await readRetryPolicy.run(isStopped: { limiter?.isStopped ?? false }) { [self] in
+            let token: String
+            do {
+                token = try await accessToken()
+            } catch let error where limiter != nil && !(error is URLError) && !(error is CancellationError) {
+                throw GitHubTokenProviderError(underlying: error)
+            }
             var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
             request.httpMethod = "POST"
-            request.addValue("Bearer \(try await accessToken())", forHTTPHeaderField: "authorization")
+            request.addValue("Bearer \(token)", forHTTPHeaderField: "authorization")
             request.addValue("application/json", forHTTPHeaderField: "content-type")
             request.httpBody = try JSONEncoder().encode(
                 CompleteGraphQLRequest(query: query, variables: variables)

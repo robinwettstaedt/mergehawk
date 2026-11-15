@@ -33,11 +33,6 @@ struct GitHubRefreshRead: Equatable, Sendable {
     let missingPullRequestIDs: Set<String>
 }
 
-struct GitHubHydrationResult: Equatable, Sendable {
-    let pullRequests: [GitHubHydratedPullRequest]
-    let missingPullRequestIDs: Set<String>
-}
-
 enum GitHubDiscoveryLane: String, CaseIterable, Codable, Hashable, Sendable {
     case authored
     case assigned
@@ -336,32 +331,20 @@ struct GitHubPullRequestFetcher: Sendable {
         return [LeafResult(interval: lower...upper, nodes: result.nodes)]
     }
 
+    /// Hydrates every PR in `discovered`. A missing or refused PR fails the read.
     func hydrate(
         _ discovered: [DiscoveredPullRequest],
         login: String
     ) async throws -> [GitHubHydratedPullRequest] {
-        let result = try await hydrateForReconciliation(discovered, login: login)
-        guard result.missingPullRequestIDs.isEmpty else { throw GitHubReadError.invalidPayload }
-        return result.pullRequests
-    }
-
-    /// `includesForbiddenNodes` treats a node GitHub refuses to return like a missing one. Use it only for PRs
-    /// that dropped out of search, where lost access (SAML, OAuth App restrictions) is the expected cause.
-    func hydrateForReconciliation(
-        _ discovered: [DiscoveredPullRequest],
-        login: String,
-        includesForbiddenNodes: Bool = false
-    ) async throws -> GitHubHydrationResult {
         try await unwrappingRecordedFailure {
-            try await hydrateRecorded(discovered, login: login, includesForbiddenNodes: includesForbiddenNodes)
+            try await hydrateRecorded(discovered, login: login)
         }
     }
 
     private func hydrateRecorded(
         _ discovered: [DiscoveredPullRequest],
-        login: String,
-        includesForbiddenNodes: Bool
-    ) async throws -> GitHubHydrationResult {
+        login: String
+    ) async throws -> [GitHubHydratedPullRequest] {
         var accumulators: [String: HydrationAccumulator] = [:]
         var continuations: [Continuation] = []
         var missingIDs = Set<String>()
@@ -369,7 +352,7 @@ struct GitHubPullRequestFetcher: Sendable {
         let chunks = Self.hydrationChunks(discovered)
         let outcomes = try await runConcurrently(chunks.enumerated().map { index, chunk in
             (GitHubReadOrder(.knownHydration, index), { @Sendable [self] in
-                try await readHydrationBatch(chunk.map(\.id), mayBeRefused: includesForbiddenNodes)
+                try await readHydrationBatch(chunk.map(\.id), mayBeRefused: false)
             })
         })
         try applyHydrationOutcomes(
@@ -381,10 +364,8 @@ struct GitHubPullRequestFetcher: Sendable {
         )
 
         try await runContinuationRounds(&accumulators, queue: continuations)
-        return GitHubHydrationResult(
-            pullRequests: try finishHydration(accumulators, order: discovered.map(\.id), missing: missingIDs, login: login),
-            missingPullRequestIDs: missingIDs
-        )
+        // A missing PR has no accumulator, so it fails here.
+        return try finishHydration(accumulators, order: discovered.map(\.id), missing: [], login: login)
     }
 
     /// Reads a complete PR refresh's GraphQL data. Discovery, the viewer teams read (unless `reusableViewerTeams`
