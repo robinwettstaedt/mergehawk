@@ -29,6 +29,11 @@ final class VisualVerificationXCTests: XCTestCase {
                 XCTAssertTrue(names.contains("menu-size-\(size)-authored-stacks-\(state)"), "\(size) \(state)")
             }
         }
+        for stack in ["several", "base", "filter", "stale"] {
+            for state in ["collapsed", "expanded"] {
+                XCTAssertTrue(names.contains("menu-authored-stack-\(stack)-\(state)-1024x632"), "\(stack) \(state)")
+            }
+        }
         XCTAssertTrue(names.contains("menu-authored-stacks-ready-filter"))
         XCTAssertTrue(names.contains("menu-authored-stacks-hidden"))
     }
@@ -1083,7 +1088,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     try renderMenu(
                         controller: stacksController,
                         to: outputURL.appendingPathComponent(
-                            MenuSizeCaptures.focusedStackScenario(stack.name, isExpanded: isExpanded) + ".png"
+                            MenuSizeCaptures.focusedStackScenario(.reviewRequests, stack.name, isExpanded: isExpanded) + ".png"
                         ),
                         availableFrame: MenuSizeCaptures.largerTextFrame.1
                     )
@@ -1134,6 +1139,21 @@ final class VisualVerificationXCTests: XCTestCase {
                 )
             }
             authoredStackIDs.forEach(stacksController.toggleStackExpanded)
+
+            // Focused captures in the width-constrained frame: each authored stack collapsed, then expanded on its own.
+            for stack in MenuSizeCaptures.focusedAuthoredStacks {
+                for isExpanded in [false, true] {
+                    if isExpanded { stacksController.toggleStackExpanded(stack.id) }
+                    try renderMenu(
+                        controller: stacksController,
+                        to: outputURL.appendingPathComponent(
+                            MenuSizeCaptures.focusedStackScenario(.authored, stack.name, isExpanded: isExpanded) + ".png"
+                        ),
+                        availableFrame: MenuSizeCaptures.largerTextFrame.1
+                    )
+                }
+                stacksController.toggleStackExpanded(stack.id)
+            }
 
             stacksController.selectedPullRequestFilters = [.ready]
             stacksController.toggleStackExpanded("STACK_MOCK_AUTHORED_FILTER")
@@ -1814,12 +1834,28 @@ private enum MenuSizeCaptures {
         ("position-3", "STACK_MOCK_POSITION_3", .direct)
     ]
 
-    static func focusedStackScenario(_ name: String, isExpanded: Bool) -> String {
-        "menu-requested-stack-\(name)-\(isExpanded ? "expanded" : "collapsed")-\(largerTextFrame.0)"
+    /// The authored stacks, each captured in the same frame. Every one sits in the visible part of the default
+    /// Authored list, also when expanded.
+    static let focusedAuthoredStacks: [(name: String, id: String)] = [
+        ("several", "STACK_MOCK_AUTHORED_SEVERAL"),
+        ("base", "STACK_MOCK_AUTHORED_BASE"),
+        ("filter", "STACK_MOCK_AUTHORED_FILTER"),
+        ("stale", "STACK_MOCK_AUTHORED_STALE")
+    ]
+
+    static func focusedStackScenario(_ mode: PullRequestListView.Mode, _ name: String, isExpanded: Bool) -> String {
+        let tab = mode == .authored ? "authored" : "requested"
+        return "menu-\(tab)-stack-\(name)-\(isExpanded ? "expanded" : "collapsed")-\(largerTextFrame.0)"
     }
 
     static var focusedStackScenarios: Set<String> {
-        Set(focusedStacks.flatMap { stack in [false, true].map { focusedStackScenario(stack.name, isExpanded: $0) } })
+        let requested = focusedStacks.flatMap { stack in
+            [false, true].map { focusedStackScenario(.reviewRequests, stack.name, isExpanded: $0) }
+        }
+        let authored = focusedAuthoredStacks.flatMap { stack in
+            [false, true].map { focusedStackScenario(.authored, stack.name, isExpanded: $0) }
+        }
+        return Set(requested + authored)
     }
     /// General is excluded: its Menu Size control shows the selected size by design.
     static let settingsIsolationTabs: [(String, SettingsTab)] = [
