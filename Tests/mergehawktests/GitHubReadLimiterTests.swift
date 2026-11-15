@@ -213,4 +213,56 @@ final class GitHubReadLimiterTests: XCTestCase {
 
         XCTAssertEqual(events.value, (0..<5).flatMap { ["start \($0)", "end \($0)"] })
     }
+
+    // MARK: Fetcher reads
+
+    func testFetcherWithAStoppedLimiterSendsNothing() async {
+        let limiter = GitHubReadLimiter()
+        limiter.stop()
+        let reads = LockedBox(0)
+        let fetcher = GitHubPullRequestFetcher(read: { _, _ in
+            reads.increment()
+            return Data()
+        }, limiter: limiter)
+
+        do {
+            _ = try await fetcher.discover(login: "rw")
+            XCTFail("Expected a stopped read")
+        } catch {
+            XCTAssertTrue(error is GitHubReadStopped, "\(error)")
+        }
+        XCTAssertEqual(reads.value, 0)
+    }
+
+    func testResponseThatFailsDecodingStopsTheLimiterBeforeTheNextWaiterRuns() async throws {
+        let limiter = GitHubReadLimiter(capacity: 1)
+        let gate = AsyncGate()
+        let reads = LockedBox<[String]>([])
+        let fetcher = GitHubPullRequestFetcher(read: { query, _ in
+            reads.withValue { $0.append(query.contains("DiscoveryBounds") ? "bounds" : "other") }
+            await gate.wait()
+            return Data(#"{"data": {"unexpected": true}}"#.utf8)
+        }, limiter: limiter)
+
+        let discovery = Task { try await fetcher.discover(login: "rw") }
+        await waitForCondition { gate.waitingCount == 1 }
+        let waiting = Task { try await fetcher.withPriority(.chain).fetchViewerTeams(login: "rw") }
+        await waitForCondition { limiter.waitingCount == 1 }
+        gate.open()
+
+        do {
+            _ = try await discovery.value
+            XCTFail("Expected a decoding failure")
+        } catch {
+            XCTAssertFalse(error is GitHubReadStopped, "\(error)")
+        }
+        do {
+            _ = try await waiting.value
+            XCTFail("Expected a stopped read")
+        } catch {
+            XCTAssertTrue(error is GitHubReadStopped, "\(error)")
+        }
+        XCTAssertEqual(reads.value, ["bounds"])
+        XCTAssertTrue(limiter.isStopped)
+    }
 }

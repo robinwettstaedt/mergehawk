@@ -66,6 +66,14 @@ struct GitHubPullRequestFetcher: Sendable {
         }
     }
 
+    /// One position of a hydration batch read, before it is stored.
+    private enum HydrationBatchNode: Sendable {
+        case node(GitHubCompletePullRequestPayload)
+        case missing
+        /// The node has errors at its path and is read again on its own.
+        case failed
+    }
+
     private struct HydrationData: Decodable {
         let nodes: [GitHubCompletePullRequestPayload?]
     }
@@ -178,25 +186,50 @@ struct GitHubPullRequestFetcher: Sendable {
         }
     }
 
-    private let read: Read
+    private let transport: Read
     private let decoder: JSONDecoder
+    private let limiter: GitHubReadLimiter
+    private var priority: GitHubReadPriority = .bulk
 
-    init(read: @escaping Read, decoder: JSONDecoder = JSONDecoder()) {
-        self.read = read
+    /// `limiter` caps and stops every read this fetcher and its copies send. One limiter serves one refresh.
+    init(read: @escaping Read, decoder: JSONDecoder = JSONDecoder(), limiter: GitHubReadLimiter = GitHubReadLimiter()) {
+        self.transport = read
         self.decoder = decoder
+        self.limiter = limiter
+    }
+
+    /// A copy whose reads wait in `priority`'s queue, sharing this fetcher's limiter, transport and decoder.
+    func withPriority(_ priority: GitHubReadPriority) -> GitHubPullRequestFetcher {
+        var copy = self
+        copy.priority = priority
+        return copy
+    }
+
+    /// Sends one read under a limiter permit and decodes and checks its response inside the permit, so a
+    /// failed response stops the limiter before the permit frees.
+    private func read<T: Sendable>(
+        _ query: String,
+        _ variables: [String: GitHubQueryValue],
+        decode: (Data) throws -> T
+    ) async throws -> T {
+        try await limiter.withPermit(priority) {
+            try decode(try await transport(query, variables))
+        }
     }
 
     func discover(login: String) async throws -> GitHubDiscoveryResult {
         let bounds = try await fetchBounds(login: login)
         var identities: [String: DiscoveredPullRequest] = [:]
         var coverage: [GitHubDiscoveryLane: [ClosedRange<Int>]] = [:]
-        let initialData = try await read(
+        let initial = try await read(
             GitHubPullRequestQueries.discoveryPage,
             discoveryVariables(login: login, bounds: bounds)
-        )
-        let initialPayload = try decoder.decode(GitHubGraphQLPayload<DiscoveryData>.self, from: initialData)
-        try validate(errors: initialPayload.errors)
-        guard let initial = initialPayload.data else { throw GitHubReadError.invalidPayload }
+        ) { data in
+            let payload = try decoder.decode(GitHubGraphQLPayload<DiscoveryData>.self, from: data)
+            try validate(errors: payload.errors)
+            guard let initial = payload.data else { throw GitHubReadError.invalidPayload }
+            return initial
+        }
 
         for lane in GitHubDiscoveryLane.allCases {
             let firstPage = initial.payload(for: lane)
@@ -315,13 +348,12 @@ struct GitHubPullRequestFetcher: Sendable {
 
         for start in stride(from: 0, to: discovered.count, by: GitHubPullRequestQueries.hydrationBatchSize) {
             let chunk = Array(discovered[start..<min(start + GitHubPullRequestQueries.hydrationBatchSize, discovered.count)])
-            let data = try await read(
+            let batch = try await read(
                 GitHubPullRequestQueries.hydration,
                 ["ids": .strings(chunk.map { $0.id })]
-            )
-            let raw = try rawHydrationResponse(data, expectedCount: chunk.count)
-            var failedIndices = Set<Int>()
-            if !raw.errors.isEmpty {
+            ) { data in
+                let raw = try rawHydrationResponse(data, expectedCount: chunk.count)
+                var failedIndices = Set<Int>()
                 for error in raw.errors {
                     guard let path = error.path,
                           path.count >= 2,
@@ -333,14 +365,24 @@ struct GitHubPullRequestFetcher: Sendable {
                     }
                     failedIndices.insert(index)
                 }
+                return try raw.nodes.enumerated().map { index, rawNode -> HydrationBatchNode in
+                    if failedIndices.contains(index) { return .failed }
+                    return try decodeHydrationNode(rawNode).map(HydrationBatchNode.node) ?? .missing
+                }
             }
-            for (index, rawNode) in raw.nodes.enumerated() {
+            var failedIndices: [Int] = []
+            for (index, batchNode) in batch.enumerated() {
                 let expected = chunk[index]
-                if failedIndices.contains(index) { continue }
-                let node = try decodeHydrationNode(rawNode)
-                guard let node else {
+                let node: GitHubCompletePullRequestPayload
+                switch batchNode {
+                case .failed:
+                    failedIndices.append(index)
+                    continue
+                case .missing:
                     missingIDs.insert(expected.id)
                     continue
+                case .node(let value):
+                    node = value
                 }
                 try storeHydrationNode(
                     node,
@@ -350,24 +392,25 @@ struct GitHubPullRequestFetcher: Sendable {
                     continuations: &continuations
                 )
             }
-            for index in failedIndices.sorted() {
+            for index in failedIndices {
                 let expected = chunk[index]
-                let retryData = try await read(
+                let retried = try await read(
                     GitHubPullRequestQueries.hydration,
                     ["ids": .strings([expected.id])]
-                )
-                let retry = try rawHydrationResponse(retryData, expectedCount: 1)
-                if isMissingNodeCandidate(
-                    retry.nodes[0],
-                    errors: retry.errors,
-                    index: 0,
-                    includesForbiddenNodes: includesForbiddenNodes
-                ) {
-                    missingIDs.insert(expected.id)
-                    continue
+                ) { data -> GitHubCompletePullRequestPayload? in
+                    let retry = try rawHydrationResponse(data, expectedCount: 1)
+                    if isMissingNodeCandidate(
+                        retry.nodes[0],
+                        errors: retry.errors,
+                        index: 0,
+                        includesForbiddenNodes: includesForbiddenNodes
+                    ) {
+                        return nil
+                    }
+                    try validate(errors: retry.errors)
+                    return try decodeHydrationNode(retry.nodes[0])
                 }
-                try validate(errors: retry.errors)
-                guard let node = try decodeHydrationNode(retry.nodes[0]) else {
+                guard let node = retried else {
                     missingIDs.insert(expected.id)
                     continue
                 }
@@ -392,8 +435,9 @@ struct GitHubPullRequestFetcher: Sendable {
             }
             let query = continuationQuery(batch)
             let variables = continuationVariables(batch)
-            let data = try await read(query, variables)
-            let decoded = try decodeContinuationPages(data, batch: batch, allowsScopedErrors: true)
+            let decoded = try await read(query, variables) { data in
+                try decodeContinuationPages(data, batch: batch, allowsScopedErrors: true)
+            }
             // Thread-comment results for a PR whose thread list restarts in this batch belong to the discarded read.
             var restartedThreadPRs = Set<String>()
             func isSuperseded(_ item: Continuation) -> Bool {
@@ -414,26 +458,27 @@ struct GitHubPullRequestFetcher: Sendable {
                 // A missing thread's retry also reads its PR, to tell a deleted thread from lost access.
                 let confirmingPRID: String? = if decoded.missingThreadIndices.contains(index),
                     case .threadComments(let prID, _) = item.kind { prID } else { nil }
-                let retryData = try await read(
+                let retried = try await read(
                     continuationQuery([item], pullRequestID: confirmingPRID),
                     continuationVariables([item], pullRequestID: confirmingPRID)
-                )
-                if confirmingPRID != nil, try isDeletedThreadOfReadablePullRequest(retryData),
-                   case .threadComments(let prID, let threadID) = item.kind {
+                ) { data -> ContinuationPage? in
+                    if confirmingPRID != nil, try isDeletedThreadOfReadablePullRequest(data) { return nil }
+                    let retry = try decodeContinuationPages(data, batch: [item], allowsScopedErrors: false)
+                    guard let page = retry.pages[0], retry.failedIndices.isEmpty else {
+                        throw GitHubReadError.invalidPayload
+                    }
+                    return page
+                }
+                guard let page = retried else {
+                    guard case .threadComments(let prID, let threadID) = item.kind else {
+                        throw GitHubReadError.invalidPayload
+                    }
                     accumulators[prID]?.threads.removeValue(forKey: threadID)
                     accumulators[prID]?.threadComments.removeValue(forKey: threadID)
                     continuations.removeAll { $0.kind == item.kind }
                     // A later thread page may list the thread again, and its reads then start fresh.
                     visitedCursors = visitedCursors.filter { $0.key.kind != item.kind }
                     continue
-                }
-                let retry = try decodeContinuationPages(
-                    retryData,
-                    batch: [item],
-                    allowsScopedErrors: false
-                )
-                guard let page = retry.pages[0], retry.failedIndices.isEmpty else {
-                    throw GitHubReadError.invalidPayload
                 }
                 try merge(
                     page: page,
@@ -624,17 +669,18 @@ struct GitHubPullRequestFetcher: Sendable {
         query: String,
         cursor: String?
     ) async throws -> GitHubDiscoverySearchPayload {
-        let data = try await read(
+        try await read(
             GitHubPullRequestQueries.searchPage,
             [
                 "query": .string(query),
                 "cursor": cursor.map(GitHubQueryValue.string) ?? .null
             ]
-        )
-        let envelope = try decoder.decode(GitHubGraphQLPayload<SearchData>.self, from: data)
-        try validate(errors: envelope.errors)
-        guard let page = envelope.data?.search else { throw GitHubReadError.invalidPayload }
-        return page
+        ) { data in
+            let envelope = try decoder.decode(GitHubGraphQLPayload<SearchData>.self, from: data)
+            try validate(errors: envelope.errors)
+            guard let page = envelope.data?.search else { throw GitHubReadError.invalidPayload }
+            return page
+        }
     }
 
     private func fetchBounds(login: String) async throws -> [GitHubDiscoveryLane: Bounds] {
@@ -644,20 +690,21 @@ struct GitHubPullRequestFetcher: Sendable {
             variables["\(lane.rawValue)Oldest"] = .string("\(base) sort:created-asc")
             variables["\(lane.rawValue)Newest"] = .string("\(base) sort:created-desc")
         }
-        let data = try await read(GitHubPullRequestQueries.discoveryBounds, variables)
-        let payload = try decoder.decode(GitHubGraphQLPayload<BoundsData>.self, from: data)
-        try validate(errors: payload.errors)
-        guard let response = payload.data else { throw GitHubReadError.invalidPayload }
-        var result: [GitHubDiscoveryLane: Bounds] = [:]
-        for lane in GitHubDiscoveryLane.allCases {
-            let pair = response.pair(for: lane)
-            guard let oldest = try requiredSingleNode(pair.0), let newest = try requiredSingleNode(pair.1) else { continue }
-            let lower = Int(try parseDate(oldest.createdAt).timeIntervalSince1970)
-            let upper = Int(try parseDate(newest.createdAt).timeIntervalSince1970)
-            guard lower <= upper else { throw GitHubReadError.incompleteCoverage("Invalid creation bounds for \(lane.rawValue)") }
-            result[lane] = Bounds(lower: lower, upper: upper)
+        return try await read(GitHubPullRequestQueries.discoveryBounds, variables) { data in
+            let payload = try decoder.decode(GitHubGraphQLPayload<BoundsData>.self, from: data)
+            try validate(errors: payload.errors)
+            guard let response = payload.data else { throw GitHubReadError.invalidPayload }
+            var result: [GitHubDiscoveryLane: Bounds] = [:]
+            for lane in GitHubDiscoveryLane.allCases {
+                let pair = response.pair(for: lane)
+                guard let oldest = try requiredSingleNode(pair.0), let newest = try requiredSingleNode(pair.1) else { continue }
+                let lower = Int(try parseDate(oldest.createdAt).timeIntervalSince1970)
+                let upper = Int(try parseDate(newest.createdAt).timeIntervalSince1970)
+                guard lower <= upper else { throw GitHubReadError.incompleteCoverage("Invalid creation bounds for \(lane.rawValue)") }
+                result[lane] = Bounds(lower: lower, upper: upper)
+            }
+            return result
         }
-        return result
     }
 
     private enum ContinuationPage {
@@ -1301,36 +1348,42 @@ struct GitHubPullRequestFetcher: Sendable {
         var stacks: [PullRequestStack] = []
         for start in stride(from: 0, to: ids.count, by: GitHubPullRequestQueries.stackBatchSize) {
             let chunk = Array(ids[start..<min(start + GitHubPullRequestQueries.stackBatchSize, ids.count)])
-            let data = try await read(GitHubPullRequestQueries.pullRequestStacks, ["ids": .strings(chunk)])
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw GitHubReadError.invalidPayload
-            }
-            let errors = try decodeErrors(object["errors"])
-            guard let dataObject = object["data"] as? [String: Any],
-                  let nodes = dataObject["nodes"] as? [Any],
-                  nodes.count == chunk.count else {
-                try validate(errors: errors)
-                throw GitHubReadError.invalidPayload
-            }
-            var goneIndices = Set<Int>()
-            let remainingErrors = Self.withoutUnreadableEntryErrors(errors, data: dataObject).filter { error in
-                guard error.type?.uppercased() == "NOT_FOUND",
-                      let path = error.path, path.count == 2, path[0] == .field("nodes"),
-                      case .index(let index) = path[1],
-                      nodes.indices.contains(index), nodes[index] is NSNull else { return true }
-                goneIndices.insert(index)
-                return false
-            }
-            try validate(errors: remainingErrors)
-            for (index, node) in nodes.enumerated() {
-                if node is NSNull {
-                    guard goneIndices.contains(index) else { throw GitHubReadError.invalidPayload }
-                    continue
+            let payloads = try await read(GitHubPullRequestQueries.pullRequestStacks, ["ids": .strings(chunk)]) { data in
+                guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw GitHubReadError.invalidPayload
                 }
-                guard let payload = try? decoder.decode(
-                    GitHubPayloadStack.self,
-                    from: JSONSerialization.data(withJSONObject: node)
-                ), payload.id == chunk[index] else { throw GitHubReadError.invalidPayload }
+                let errors = try decodeErrors(object["errors"])
+                guard let dataObject = object["data"] as? [String: Any],
+                      let nodes = dataObject["nodes"] as? [Any],
+                      nodes.count == chunk.count else {
+                    try validate(errors: errors)
+                    throw GitHubReadError.invalidPayload
+                }
+                var goneIndices = Set<Int>()
+                let remainingErrors = Self.withoutUnreadableEntryErrors(errors, data: dataObject).filter { error in
+                    guard error.type?.uppercased() == "NOT_FOUND",
+                          let path = error.path, path.count == 2, path[0] == .field("nodes"),
+                          case .index(let index) = path[1],
+                          nodes.indices.contains(index), nodes[index] is NSNull else { return true }
+                    goneIndices.insert(index)
+                    return false
+                }
+                try validate(errors: remainingErrors)
+                var payloads: [GitHubPayloadStack] = []
+                for (index, node) in nodes.enumerated() {
+                    if node is NSNull {
+                        guard goneIndices.contains(index) else { throw GitHubReadError.invalidPayload }
+                        continue
+                    }
+                    guard let payload = try? decoder.decode(
+                        GitHubPayloadStack.self,
+                        from: JSONSerialization.data(withJSONObject: node)
+                    ), payload.id == chunk[index] else { throw GitHubReadError.invalidPayload }
+                    payloads.append(payload)
+                }
+                return payloads
+            }
+            for payload in payloads {
                 stacks.append(try await completeStack(payload))
             }
         }
@@ -1382,20 +1435,21 @@ struct GitHubPullRequestFetcher: Sendable {
             guard seenCursors.insert(cursor).inserted else {
                 throw GitHubReadError.incompleteCoverage("Repeated stack entries cursor")
             }
-            let data = try await read(
+            connection = try await read(
                 GitHubPullRequestQueries.pullRequestStackEntries,
                 ["id": .string(payload.id), "cursor": .string(cursor)]
-            )
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw GitHubReadError.invalidPayload
+            ) { data in
+                guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw GitHubReadError.invalidPayload
+                }
+                try validate(errors: Self.withoutUnreadableEntryErrors(
+                    try decodeErrors(object["errors"]),
+                    data: object["data"]
+                ))
+                guard let page = try? decoder.decode(GitHubGraphQLPayload<GitHubStackEntriesPayload>.self, from: data).data,
+                      let node = page.node else { throw GitHubReadError.invalidPayload }
+                return node.entries
             }
-            try validate(errors: Self.withoutUnreadableEntryErrors(
-                try decodeErrors(object["errors"]),
-                data: object["data"]
-            ))
-            guard let page = try? decoder.decode(GitHubGraphQLPayload<GitHubStackEntriesPayload>.self, from: data).data,
-                  let node = page.node else { throw GitHubReadError.invalidPayload }
-            connection = node.entries
             rawEntries += connection.nodes
         }
         guard rawEntries.count == payload.entries.totalCount else {
@@ -1427,17 +1481,18 @@ struct GitHubPullRequestFetcher: Sendable {
         )
     }
 
-    private func readValidated<Payload: Decodable>(
+    private func readValidated<Payload: Decodable & Sendable>(
         _ type: Payload.Type,
         query: String,
         variables: [String: GitHubQueryValue]
     ) async throws -> Payload {
-        let data = try await read(query, variables)
-        try validate(errors: try decoder.decode(GitHubGraphQLErrorEnvelope.self, from: data).errors)
-        guard let payload = try? decoder.decode(GitHubGraphQLPayload<Payload>.self, from: data).data else {
-            throw GitHubReadError.invalidPayload
+        try await read(query, variables) { data in
+            try validate(errors: try decoder.decode(GitHubGraphQLErrorEnvelope.self, from: data).errors)
+            guard let payload = try? decoder.decode(GitHubGraphQLPayload<Payload>.self, from: data).data else {
+                throw GitHubReadError.invalidPayload
+            }
+            return payload
         }
-        return payload
     }
 
     private struct LeafResult {
