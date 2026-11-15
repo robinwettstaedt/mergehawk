@@ -496,6 +496,39 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(MenuSize.allCases.map(\.factor), [0.85, 1.0, 1.15, 1.3])
     }
 
+    func testAppearanceDefaultsToAutoWhenNothingIsStored() {
+        withStore { store, _ in
+            XCTAssertEqual(store.appearance, .auto)
+        }
+    }
+
+    func testEveryAppearanceRoundTripsThroughTheStore() {
+        withStore { store, defaults in
+            for appearance in AppAppearance.allCases {
+                store.appearance = appearance
+                XCTAssertEqual(PreferencesStore(defaults: defaults).appearance, appearance)
+            }
+        }
+    }
+
+    func testUnknownStoredAppearanceReadsAsAuto() {
+        withStore { store, defaults in
+            defaults.set("sepia", forKey: "appearance.mode")
+            XCTAssertEqual(store.appearance, .auto)
+        }
+    }
+
+    func testAppearancesListTheirTitlesInDisplayOrder() {
+        XCTAssertEqual(AppAppearance.allCases, [.auto, .light, .dark])
+        XCTAssertEqual(AppAppearance.allCases.map(\.title), ["Auto", "Light", "Dark"])
+    }
+
+    func testAppearancesMapToTheApplicationAppearance() {
+        XCTAssertNil(AppAppearance.auto.nsAppearance)
+        XCTAssertEqual(AppAppearance.light.nsAppearance?.name, .aqua)
+        XCTAssertEqual(AppAppearance.dark.nsAppearance?.name, .darkAqua)
+    }
+
     private func withStore(_ body: (inout PreferencesStore, UserDefaults) -> Void) {
         let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
