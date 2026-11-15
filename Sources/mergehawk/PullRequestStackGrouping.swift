@@ -1,9 +1,8 @@
 import Foundation
 import mergehawkcore
 
-/// One card in a Review requests section: a standalone requested PR, or a stack group shown through its
-/// representative.
-struct ReviewRequestRow: Identifiable, Equatable {
+/// One card in a PR list: a standalone PR, or a stack group shown through its representative.
+struct PullRequestListItem: Identifiable, Equatable {
     let representative: PullRequest
     let stack: StackGroup?
     let isPinned: Bool
@@ -14,17 +13,17 @@ struct ReviewRequestRow: Identifiable, Equatable {
     var id: String { representative.id }
 }
 
-/// A stack's group in Review requests.
+/// A stack's group in one PR list.
 struct StackGroup: Equatable {
     enum Member: Equatable {
-        /// A requested member, whether or not it passes the Draft/Ready filter.
-        case requested(PullRequest)
-        /// Every other entry: open non-requested, the viewer's own, merged, and closed.
+        /// A member shown as a full row in this list, whether or not it passes the list's filter.
+        case full(PullRequest)
+        /// Every other entry: open PRs that aren't members of this list, merged, and closed.
         case context(PullRequestStackEntry)
 
         var pullRequestID: String {
             switch self {
-            case .requested(let pullRequest): pullRequest.id
+            case .full(let pullRequest): pullRequest.id
             case .context(let entry): entry.pullRequestID
             }
         }
@@ -32,14 +31,14 @@ struct StackGroup: Equatable {
 
     let stack: PullRequestStack
     let representativePosition: Int
-    /// Ignores the Draft/Ready filter.
-    let requestedMemberIDs: Set<String>
+    /// Ignores the list's filter.
+    let fullMemberIDs: Set<String>
     let matchingMemberIDs: Set<String>
     /// As GitHub lists the stack: the top (highest position) first, position 1 (closest to the base branch) last.
     let members: [Member]
 
-    var additionalRequestCount: Int { requestedMemberIDs.count - 1 }
-    var filterExcludedRequestCount: Int { requestedMemberIDs.count - matchingMemberIDs.count }
+    var additionalMemberCount: Int { fullMemberIDs.count - 1 }
+    var filterExcludedMemberCount: Int { fullMemberIDs.count - matchingMemberIDs.count }
 
     func position(of member: Member) -> Int? {
         stack.entries.first { $0.pullRequestID == member.pullRequestID }?.position
@@ -48,8 +47,8 @@ struct StackGroup: Equatable {
 
 struct ReviewRequestSectionContent: Equatable {
     let section: DashboardController.RequestedSection
-    let visible: [ReviewRequestRow]
-    let hidden: [ReviewRequestRow]
+    let visible: [PullRequestListItem]
+    let hidden: [PullRequestListItem]
     /// Matching requested PRs across visible and hidden rows, including members folded into groups.
     let count: Int
     /// Matching requested PRs in hidden rows.
@@ -57,27 +56,27 @@ struct ReviewRequestSectionContent: Equatable {
 }
 
 @MainActor
-enum ReviewRequestStacks {
+enum PullRequestStackGrouping {
     private struct PlacedRow {
-        let row: ReviewRequestRow
+        let row: PullRequestListItem
         let section: DashboardController.RequestedSection
         let matchingCount: Int
     }
 
-    /// The stack read decides membership, because it comes after hydration: a requested PR joins a stack that
+    /// The stack read decides membership, because it comes after hydration: a member joins a stack that
     /// lists it, whatever its hydrated stack ID says. When several stacks list it, the one matching its stack ID
     /// wins, otherwise the lowest stack ID.
-    private static func memberships(of requested: [PullRequest], in stacks: [PullRequestStack]) -> [String: String] {
-        let requestedByID = Dictionary(requested.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    private static func memberships(of members: [PullRequest], in stacks: [PullRequestStack]) -> [String: String] {
+        let memberByID = Dictionary(members.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var candidates: [String: Set<String>] = [:]
         for stack in stacks {
-            for entry in stack.entries where requestedByID[entry.pullRequestID] != nil {
+            for entry in stack.entries where memberByID[entry.pullRequestID] != nil {
                 candidates[entry.pullRequestID, default: []].insert(stack.id)
             }
         }
         var membership: [String: String] = [:]
         for (pullRequestID, stackIDs) in candidates {
-            if let hydrated = requestedByID[pullRequestID]?.stackID, stackIDs.contains(hydrated) {
+            if let hydrated = memberByID[pullRequestID]?.stackID, stackIDs.contains(hydrated) {
                 membership[pullRequestID] = hydrated
             } else {
                 membership[pullRequestID] = stackIDs.min()
@@ -122,21 +121,21 @@ enum ReviewRequestStacks {
             guard let section = DashboardController.RequestedSection.allCases.first(where: memberSections.contains) else {
                 continue
             }
-            let requestedByID = Dictionary(uniqueKeysWithValues: openMembers.map { ($0.id, $0) })
+            let fullMemberByID = Dictionary(uniqueKeysWithValues: openMembers.map { ($0.id, $0) })
             let group = StackGroup(
                 stack: stack,
                 representativePosition: entryByID[representative.id]!.position,
-                requestedMemberIDs: Set(requestedByID.keys),
+                fullMemberIDs: Set(fullMemberByID.keys),
                 matchingMemberIDs: Set(matchingMembers.map(\.id)),
-                // A requested PR that joined another stack's group is left out here, so it is never a context member.
+                // A member that joined another stack's group is left out here, so it is never a context member.
                 members: stack.entries.reversed().compactMap { entry in
-                    if let member = requestedByID[entry.pullRequestID] { return .requested(member) }
+                    if let member = fullMemberByID[entry.pullRequestID] { return .full(member) }
                     if let other = stackIDByPullRequestID[entry.pullRequestID], other != stack.id { return nil }
                     return .context(entry)
                 }
             )
             placed.append(PlacedRow(
-                row: ReviewRequestRow(
+                row: PullRequestListItem(
                     representative: representative,
                     stack: group,
                     isPinned: !isHidden && openMembers.contains { pinnedIDs.contains($0.id) },
@@ -151,7 +150,7 @@ enum ReviewRequestStacks {
         for pullRequest in matching where !consumedIDs.contains(pullRequest.id) {
             guard let section = DashboardController.RequestedSection.section(for: pullRequest) else { continue }
             placed.append(PlacedRow(
-                row: ReviewRequestRow(
+                row: PullRequestListItem(
                     representative: pullRequest,
                     stack: nil,
                     isPinned: pinnedIDs.contains(pullRequest.id),
@@ -163,7 +162,7 @@ enum ReviewRequestStacks {
             ))
         }
 
-        func sortedRows(_ rows: [ReviewRequestRow]) -> [ReviewRequestRow] {
+        func sortedRows(_ rows: [PullRequestListItem]) -> [PullRequestListItem] {
             let rowByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
             return DashboardController.sorted(rows.map(\.representative), by: sortOption, direction: sortDirection)
                 .compactMap { rowByID[$0.id] }

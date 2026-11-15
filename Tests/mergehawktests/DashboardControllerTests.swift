@@ -1247,7 +1247,7 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
-    private static func row(_ id: String, in controller: DashboardController) throws -> ReviewRequestRow {
+    private static func row(_ id: String, in controller: DashboardController) throws -> PullRequestListItem {
         try XCTUnwrap(controller.requestedSections.flatMap { $0.visible + $0.hidden }.first { $0.id == id }, id)
     }
 
@@ -1360,7 +1360,7 @@ final class DashboardControllerXCTests: XCTestCase {
         controller.selectedReviewRequestFilters = [.ready]
         let members: Set<String> = [Self.filterDraftMember, Self.filterReadyMember]
         typealias Expected = (pinned: Set<String>, hidden: Set<String>)
-        let actions: [(String, (DashboardController, ReviewRequestRow) -> Void, Expected)] = [
+        let actions: [(String, (DashboardController, PullRequestListItem) -> Void, Expected)] = [
             ("Hide", { $0.setHidden($1, hidden: true) }, ([], members)),
             ("Unhide", { $0.setHidden($1, hidden: false) }, ([Self.filterDraftMember], [])),
             ("Pin", { $0.setPinned($1, pinned: true) }, (members, [])),
@@ -1372,7 +1372,7 @@ final class DashboardControllerXCTests: XCTestCase {
             controller.pinnedPullRequestIds = [Self.filterDraftMember, Self.spreadOwnMember]
             controller.hiddenPullRequestIds = [Self.filterReadyMember]
             let row = try Self.row(Self.filterReadyMember, in: controller)
-            XCTAssertEqual(row.stack?.requestedMemberIDs, members, name)
+            XCTAssertEqual(row.stack?.fullMemberIDs, members, name)
 
             for attempt in 1...2 {
                 action(controller, row)
@@ -1399,19 +1399,19 @@ final class DashboardControllerXCTests: XCTestCase {
         ))
         let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
         waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
-        XCTAssertEqual(try Self.row("PR_A", in: controller).stack?.requestedMemberIDs, ["PR_A", "PR_B", "PR_C"])
+        XCTAssertEqual(try Self.row("PR_A", in: controller).stack?.fullMemberIDs, ["PR_A", "PR_B", "PR_C"])
 
         controller.setReviewTeam(Self.developers.id, counting: false)
 
         let reduced = try XCTUnwrap(try Self.row("PR_A", in: controller).stack)
-        XCTAssertEqual(reduced.requestedMemberIDs, ["PR_A", "PR_C"])
-        XCTAssertEqual(reduced.additionalRequestCount, 1)
-        XCTAssertEqual(reduced.members.map { if case .requested = $0 { true } else { false } }, [true, false, true])
+        XCTAssertEqual(reduced.fullMemberIDs, ["PR_A", "PR_C"])
+        XCTAssertEqual(reduced.additionalMemberCount, 1)
+        XCTAssertEqual(reduced.members.map { if case .full = $0 { true } else { false } }, [true, false, true])
         XCTAssertEqual(controller.requestedSections.map(\.count), [0, 2, 0])
 
         controller.setReviewTeam(Self.developers.id, counting: true)
 
-        XCTAssertEqual(try Self.row("PR_A", in: controller).stack?.requestedMemberIDs, ["PR_A", "PR_B", "PR_C"])
+        XCTAssertEqual(try Self.row("PR_A", in: controller).stack?.fullMemberIDs, ["PR_A", "PR_B", "PR_C"])
         XCTAssertEqual(controller.requestedSections.map(\.count), [0, 3, 0])
     }
 
@@ -1441,7 +1441,7 @@ final class DashboardControllerXCTests: XCTestCase {
             return XCTFail("The viewer's own member should be a context member")
         }
         XCTAssertEqual(entry.pullRequestID, Self.spreadOwnMember)
-        XCTAssertFalse(group.requestedMemberIDs.contains(Self.spreadOwnMember))
+        XCTAssertFalse(group.fullMemberIDs.contains(Self.spreadOwnMember))
         let own = try XCTUnwrap(controller.state.pullRequests.first { $0.id == Self.spreadOwnMember })
         XCTAssertEqual(controller.sortedMyPullRequests.first { $0.id == own.id }, own)
     }

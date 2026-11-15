@@ -1126,7 +1126,7 @@ final class MenuViewTests: XCTestCase {
         return StackGroup(
             stack: PullRequestStack(id: "STACK", size: size, entries: entries),
             representativePosition: representativePosition,
-            requestedMemberIDs: requestedIDs,
+            fullMemberIDs: requestedIDs,
             matchingMemberIDs: Set(requestedIDs.sorted().dropLast(excluded)),
             members: entries.map { .context($0) }
         )
@@ -1373,7 +1373,7 @@ final class MenuViewTests: XCTestCase {
     // MARK: - Expanded stack members
 
     @MainActor
-    private func prStacksGroup(_ stackID: String) throws -> (controller: DashboardController, row: ReviewRequestRow) {
+    private func prStacksGroup(_ stackID: String) throws -> (controller: DashboardController, row: PullRequestListItem) {
         let controller = DashboardController(
             tokenStore: InMemoryTokenStore(),
             preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),

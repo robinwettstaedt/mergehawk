@@ -1657,7 +1657,7 @@ struct PullRequestListView: View {
 
             if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
                 ForEach(content.visible) { row in
-                    requestedRow(row)
+                    stackListItem(row)
                         .id("visible-\(row.id)")
                 }
 
@@ -1666,7 +1666,7 @@ struct PullRequestListView: View {
 
                     if expandedRequestedHiddenSections.contains(content.section) {
                         ForEach(content.hidden) { row in
-                            requestedRow(row)
+                            stackListItem(row)
                                 .id("hidden-\(row.id)")
                         }
                     }
@@ -1717,12 +1717,12 @@ struct PullRequestListView: View {
         ))
     }
 
-    /// A requested row shows its representative; a stack group's actions apply to every requested member.
+    /// A list item shows its representative; a stack group's actions apply to every full member.
     /// An expanded group shows every member in one container instead: the first row has the stack control, so the
     /// control stays where it was, every other row names its position in its metadata, and the representative's
     /// row keeps the group actions wherever it lands.
     @ViewBuilder
-    private func requestedRow(_ row: ReviewRequestRow) -> some View {
+    private func stackListItem(_ row: PullRequestListItem) -> some View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
             StackMemberContainer(group: group, isUnread: row.isUnread) { member, position in
                 let isFirst = member.pullRequestID == group.members.first?.pullRequestID
@@ -1731,8 +1731,8 @@ struct PullRequestListView: View {
                     pullRequestID: member.pullRequestID, position: position, size: group.stack.size
                 ))
                 switch member {
-                case .requested(let pullRequest):
-                    requestedMemberRow(pullRequest, row: row, stackControl: control, positionLabel: positionLabel)
+                case .full(let pullRequest):
+                    fullMemberRow(pullRequest, row: row, stackControl: control, positionLabel: positionLabel)
                 case .context(let entry):
                     StackContextCard(
                         entry: entry,
@@ -1768,7 +1768,7 @@ struct PullRequestListView: View {
 
     /// The collapsed card, or the representative's row inside an expanded group when `chrome` is `.containerRow`.
     private func representativeCard(
-        _ row: ReviewRequestRow,
+        _ row: PullRequestListItem,
         chrome: PullRequestCardChrome = .card,
         stackControl memberControl: AnyView? = nil,
         positionLabel: AnyView? = nil
@@ -1798,9 +1798,9 @@ struct PullRequestListView: View {
     }
 
     @ViewBuilder
-    private func requestedMemberRow(
+    private func fullMemberRow(
         _ pullRequest: PullRequest,
-        row: ReviewRequestRow,
+        row: PullRequestListItem,
         stackControl: AnyView?,
         positionLabel: AnyView?
     ) -> some View {
@@ -1819,7 +1819,7 @@ struct PullRequestListView: View {
                 chrome: .containerRow,
                 showsActions: false
             ) {
-                controller.openStackMember(.requested(pullRequest))
+                controller.openStackMember(.full(pullRequest))
             }
         }
     }

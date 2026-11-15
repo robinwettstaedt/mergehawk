@@ -4,7 +4,7 @@ import mergehawkcore
 import XCTest
 
 @MainActor
-final class ReviewRequestStacksTests: XCTestCase {
+final class PullRequestStackGroupingTests: XCTestCase {
     private typealias Section = DashboardController.RequestedSection
     private typealias PullRequestSortOption = DashboardController.PullRequestSortOption
     private typealias PullRequestSortDirection = DashboardController.PullRequestSortDirection
@@ -28,7 +28,7 @@ final class ReviewRequestStacksTests: XCTestCase {
                         matching.filter { hidden.contains($0.id) }, by: option, direction: direction
                     )
 
-                    let sections = ReviewRequestStacks.sections(
+                    let sections = PullRequestStackGrouping.sections(
                         requested: requested, matching: matching, stacks: [],
                         hiddenIDs: hidden, pinnedIDs: pinned, unreadIDs: unread,
                         sortOption: option, sortDirection: direction
@@ -62,7 +62,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: ["PR_LOW"], .team: ["PR_OTHER"]])
         let row = try XCTUnwrap(Self.row(lower.id, in: sections))
         XCTAssertEqual(row.stack?.representativePosition, 1)
-        XCTAssertEqual(row.stack?.requestedMemberIDs, [lower.id, upper.id])
+        XCTAssertEqual(row.stack?.fullMemberIDs, [lower.id, upper.id])
     }
 
     func testRepresentativeIsTheLowestMatchingMemberWhenTheFilterExcludesTheBottomOne() throws {
@@ -74,7 +74,7 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         let row = try XCTUnwrap(Self.row(ready.id, in: sections))
         XCTAssertEqual(row.stack?.representativePosition, 2)
-        XCTAssertEqual(row.stack?.additionalRequestCount, 1)
+        XCTAssertEqual(row.stack?.additionalMemberCount, 1)
         XCTAssertNil(Self.row(draft.id, in: sections))
     }
 
@@ -98,8 +98,8 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [], .team: ["PR_TEAM"]])
         let group = try XCTUnwrap(Self.row(team.id, in: sections)?.stack)
-        XCTAssertEqual(group.members.first, .requested(assigned))
-        XCTAssertEqual(group.filterExcludedRequestCount, 1)
+        XCTAssertEqual(group.members.first, .full(assigned))
+        XCTAssertEqual(group.filterExcludedMemberCount, 1)
     }
 
     func testStackWithoutAMatchingRequestedMemberShowsNoRow() {
@@ -119,7 +119,7 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         XCTAssertEqual(group.representativePosition, 3)
         XCTAssertEqual(group.stack.size, 3)
-        XCTAssertEqual(group.additionalRequestCount, 0)
+        XCTAssertEqual(group.additionalMemberCount, 0)
     }
 
     func testRequestedPRWhoseEntryIsMergedOrClosedIsAContextMember() throws {
@@ -133,8 +133,8 @@ final class ReviewRequestStacksTests: XCTestCase {
             XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [], .team: ["PR_OPEN"]], "\(state)")
             let group = try XCTUnwrap(Self.row(open.id, in: sections)?.stack)
             XCTAssertEqual(group.representativePosition, 2)
-            XCTAssertEqual(group.requestedMemberIDs, [open.id])
-            XCTAssertEqual(group.additionalRequestCount, 0)
+            XCTAssertEqual(group.fullMemberIDs, [open.id])
+            XCTAssertEqual(group.additionalMemberCount, 0)
             XCTAssertEqual(group.members.last, .context(stack.entries[0]))
             XCTAssertEqual(sections.map(\.count), [0, 0, 1])
         }
@@ -162,8 +162,8 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [unstamped.id], .team: []])
         let group = try XCTUnwrap(Self.row(unstamped.id, in: sections)?.stack)
-        XCTAssertEqual(group.requestedMemberIDs, [unstamped.id, member.id])
-        XCTAssertEqual(group.members, [.requested(member), .requested(unstamped)])
+        XCTAssertEqual(group.fullMemberIDs, [unstamped.id, member.id])
+        XCTAssertEqual(group.members, [.full(member), .full(unstamped)])
         XCTAssertEqual(sections.map(\.count), [0, 2, 0])
     }
 
@@ -176,7 +176,7 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [moved.id], .team: []])
         let group = try XCTUnwrap(Self.row(moved.id, in: sections)?.stack)
-        XCTAssertEqual(group.members, [.requested(member), .requested(moved)])
+        XCTAssertEqual(group.members, [.full(member), .full(moved)])
     }
 
     func testPRListedByTwoStacksJoinsOneGroupAndIsNeverAContextMemberOfTheOther() throws {
@@ -190,19 +190,19 @@ final class ReviewRequestStacksTests: XCTestCase {
         let preferred = Self.sections([shared, inA, inB], stacks: [stackA, stackB])
         let groupB = try XCTUnwrap(Self.row(shared.id, in: preferred)?.stack)
         XCTAssertEqual(groupB.stack.id, "B")
-        XCTAssertEqual(groupB.requestedMemberIDs, [shared.id, inB.id])
+        XCTAssertEqual(groupB.fullMemberIDs, [shared.id, inB.id])
         let groupA = try XCTUnwrap(Self.row(inA.id, in: preferred)?.stack)
-        XCTAssertEqual(groupA.requestedMemberIDs, [inA.id])
-        XCTAssertEqual(groupA.members, [.requested(inA)])
+        XCTAssertEqual(groupA.fullMemberIDs, [inA.id])
+        XCTAssertEqual(groupA.members, [.full(inA)])
 
         // Without a matching stack ID, the lowest stack ID wins.
         let unstamped = Self.pr("PR_SHARED", .direct)
         let lowest = Self.sections([unstamped, inA, inB], stacks: [stackB, stackA])
         let rows = lowest.flatMap { $0.visible + $0.hidden }
         XCTAssertEqual(rows.map(\.id).sorted(), [inA.id, inB.id])
-        XCTAssertEqual(rows.first { $0.id == inA.id }?.stack?.requestedMemberIDs, [inA.id, unstamped.id])
+        XCTAssertEqual(rows.first { $0.id == inA.id }?.stack?.fullMemberIDs, [inA.id, unstamped.id])
         let other = try XCTUnwrap(rows.first { $0.id == inB.id }?.stack)
-        XCTAssertEqual(other.members, [.requested(inB)])
+        XCTAssertEqual(other.members, [.full(inB)])
         XCTAssertEqual(lowest.map(\.count), [0, 2, 1])
     }
 
@@ -215,10 +215,10 @@ final class ReviewRequestStacksTests: XCTestCase {
         let unfiltered = try XCTUnwrap(Self.row(one.id, in: Self.sections([one, two, three], stacks: [stack]))?.stack)
         let ready = try XCTUnwrap(Self.row(one.id, in: Self.sections([one, two, three], filters: [.ready], stacks: [stack]))?.stack)
 
-        XCTAssertEqual(unfiltered.additionalRequestCount, 2)
-        XCTAssertEqual(unfiltered.filterExcludedRequestCount, 0)
-        XCTAssertEqual(ready.additionalRequestCount, 2)
-        XCTAssertEqual(ready.filterExcludedRequestCount, 2)
+        XCTAssertEqual(unfiltered.additionalMemberCount, 2)
+        XCTAssertEqual(unfiltered.filterExcludedMemberCount, 0)
+        XCTAssertEqual(ready.additionalMemberCount, 2)
+        XCTAssertEqual(ready.filterExcludedMemberCount, 2)
     }
 
     func testOneReadyAndOneDraftMemberWithReadySelectedCountsOneInTheSection() throws {
@@ -230,8 +230,8 @@ final class ReviewRequestStacksTests: XCTestCase {
 
         let direct = try XCTUnwrap(sections.first { $0.section == .direct })
         XCTAssertEqual(direct.count, 1)
-        XCTAssertEqual(direct.visible.first?.stack?.additionalRequestCount, 1)
-        XCTAssertEqual(direct.visible.first?.stack?.filterExcludedRequestCount, 1)
+        XCTAssertEqual(direct.visible.first?.stack?.additionalMemberCount, 1)
+        XCTAssertEqual(direct.visible.first?.stack?.filterExcludedMemberCount, 1)
     }
 
     func testFoldedInMembersCountInTheGroupsSectionAndNeverInTheirOwn() {
@@ -335,7 +335,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         for member in group.members where member.pullRequestID != requested.id {
             guard case .context = member else { return XCTFail("\(member.pullRequestID) should be a context member") }
         }
-        XCTAssertEqual(group.members[2], .requested(requested))
+        XCTAssertEqual(group.members[2], .full(requested))
     }
 
     // MARK: - pr-stacks mock scenario
@@ -343,7 +343,7 @@ final class ReviewRequestStacksTests: XCTestCase {
     private static func prStacksSections(filters: Set<ReviewRequestFilterOption> = []) -> [ReviewRequestSectionContent] {
         let source = MockPullRequestSource(scenario: .prStacks)
         let requested = source.firstRefreshPullRequests.filter(DashboardController.isRequestedPullRequest)
-        return ReviewRequestStacks.sections(
+        return PullRequestStackGrouping.sections(
             requested: requested,
             matching: DashboardController.filteredReviewRequests(requested, by: filters),
             stacks: source.stacks,
@@ -352,7 +352,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         )
     }
 
-    private static func prStacksGroup(_ stackID: String) throws -> (row: ReviewRequestRow, group: StackGroup) {
+    private static func prStacksGroup(_ stackID: String) throws -> (row: PullRequestListItem, group: StackGroup) {
         let row = try XCTUnwrap(prStacksSections().flatMap(\.visible).first { $0.stack?.stack.id == stackID }, stackID)
         return (row, try XCTUnwrap(row.stack, stackID))
     }
@@ -371,7 +371,7 @@ final class ReviewRequestStacksTests: XCTestCase {
             XCTAssertTrue(assigned.visible.contains(row), "assigned, \(stackID)")
             XCTAssertEqual(group.stack.size, 3, stackID)
             XCTAssertEqual(group.members.map { group.position(of: $0) }, [3, 2, 1], stackID)
-            XCTAssertEqual(group.requestedMemberIDs, [row.representative.id], stackID)
+            XCTAssertEqual(group.fullMemberIDs, [row.representative.id], stackID)
             XCTAssertEqual(
                 StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
                 "2/3", stackID
@@ -402,7 +402,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         XCTAssertEqual(finished.count, 6)
         for row in rows {
             XCTAssertFalse(finished.contains(row.representative.id), row.id)
-            XCTAssertTrue(row.stack?.requestedMemberIDs.isDisjoint(with: finished) ?? true, row.id)
+            XCTAssertTrue(row.stack?.fullMemberIDs.isDisjoint(with: finished) ?? true, row.id)
         }
         // Each section counts only its matching requested PRs, folded-in members included.
         let requested = source.firstRefreshPullRequests.filter(DashboardController.isRequestedPullRequest)
@@ -458,7 +458,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         pinned: Set<String> = [],
         unread: Set<String> = []
     ) -> [ReviewRequestSectionContent] {
-        ReviewRequestStacks.sections(
+        PullRequestStackGrouping.sections(
             requested: requested,
             matching: DashboardController.filteredReviewRequests(requested, by: filters),
             stacks: stacks,
@@ -474,7 +474,7 @@ final class ReviewRequestStacksTests: XCTestCase {
         Dictionary(uniqueKeysWithValues: sections.map { ($0.section, ($0.visible + $0.hidden).map(\.id)) })
     }
 
-    private static func row(_ id: String, in sections: [ReviewRequestSectionContent]) -> ReviewRequestRow? {
+    private static func row(_ id: String, in sections: [ReviewRequestSectionContent]) -> PullRequestListItem? {
         sections.flatMap { $0.visible + $0.hidden }.first { $0.id == id }
     }
 }

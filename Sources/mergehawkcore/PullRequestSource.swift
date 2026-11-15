@@ -904,7 +904,7 @@ public final class MockPullRequestSource {
         "PR_\(fixture.id)_\(member.position)"
     }
 
-    /// Requested stack members, the viewer's own stack member, and one unstacked requested PR per section.
+    /// The fetched stack members, requested and the viewer's own, and one unstacked requested PR per section.
     private static var prStackPullRequests: [PullRequest] {
         let members = prStackFixtures.flatMap { fixture in
             fixture.members.compactMap { member -> PullRequest? in

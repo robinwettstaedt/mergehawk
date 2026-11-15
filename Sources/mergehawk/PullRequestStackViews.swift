@@ -1,8 +1,8 @@
 import mergehawkcore
 import SwiftUI
 
-/// The stack control on a requested stack card: stack symbol, "‹position›/‹size›", and an expand or collapse
-/// chevron. Other review requests and filter-excluded requests appear only in the tooltip.
+/// The stack control on a stack card: stack symbol, "‹position›/‹size›", and an expand or collapse chevron. The
+/// list's other members and filter-excluded members appear only in the tooltip.
 struct StackControlPresentation: Equatable {
     static let stackSymbolName = "square.3.layers.3d"
     static let collapsedChevronSymbolName = "chevron.down"
@@ -28,11 +28,11 @@ struct StackControlPresentation: Equatable {
         templateText = "\(digits)/\(digits)"
         chevronSymbolName = isExpanded ? Self.expandedChevronSymbolName : Self.collapsedChevronSymbolName
         var parts = ["Stack", "position \(displayedPosition) of \(size)"]
-        let additional = group.additionalRequestCount
+        let additional = group.additionalMemberCount
         if additional > 0 {
             parts.append("\(additional) more review \(additional == 1 ? "request" : "requests")")
         }
-        let excluded = group.filterExcludedRequestCount
+        let excluded = group.filterExcludedMemberCount
         if excluded > 0 {
             parts.append("\(excluded) outside the current filter")
         }
@@ -167,8 +167,8 @@ struct StackPositionLabelAnchorsKey: PreferenceKey {
     }
 }
 
-/// The badges after a context stack member's title, in display order: Draft first, then its state. Requested
-/// members show only the ordinary Draft badge of a PR card.
+/// The badges after a context stack member's title, in display order: Draft first, then its state. Full members
+/// show only the ordinary Draft badge of a PR card.
 enum StackMemberBadge: String, Equatable {
     case draft = "Draft"
     case open = "Open"
