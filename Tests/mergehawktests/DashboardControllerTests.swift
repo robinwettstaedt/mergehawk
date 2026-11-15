@@ -1453,7 +1453,7 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
-    func testViewersOwnStackMemberIsAContextMemberAndStaysUnchangedInMyPRs() async throws {
+    func testViewersOwnStackMemberIsAContextMemberInRequestedAndRepresentsItsGroupInAuthored() async throws {
         let controller = makePRStacksController()
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
 
@@ -1463,8 +1463,191 @@ final class DashboardControllerXCTests: XCTestCase {
         }
         XCTAssertEqual(entry.pullRequestID, Self.spreadOwnMember)
         XCTAssertFalse(group.fullMemberIDs.contains(Self.spreadOwnMember))
-        let own = try XCTUnwrap(controller.state.pullRequests.first { $0.id == Self.spreadOwnMember })
-        XCTAssertEqual(controller.sortedMyPullRequests.first { $0.id == own.id }, own)
+
+        let authored = try XCTUnwrap(try Self.authoredItem(Self.spreadOwnMember, in: controller).stack)
+        XCTAssertEqual(authored.fullMemberIDs, [Self.spreadOwnMember])
+        XCTAssertEqual(authored.representativePosition, 4)
+        XCTAssertEqual(authored.members.map(\.pullRequestID), (1...4).reversed().map { "PR_STACK_MOCK_SPREAD_\($0)" })
+        XCTAssertEqual(
+            authored.members.map { if case .full = $0 { true } else { false } },
+            [true, false, false, false]
+        )
+    }
+
+    // MARK: - Authored stacks
+
+    private static let authoredDefaultOrder = [
+        spreadOwnMember, "PR_STACKS_UNSTACKED_MINE", "PR_STACK_MOCK_AUTHORED_BASE_1",
+        "PR_STACK_MOCK_AUTHORED_SEVERAL_2", "PR_STACK_MOCK_AUTHORED_FILTER_1", "PR_STACK_MOCK_AUTHORED_STALE_2"
+    ]
+    private static let severalOwnMembers = Set((2...4).map { "PR_STACK_MOCK_AUTHORED_SEVERAL_\($0)" })
+
+    @MainActor
+    private static func authoredItem(_ id: String, in controller: DashboardController) throws -> PullRequestListItem {
+        let list = controller.authoredList
+        return try XCTUnwrap((list.visible + list.hidden).first { $0.id == id }, id)
+    }
+
+    @MainActor
+    func testAuthoredListShowsEachOwnStackAsOneItemInTheDefaultOrder() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        let list = controller.authoredList
+        XCTAssertEqual(list.visible.map(\.id), Self.authoredDefaultOrder)
+        XCTAssertEqual(list.hidden, [])
+        let ownIDs = Set(controller.state.pullRequests.filter(\.isMine).map(\.id))
+        let stackedOwnIDs = ownIDs.subtracting(["PR_STACKS_UNSTACKED_MINE"])
+        let itemIDs = Set(list.visible.map(\.id))
+        let grouped = list.visible.compactMap(\.stack).reduce(into: Set<String>()) { $0.formUnion($1.fullMemberIDs) }
+        XCTAssertTrue(stackedOwnIDs.subtracting([Self.authoredStaleMember]).isSubset(of: grouped))
+        XCTAssertEqual(itemIDs.intersection(stackedOwnIDs.subtracting(grouped)), [], "no own stack member stands alone")
+        XCTAssertNil(try Self.authoredItem("PR_STACKS_UNSTACKED_MINE", in: controller).stack)
+        // The stale member is consumed: it counts nowhere and shows only as context.
+        XCTAssertEqual(list.count, 9)
+
+        let stale = try XCTUnwrap(try Self.authoredItem("PR_STACK_MOCK_AUTHORED_STALE_2", in: controller).stack)
+        guard case .context(let entry) = try XCTUnwrap(stale.members.last) else {
+            return XCTFail("The stale own member should be a context member")
+        }
+        XCTAssertEqual(entry.pullRequestID, Self.authoredStaleMember)
+        XCTAssertEqual(StackMemberBadge.badges(for: entry), [.merged])
+    }
+
+    @MainActor
+    func testReadyFilterRepresentsTheAuthoredFilterStackByItsReadyMember() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        controller.selectedPullRequestFilters = [.ready]
+
+        let item = try Self.authoredItem("PR_STACK_MOCK_AUTHORED_FILTER_2", in: controller)
+        XCTAssertEqual(item.stack?.representativePosition, 2)
+        XCTAssertEqual(item.stack?.filterExcludedMemberCount, 1)
+        XCTAssertFalse(controller.authoredList.visible.contains { $0.id == "PR_STACK_MOCK_AUTHORED_FILTER_1" })
+    }
+
+    @MainActor
+    func testHidingAndPinningAnAuthoredGroupSetEveryOwnMember() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+        let several = "PR_STACK_MOCK_AUTHORED_SEVERAL_2"
+        controller.pinnedPullRequestIds = ["PR_STACK_MOCK_AUTHORED_SEVERAL_3"]
+
+        controller.setHidden(try Self.authoredItem(several, in: controller), hidden: true)
+
+        XCTAssertTrue(controller.hiddenPullRequestIds.isSuperset(of: Self.severalOwnMembers))
+        XCTAssertTrue(controller.pinnedPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
+        XCTAssertEqual(controller.authoredList.hidden.map(\.id), [several])
+        XCTAssertFalse(controller.authoredList.visible.contains { $0.id == several })
+        XCTAssertEqual(controller.authoredList.hiddenCount, 3)
+
+        controller.setHidden(try Self.authoredItem(several, in: controller), hidden: false)
+
+        XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), Self.authoredDefaultOrder)
+
+        controller.hiddenPullRequestIds = ["PR_STACK_MOCK_AUTHORED_SEVERAL_4"]
+        controller.setPinned(try Self.authoredItem(several, in: controller), pinned: true)
+
+        XCTAssertTrue(controller.pinnedPullRequestIds.isSuperset(of: Self.severalOwnMembers))
+        XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
+        let visible = controller.authoredList.visible
+        XCTAssertEqual(visible.first?.id, several)
+        XCTAssertEqual(visible.map(\.isPinned), [true] + Array(repeating: false, count: visible.count - 1))
+
+        controller.setPinned(try Self.authoredItem(several, in: controller), pinned: false)
+
+        XCTAssertTrue(controller.pinnedPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), Self.authoredDefaultOrder)
+    }
+
+    @MainActor
+    func testAttentionFilterMovesTheAuthoredRepresentativeToTheNextUnreadOwnMember() throws {
+        let suiteName = "authored-attention-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let source = MockPullRequestSource(scenario: .prStacks)
+        let pullRequests = source.firstRefreshPullRequests
+        let account = GitHubAccount(login: "agent-fixture")
+        let unreadIDs = ["PR_STACK_MOCK_AUTHORED_SEVERAL_2", "PR_STACK_MOCK_AUTHORED_SEVERAL_3"]
+        let notifications = try unreadIDs.map { id in
+            PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: id, activityId: "COMMENT_\(id)"),
+                pullRequest: try XCTUnwrap(pullRequests.first { $0.id == id })
+            )
+        }
+        var store = PreferencesStore(defaults: defaults)
+        store.authMethod = .pat
+        try store.storePullRequestSyncState(PullRequestSyncState(
+            account: account,
+            dashboard: DashboardState(
+                pullRequests: pullRequests, events: [], syncedAt: Date(timeIntervalSince1970: 10), source: .github,
+                account: account, authStatus: .signedIn, pullRequestStacks: source.stacks
+            ),
+            processedActivityByPullRequestID: Dictionary(uniqueKeysWithValues: pullRequests.map {
+                ($0.id, ProcessedPullRequestActivity(pullRequestID: $0.id))
+            }),
+            notificationHistory: notifications
+        ))
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: source.firstRefreshPullRequests,
+            stacks: source.stacks
+        ))
+        provider.viewerLogin = account.login
+        var opened: [URL] = []
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(token: "pat"),
+            preferencesStore: store,
+            launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+            automaticRefreshInterval: 0,
+            patGitHubClientFactory: { _ in provider },
+            urlOpener: { opened.append($0) }
+        )
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        controller.selectedPullRequestFilters = [.needsAttention]
+
+        let first = try XCTUnwrap(controller.authoredList.visible.first)
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), [unreadIDs[0]])
+        XCTAssertEqual(first.stack?.filterExcludedMemberCount, 1)
+        controller.openPullRequest(first.representative)
+
+        let second = try XCTUnwrap(controller.authoredList.visible.first)
+        XCTAssertEqual(controller.authoredList.visible.map(\.id), [unreadIDs[1]])
+        XCTAssertEqual(second.stack?.filterExcludedMemberCount, 2)
+        controller.openPullRequest(second.representative)
+
+        XCTAssertEqual(controller.authoredList.visible, [])
+        XCTAssertEqual(controller.authoredList.count, 0)
+        XCTAssertEqual(opened, [first.representative.url, second.representative.url])
+    }
+
+    @MainActor
+    func testOptionClickingAnAuthoredStackAlsoExpandsTheRequestedStacks() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        controller.toggleAllStacks(from: "STACK_MOCK_AUTHORED_SEVERAL")
+
+        XCTAssertEqual(controller.expandedStackIDs, Set(controller.state.pullRequestStacks.map(\.id)))
+        for stack in controller.requestedSections.flatMap(\.visible).compactMap(\.stack) {
+            XCTAssertTrue(controller.isStackExpanded(stack.stack.id), stack.stack.id)
+        }
+    }
+
+    @MainActor
+    func testTurningAuthoredOffForTheBaseStacksRepositoryRemovesItsGroup() async throws {
+        let controller = makePRStacksController()
+        try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
+
+        controller.setRepositoryPreferences(
+            repo: "mergehawk-labs/desktop-app",
+            preferences: RepositorySourcePreferences(notifications: .inherit, myPullRequests: .disabled, reviewRequests: .inherit)
+        )
+
+        let items = controller.authoredList.visible + controller.authoredList.hidden
+        XCTAssertFalse(items.contains { $0.stack?.stack.id == "STACK_MOCK_AUTHORED_BASE" })
+        XCTAssertEqual(items.map(\.id), Self.authoredDefaultOrder.filter { $0 != "PR_STACK_MOCK_AUTHORED_BASE_1" })
     }
 
     @MainActor

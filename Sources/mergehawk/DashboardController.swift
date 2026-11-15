@@ -621,6 +621,19 @@ final class DashboardController: ObservableObject {
         )
     }
 
+    var authoredList: PullRequestListContent {
+        PullRequestStackGrouping.list(
+            members: sourceFilteredMyPullRequests,
+            matching: filteredMyPullRequests,
+            stacks: state.pullRequestStacks,
+            hiddenIDs: hiddenPullRequestIds,
+            pinnedIDs: pinnedPullRequestIds,
+            unreadIDs: unreadPullRequestNotificationIds,
+            sortOption: pullRequestSortOption,
+            sortDirection: pullRequestSortDirection
+        )
+    }
+
     func isStackExpanded(_ stackID: String) -> Bool {
         expandedStackIDs.contains(stackID)
     }
