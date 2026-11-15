@@ -147,6 +147,31 @@ struct RefreshGoldenFixture {
         )
     }
 
+    /// The trusted previous state's PRs as the client passes them to `readRefresh`.
+    var knownIdentities: [DiscoveredPullRequest] {
+        previousState.dashboard.pullRequests.map { pullRequest in
+            DiscoveredPullRequest(
+                id: pullRequest.id,
+                repository: pullRequest.repo,
+                number: pullRequest.number,
+                createdAt: pullRequest.createdAt,
+                isAuthored: pullRequest.isMine,
+                isAssigned: pullRequest.isAssignedToViewer,
+                isDirectlyRequested: pullRequest.reviewRequestKind.includesDirect,
+                isTeamRequested: pullRequest.reviewRequestKind.includesTeam
+            )
+        }
+    }
+
+    /// A fetcher-level transport answering the fixture's GraphQL queries from their content.
+    func graphQLTransport() -> @Sendable (String, [String: GitHubQueryValue]) throws -> Data {
+        let server = makeServer()
+        let discovered = known + new
+        return { query, variables in
+            try answerGraphQL(query: query, variables: variables, server: server, discovered: discovered)
+        }
+    }
+
     /// Hashes the active and retiring PRs, quietly retired IDs, viewer teams and stacks.
     static func hash(_ result: CompletePullRequestFetchResult) throws -> String {
         let encoder = JSONEncoder()
@@ -301,11 +326,21 @@ struct RefreshGoldenFixture {
         let name = query.range(of: "query ").map { String(query[$0.upperBound...].prefix { $0.isLetter }) } ?? query
         queryNames.withValue { $0.append(name) }
 
+        return (try answerGraphQL(query: query, variables: variables, server: server, discovered: discovered), Self.http(request))
+    }
+
+    /// Answers one GraphQL query from its content.
+    private func answerGraphQL(
+        query: String,
+        variables: [String: GitHubQueryValue],
+        server: GitHubFixtureServer,
+        discovered: [Spec]
+    ) throws -> Data {
         if query.contains("query CompletePullRequests") || query.contains("query ContinuePullRequestConnections") {
-            return (try server.respond(query: query, variables: variables), Self.http(request))
+            return try server.respond(query: query, variables: variables)
         }
         if query.contains("query ViewerTeams") {
-            return Self.response(["data": ["viewer": ["organizations": [
+            return Self.json(["data": ["viewer": ["organizations": [
                 "pageInfo": ["hasNextPage": false, "endCursor": NSNull()],
                 "nodes": [[
                     "login": "acme",
@@ -317,7 +352,7 @@ struct RefreshGoldenFixture {
                         ]]
                     ]
                 ]]
-            ]]]], request)
+            ]]]])
         }
         if query.contains("query DiscoveryBounds") {
             var data: [String: Any] = [:]
@@ -326,21 +361,21 @@ struct RefreshGoldenFixture {
                 data["\(lane.rawValue)Oldest"] = ["nodes": specs.prefix(1).map(discoveryNode)]
                 data["\(lane.rawValue)Newest"] = ["nodes": specs.suffix(1).map(discoveryNode)]
             }
-            return Self.response(["data": data], request)
+            return Self.json(["data": data])
         }
         if query.contains("query DiscoverPullRequests") {
             var data: [String: Any] = [:]
             for lane in GitHubDiscoveryLane.allCases {
                 data[lane.rawValue] = Self.searchPage(discovered.filter { $0.lane == lane }.map(discoveryNode))
             }
-            return Self.response(["data": data], request)
+            return Self.json(["data": data])
         }
         if query.contains("query SearchPullRequests"), case .string(let search) = variables["query"],
            search.contains("repo:\(droppedTeam.repo) team-review-requested-user:rw") {
-            return Self.response(["data": ["search": Self.searchPage([discoveryNode(droppedTeam)])]], request)
+            return Self.json(["data": ["search": Self.searchPage([discoveryNode(droppedTeam)])]])
         }
         if query.contains("query PullRequestStacks"), case .strings(let ids) = variables["ids"] {
-            return Self.response(["data": ["nodes": ids.map { id -> Any in
+            return Self.json(["data": ["nodes": ids.map { id -> Any in
                 let members = id == "STACK_A" ? ["K30", "K31"] : id == "STACK_B" ? ["K40", "EXTERNAL"] : []
                 return [
                     "id": id,
@@ -360,10 +395,10 @@ struct RefreshGoldenFixture {
                         }
                     ]
                 ]
-            }]], request)
+            }]])
         }
         XCTFail("Unexpected query \(query.prefix(80))")
-        return Self.response(["message": "unexpected"], request, status: 500)
+        throw GitHubReadError.invalidPayload
     }
 
     private static func searchPage(_ nodes: [[String: Any]]) -> [String: Any] {
@@ -402,6 +437,10 @@ struct RefreshGoldenFixture {
 
     private static func http(_ request: URLRequest, status: Int = 200) -> HTTPURLResponse {
         HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+    }
+
+    private static func json(_ object: Any) -> Data {
+        try! JSONSerialization.data(withJSONObject: object)
     }
 
     private static func response(_ object: Any, _ request: URLRequest, status: Int = 200) -> (Data, HTTPURLResponse) {

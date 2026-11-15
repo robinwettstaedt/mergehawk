@@ -23,6 +23,16 @@ struct GitHubHydratedPullRequest: Equatable, Sendable {
     let hasTeamReviewRequest: Bool
 }
 
+/// The GraphQL part of a complete PR refresh: viewer teams, discovery and every hydrated PR.
+struct GitHubRefreshRead: Equatable, Sendable {
+    /// The reused teams when the refresh was given them.
+    let viewerTeams: [ViewerTeam]
+    let discovery: GitHubDiscoveryResult
+    /// Discovered PRs in discovery order, then known PRs discovery no longer finds in their given order.
+    let pullRequests: [GitHubHydratedPullRequest]
+    let missingPullRequestIDs: Set<String>
+}
+
 struct GitHubHydrationResult: Equatable, Sendable {
     let pullRequests: [GitHubHydratedPullRequest]
     let missingPullRequestIDs: Set<String>
@@ -342,6 +352,16 @@ struct GitHubPullRequestFetcher: Sendable {
         login: String,
         includesForbiddenNodes: Bool = false
     ) async throws -> GitHubHydrationResult {
+        try await unwrappingRecordedFailure {
+            try await hydrateRecorded(discovered, login: login, includesForbiddenNodes: includesForbiddenNodes)
+        }
+    }
+
+    private func hydrateRecorded(
+        _ discovered: [DiscoveredPullRequest],
+        login: String,
+        includesForbiddenNodes: Bool
+    ) async throws -> GitHubHydrationResult {
         var accumulators: [String: HydrationAccumulator] = [:]
         var continuations: [Continuation] = []
         var missingIDs = Set<String>()
@@ -361,7 +381,130 @@ struct GitHubPullRequestFetcher: Sendable {
         )
 
         try await runContinuationRounds(&accumulators, queue: continuations)
+        return GitHubHydrationResult(
+            pullRequests: try finishHydration(accumulators, order: discovered.map(\.id), missing: missingIDs, login: login),
+            missingPullRequestIDs: missingIDs
+        )
+    }
 
+    /// Reads a complete PR refresh's GraphQL data. Discovery, the viewer teams read (unless `reusableViewerTeams`
+    /// is given) and hydration of the `known` PRs run together, and newly discovered PRs hydrate as soon as
+    /// discovery ends. Discovery results then apply to every hydrated PR in a fixed order, and continuation reads
+    /// every hydrated PR's remaining pages.
+    ///
+    /// A PR discovery found takes its identity from discovery. A known PR discovery no longer finds keeps its
+    /// `known` identity, and only for it does a refused node count as missing.
+    func readRefresh(
+        login: String,
+        known: [DiscoveredPullRequest],
+        reusableViewerTeams: [ViewerTeam]?
+    ) async throws -> GitHubRefreshRead {
+        try await unwrappingRecordedFailure {
+            try await readRefreshRecorded(login: login, known: known, reusableViewerTeams: reusableViewerTeams)
+        }
+    }
+
+    private enum RefreshJobResult: Sendable {
+        case teams([ViewerTeam])
+        case discovery(GitHubDiscoveryResult, newBatches: [[HydrationOutcome]])
+        case hydration([HydrationOutcome])
+    }
+
+    private func readRefreshRecorded(
+        login: String,
+        known: [DiscoveredPullRequest],
+        reusableViewerTeams: [ViewerTeam]?
+    ) async throws -> GitHubRefreshRead {
+        let knownIDs = Set(known.map(\.id))
+        let knownChunks = Self.hydrationChunks(known)
+        let chain = withPriority(.chain)
+
+        // Phases 1 and 2.
+        var jobs: [(GitHubReadOrder, @Sendable () async throws -> RefreshJobResult)] = []
+        if reusableViewerTeams == nil {
+            jobs.append((GitHubReadOrder(.viewerTeams), {
+                .teams(try await chain.fetchViewerTeams(login: login))
+            }))
+        }
+        jobs.append((GitHubReadOrder(.discovery), { [self] in
+            let discovery = try await chain.discover(login: login)
+            let newChunks = Self.hydrationChunks(discovery.pullRequests.filter { !knownIDs.contains($0.id) })
+            let newBatches = try await runConcurrently(newChunks.enumerated().map { index, chunk in
+                (GitHubReadOrder(.newHydration, index), { @Sendable [self] in
+                    try await readHydrationBatch(chunk.map(\.id), mayBeRefused: false)
+                })
+            })
+            return .discovery(discovery, newBatches: newBatches)
+        }))
+        for (index, chunk) in knownChunks.enumerated() {
+            jobs.append((GitHubReadOrder(.knownHydration, index), { [self] in
+                .hydration(try await readHydrationBatch(chunk.map(\.id), mayBeRefused: true))
+            }))
+        }
+        var viewerTeams = reusableViewerTeams ?? []
+        var discovery: GitHubDiscoveryResult?
+        var newBatches: [[HydrationOutcome]] = []
+        var knownBatches: [[HydrationOutcome]] = []
+        for result in try await runConcurrently(jobs) {
+            switch result {
+            case .teams(let teams): viewerTeams = teams
+            case .discovery(let value, let batches):
+                discovery = value
+                newBatches = batches
+            case .hydration(let batch): knownBatches.append(batch)
+            }
+        }
+        guard let discovery else { throw GitHubReadError.invalidPayload }
+
+        // Phase 3: known batches by index, then new batches by index, positions in order.
+        let discoveredByID = Dictionary(uniqueKeysWithValues: discovery.pullRequests.map { ($0.id, $0) })
+        let newChunks = Self.hydrationChunks(discovery.pullRequests.filter { !knownIDs.contains($0.id) })
+        var accumulators: [String: HydrationAccumulator] = [:]
+        var continuations: [Continuation] = []
+        var missingIDs = Set<String>()
+        for (chunk, batch) in zip(knownChunks + newChunks, knownBatches + newBatches) {
+            for (knownIdentity, outcome) in zip(chunk, batch) {
+                let found = discoveredByID[knownIdentity.id]
+                switch outcome {
+                case .node(let node):
+                    try storeHydrationNode(
+                        node,
+                        identity: found ?? knownIdentity,
+                        accumulators: &accumulators,
+                        continuations: &continuations
+                    )
+                case .missing:
+                    missingIDs.insert(knownIdentity.id)
+                case .refused(let errors):
+                    // Lost access is expected only for a PR that dropped out of search.
+                    guard found == nil else {
+                        try validate(errors: errors)
+                        throw GitHubReadError.invalidPayload
+                    }
+                    missingIDs.insert(knownIdentity.id)
+                }
+            }
+        }
+
+        // Phase 4.
+        try await runContinuationRounds(&accumulators, queue: continuations)
+        let order = discovery.pullRequests.map(\.id) + known.map(\.id).filter { discoveredByID[$0] == nil }
+        return GitHubRefreshRead(
+            viewerTeams: viewerTeams,
+            discovery: discovery,
+            pullRequests: try finishHydration(accumulators, order: order, missing: missingIDs, login: login),
+            missingPullRequestIDs: missingIDs
+        )
+    }
+
+    /// Checks that every listed thread had its comments read, then normalizes the hydrated PRs in `order`. Every
+    /// PR in `order` must be hydrated or missing.
+    private func finishHydration(
+        _ accumulators: [String: HydrationAccumulator],
+        order: [String],
+        missing: Set<String>,
+        login: String
+    ) throws -> [GitHubHydratedPullRequest] {
         // Every listed thread must have had its comments read, or it would publish without its activity.
         for prID in accumulators.keys.sorted() {
             let accumulator = accumulators[prID]!
@@ -369,22 +512,20 @@ struct GitHubPullRequestFetcher: Sendable {
                 throw GitHubReadError.incompleteCoverage("Thread \(threadID) comments were not read")
             }
         }
-
-        let pullRequests = try discovered.compactMap { discovery -> GitHubHydratedPullRequest? in
-            guard let accumulator = accumulators[discovery.id] else {
-                guard missingIDs.contains(discovery.id) else { throw GitHubReadError.invalidPayload }
+        return try order.compactMap { id -> GitHubHydratedPullRequest? in
+            guard let accumulator = accumulators[id] else {
+                guard missing.contains(id) else { throw GitHubReadError.invalidPayload }
                 return nil
             }
             return GitHubHydratedPullRequest(
                 pullRequest: try normalize(accumulator, login: login),
                 providerState: accumulator.payload.state,
-                discovery: discovery,
+                discovery: accumulator.discovery,
                 hasTeamReviewRequest: accumulator.reviewRequests.values.contains {
                     $0.requestedReviewer?.typename == "Team"
                 }
             )
         }
-        return GitHubHydrationResult(pullRequests: pullRequests, missingPullRequestIDs: missingIDs)
     }
 
     /// Reads every queued continuation in rounds of up to `continuationRoundWidth` batches sent together. A round
@@ -513,7 +654,7 @@ struct GitHubPullRequestFetcher: Sendable {
 
     /// Runs `jobs` concurrently and returns their results in job order. A failing job records its error at its
     /// order in the limiter, which stops the refresh's other reads. The call then throws the limiter's chosen
-    /// failure, which may come from a nested call sharing the limiter.
+    /// failure, which may come from a nested call sharing the limiter, wrapped as `RecordedReadFailure`.
     private func runConcurrently<T: Sendable>(
         _ jobs: [(GitHubReadOrder, @Sendable () async throws -> T)]
     ) async throws -> [T] {
@@ -522,6 +663,10 @@ struct GitHubPullRequestFetcher: Sendable {
                 group.addTask { [limiter] in
                     do {
                         return (index, try await job.1())
+                    } catch is RecordedReadFailure {
+                        // A nested call's failures are already recorded at their own order.
+                        limiter.stop()
+                        return (index, nil)
                     } catch {
                         limiter.fail(error, at: job.0)
                         return (index, nil)
@@ -534,8 +679,22 @@ struct GitHubPullRequestFetcher: Sendable {
             }
             return results
         }
-        if let failure = limiter.failure() { throw failure }
+        if let failure = limiter.failure() { throw RecordedReadFailure(error: failure) }
         return results.map { $0! }
+    }
+
+    /// The failure `runConcurrently` chose, already recorded in the limiter.
+    private struct RecordedReadFailure: Error {
+        let error: Error
+    }
+
+    /// Entry points that run reads concurrently throw the recorded failure itself.
+    private func unwrappingRecordedFailure<T>(_ body: () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch let failure as RecordedReadFailure {
+            throw failure.error
+        }
     }
 
     private static func hydrationChunks(_ identities: [DiscoveredPullRequest]) -> [[DiscoveredPullRequest]] {
