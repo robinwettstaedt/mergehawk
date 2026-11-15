@@ -238,6 +238,38 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
+    func testStatusMenuStartsWithTheStoredForcedAppearance() throws {
+        var store = PreferencesStore(defaults: try isolatedDefaults())
+        store.appearance = .dark
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: store,
+            automaticRefreshInterval: 0
+        )
+
+        let statusBarController = StatusBarController(controller: controller)
+
+        XCTAssertEqual(statusBarController.menuAppearanceForTesting(), .darkAqua)
+    }
+
+    @MainActor
+    func testStatusMenuFollowsAnAppearanceChangeRightAway() throws {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            automaticRefreshInterval: 0
+        )
+        let statusBarController = StatusBarController(controller: controller)
+        XCTAssertNil(statusBarController.menuAppearanceForTesting())
+
+        controller.appearance = .light
+        XCTAssertEqual(statusBarController.menuAppearanceForTesting(), .aqua)
+
+        controller.appearance = .auto
+        XCTAssertNil(statusBarController.menuAppearanceForTesting())
+    }
+
+    @MainActor
     func testChangedMenuSizeAppliesWhenTheMenuIsRebuilt() throws {
         let controller = DashboardController(
             tokenStore: InMemoryTokenStore(),

@@ -35,6 +35,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             self?.showDeviceFlowSignInMenu()
         }
         menu.removeVerticalEdgePadding()
+        // A status item's menu takes the menu bar's appearance, not the app's, unless it has its own before it opens.
+        controller.$appearance
+            .sink { [weak self] in
+                self?.menu.appearance = $0.nsAppearance
+            }
+            .store(in: &cancellables)
         statusItem.menu = menu
         observeStatusButtonInputs()
         updateStatusButton()
@@ -65,6 +71,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func setQuitActionForTesting(_ action: @escaping () -> Void) {
         quitAction = action
+    }
+
+    func menuAppearanceForTesting() -> NSAppearance.Name? {
+        menu.appearance?.name
     }
 
     func statusButtonHasAttentionForTesting() -> Bool {
