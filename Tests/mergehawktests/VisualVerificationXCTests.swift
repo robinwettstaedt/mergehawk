@@ -40,7 +40,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams", "\(suiteName)-budget-normal", "\(suiteName)-budget-stretched", "\(suiteName)-budget-paused", "\(suiteName)-budget-checking"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-review-requests", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams", "\(suiteName)-budget-normal", "\(suiteName)-budget-stretched", "\(suiteName)-budget-paused", "\(suiteName)-budget-checking"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -616,6 +616,93 @@ final class VisualVerificationXCTests: XCTestCase {
                     to: outputURL.appendingPathComponent("menu-archived-notifications-\(suffix).png")
                 )
             }
+        }
+
+        // Review request titles name the PR author. The long login is close to GitHub's 39 character maximum.
+        let reviewRequestSuite = "\(suiteName)-review-requests"
+        let longAuthor = "release-engineering-automation-bot01"
+        let reviewRequestPRs = [
+            Self.reviewRequestVisualPullRequest(
+                id: "PR_RR_DIRECT", number: 47, title: "Pin the release signing toolchain",
+                author: longAuthor, kind: .direct, assigned: false
+            ),
+            Self.reviewRequestVisualPullRequest(
+                id: "PR_RR_COMBINED", number: 48, title: "Rotate the notarization credentials",
+                author: longAuthor, kind: .direct, assigned: true
+            ),
+            Self.reviewRequestVisualPullRequest(
+                id: "PR_RR_TEAM", number: 49, title: "Route team review requests",
+                author: "alice", kind: .team, assigned: false
+            ),
+            Self.reviewRequestVisualPullRequest(
+                id: "PR_RR_ASSIGNED", number: 50, title: "Follow up on the assigned review",
+                author: "bob", kind: .none, assigned: true
+            ),
+            Self.reviewRequestVisualPullRequest(
+                id: "PR_RR_LEGACY", number: 51, title: "Retained review request without an author",
+                author: "carol", kind: .direct, assigned: false
+            ),
+        ]
+        let reviewRequestChanges: [Set<PullRequestNotificationRelationship>] = [
+            [.directReviewRequest], [.assigned, .directReviewRequest], [.teamReviewRequest], [.assigned], [.directReviewRequest],
+        ]
+        var reviewRequestNotifications = zip(reviewRequestPRs, reviewRequestChanges).enumerated().map { index, pair in
+            PullRequestNotification(
+                event: PullRequestEvent(type: .relationshipAdded, prId: pair.0.id, relationshipChanges: pair.1),
+                pullRequest: pair.0,
+                createdAt: Self.visualNow.addingTimeInterval(-120 - 180 * TimeInterval(index)),
+                read: index != 0
+            )
+        }
+        reviewRequestNotifications[4] = try reviewRequestNotifications[4].withoutStoredPRAuthor()
+        let reviewRequestCatalog = SourceCatalog(
+            repositories: [RepositorySource(owner: "example", name: "review-router")],
+            accountLogin: "rw"
+        )
+        let reviewRequestProvider = VisualGitHubProvider(
+            sourceCatalog: reviewRequestCatalog,
+            installations: GitHubAppInstallations(installations: []),
+            pullRequests: reviewRequestPRs
+        )
+        let reviewRequestController = try await MainActor.run { () throws -> DashboardController in
+            let store = try Self.seededVisualStore(
+                defaults: UserDefaults(suiteName: reviewRequestSuite)!,
+                pullRequests: reviewRequestPRs,
+                catalog: reviewRequestCatalog,
+                notificationHistory: reviewRequestNotifications
+            )
+            return DashboardController(
+                tokenStore: InMemoryTokenStore(token: "visual-fixture"),
+                preferencesStore: store,
+                launchAtLoginService: InMemoryLaunchAtLoginService(),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                patGitHubClientFactory: { _ in reviewRequestProvider },
+                now: Self.visualClock
+            )
+        }
+        try await waitUntil(context: "review request notifications fixture startup refresh") {
+            await MainActor.run {
+                (reviewRequestController.state.syncedAt ?? .distantPast) > Date(timeIntervalSince1970: 10)
+                    && !reviewRequestController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            XCTAssertEqual(
+                reviewRequestController.visiblePullRequestNotifications.map(PullRequestNotificationTitlePresentation.title(for:)),
+                [
+                    "Review requested on @\(longAuthor)'s PR",
+                    "Assigned and review requested on @\(longAuthor)'s PR",
+                    "Review requested on @alice's PR",
+                    "Assigned to you",
+                    "Review requested",
+                ]
+            )
+            reviewRequestController.selectedTab = .notifications
+            try renderMenu(
+                controller: reviewRequestController,
+                to: outputURL.appendingPathComponent("menu-review-request-notifications.png")
+            )
         }
 
         // Saving fails only after startup, so the banner comes from a failed mark-as-read, not a failed refresh.
@@ -1296,6 +1383,26 @@ final class VisualVerificationXCTests: XCTestCase {
         )
     }
 
+    private static func reviewRequestVisualPullRequest(
+        id: String,
+        number: Int,
+        title: String,
+        author: String,
+        kind: ReviewRequestKind,
+        assigned: Bool
+    ) -> PullRequest {
+        PullRequest(
+            id: id, title: title, number: number,
+            url: URL(string: "https://github.com/example/review-router/pull/\(number)")!,
+            repo: "example/review-router",
+            ciState: .passing, reviewDecision: .reviewRequired,
+            commentCount: 0, reviewCount: 0, reviewRequestKind: kind, isAssignedToViewer: assigned,
+            isMine: false, author: author, mergeable: .mergeable, draft: false,
+            createdAt: visualNow.addingTimeInterval(-86_400),
+            updatedAt: visualNow.addingTimeInterval(-600)
+        )
+    }
+
     private static func seededVisualStore(
         defaults: UserDefaults,
         pullRequests: [PullRequest],
@@ -1825,6 +1932,7 @@ private struct VisualCaptureSelection {
         "menu-archived-prs-off",
         "menu-archived-notifications-on",
         "menu-archived-notifications-off",
+        "menu-review-request-notifications",
         "settings-general",
         "settings-general-updates",
         "settings-general-budget-normal",
