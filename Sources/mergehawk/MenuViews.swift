@@ -1567,28 +1567,6 @@ struct PullRequestListView: View {
         content
     }
 
-    private var visiblePullRequests: [PullRequest] {
-        switch mode {
-        case .authored:
-            controller.sortedMyPullRequests
-        case .reviewRequests:
-            controller.sortedReviewRequests
-        }
-    }
-
-    private var hiddenPullRequests: [PullRequest] {
-        switch mode {
-        case .authored:
-            controller.hiddenMyPullRequests
-        case .reviewRequests:
-            controller.hiddenReviewRequests
-        }
-    }
-
-    private var matchingPullRequestCount: Int {
-        visiblePullRequests.count + hiddenPullRequests.count
-    }
-
     @ViewBuilder
     private var content: some View {
         if controller.showsGitHubAppRepositoryAccessPrompt {
@@ -1603,31 +1581,26 @@ struct PullRequestListView: View {
         }
     }
 
+    /// The empty states come from the grouped list, so own PRs the grouping drops (stale stack entries) count as
+    /// no PRs.
     @ViewBuilder
     private var authoredContent: some View {
+        let list = controller.authoredList
         if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
-        } else if matchingPullRequestCount == 0 {
-            EmptyMenuState(text: PullRequestListCopy.noFilterMatches)
+        } else if list.visible.isEmpty, list.hidden.isEmpty {
+            EmptyMenuState(
+                text: controller.selectedPullRequestFilters.subtracting([.all]).isEmpty
+                    ? PullRequestListCopy.emptyAuthored
+                    : PullRequestListCopy.noFilterMatches
+            )
         } else {
             ScrollView(.vertical) {
                 LazyVStack(spacing: metrics.prColumns.rowSpacing) {
                     PullRequestColumnHeader()
 
-                    ForEach(visiblePullRequests) { pr in
-                        pullRequestRow(pr)
-                            .id("visible-\(pr.id)")
-                    }
-
-                    if !hiddenPullRequests.isEmpty {
-                        hiddenDisclosure
-
-                        if isHiddenExpanded {
-                            ForEach(hiddenPullRequests) { pr in
-                                pullRequestRow(pr)
-                                    .id("hidden-\(pr.id)")
-                            }
-                        }
+                    stackListBody(list, isHiddenExpanded: isHiddenExpanded) {
+                        isHiddenExpanded.toggle()
                     }
                 }
                 .padding(.leading, metrics.prList.horizontalPadding)
@@ -1659,19 +1632,39 @@ struct PullRequestListView: View {
             requestedSectionDisclosure(content)
 
             if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
-                ForEach(content.visible) { row in
-                    requestedRow(row)
-                        .id("visible-\(row.id)")
-                }
-
-                if !content.hidden.isEmpty {
-                    requestedHiddenDisclosure(content)
-
+                stackListBody(
+                    content.content,
+                    isHiddenExpanded: expandedRequestedHiddenSections.contains(content.section)
+                ) {
                     if expandedRequestedHiddenSections.contains(content.section) {
-                        ForEach(content.hidden) { row in
-                            requestedRow(row)
-                                .id("hidden-\(row.id)")
-                        }
+                        expandedRequestedHiddenSections.remove(content.section)
+                    } else {
+                        expandedRequestedHiddenSections.insert(content.section)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One list's items and its Hidden disclosure, in a plain stack so an expanding group pushes the rows below it.
+    private func stackListBody(
+        _ content: PullRequestListContent,
+        isHiddenExpanded: Bool,
+        toggleHidden: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: metrics.prColumns.rowSpacing) {
+            ForEach(content.visible) { item in
+                stackListItem(item)
+                    .id("visible-\(item.id)")
+            }
+
+            if !content.hidden.isEmpty {
+                hiddenDisclosure(count: content.hiddenCount, isExpanded: isHiddenExpanded, toggle: toggleHidden)
+
+                if isHiddenExpanded {
+                    ForEach(content.hidden) { item in
+                        stackListItem(item)
+                            .id("hidden-\(item.id)")
                     }
                 }
             }
@@ -1692,19 +1685,12 @@ struct PullRequestListView: View {
         }
     }
 
-    private func requestedHiddenDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
-        let isExpanded = expandedRequestedHiddenSections.contains(content.section)
-        return Button {
-            if isExpanded {
-                expandedRequestedHiddenSections.remove(content.section)
-            } else {
-                expandedRequestedHiddenSections.insert(content.section)
-            }
-        } label: {
+    private func hiddenDisclosure(count: Int, isExpanded: Bool, toggle: @escaping () -> Void) -> some View {
+        Button(action: toggle) {
             HStack(spacing: metrics.prList.disclosureSpacing) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(metrics.type.disclosureChevron.font)
-                Text(HiddenPullRequestsDisclosurePresentation.title(count: content.hiddenCount))
+                Text(HiddenPullRequestsDisclosurePresentation.title(count: count))
                     .font(metrics.type.disclosureTitle.font)
                 Spacer(minLength: 0)
             }
@@ -1715,17 +1701,17 @@ struct PullRequestListView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
-            count: content.hiddenCount,
+            count: count,
             isExpanded: isExpanded
         ))
     }
 
-    /// A requested row shows its representative; a stack group's actions apply to every requested member.
+    /// A list item shows its representative; a stack group's actions apply to every full member.
     /// An expanded group shows every member in one container instead: the first row has the stack control, so the
     /// control stays where it was, every other row names its position in its metadata, and the representative's
     /// row keeps the group actions wherever it lands.
     @ViewBuilder
-    private func requestedRow(_ row: ReviewRequestRow) -> some View {
+    private func stackListItem(_ row: PullRequestListItem) -> some View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
             StackMemberContainer(group: group, isUnread: row.isUnread) { member, position in
                 let isFirst = member.pullRequestID == group.members.first?.pullRequestID
@@ -1734,8 +1720,8 @@ struct PullRequestListView: View {
                     pullRequestID: member.pullRequestID, position: position, size: group.stack.size
                 ))
                 switch member {
-                case .requested(let pullRequest):
-                    requestedMemberRow(pullRequest, row: row, stackControl: control, positionLabel: positionLabel)
+                case .full(let pullRequest):
+                    fullMemberRow(pullRequest, row: row, stackControl: control, positionLabel: positionLabel)
                 case .context(let entry):
                     StackContextCard(
                         entry: entry,
@@ -1757,7 +1743,12 @@ struct PullRequestListView: View {
 
     private func stackControl(_ group: StackGroup, displayedPosition: Int, isExpanded: Bool) -> AnyView {
         AnyView(StackControl(
-            presentation: StackControlPresentation(group: group, displayedPosition: displayedPosition, isExpanded: isExpanded)
+            presentation: StackControlPresentation(
+                group: group,
+                memberNoun: mode == .authored ? .authoredPRs : .reviewRequests,
+                displayedPosition: displayedPosition,
+                isExpanded: isExpanded
+            )
         ) {
             withAnimation(StackExpansionAnimation.animation(reduceMotion: reduceMotion)) {
                 if NSEvent.modifierFlags.contains(.option) {
@@ -1771,7 +1762,7 @@ struct PullRequestListView: View {
 
     /// The collapsed card, or the representative's row inside an expanded group when `chrome` is `.containerRow`.
     private func representativeCard(
-        _ row: ReviewRequestRow,
+        _ row: PullRequestListItem,
         chrome: PullRequestCardChrome = .card,
         stackControl memberControl: AnyView? = nil,
         positionLabel: AnyView? = nil
@@ -1801,9 +1792,9 @@ struct PullRequestListView: View {
     }
 
     @ViewBuilder
-    private func requestedMemberRow(
+    private func fullMemberRow(
         _ pullRequest: PullRequest,
-        row: ReviewRequestRow,
+        row: PullRequestListItem,
         stackControl: AnyView?,
         positionLabel: AnyView?
     ) -> some View {
@@ -1822,51 +1813,9 @@ struct PullRequestListView: View {
                 chrome: .containerRow,
                 showsActions: false
             ) {
-                controller.openStackMember(.requested(pullRequest))
+                controller.openStackMember(.full(pullRequest))
             }
         }
-    }
-
-    private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
-        PullRequestRow(
-            pullRequest: pullRequest,
-            isAttention: controller.isUnreadPullRequest(pullRequest),
-            isPinned: controller.isPinned(pullRequest),
-            isHidden: controller.isHidden(pullRequest),
-            isActionsOpen: dropdownState.openMenu == .actions(pullRequest.id),
-            toggleActions: { dropdownState.toggle(.actions(pullRequest.id)) },
-            toggleHide: {
-                controller.toggleHide(pullRequest)
-            },
-            togglePin: {
-                controller.togglePin(pullRequest)
-            }
-        ) {
-            controller.openPullRequest(pullRequest)
-        }
-    }
-
-    private var hiddenDisclosure: some View {
-        Button {
-            isHiddenExpanded.toggle()
-        } label: {
-            HStack(spacing: metrics.prList.disclosureSpacing) {
-                Image(systemName: isHiddenExpanded ? "chevron.down" : "chevron.right")
-                    .font(metrics.type.disclosureChevron.font)
-                Text(HiddenPullRequestsDisclosurePresentation.title(count: hiddenPullRequests.count))
-                    .font(metrics.type.disclosureTitle.font)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, metrics.prList.disclosureHorizontalPadding)
-            .frame(height: metrics.prList.disclosureHeight)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
-            count: hiddenPullRequests.count,
-            isExpanded: isHiddenExpanded
-        ))
     }
 
     private var hasSourcePullRequests: Bool {

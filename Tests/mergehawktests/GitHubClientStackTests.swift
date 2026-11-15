@@ -45,7 +45,7 @@ final class GitHubClientStackTests: XCTestCase {
         XCTAssertEqual(result.stacks.map(\.id), ["STACK_ASSIGNED", "STACK_TEAM"])
     }
 
-    func testStackWhoseOnlyActiveMemberIsTheViewersOwnPRIsNotRead() async throws {
+    func testStackWhoseOnlyActiveMemberIsTheViewersOwnPRIsRead() async throws {
         let mine = Self.tracked(id: "PR_MINE", number: 1, isMine: true)
         let recorder = StackRequestRecorder()
         Self.serve(previous: [mine], recorder: recorder, nodes: [
@@ -55,8 +55,45 @@ final class GitHubClientStackTests: XCTestCase {
         let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([mine]), reusableViewerTeams: nil)
 
         XCTAssertEqual(result.activePullRequests.map(\.id), [mine.id])
-        XCTAssertTrue(recorder.stackIDBatches.isEmpty)
-        XCTAssertEqual(result.stacks, [])
+        XCTAssertEqual(recorder.stackIDBatches, [["STACK_MINE"]])
+        XCTAssertEqual(result.stacks.map(\.id), ["STACK_MINE"])
+        XCTAssertEqual(result.stacks.first?.entries.map(\.pullRequestID), [mine.id])
+    }
+
+    func testStackSharedByAnOwnAndARequestedPRIsReadOnce() async throws {
+        let mine = Self.tracked(id: "PR_MINE", number: 1, isMine: true)
+        let requested = Self.tracked(id: "PR_REQUESTED", number: 2, reviewKind: .direct)
+        let recorder = StackRequestRecorder()
+        Self.serve(previous: [mine, requested], recorder: recorder, nodes: [
+            Self.completePR(id: mine.id, number: 1, author: "rw", stackID: "STACK_SHARED"),
+            Self.completePR(id: requested.id, number: 2, directRequest: true, stackID: "STACK_SHARED")
+        ])
+
+        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state([mine, requested]), reusableViewerTeams: nil)
+
+        XCTAssertEqual(recorder.stackIDBatches, [["STACK_SHARED"]])
+        XCTAssertEqual(result.stacks.map(\.id), ["STACK_SHARED"])
+        XCTAssertEqual(result.stacks.first?.entries.map(\.pullRequestID), [mine.id, requested.id])
+    }
+
+    func testOwnAndRequestedStacksShareBatchesOfTwenty() async throws {
+        let own = (1...10).map { Self.tracked(id: String(format: "PR_MINE_%02d", $0), number: $0, isMine: true) }
+        let requested = (11...21).map {
+            Self.tracked(id: String(format: "PR_REQUESTED_%02d", $0), number: $0, reviewKind: .direct)
+        }
+        let recorder = StackRequestRecorder()
+        let nodes = own.map {
+            Self.completePR(id: $0.id, number: $0.number, author: "rw", stackID: "STACK_\($0.id)")
+        } + requested.map {
+            Self.completePR(id: $0.id, number: $0.number, directRequest: true, stackID: "STACK_\($0.id)")
+        }
+        Self.serve(previous: own + requested, recorder: recorder, nodes: nodes)
+
+        let result = try await Self.client().fetchCompletePullRequests(login: "rw", previousState: Self.state(own + requested), reusableViewerTeams: nil)
+
+        let expectedIDs = (own + requested).map { "STACK_\($0.id)" }.sorted()
+        XCTAssertEqual(recorder.stackIDBatches, [Array(expectedIDs.prefix(20)), Array(expectedIDs.suffix(1))])
+        XCTAssertEqual(result.stacks.map(\.id).sorted(), expectedIDs)
     }
 
     func testStackWhoseOnlyKnownMemberIsRetiringIsNotRead() async throws {

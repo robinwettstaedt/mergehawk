@@ -73,7 +73,7 @@ struct MenuMetrics: Equatable {
         var metricValue: FontToken
         var signalSymbol: FontToken
         var draftBadge: FontToken
-        /// The stack and chevron symbols in a requested stack card's stack control.
+        /// The stack and chevron symbols in a stack card's stack control.
         var stackControlSymbol: FontToken
         var stackControlLabel: FontToken
         var actionsMenuItem: FontToken
