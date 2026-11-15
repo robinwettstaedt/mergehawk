@@ -490,6 +490,34 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(PreferencesStore(defaults: defaults).menuSize, .larger)
     }
 
+    @MainActor
+    func testControllerReadsTheStoredAppearance() {
+        let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        XCTAssertEqual(makePreferencesController(defaults: defaults).appearance, .auto)
+
+        var store = PreferencesStore(defaults: defaults)
+        store.appearance = .dark
+
+        XCTAssertEqual(makePreferencesController(defaults: defaults).appearance, .dark)
+    }
+
+    @MainActor
+    func testChangingTheControllerAppearancePersistsItAndAppliesItRightAway() {
+        let suiteName = "mergehawk-preferences-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = makePreferencesController(defaults: defaults)
+        var applied: [AppAppearance] = []
+        controller.applyAppearance = { applied.append($0) }
+
+        controller.appearance = .light
+
+        XCTAssertEqual(applied, [.light])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).appearance, .light)
+    }
+
     func testMenuSizesListTheirTitlesAndFactorsInDisplayOrder() {
         XCTAssertEqual(MenuSize.allCases, [.small, .standard, .large, .larger])
         XCTAssertEqual(MenuSize.allCases.map(\.title), ["Small", "Default", "Large", "Larger"])
@@ -527,6 +555,17 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNil(AppAppearance.auto.nsAppearance)
         XCTAssertEqual(AppAppearance.light.nsAppearance?.name, .aqua)
         XCTAssertEqual(AppAppearance.dark.nsAppearance?.name, .darkAqua)
+    }
+
+    @MainActor
+    private func makePreferencesController(defaults: UserDefaults) -> DashboardController {
+        DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: defaults),
+            launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true),
+            notificationClient: RecordingNotificationClient(),
+            automaticRefreshInterval: 0
+        )
     }
 
     private func withStore(_ body: (inout PreferencesStore, UserDefaults) -> Void) {

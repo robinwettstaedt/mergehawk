@@ -218,6 +218,12 @@ final class DashboardController: ObservableObject {
             preferencesStore.menuSize = menuSize
         }
     }
+    @Published var appearance: AppAppearance {
+        didSet {
+            preferencesStore.appearance = appearance
+            applyAppearance(appearance)
+        }
+    }
     @Published var pullRequestSortOption: PullRequestSortOption {
         didSet {
             preferencesStore.pullRequestSortOption = pullRequestSortOption
@@ -297,6 +303,7 @@ final class DashboardController: ObservableObject {
 
     var openSettingsWindow: ((SettingsTab) -> Void)?
     var openSettingsWindowPreservingSelection: (() -> Void)?
+    var applyAppearance: (AppAppearance) -> Void = { _ in }
     var openGitHubSettingsInPATMode = false
     var showDeviceFlowSignInMenu: (() -> Void)?
 
@@ -415,6 +422,7 @@ final class DashboardController: ObservableObject {
         self.preferences = preferencesStore.loadAndPersistNotificationPreferences()
         self.refreshIntervalMinutes = preferencesStore.refreshIntervalMinutes
         self.menuSize = preferencesStore.menuSize
+        self.appearance = preferencesStore.appearance
         self.pullRequestSortOption = preferencesStore.pullRequestSortOption
         self.pullRequestSortDirection = preferencesStore.pullRequestSortDirection
         self.reviewRequestSortOption = preferencesStore.reviewRequestSortOption
