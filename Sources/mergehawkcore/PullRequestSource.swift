@@ -1049,6 +1049,15 @@ public final class MockPullRequestSource {
             PullRequestNotification(
                 event: PullRequestEvent(
                     type: .relationshipAdded,
+                    prId: notificationFixtureDirectReviewRequestPullRequest.id,
+                    relationshipChanges: [.directReviewRequest]
+                ),
+                pullRequest: notificationFixtureDirectReviewRequestPullRequest,
+                createdAt: Date(timeIntervalSince1970: 1_777_813_260)
+            ),
+            PullRequestNotification(
+                event: PullRequestEvent(
+                    type: .relationshipAdded,
                     prId: notificationFixtureRelationshipPullRequest.id,
                     relationshipChanges: [.assigned, .directReviewRequest]
                 ),
@@ -1134,6 +1143,26 @@ public final class MockPullRequestSource {
             )
         ]
     }
+
+    private static let notificationFixtureDirectReviewRequestPullRequest = PullRequest(
+        id: "PR_NOTIFICATION_DIRECT_REVIEW_REQUEST",
+        title: "Pin the release signing toolchain",
+        number: 47,
+        url: URL(string: "https://github.com/example/review-router/pull/47")!,
+        repo: "example/review-router",
+        ciState: .passing,
+        reviewDecision: .reviewRequired,
+        commentCount: 0,
+        reviewCount: 0,
+        reviewRequestKind: .direct,
+        isAssignedToViewer: false,
+        isMine: false,
+        author: "release-engineering-automation-bot01",
+        headRefName: "pin-signing-toolchain",
+        mergeable: .mergeable,
+        draft: false,
+        updatedAt: Date(timeIntervalSince1970: 1_777_813_260)
+    )
 
     private static let notificationFixtureRelationshipPullRequest = PullRequest(
         id: "PR_NOTIFICATION_RELATIONSHIP",

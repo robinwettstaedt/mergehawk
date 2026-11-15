@@ -130,7 +130,7 @@ final class NotificationDestinationTests: XCTestCase {
 
     func testMockNotificationTypesUsePreciseDestinationsOnlyForPeopleActivity() {
         let notifications = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
-        XCTAssertEqual(notifications.count, 9)
+        XCTAssertEqual(notifications.count, 10)
         for notification in notifications {
             switch notification.eventType {
             case .newComment, .reviewApproved, .reviewCommented, .changesRequested:
@@ -183,12 +183,12 @@ final class NotificationDestinationTests: XCTestCase {
         let assigned = PullRequestEvent(type: .relationshipAdded, prId: pullRequest.id, relationshipChanges: [.assigned])
 
         XCTAssertNil(ready.destinationURL)
-        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [ready]), "Ready for review")
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [ready], pullRequests: [pullRequest]), "Ready for review")
         XCTAssertEqual(
             NotificationClickRoute.route(events: [ready], pullRequests: [pullRequest]),
             .openPullRequest(PullRequestOpenRequest(pullRequestURL: base))
         )
-        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [assigned, ready]), "2 MergeHawk updates")
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [assigned, ready], pullRequests: [pullRequest]), "2 MergeHawk updates")
         XCTAssertEqual(
             NotificationClickRoute.route(events: [assigned, ready], pullRequests: [pullRequest]),
             .openNotifications
