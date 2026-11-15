@@ -257,11 +257,3 @@ private final class RequestURLProtocol: URLProtocol {
 
     override func stopLoading() {}
 }
-
-private final class LockedBox<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: Value
-    init(_ value: Value) { stored = value }
-    var value: Value { lock.withLock { stored } }
-    func withValue<Result>(_ body: (inout Value) -> Result) -> Result { lock.withLock { body(&stored) } }
-}

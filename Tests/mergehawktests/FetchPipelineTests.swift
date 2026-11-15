@@ -323,6 +323,7 @@ private final class PipelineTransport: @unchecked Sendable {
             storedQueries.append(query)
             if let terminalError { throw terminalError }
             guard !responses.isEmpty else { throw GitHubReadError.invalidPayload }
+            // Answers in send order. The fixtures are single-PR with one continuation group, so reads stay serial.
             let response = responses.removeFirst()
             storedMetrics.responsePayloadBytes += response.count
             return response

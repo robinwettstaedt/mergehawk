@@ -683,14 +683,14 @@ final class AtomicRefreshTests: XCTestCase {
             patGitHubClientFactory: { GitHubClient(token: $0, session: session) }
         )
 
-        await waitUntil { transport.graphQLRequestDates.count == 1 }
+        await waitUntil { transport.boundsRequestDates.count == 1 }
         try? await Task.sleep(for: .milliseconds(60))
-        XCTAssertEqual(transport.graphQLRequestDates.count, 1)
+        XCTAssertEqual(transport.boundsRequestDates.count, 1)
         await waitUntil(timeout: 0.6) {
-            transport.graphQLRequestDates.count >= 3 && controller.state.authStatus == .signedIn
+            transport.boundsRequestDates.count >= 2 && controller.state.authStatus == .signedIn
         }
 
-        let requestDates = transport.graphQLRequestDates
+        let requestDates = transport.boundsRequestDates
         XCTAssertGreaterThanOrEqual(requestDates[1].timeIntervalSince(requestDates[0]), 0.14)
         XCTAssertEqual(controller.state.authStatus, .signedIn)
     }
@@ -1989,13 +1989,13 @@ private final class RateLimitedGitHubProvider: GitHubProviding {
 private final class AtomicRateLimitTransport: @unchecked Sendable {
     private let lock = NSLock()
     private let retryAfter: TimeInterval
-    private var storedGraphQLRequestDates: [Date] = []
+    private var storedBoundsRequestDates: [Date] = []
 
     init(retryAfter: TimeInterval) {
         self.retryAfter = retryAfter
     }
 
-    var graphQLRequestDates: [Date] { lock.withLock { storedGraphQLRequestDates } }
+    var boundsRequestDates: [Date] { lock.withLock { storedBoundsRequestDates } }
 
     func response(for request: URLRequest) throws -> (Data, HTTPURLResponse) {
         if request.url?.path == "/user" {
@@ -2007,8 +2007,10 @@ private final class AtomicRateLimitTransport: @unchecked Sendable {
         guard request.url?.path == "/graphql" else {
             return response(Self.json(["message": "unexpected"]), request, status: 404)
         }
-        // The budget read starts every refresh. Only the refresh queries after it count, and the first one is refused.
-        if Self.graphQLQuery(request) == GitHubClient.budgetReadQuery {
+        // The budget read starts every refresh. Every refresh sends one DiscoveryBounds query, which may run
+        // alongside other reads. Those queries count, and the first one is refused.
+        let query = Self.graphQLQuery(request)
+        if query == GitHubClient.budgetReadQuery {
             return response(Self.json(["data": ["rateLimit": ["limit": 5_000]]]), request, headers: [
                 "X-RateLimit-Limit": "5000",
                 "X-RateLimit-Remaining": "4900",
@@ -2016,18 +2018,19 @@ private final class AtomicRateLimitTransport: @unchecked Sendable {
                 "X-RateLimit-Reset": "\(Int(Date().addingTimeInterval(3_600).timeIntervalSince1970))"
             ])
         }
-        let requestNumber = lock.withLock { () -> Int in
-            storedGraphQLRequestDates.append(Date())
-            return storedGraphQLRequestDates.count
+        if query.contains("DiscoveryBounds") {
+            let requestNumber = lock.withLock { () -> Int in
+                storedBoundsRequestDates.append(Date())
+                return storedBoundsRequestDates.count
+            }
+            if requestNumber == 1 {
+                return response(
+                    Self.json(["errors": [["message": "exhausted", "type": "RATE_LIMITED"]]]),
+                    request,
+                    headers: ["Retry-After": String(retryAfter)]
+                )
+            }
         }
-        if requestNumber == 1 {
-            return response(
-                Self.json(["errors": [["message": "exhausted", "type": "RATE_LIMITED"]]]),
-                request,
-                headers: ["Retry-After": String(retryAfter)]
-            )
-        }
-        let query = Self.graphQLQuery(request)
         if query.contains("query ViewerTeams") {
             return response(Self.json(["data": ["viewer": ["organizations": [
                 "pageInfo": ["hasNextPage": false, "endCursor": NSNull()],

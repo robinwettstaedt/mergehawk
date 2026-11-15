@@ -170,7 +170,7 @@ final class GitHubRetirementTests: XCTestCase {
 
     func testViewerTeamsFailureFailsTheCompletePRRefreshBeforeDiscovery() async throws {
         let previous = Self.previousState(Self.previousPR())
-        let discoveryRequests = LockedRetirementCounter()
+        let discoveryRequests = LockedBox(0)
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
             if query.contains("query ViewerTeams") {
@@ -197,7 +197,7 @@ final class GitHubRetirementTests: XCTestCase {
 
     func testHydrationFailureAfterViewerTeamsFailsTheCompletePRRefresh() async throws {
         let previous = Self.previousState(Self.previousPR())
-        let viewerTeamRequests = LockedRetirementCounter()
+        let viewerTeamRequests = LockedBox(0)
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
             if query.contains("query ViewerTeams") {
@@ -229,9 +229,9 @@ final class GitHubRetirementTests: XCTestCase {
     func testResource404And410RequireFreshMatchingViewerBeforeQuietRetirement() async throws {
         for status in [404, 410] {
             let previous = Self.previousState(Self.previousPR())
-            var requestedPaths: [String] = []
+            let requestedPaths = LockedBox<[String]>([])
             RetirementURLProtocol.handler = { request in
-                requestedPaths.append(request.url!.path)
+                requestedPaths.withValue { $0.append(request.url!.path) }
                 if request.url?.host == "api.github.com", request.url?.path == "/repos/acme/app/pulls/1" {
                     return Self.response(Self.json(["message": "Gone"]), request, status: status)
                 }
@@ -252,7 +252,7 @@ final class GitHubRetirementTests: XCTestCase {
                 .fetchCompletePullRequests(login: "rw", previousState: previous, reusableViewerTeams: nil)
 
             XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_1"])
-            XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
+            XCTAssertEqual(requestedPaths.value.filter { $0 == "/user" }.count, 1)
         }
     }
 
@@ -261,10 +261,10 @@ final class GitHubRetirementTests: XCTestCase {
             let retained = Self.previousPR(id: "PR_KEEP", number: 1)
             let missing = Self.previousPR(id: "PR_MISSING", number: 2)
             let previous = Self.previousState([retained, missing])
-            var hydrationAttempts = 0
-            var requestedPaths: [String] = []
+            let hydrationAttempts = LockedBox(0)
+            let requestedPaths = LockedBox<[String]>([])
             RetirementURLProtocol.handler = { request in
-                requestedPaths.append(request.url!.path)
+                requestedPaths.withValue { $0.append(request.url!.path) }
                 if request.url?.path == "/repos/acme/app/pulls/2" {
                     return Self.response(Self.json(["message": "Gone"]), request, status: status)
                 }
@@ -276,14 +276,16 @@ final class GitHubRetirementTests: XCTestCase {
                 if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
                 if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
                 if query.contains("CompletePullRequests") {
-                    hydrationAttempts += 1
+                    hydrationAttempts.increment()
                     let ids = Self.graphQLVariables(request)["ids"] as? [String]
+                    // The batch read carries both IDs. A single ID is the missing node's retry.
+                    let isBatch = ids?.count == 2
                     let error: [String: Any] = [
                         "message": "Could not resolve to a node",
                         "type": "NOT_FOUND",
-                        "path": ["nodes", hydrationAttempts == 1 ? 1 : 0]
+                        "path": ["nodes", isBatch ? 1 : 0]
                     ]
-                    if hydrationAttempts == 1 {
+                    if isBatch {
                         XCTAssertEqual(ids, ["PR_KEEP", "PR_MISSING"])
                         return Self.response(Self.hydration(
                             nodes: [Self.completePR(id: "PR_KEEP", number: 1, state: "OPEN"), NSNull()],
@@ -302,9 +304,9 @@ final class GitHubRetirementTests: XCTestCase {
             XCTAssertEqual(result.activePullRequests.map(\.id), ["PR_KEEP"])
             XCTAssertTrue(result.retiringPullRequests.isEmpty)
             XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_MISSING"])
-            XCTAssertEqual(hydrationAttempts, 2)
-            XCTAssertEqual(requestedPaths.filter { $0 == "/repos/acme/app/pulls/2" }.count, 1)
-            XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
+            XCTAssertEqual(hydrationAttempts.value, 2)
+            XCTAssertEqual(requestedPaths.value.filter { $0 == "/repos/acme/app/pulls/2" }.count, 1)
+            XCTAssertEqual(requestedPaths.value.filter { $0 == "/user" }.count, 1)
         }
     }
 
@@ -315,9 +317,9 @@ final class GitHubRetirementTests: XCTestCase {
         ]
         for message in messages {
             let previous = Self.previousState(Self.previousPR())
-            var requestedPaths: [String] = []
+            let requestedPaths = LockedBox<[String]>([])
             RetirementURLProtocol.handler = { request in
-                requestedPaths.append(request.url!.path)
+                requestedPaths.withValue { $0.append(request.url!.path) }
                 if request.url?.path == "/repos/acme/app/pulls/1" {
                     return Self.response(Self.json(["message": message]), request, status: 403)
                 }
@@ -342,7 +344,7 @@ final class GitHubRetirementTests: XCTestCase {
 
             XCTAssertTrue(result.activePullRequests.isEmpty)
             XCTAssertEqual(result.quietlyRetiredPullRequestIDs, ["PR_1"])
-            XCTAssertEqual(requestedPaths.filter { $0 == "/user" }.count, 1)
+            XCTAssertEqual(requestedPaths.value.filter { $0 == "/user" }.count, 1)
         }
     }
 
@@ -379,11 +381,12 @@ final class GitHubRetirementTests: XCTestCase {
         ]
 
         for failure in retryFailures {
-            var hydrationAttempts = 0
-            var resourceRequests = 0
+            // The batch read and its single-node retry carry the same ID, so the answer keys on a per-ID count.
+            let hydrationAttempts = LockedBox<[String: Int]>([:])
+            let resourceRequests = LockedBox(0)
             RetirementURLProtocol.handler = { request in
                 if request.url?.path.hasPrefix("/repos/") == true {
-                    resourceRequests += 1
+                    resourceRequests.increment()
                     return Self.response(Self.json(["message": "Not Found"]), request, status: 404)
                 }
                 let query = Self.graphQLQuery(request)
@@ -391,8 +394,8 @@ final class GitHubRetirementTests: XCTestCase {
                 if query.contains("DiscoveryBounds") { return Self.response(Self.emptyBounds(), request) }
                 if query.contains("DiscoverPullRequests") { return Self.response(Self.emptyDiscovery(), request) }
                 if query.contains("CompletePullRequests") {
-                    hydrationAttempts += 1
-                    if hydrationAttempts == 1 {
+                    let ids = Self.graphQLVariables(request)["ids"] as? [String] ?? []
+                    if hydrationAttempts.increment(ids.joined(separator: ",")) == 1 {
                         return Self.response(Self.hydration(
                             nodes: [NSNull()],
                             errors: [["message": "retry", "type": "INTERNAL", "path": ["nodes", 0]]]
@@ -426,8 +429,8 @@ final class GitHubRetirementTests: XCTestCase {
                     }
                 }
             }
-            XCTAssertEqual(hydrationAttempts, 2, failure.name)
-            XCTAssertEqual(resourceRequests, 0, failure.name)
+            XCTAssertEqual(hydrationAttempts.value, ["PR_1": 2], failure.name)
+            XCTAssertEqual(resourceRequests.value, 0, failure.name)
         }
     }
 
@@ -465,7 +468,7 @@ final class GitHubRetirementTests: XCTestCase {
         let teamOne = Self.previousPR(id: "PR_TEAM_1", number: 3, isMine: false, reviewKind: .team)
         let teamTwo = Self.previousPR(id: "PR_TEAM_2", number: 4, isMine: false, reviewKind: .team)
         let previous = Self.previousState([assigned, direct, teamOne, teamTwo])
-        let teamQueries = LockedRetirementCounter()
+        let teamQueries = LockedBox(0)
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
             if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
@@ -506,7 +509,7 @@ final class GitHubRetirementTests: XCTestCase {
         let keep = Self.discoveryNode(id: "PR_TEAM_KEEP", number: 1, second: 0)
         let unrelated = Self.discoveryNode(id: "PR_TEAM_OTHER", number: 2, second: 1)
         let directAndTeam = Self.discoveryNode(id: "PR_DIRECT_TEAM", number: 3, second: 2)
-        let teamQueries = LockedRetirementCounter()
+        let teamQueries = LockedBox(0)
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
             if query.contains("query ViewerTeams") { return Self.response(Self.viewerTeams(), request) }
@@ -638,7 +641,7 @@ final class GitHubRetirementTests: XCTestCase {
     func testSecondaryRateLimitOnMissingResourceRetainsCommittedDashboardWithoutRetrying() async throws {
         let previousPR = Self.previousPR()
         let previous = Self.previousState(previousPR)
-        let restRequests = LockedRetirementCounter()
+        let restRequests = LockedBox(0)
         RetirementURLProtocol.handler = { request in
             if request.url?.path == "/user" {
                 return Self.response(Self.json(["login": "rw"]), request)
@@ -954,11 +957,4 @@ private final class RetirementURLProtocol: URLProtocol {
         }
     }
     override func stopLoading() {}
-}
-
-private final class LockedRetirementCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored = 0
-    var value: Int { lock.withLock { stored } }
-    func increment() { lock.withLock { stored += 1 } }
 }
