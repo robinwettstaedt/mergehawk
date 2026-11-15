@@ -1754,7 +1754,12 @@ struct PullRequestListView: View {
 
     private func stackControl(_ group: StackGroup, displayedPosition: Int, isExpanded: Bool) -> AnyView {
         AnyView(StackControl(
-            presentation: StackControlPresentation(group: group, displayedPosition: displayedPosition, isExpanded: isExpanded)
+            presentation: StackControlPresentation(
+                group: group,
+                memberNoun: mode == .authored ? .authoredPRs : .reviewRequests,
+                displayedPosition: displayedPosition,
+                isExpanded: isExpanded
+            )
         ) {
             withAnimation(StackExpansionAnimation.animation(reduceMotion: reduceMotion)) {
                 if NSEvent.modifierFlags.contains(.option) {

@@ -1134,11 +1134,11 @@ final class MenuViewTests: XCTestCase {
 
     func testCollapsedStackControlShowsTheRepresentativePositionAndExpandedTheFirstMember() {
         let group = Self.stackGroup(size: 3, entryPositions: [1, 2, 3])
-        let collapsed = StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false)
+        let collapsed = StackControlPresentation(group: group, memberNoun: .reviewRequests, displayedPosition: group.representativePosition, isExpanded: false)
         XCTAssertEqual(collapsed.fractionText, "2/3")
         XCTAssertEqual(collapsed.chevronSymbolName, "chevron.down")
 
-        let expanded = StackControlPresentation(group: group, displayedPosition: group.topMemberPosition, isExpanded: true)
+        let expanded = StackControlPresentation(group: group, memberNoun: .reviewRequests, displayedPosition: group.topMemberPosition, isExpanded: true)
         XCTAssertEqual(expanded.fractionText, "1/3")
         XCTAssertEqual(expanded.chevronSymbolName, "chevron.up")
     }
@@ -1148,7 +1148,7 @@ final class MenuViewTests: XCTestCase {
         let group = Self.stackGroup(size: 3, representativePosition: 3, entryPositions: [2, 3])
         XCTAssertEqual(group.topMemberPosition, 2)
         XCTAssertEqual(
-            StackControlPresentation(group: group, displayedPosition: group.topMemberPosition, isExpanded: true).fractionText,
+            StackControlPresentation(group: group, memberNoun: .reviewRequests, displayedPosition: group.topMemberPosition, isExpanded: true).fractionText,
             "2/3"
         )
     }
@@ -1169,24 +1169,46 @@ final class MenuViewTests: XCTestCase {
     }
 
     func testStackControlShowsNoCountOrStackWordAndKeepsRequestsInTheTooltip() {
-        let presentation = StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
+        let presentation = StackControlPresentation(group: Self.stackGroup(), memberNoun: .reviewRequests, displayedPosition: 2, isExpanded: false)
         XCTAssertEqual(presentation.fractionText, "2/4")
         XCTAssertFalse(presentation.fractionText.contains("+"))
         XCTAssertFalse(presentation.fractionText.contains("Stack"))
         XCTAssertEqual(presentation.tooltip, "Stack · position 2 of 4 · 1 more review request · Expand stack")
         XCTAssertEqual(presentation.accessibilityLabel, presentation.tooltip)
         XCTAssertEqual(
-            StackControlPresentation(group: Self.stackGroup(additional: 2), displayedPosition: 1, isExpanded: true).tooltip,
+            StackControlPresentation(group: Self.stackGroup(additional: 2), memberNoun: .reviewRequests, displayedPosition: 1, isExpanded: true).tooltip,
             "Stack · position 1 of 4 · 2 more review requests · Collapse stack"
         )
         XCTAssertEqual(
-            StackControlPresentation(group: Self.stackGroup(excluded: 1), displayedPosition: 2, isExpanded: false).tooltip,
+            StackControlPresentation(group: Self.stackGroup(excluded: 1), memberNoun: .reviewRequests, displayedPosition: 2, isExpanded: false).tooltip,
             "Stack · position 2 of 4 · 1 more review request · 1 outside the current filter · Expand stack"
         )
         XCTAssertEqual(
-            StackControlPresentation(group: Self.stackGroup(additional: 0), displayedPosition: 2, isExpanded: false).tooltip,
+            StackControlPresentation(group: Self.stackGroup(additional: 0), memberNoun: .reviewRequests, displayedPosition: 2, isExpanded: false).tooltip,
             "Stack · position 2 of 4 · Expand stack"
         )
+    }
+
+    func testStackControlNamesTheViewersOwnPRsInAuthored() {
+        func tooltip(additional: Int, excluded: Int = 0, isExpanded: Bool = false) -> String {
+            StackControlPresentation(
+                group: Self.stackGroup(additional: additional, excluded: excluded),
+                memberNoun: .authoredPRs,
+                displayedPosition: 2,
+                isExpanded: isExpanded
+            ).tooltip
+        }
+        XCTAssertEqual(tooltip(additional: 1), "Stack · position 2 of 4 · 1 more of your PRs · Expand stack")
+        XCTAssertEqual(tooltip(additional: 2, isExpanded: true), "Stack · position 2 of 4 · 2 more of your PRs · Collapse stack")
+        XCTAssertEqual(
+            tooltip(additional: 2, excluded: 1),
+            "Stack · position 2 of 4 · 2 more of your PRs · 1 outside the current filter · Expand stack"
+        )
+        XCTAssertEqual(tooltip(additional: 0), "Stack · position 2 of 4 · Expand stack")
+        let presentation = StackControlPresentation(
+            group: Self.stackGroup(), memberNoun: .authoredPRs, displayedPosition: 2, isExpanded: false
+        )
+        XCTAssertEqual(presentation.accessibilityLabel, presentation.tooltip)
     }
 
     @MainActor
@@ -1197,15 +1219,15 @@ final class MenuViewTests: XCTestCase {
         for menuSize in MenuSize.allCases {
             let metrics = MenuMetrics(scale: menuSize.factor)
             let small = Self.stackGroup(size: 3, entryPositions: [1, 2, 3])
-            let collapsed = size(.init(group: small, displayedPosition: 2, isExpanded: false), metrics: metrics)
+            let collapsed = size(.init(group: small, memberNoun: .reviewRequests, displayedPosition: 2, isExpanded: false), metrics: metrics)
             XCTAssertGreaterThan(collapsed.width, 0)
-            XCTAssertEqual(size(.init(group: small, displayedPosition: 1, isExpanded: true), metrics: metrics), collapsed, "\(menuSize)")
+            XCTAssertEqual(size(.init(group: small, memberNoun: .reviewRequests, displayedPosition: 1, isExpanded: true), metrics: metrics), collapsed, "\(menuSize)")
 
             let large = Self.stackGroup(size: 12, representativePosition: 10, entryPositions: Array(1...12))
-            let twoDigits = size(.init(group: large, displayedPosition: 10, isExpanded: false), metrics: metrics)
+            let twoDigits = size(.init(group: large, memberNoun: .reviewRequests, displayedPosition: 10, isExpanded: false), metrics: metrics)
             for (position, isExpanded) in [(9, false), (1, true), (10, true)] {
                 XCTAssertEqual(
-                    size(.init(group: large, displayedPosition: position, isExpanded: isExpanded), metrics: metrics),
+                    size(.init(group: large, memberNoun: .reviewRequests, displayedPosition: position, isExpanded: isExpanded), metrics: metrics),
                     twoDigits,
                     "\(position)/12, expanded: \(isExpanded), at \(menuSize)"
                 )
@@ -1229,7 +1251,7 @@ final class MenuViewTests: XCTestCase {
         width: CGFloat = 800
     ) -> (host: OffScreenHost, view: NSView) {
         let control = stacked ? AnyView(StackControl(
-            presentation: StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
+            presentation: StackControlPresentation(group: Self.stackGroup(), memberNoun: .reviewRequests, displayedPosition: 2, isExpanded: false)
         ) { events.toggledStack += 1 }
             .background(GeometryReader { proxy in
                 Color.clear.onAppear { events.controlFrame = proxy.frame(in: .global) }
@@ -1508,7 +1530,7 @@ final class MenuViewTests: XCTestCase {
     ) -> [(String, AnyView)] {
         let pullRequest = Self.pullRequest(title: title, draft: draft)
         let control = stackControl ?? AnyView(StackControl(
-            presentation: StackControlPresentation(group: Self.stackGroup(), displayedPosition: 2, isExpanded: false)
+            presentation: StackControlPresentation(group: Self.stackGroup(), memberNoun: .reviewRequests, displayedPosition: 2, isExpanded: false)
         ) {})
         return [
             ("unstacked card", AnyView(PullRequestRow(
@@ -1923,7 +1945,7 @@ final class MenuViewTests: XCTestCase {
                         repo: "mergehawk-labs/mergehawk",
                         chrome: .containerRow,
                         stackControl: withControl ? AnyView(StackControl(
-                            presentation: StackControlPresentation(group: Self.stackGroup(), displayedPosition: 1, isExpanded: true)
+                            presentation: StackControlPresentation(group: Self.stackGroup(), memberNoun: .reviewRequests, displayedPosition: 1, isExpanded: true)
                         ) {}) : nil
                     ) {}
                     let parts = measure(card, width: width, metrics: metrics).parts

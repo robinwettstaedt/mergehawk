@@ -45,22 +45,34 @@ struct StackGroup: Equatable {
     }
 }
 
-struct ReviewRequestSectionContent: Equatable {
-    let section: DashboardController.RequestedSection
+/// One PR list's cards, sorted, with its counts.
+struct PullRequestListContent: Equatable {
     let visible: [PullRequestListItem]
     let hidden: [PullRequestListItem]
-    /// Matching requested PRs across visible and hidden rows, including members folded into groups.
+    /// Matching full members across visible and hidden items, including members folded into groups.
     let count: Int
-    /// Matching requested PRs in hidden rows.
+    /// Matching full members in hidden items.
     let hiddenCount: Int
+}
+
+struct ReviewRequestSectionContent: Equatable {
+    let section: DashboardController.RequestedSection
+    let content: PullRequestListContent
+
+    var visible: [PullRequestListItem] { content.visible }
+    var hidden: [PullRequestListItem] { content.hidden }
+    /// Matching requested PRs across visible and hidden rows, including members folded into groups.
+    var count: Int { content.count }
+    /// Matching requested PRs in hidden rows.
+    var hiddenCount: Int { content.hiddenCount }
 }
 
 @MainActor
 enum PullRequestStackGrouping {
-    private struct PlacedRow {
-        let row: PullRequestListItem
-        let section: DashboardController.RequestedSection
-        let matchingCount: Int
+    /// An unsorted list item with the matching full members it holds.
+    private struct GroupedItem {
+        let item: PullRequestListItem
+        let matching: [PullRequest]
     }
 
     /// The stack read decides membership, because it comes after hydration: a member joins a stack that
@@ -85,27 +97,25 @@ enum PullRequestStackGrouping {
         return membership
     }
 
-    /// `requested` is the counted requested PRs before the Draft/Ready filter; `matching` is the subset passing it.
-    static func sections(
-        requested: [PullRequest],
+    /// `members` is the list's full members before its filter; `matching` is the subset passing it.
+    private static func items(
+        members allMembers: [PullRequest],
         matching: [PullRequest],
         stacks: [PullRequestStack],
         hiddenIDs: Set<String>,
         pinnedIDs: Set<String>,
-        unreadIDs: Set<String>,
-        sortOption: DashboardController.PullRequestSortOption,
-        sortDirection: DashboardController.PullRequestSortDirection
-    ) -> [ReviewRequestSectionContent] {
+        unreadIDs: Set<String>
+    ) -> [GroupedItem] {
         let matchingIDs = Set(matching.map(\.id))
         var consumedIDs = Set<String>()
-        var placed: [PlacedRow] = []
+        var items: [GroupedItem] = []
         // A stack where a PR is the only member keeps the PR's unstacked presentation, whatever its entry says.
         let stacks = stacks.filter { $0.size > 1 }
-        let stackIDByPullRequestID = memberships(of: requested, in: stacks)
+        let stackIDByPullRequestID = memberships(of: allMembers, in: stacks)
 
         for stack in stacks {
             let entryByID = Dictionary(stack.entries.map { ($0.pullRequestID, $0) }, uniquingKeysWith: { first, _ in first })
-            let members = requested.filter { stackIDByPullRequestID[$0.id] == stack.id }
+            let members = allMembers.filter { stackIDByPullRequestID[$0.id] == stack.id }
             guard !members.isEmpty else { continue }
             // The stack read comes after hydration, so a member whose entry is merged or closed is context only.
             let openMembers = members.filter { entryByID[$0.id]?.state == .open }
@@ -117,10 +127,6 @@ enum PullRequestStackGrouping {
             let unhiddenMatching = matchingMembers.first { !hiddenIDs.contains($0.id) }
             let isHidden = unhiddenMatching == nil
             let representative = unhiddenMatching ?? lowestMatching
-            let memberSections = Set(matchingMembers.compactMap(DashboardController.RequestedSection.section(for:)))
-            guard let section = DashboardController.RequestedSection.allCases.first(where: memberSections.contains) else {
-                continue
-            }
             let fullMemberByID = Dictionary(uniqueKeysWithValues: openMembers.map { ($0.id, $0) })
             let group = StackGroup(
                 stack: stack,
@@ -134,51 +140,114 @@ enum PullRequestStackGrouping {
                     return .context(entry)
                 }
             )
-            placed.append(PlacedRow(
-                row: PullRequestListItem(
+            items.append(GroupedItem(
+                item: PullRequestListItem(
                     representative: representative,
                     stack: group,
                     isPinned: !isHidden && openMembers.contains { pinnedIDs.contains($0.id) },
                     isHidden: isHidden,
                     isUnread: openMembers.contains { unreadIDs.contains($0.id) }
                 ),
-                section: section,
-                matchingCount: matchingMembers.count
+                matching: matchingMembers
             ))
         }
 
         for pullRequest in matching where !consumedIDs.contains(pullRequest.id) {
-            guard let section = DashboardController.RequestedSection.section(for: pullRequest) else { continue }
-            placed.append(PlacedRow(
-                row: PullRequestListItem(
+            items.append(GroupedItem(
+                item: PullRequestListItem(
                     representative: pullRequest,
                     stack: nil,
                     isPinned: pinnedIDs.contains(pullRequest.id),
                     isHidden: hiddenIDs.contains(pullRequest.id),
                     isUnread: unreadIDs.contains(pullRequest.id)
                 ),
-                section: section,
-                matchingCount: 1
+                matching: [pullRequest]
             ))
         }
+        return items
+    }
 
-        func sortedRows(_ rows: [PullRequestListItem]) -> [PullRequestListItem] {
-            let rowByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-            return DashboardController.sorted(rows.map(\.representative), by: sortOption, direction: sortDirection)
-                .compactMap { rowByID[$0.id] }
+    /// Pinned visible items sort first. A hidden item is never treated as pinned.
+    private static func content(
+        of items: [GroupedItem],
+        sortOption: DashboardController.PullRequestSortOption,
+        sortDirection: DashboardController.PullRequestSortDirection
+    ) -> PullRequestListContent {
+        func sortedItems(_ items: [PullRequestListItem]) -> [PullRequestListItem] {
+            let itemByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+            return DashboardController.sorted(items.map(\.representative), by: sortOption, direction: sortDirection)
+                .compactMap { itemByID[$0.id] }
         }
 
+        let visible = items.map(\.item).filter { !$0.isHidden }
+        let hidden = items.filter(\.item.isHidden)
+        return PullRequestListContent(
+            visible: sortedItems(visible.filter(\.isPinned)) + sortedItems(visible.filter { !$0.isPinned }),
+            hidden: sortedItems(hidden.map(\.item)),
+            count: items.reduce(0) { $0 + $1.matching.count },
+            hiddenCount: hidden.reduce(0) { $0 + $1.matching.count }
+        )
+    }
+
+    /// `requested` is the counted requested PRs before the Draft/Ready filter; `matching` is the subset passing it.
+    /// An item sits in the first section that one of its matching members belongs to.
+    static func sections(
+        requested: [PullRequest],
+        matching: [PullRequest],
+        stacks: [PullRequestStack],
+        hiddenIDs: Set<String>,
+        pinnedIDs: Set<String>,
+        unreadIDs: Set<String>,
+        sortOption: DashboardController.PullRequestSortOption,
+        sortDirection: DashboardController.PullRequestSortDirection
+    ) -> [ReviewRequestSectionContent] {
+        let items = items(
+            members: requested,
+            matching: matching,
+            stacks: stacks,
+            hiddenIDs: hiddenIDs,
+            pinnedIDs: pinnedIDs,
+            unreadIDs: unreadIDs
+        )
+        let sectionByItemID = Dictionary(uniqueKeysWithValues: items.map { item in
+            let memberSections = Set(item.matching.compactMap(DashboardController.RequestedSection.section(for:)))
+            return (item.item.id, DashboardController.RequestedSection.allCases.first(where: memberSections.contains))
+        })
         return DashboardController.RequestedSection.allCases.map { section in
-            let inSection = placed.filter { $0.section == section }
-            let visible = inSection.map(\.row).filter { !$0.isHidden }
-            let hidden = inSection.filter(\.row.isHidden)
-            return ReviewRequestSectionContent(
+            ReviewRequestSectionContent(
                 section: section,
-                visible: sortedRows(visible.filter(\.isPinned)) + sortedRows(visible.filter { !$0.isPinned }),
-                hidden: sortedRows(hidden.map(\.row)),
-                count: inSection.reduce(0) { $0 + $1.matchingCount },
-                hiddenCount: hidden.reduce(0) { $0 + $1.matchingCount }
+                content: content(
+                    of: items.filter { sectionByItemID[$0.item.id] == section },
+                    sortOption: sortOption,
+                    sortDirection: sortDirection
+                )
             )
         }
+    }
+
+    /// One list without sections, as Authored shows it. `members` is the list's full members before its filter;
+    /// `matching` is the subset passing it.
+    static func list(
+        members: [PullRequest],
+        matching: [PullRequest],
+        stacks: [PullRequestStack],
+        hiddenIDs: Set<String>,
+        pinnedIDs: Set<String>,
+        unreadIDs: Set<String>,
+        sortOption: DashboardController.PullRequestSortOption,
+        sortDirection: DashboardController.PullRequestSortDirection
+    ) -> PullRequestListContent {
+        content(
+            of: items(
+                members: members,
+                matching: matching,
+                stacks: stacks,
+                hiddenIDs: hiddenIDs,
+                pinnedIDs: pinnedIDs,
+                unreadIDs: unreadIDs
+            ),
+            sortOption: sortOption,
+            sortDirection: sortDirection
+        )
     }
 }

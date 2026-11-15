@@ -8,6 +8,19 @@ struct StackControlPresentation: Equatable {
     static let collapsedChevronSymbolName = "chevron.down"
     static let expandedChevronSymbolName = "chevron.up"
 
+    /// What the tooltip calls the list's other members: each tab names its own.
+    enum MemberNoun: Equatable {
+        case reviewRequests
+        case authoredPRs
+
+        func count(_ count: Int) -> String {
+            switch self {
+            case .reviewRequests: "\(count) more review \(count == 1 ? "request" : "requests")"
+            case .authoredPRs: "\(count) more of your PRs"
+            }
+        }
+    }
+
     let stackID: String
     let fractionText: String
     /// Laid out hidden under the fraction, so every fraction of the stack takes the same width.
@@ -19,7 +32,7 @@ struct StackControlPresentation: Equatable {
 
     /// `displayedPosition` is the representative's position when collapsed, and the top member's position when
     /// expanded.
-    init(group: StackGroup, displayedPosition: Int, isExpanded: Bool) {
+    init(group: StackGroup, memberNoun: MemberNoun, displayedPosition: Int, isExpanded: Bool) {
         let size = group.stack.size
         stackID = group.stack.id
         fractionText = "\(displayedPosition)/\(size)"
@@ -30,7 +43,7 @@ struct StackControlPresentation: Equatable {
         var parts = ["Stack", "position \(displayedPosition) of \(size)"]
         let additional = group.additionalMemberCount
         if additional > 0 {
-            parts.append("\(additional) more review \(additional == 1 ? "request" : "requests")")
+            parts.append(memberNoun.count(additional))
         }
         let excluded = group.filterExcludedMemberCount
         if excluded > 0 {

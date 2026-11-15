@@ -9,6 +9,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
     private typealias PullRequestSortOption = DashboardController.PullRequestSortOption
     private typealias PullRequestSortDirection = DashboardController.PullRequestSortDirection
     private typealias ReviewRequestFilterOption = DashboardController.ReviewRequestFilterOption
+    private typealias PullRequestFilterOption = DashboardController.PullRequestFilterOption
 
     func testWithoutStacksSectionsMatchTodaysPartitionOrderingAndCounts() {
         let requested = MockPullRequestSource(scenario: .longLists).firstRefreshPullRequests
@@ -49,6 +50,98 @@ final class PullRequestStackGroupingTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testWithoutStacksAuthoredListMatchesTodaysFilteredSortedAndHiddenLists() {
+        let own = MockPullRequestSource(scenario: .longLists).firstRefreshPullRequests.filter(\.isMine)
+        XCTAssertGreaterThan(own.count, 6)
+        let hidden = Set(own.prefix(3).map(\.id))
+        let pinned = Set(own.dropFirst(2).prefix(3).map(\.id))
+        let unread = Set(own.suffix(3).map(\.id) + own.prefix(1).map(\.id))
+        let filterSets: [Set<PullRequestFilterOption>] = [[], [.needsAttention], [.draft], [.changesRequested, .ciFailing]]
+        for option in [PullRequestSortOption.createdDate, .updatedDate, .changeSize] {
+            for direction in [PullRequestSortDirection.ascending, .descending] {
+                for filters in filterSets {
+                    let matching = DashboardController.filtered(own, by: filters, attentionPullRequestIds: unread)
+                    let todayVisible = DashboardController.sortedWithPins(
+                        matching.filter { !hidden.contains($0.id) }, pinnedIds: pinned, by: option, direction: direction
+                    )
+                    let todayHidden = DashboardController.sorted(
+                        matching.filter { hidden.contains($0.id) }, by: option, direction: direction
+                    )
+
+                    let list = PullRequestStackGrouping.list(
+                        members: own, matching: matching, stacks: [],
+                        hiddenIDs: hidden, pinnedIDs: pinned, unreadIDs: unread,
+                        sortOption: option, sortDirection: direction
+                    )
+
+                    let context = "\(option) \(direction) \(filters)"
+                    XCTAssertEqual(list.visible.map(\.id), todayVisible.map(\.id), context)
+                    XCTAssertEqual(list.hidden.map(\.id), todayHidden.map(\.id), context)
+                    XCTAssertEqual(list.count, todayVisible.count + todayHidden.count, context)
+                    XCTAssertEqual(list.hiddenCount, todayHidden.count, context)
+                    XCTAssertTrue((list.visible + list.hidden).allSatisfy { $0.stack == nil }, context)
+                    XCTAssertTrue(list.hidden.allSatisfy(\.isHidden) && !list.visible.contains(where: \.isHidden), context)
+                    XCTAssertEqual(list.hidden.map(\.isPinned), todayHidden.map { pinned.contains($0.id) }, context)
+                    XCTAssertEqual(list.visible.map(\.isPinned), todayVisible.map { pinned.contains($0.id) }, context)
+                    XCTAssertEqual(list.visible.map(\.isUnread), todayVisible.map { unread.contains($0.id) }, context)
+                    XCTAssertEqual(list.hidden.map(\.isUnread), todayHidden.map { unread.contains($0.id) }, context)
+                }
+            }
+        }
+    }
+
+    func testOtherAuthorsOpenPRsInAnOwnStackAreContextMembers() throws {
+        let own = Self.pr("PR_OWN", .mine, stack: "S")
+        let requesting = Self.pr("PR_REQUESTING", .direct, stack: "S")
+        let stack = Self.stack("S", size: 3, [(1, own.id, .open), (2, requesting.id, .open), (3, "PR_OTHER", .open)])
+
+        let list = Self.list([own], stacks: [stack])
+
+        XCTAssertEqual(list.visible.map(\.id), [own.id])
+        XCTAssertEqual(list.count, 1)
+        let group = try XCTUnwrap(list.visible.first?.stack)
+        XCTAssertEqual(group.fullMemberIDs, [own.id])
+        XCTAssertEqual(group.members, [.context(stack.entries[2]), .context(stack.entries[1]), .full(own)])
+    }
+
+    func testOwnPRWhoseEntryIsMergedIsAConsumedContextMember() throws {
+        let stale = Self.pr("PR_STALE", .mine, stack: "S")
+        let open = Self.pr("PR_OPEN", .mine, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, stale.id, .merged), (2, open.id, .open)])
+
+        let list = Self.list([stale, open], stacks: [stack])
+
+        XCTAssertEqual(list.visible.map(\.id), [open.id])
+        XCTAssertEqual(list.count, 1)
+        let group = try XCTUnwrap(list.visible.first?.stack)
+        XCTAssertEqual(group.members.last, .context(stack.entries[0]))
+
+        let onlyStale = Self.stack("S", size: 2, [(1, stale.id, .merged), (2, "PR_OTHER", .open)])
+        let empty = Self.list([stale], stacks: [onlyStale])
+        XCTAssertEqual(empty.visible, [])
+        XCTAssertEqual(empty.hidden, [])
+        XCTAssertEqual(empty.count, 0)
+    }
+
+    func testAttentionFilterRepresentsTheLowestUnreadOwnMember() throws {
+        let bottom = Self.pr("PR_BOTTOM", .mine, stack: "S")
+        let middle = Self.pr("PR_MIDDLE", .mine, stack: "S")
+        let top = Self.pr("PR_TOP", .mine, stack: "S")
+        let stack = Self.stack("S", size: 3, [(1, bottom.id, .open), (2, middle.id, .open), (3, top.id, .open)])
+
+        let list = Self.list(
+            [bottom, middle, top], filters: [.needsAttention], stacks: [stack], unread: [middle.id, top.id]
+        )
+
+        let item = try XCTUnwrap(list.visible.first)
+        XCTAssertEqual(list.visible.count, 1)
+        XCTAssertEqual(item.representative.id, middle.id)
+        XCTAssertEqual(item.stack?.representativePosition, 2)
+        XCTAssertEqual(item.stack?.filterExcludedMemberCount, 1)
+        XCTAssertEqual(item.stack?.additionalMemberCount, 2)
+        XCTAssertEqual(list.count, 2)
     }
 
     func testTwoRequestedMembersFormOneRowRepresentedByTheLowerPosition() throws {
@@ -373,7 +466,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
             XCTAssertEqual(group.members.map { group.position(of: $0) }, [3, 2, 1], stackID)
             XCTAssertEqual(group.fullMemberIDs, [row.representative.id], stackID)
             XCTAssertEqual(
-                StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
+                StackControlPresentation(group: group, memberNoun: .reviewRequests, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
                 "2/3", stackID
             )
             XCTAssertEqual(group.contextBadges, [positionThreeBadges, [positionOneState]], stackID)
@@ -386,7 +479,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         XCTAssertEqual(row.representative.id, "PR_STACK_MOCK_POSITION_3_3")
         XCTAssertEqual(group.representativePosition, 3)
         XCTAssertEqual(
-            StackControlPresentation(group: group, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
+            StackControlPresentation(group: group, memberNoun: .reviewRequests, displayedPosition: group.representativePosition, isExpanded: false).fractionText,
             "3/3"
         )
         XCTAssertEqual(group.contextBadges, [[.open], [.merged]])
@@ -414,7 +507,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
     // MARK: - Fixtures
 
     private enum Role {
-        case assigned, direct, team
+        case assigned, direct, team, mine
     }
 
     private static func pr(
@@ -429,7 +522,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
             url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
             ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, reviewCount: 0,
             reviewRequestKind: role == .direct ? .direct : role == .team ? .team : .none,
-            isAssignedToViewer: role == .assigned, isMine: false, author: "author",
+            isAssignedToViewer: role == .assigned, isMine: role == .mine, author: role == .mine ? "viewer" : "author",
             mergeable: .mergeable, draft: draft,
             createdAt: Date(timeIntervalSince1970: 0), updatedAt: Date(timeIntervalSince1970: updated),
             stackID: stack
@@ -466,6 +559,24 @@ final class PullRequestStackGroupingTests: XCTestCase {
             pinnedIDs: pinned,
             unreadIDs: unread,
             sortOption: .updatedDate,
+            sortDirection: .descending
+        )
+    }
+
+    private static func list(
+        _ own: [PullRequest],
+        filters: Set<PullRequestFilterOption> = [],
+        stacks: [PullRequestStack],
+        unread: Set<String> = []
+    ) -> PullRequestListContent {
+        PullRequestStackGrouping.list(
+            members: own,
+            matching: DashboardController.filtered(own, by: filters, attentionPullRequestIds: unread),
+            stacks: stacks,
+            hiddenIDs: [],
+            pinnedIDs: [],
+            unreadIDs: unread,
+            sortOption: .createdDate,
             sortDirection: .descending
         )
     }
