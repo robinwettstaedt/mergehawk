@@ -357,11 +357,20 @@ struct GitHubReadRetryPolicy: Sendable {
         self.sleep = sleep
     }
 
+    /// `isStopped` reports that the read's refresh already failed. A retry then ends before its backoff and
+    /// again before its next attempt, with `GitHubReadStopped`.
     func run<T: Sendable>(
+        isStopped: @escaping @Sendable () -> Bool = { false },
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let backoffs: [TimeInterval] = [1, 2]
         var attempt = 0
+        func backOff() async throws {
+            if isStopped() { throw GitHubReadStopped() }
+            try await sleep(backoffs[attempt])
+            if isStopped() { throw GitHubReadStopped() }
+            attempt += 1
+        }
         while true {
             do {
                 return try await operation()
@@ -369,12 +378,10 @@ struct GitHubReadRetryPolicy: Sendable {
                 throw CancellationError()
             } catch let error as GitHubReadError {
                 guard attempt < backoffs.count, error.isOrdinaryTransient else { throw error }
-                try await sleep(backoffs[attempt])
-                attempt += 1
+                try await backOff()
             } catch let error as URLError {
                 guard attempt < backoffs.count else { throw GitHubReadError.transport(error.code) }
-                try await sleep(backoffs[attempt])
-                attempt += 1
+                try await backOff()
             }
         }
     }
