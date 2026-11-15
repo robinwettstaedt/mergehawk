@@ -161,6 +161,7 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario bot-notifications -
 scripts/run-agent-app.sh --slot local --mock --mock-scenario comment-notifications --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario long-lists --ui menu --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario review-teams --ui menu --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario no-teams --ui settings --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario budget-stretched --ui settings --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario budget-paused --ui settings --open
 ```
@@ -185,6 +186,8 @@ The `review-teams` scenario has nested teams (`engineering` → `developers` →
 each of them, a team the viewer is not in, and combinations. Turn teams off in
 Settings › Teams to see the Requested tab change; the first refresh adds
 `plm-team` to the pull request that only requested `developers`.
+The `no-teams` scenario reports no teams for the viewer and returns only one authored
+pull request, so Settings › Teams shows its empty state.
 Every scenario reports a fixture GitHub API budget of 5,000 points that resets
 50 minutes after launch, and each complete refresh spends 55 points. The
 `budget-stretched` and `budget-paused` scenarios start with less of it left, so
