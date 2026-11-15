@@ -35,7 +35,8 @@ notifies you about the updates you pick (reviews, CI failures, mentions) and ski
   reuse an open browser tab when the PR is already open.
 - **Noise controls.** Turn off broad teams, mute repositories, owners and bots, hide
   archived repos, and pin or hide single PRs.
-- **Stacks.** PRs you review that belong to a stack show as one expandable card.
+- **Stacks.** PRs in a GitHub stack show as one expandable card, in Authored for your own and in
+  Requested for ones you review.
 - **A quiet first run.** The first sync records what is already there, so day one does not
   start with a pile of notifications.
 
