@@ -16,18 +16,18 @@ final class RefreshGoldenTests: XCTestCase {
         let outcome = try await RefreshGoldenFixture(includesNewPullRequests: false).refresh(reusesViewerTeams: false)
 
         Self.assertCoverage(outcome.result, newPullRequests: false)
-        // The serial read's values.
+        // The serial read's hash. Continuation rounds add one request to the serial read's 19.
         XCTAssertEqual(outcome.hash, "584baa0120cb6208b708e50c1f84920d5c3200cd1cad42e5d3ac4cc50155b3c9")
-        XCTAssertEqual(outcome.graphQLRequests, 19)
+        XCTAssertEqual(outcome.graphQLRequests, 20)
     }
 
     func testRefreshWithNewPullRequestsMatchesTheSerialRead() async throws {
         let outcome = try await RefreshGoldenFixture(includesNewPullRequests: true).refresh(reusesViewerTeams: false)
 
         Self.assertCoverage(outcome.result, newPullRequests: true)
-        // The serial read's values.
+        // The serial read's hash. Continuation rounds add one request to the serial read's 19.
         XCTAssertEqual(outcome.hash, "5ed4265fca4d5c585fbdd6b0762806aa97a0c612da41217590d758aadf590396")
-        XCTAssertEqual(outcome.graphQLRequests, 19)
+        XCTAssertEqual(outcome.graphQLRequests, 20)
     }
 
     func testSteadyStateRefreshWithReusedViewerTeamsSendsNoTeamsRead() async throws {
@@ -35,8 +35,8 @@ final class RefreshGoldenTests: XCTestCase {
 
         XCTAssertFalse(outcome.queryNames.contains("ViewerTeams"))
         XCTAssertEqual(outcome.result.viewerTeams, [RefreshGoldenFixture.viewerTeam])
-        // The serial read's value.
-        XCTAssertEqual(outcome.graphQLRequests, 18)
+        // Continuation rounds add one request to the serial read's 18.
+        XCTAssertEqual(outcome.graphQLRequests, 19)
     }
 
     /// The fixture's cases each reach the result: the rechecked team PR stays active, the merged PR retires, the

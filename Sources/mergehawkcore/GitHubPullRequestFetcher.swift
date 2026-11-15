@@ -360,79 +360,7 @@ struct GitHubPullRequestFetcher: Sendable {
             missing: &missingIDs
         )
 
-        var visitedCursors: [ContinuationVisit: Set<String?>] = [:]
-        while !continuations.isEmpty {
-            let batch = nextContinuationBatch(from: &continuations)
-            for item in batch {
-                let visit = ContinuationVisit(kind: item.kind, attempt: item.attempt)
-                guard visitedCursors[visit, default: []].insert(item.before).inserted else {
-                    throw GitHubReadError.incompleteCoverage("Repeated continuation cursor")
-                }
-            }
-            let query = continuationQuery(batch)
-            let variables = continuationVariables(batch)
-            let decoded = try await read(query, variables) { data in
-                try decodeContinuationPages(data, batch: batch, allowsScopedErrors: true)
-            }
-            // Thread-comment results for a PR whose thread list restarts in this batch belong to the discarded read.
-            var restartedThreadPRs = Set<String>()
-            func isSuperseded(_ item: Continuation) -> Bool {
-                guard case .threadComments(let prID, _) = item.kind else { return false }
-                return restartedThreadPRs.contains(prID)
-            }
-            for (index, page) in decoded.pages.sorted(by: { $0.key < $1.key }) where !isSuperseded(batch[index]) {
-                try merge(
-                    page: page,
-                    for: batch[index],
-                    into: &accumulators,
-                    queue: &continuations,
-                    restartedThreadPRs: &restartedThreadPRs
-                )
-            }
-            for index in decoded.failedIndices.sorted() where !isSuperseded(batch[index]) {
-                let item = batch[index]
-                // A missing thread's retry also reads its PR, to tell a deleted thread from lost access.
-                let confirmingPRID: String? = if decoded.missingThreadIndices.contains(index),
-                    case .threadComments(let prID, _) = item.kind { prID } else { nil }
-                let retried = try await read(
-                    continuationQuery([item], pullRequestID: confirmingPRID),
-                    continuationVariables([item], pullRequestID: confirmingPRID)
-                ) { data -> ContinuationPage? in
-                    if confirmingPRID != nil, try isDeletedThreadOfReadablePullRequest(data) { return nil }
-                    let retry = try decodeContinuationPages(data, batch: [item], allowsScopedErrors: false)
-                    guard let page = retry.pages[0], retry.failedIndices.isEmpty else {
-                        throw GitHubReadError.invalidPayload
-                    }
-                    return page
-                }
-                guard let page = retried else {
-                    guard case .threadComments(let prID, let threadID) = item.kind else {
-                        throw GitHubReadError.invalidPayload
-                    }
-                    accumulators[prID]?.threads.removeValue(forKey: threadID)
-                    accumulators[prID]?.threadComments.removeValue(forKey: threadID)
-                    continuations.removeAll { $0.kind == item.kind }
-                    // A later thread page may list the thread again, and its reads then start fresh.
-                    visitedCursors = visitedCursors.filter { $0.key.kind != item.kind }
-                    continue
-                }
-                try merge(
-                    page: page,
-                    for: item,
-                    into: &accumulators,
-                    queue: &continuations,
-                    restartedThreadPRs: &restartedThreadPRs
-                )
-            }
-            // A restarted thread list re-reads every thread's comments from scratch, at cursors that may have
-            // run before. The re-reads always run in later batches.
-            if !restartedThreadPRs.isEmpty {
-                visitedCursors = visitedCursors.filter { visit, _ in
-                    guard case .threadComments(let prID, _) = visit.kind else { return true }
-                    return !restartedThreadPRs.contains(prID)
-                }
-            }
-        }
+        try await runContinuationRounds(&accumulators, queue: continuations)
 
         // Every listed thread must have had its comments read, or it would publish without its activity.
         for prID in accumulators.keys.sorted() {
@@ -457,6 +385,102 @@ struct GitHubPullRequestFetcher: Sendable {
             )
         }
         return GitHubHydrationResult(pullRequests: pullRequests, missingPullRequestIDs: missingIDs)
+    }
+
+    /// Reads every queued continuation in rounds of up to `continuationRoundWidth` batches sent together. A round
+    /// behaves like one larger batch: its cursors are checked before any read is sent, its pages merge in batch
+    /// order, then position order, and its failed entries retry after all its pages merged. Entries a round's
+    /// merge queues run in a later round.
+    private func runContinuationRounds(
+        _ accumulators: inout [String: HydrationAccumulator],
+        queue initial: [Continuation]
+    ) async throws {
+        var queue = initial
+        var visitedCursors: [ContinuationVisit: Set<String?>] = [:]
+        while !queue.isEmpty {
+            var batches: [[Continuation]] = []
+            while batches.count < GitHubPullRequestQueries.continuationRoundWidth, !queue.isEmpty {
+                batches.append(nextContinuationBatch(from: &queue))
+            }
+            let entries = batches.flatMap { $0 }
+            // At most one live entry per connection is queued or in flight.
+            assert(Set(entries.map(\.kind)).count == entries.count, "Two continuation entries share a connection")
+            for item in entries {
+                let visit = ContinuationVisit(kind: item.kind, attempt: item.attempt)
+                guard visitedCursors[visit, default: []].insert(item.before).inserted else {
+                    throw GitHubReadError.incompleteCoverage("Repeated continuation cursor")
+                }
+            }
+            let decodedBatches = try await runConcurrently(batches.enumerated().map { index, batch in
+                (GitHubReadOrder(.continuation, index), { @Sendable [self] in
+                    try await read(continuationQuery(batch), continuationVariables(batch)) { data in
+                        try decodeContinuationPages(data, batch: batch, allowsScopedErrors: true)
+                    }
+                })
+            })
+            // Thread-comment results for a PR whose thread list restarts in this round belong to the discarded read.
+            var restartedThreadPRs = Set<String>()
+            func isSuperseded(_ item: Continuation) -> Bool {
+                guard case .threadComments(let prID, _) = item.kind else { return false }
+                return restartedThreadPRs.contains(prID)
+            }
+            for (batch, decoded) in zip(batches, decodedBatches) {
+                for (index, page) in decoded.pages.sorted(by: { $0.key < $1.key }) where !isSuperseded(batch[index]) {
+                    try merge(
+                        page: page,
+                        for: batch[index],
+                        into: &accumulators,
+                        queue: &queue,
+                        restartedThreadPRs: &restartedThreadPRs
+                    )
+                }
+            }
+            for (batch, decoded) in zip(batches, decodedBatches) {
+                for index in decoded.failedIndices.sorted() where !isSuperseded(batch[index]) {
+                    let item = batch[index]
+                    // A missing thread's retry also reads its PR, to tell a deleted thread from lost access.
+                    let confirmingPRID: String? = if decoded.missingThreadIndices.contains(index),
+                        case .threadComments(let prID, _) = item.kind { prID } else { nil }
+                    let retried = try await read(
+                        continuationQuery([item], pullRequestID: confirmingPRID),
+                        continuationVariables([item], pullRequestID: confirmingPRID)
+                    ) { data -> ContinuationPage? in
+                        if confirmingPRID != nil, try isDeletedThreadOfReadablePullRequest(data) { return nil }
+                        let retry = try decodeContinuationPages(data, batch: [item], allowsScopedErrors: false)
+                        guard let page = retry.pages[0], retry.failedIndices.isEmpty else {
+                            throw GitHubReadError.invalidPayload
+                        }
+                        return page
+                    }
+                    guard let page = retried else {
+                        guard case .threadComments(let prID, let threadID) = item.kind else {
+                            throw GitHubReadError.invalidPayload
+                        }
+                        accumulators[prID]?.threads.removeValue(forKey: threadID)
+                        accumulators[prID]?.threadComments.removeValue(forKey: threadID)
+                        queue.removeAll { $0.kind == item.kind }
+                        // A later thread page may list the thread again, and its reads then start fresh.
+                        visitedCursors = visitedCursors.filter { $0.key.kind != item.kind }
+                        continue
+                    }
+                    try merge(
+                        page: page,
+                        for: item,
+                        into: &accumulators,
+                        queue: &queue,
+                        restartedThreadPRs: &restartedThreadPRs
+                    )
+                }
+            }
+            // A restarted thread list re-reads every thread's comments from scratch, at cursors that may have
+            // run before. The re-reads always run in later rounds.
+            if !restartedThreadPRs.isEmpty {
+                visitedCursors = visitedCursors.filter { visit, _ in
+                    guard case .threadComments(let prID, _) = visit.kind else { return true }
+                    return !restartedThreadPRs.contains(prID)
+                }
+            }
+        }
     }
 
     private func rawHydrationResponse(
