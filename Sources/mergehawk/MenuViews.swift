@@ -21,12 +21,11 @@ struct PullRequestMenuDropdownState: Equatable {
 }
 
 struct NotificationTimestampPresentation {
-    static func label(for date: Date, timeZone: TimeZone = .current) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+    static func exactText(for date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        var style = Date.FormatStyle(date: .abbreviated, time: .shortened)
+        style.locale = locale
+        style.timeZone = timeZone
+        return date.formatted(style)
     }
 }
 
@@ -436,9 +435,13 @@ enum PullRequestAgePresentation {
         }
     }
 
-    static func label(for date: Date, field: Field, now: Date) -> String {
+    static func spokenText(for date: Date, now: Date) -> String {
         let text = shortText(for: date, now: now)
-        return text == "now" ? "\(field.title) just now" : "\(field.title) \(text) ago"
+        return text == "now" ? "just now" : "\(text) ago"
+    }
+
+    static func label(for date: Date, field: Field, now: Date) -> String {
+        "\(field.title) \(spokenText(for: date, now: now))"
     }
 }
 
@@ -2110,6 +2113,7 @@ struct PullRequestNotificationRow: View {
 
     @State private var isHovered = false
     @Environment(\.menuMetrics) private var metrics
+    @Environment(\.menuNow) private var menuNow
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -2128,11 +2132,15 @@ struct PullRequestNotificationRow: View {
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(NotificationTimestampPresentation.label(for: notification.prUpdatedAt))
+                                Text(PullRequestAgePresentation.shortText(for: notification.createdAt, now: menuNow))
                                     .font(metrics.type.notificationTimestamp.font)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .fixedSize(horizontal: true, vertical: false)
+                                    .accessibilityLabel(
+                                        PullRequestAgePresentation.spokenText(for: notification.createdAt, now: menuNow)
+                                    )
+                                    .menuTooltip(NotificationTimestampPresentation.exactText(for: notification.createdAt))
                                     // On the title's baseline alone, the smaller digits' tops sit below the title's
                                     // capitals. Raised by the difference, their tops line up with the capitals.
                                     .alignmentGuide(.firstTextBaseline) { dimensions in
