@@ -81,18 +81,20 @@ final class GitHubRefreshReadTests: XCTestCase {
         }
         var releasesBeforeEachRead: [Int] = []
         var releases = 0
+        // Discovery reads seen starting so far. A read can start right after a release, before the next check.
+        var seenStarts = 0
         while discoveryEvents(.end) < 3 {
-            let started = discoveryEvents(.start)
             // Wait until the next discovery read starts, or waits behind gated batches holding every permit.
             await waitForCondition {
-                discoveryEvents(.start) > started
-                    || (discoveryEvents(.end) == started && probe.gatedRequests.count == 4
+                discoveryEvents(.start) > seenStarts
+                    || (discoveryEvents(.end) == seenStarts && probe.gatedRequests.count == 4
                         && limiter.waitingCount == 8 - hydrationStarts() + 1)
             }
-            if discoveryEvents(.start) > started {
+            if discoveryEvents(.start) > seenStarts {
+                seenStarts += 1
                 releasesBeforeEachRead.append(releases)
                 releases = 0
-                await waitForCondition { discoveryEvents(.end) > started }
+                await waitForCondition { discoveryEvents(.end) >= seenStarts }
             } else {
                 probe.release()
                 releases += 1
