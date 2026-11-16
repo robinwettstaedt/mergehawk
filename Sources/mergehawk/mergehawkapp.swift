@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        configureAppearance()
         NSApp.setActivationPolicy(.accessory)
         softwareUpdateController.enableSparkleIfConfigured()
         UNUserNotificationCenter.current().delegate = self
@@ -100,6 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     enum SettingsPresentation {
         case foreground
         case background
+    }
+
+    func configureAppearance() {
+        controller.applyAppearance = { NSApp.appearance = $0.nsAppearance }
+        controller.applyAppearance(controller.appearance)
     }
 
     func configureSettingsRouting() {

@@ -614,9 +614,77 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertNil(accessibilityFrame(labeled: GitHubBudgetCopy.title, in: host, timeout: 0.3))
     }
 
+    @MainActor
+    func testGeneralPaneShowsTheAppearancePickerAboveMenuSizeWhenSignedIn() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: .standard)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .general)
+        defer { host.close() }
+
+        // A picker's label reaches accessibility as static text, so it is matched by its text.
+        XCTAssertNotNil(accessibilityObject(in: host) {
+            $0.accessibilityRole?() == .staticText && $0.value(forKey: "accessibilityValue") as? String == "Appearance"
+        })
+        XCTAssertNotNil(accessibilityFrame(labeled: "Light", in: host))
+        XCTAssertNotNil(accessibilityFrame(labeled: "Dark", in: host))
+        // The Auto segment stands for the Appearance picker and Default for the Menu Size picker.
+        let budget = try XCTUnwrap(accessibilityFrame(labeled: GitHubBudgetCopy.title, in: host))
+        let appearance = try XCTUnwrap(accessibilityFrame(labeled: "Auto", in: host))
+        let menuSize = try XCTUnwrap(accessibilityFrame(labeled: "Default", in: host))
+        // Screen coordinates grow upward, so a lower row has a smaller y.
+        XCTAssertLessThan(appearance.maxY, budget.minY)
+        XCTAssertGreaterThan(appearance.minY, menuSize.maxY)
+    }
+
+    @MainActor
+    func testGeneralPaneShowsTheAppearancePickerBelowRefreshIntervalWhenSignedOut() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: nil)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .general)
+        defer { host.close() }
+
+        let interval = try XCTUnwrap(accessibilityFrame(labeled: "2 min", in: host))
+        let appearance = try XCTUnwrap(accessibilityFrame(labeled: "Auto", in: host))
+        let menuSize = try XCTUnwrap(accessibilityFrame(labeled: "Default", in: host))
+        XCTAssertLessThan(appearance.maxY, interval.minY)
+        XCTAssertGreaterThan(appearance.minY, menuSize.maxY)
+    }
+
+    @MainActor
+    func testPressingTheDarkAppearanceSegmentSelectsDark() throws {
+        let (controller, defaults, suite) = makeSettingsController(scenario: nil)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (host, _) = hostSettings(controller: controller, selection: .general)
+        defer { host.close() }
+        XCTAssertEqual(controller.appearance, .auto)
+        // Segments are NSAccessibilitySegment objects, which pressAccessibilityElement cannot reach, so the Dark
+        // segment is pressed directly.
+        let dark = try XCTUnwrap(accessibilityObject(in: host) {
+            $0.accessibilityLabel?() == "Dark" && $0.accessibilityRole?() == .radioButton
+        })
+        XCTAssertTrue((dark.accessibilityActionNames?() ?? []).contains(.press))
+
+        _ = dark.accessibilityPerformPress?()
+        host.settle()
+
+        XCTAssertEqual(controller.appearance, .dark)
+    }
+
     /// The screen frame of the first accessibility element with this label, or nil once the timeout passes.
     @MainActor
     private func accessibilityFrame(labeled label: String, in host: OffScreenHost, timeout: TimeInterval = 2) -> CGRect? {
+        accessibilityObject(in: host, timeout: timeout) {
+            $0.accessibilityLabel?() == label && $0.accessibilityFrame?() != nil
+        }?.accessibilityFrame?()
+    }
+
+    /// The first accessibility object in the hosted pane that matches, or nil once the timeout passes.
+    @MainActor
+    private func accessibilityObject(
+        in host: OffScreenHost,
+        timeout: TimeInterval = 2,
+        where matches: (AnyObject) -> Bool
+    ) -> AnyObject? {
         let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
         defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhancedInterface) }
@@ -631,8 +699,8 @@ final class SettingsViewTests: XCTestCase {
                 let object = queue[index]
                 index += 1
                 guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
-                if object.accessibilityLabel?() == label, let frame = object.accessibilityFrame?() {
-                    return frame
+                if matches(object) {
+                    return object
                 }
                 queue += ((object.accessibilityChildren?() ?? nil) ?? []).map { $0 as AnyObject }
             }
