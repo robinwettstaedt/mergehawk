@@ -708,6 +708,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let prTitle: String
     public let prNumber: Int
     public let repo: String
+    public let prAuthor: String?
     public let url: URL
     public let destinationURL: URL?
     public let actorLogin: String?
@@ -725,6 +726,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         case prTitle
         case prNumber
         case repo
+        case prAuthor
         case url
         case destinationURL
         case actorLogin
@@ -749,6 +751,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.prTitle = pullRequest.title
         self.prNumber = pullRequest.number
         self.repo = pullRequest.repo
+        self.prAuthor = pullRequest.author
         self.url = pullRequest.url
         self.destinationURL = event.destinationURL
         self.actorLogin = event.actorLogin
@@ -768,6 +771,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.prTitle = try container.decode(String.self, forKey: .prTitle)
         self.prNumber = try container.decode(Int.self, forKey: .prNumber)
         self.repo = try container.decode(String.self, forKey: .repo)
+        self.prAuthor = try container.decodeIfPresent(String.self, forKey: .prAuthor)
         self.url = try container.decode(URL.self, forKey: .url)
         self.destinationURL = try container.decodeIfPresent(URL.self, forKey: .destinationURL)
         self.actorLogin = try container.decodeIfPresent(String.self, forKey: .actorLogin)

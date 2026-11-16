@@ -96,7 +96,10 @@ enum PullRequestNotificationTitlePresentation {
         case .changesRequested:
             actorText(for: notification).map { "Changes requested by \($0)" } ?? "Changes requested"
         case .relationshipAdded:
-            RelationshipChangeTitlePresentation.title(for: notification.relationshipChanges)
+            RelationshipChangeTitlePresentation.title(
+                for: notification.relationshipChanges,
+                pullRequestAuthor: notification.prAuthor
+            )
         case .readyForReview:
             "Ready for review"
         }

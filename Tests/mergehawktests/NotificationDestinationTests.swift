@@ -70,9 +70,67 @@ final class NotificationDestinationTests: XCTestCase {
         XCTAssertEqual(restored.notificationHistory.first?.destinationURL, destination)
     }
 
+    func testInAppNotificationStoresThePRAuthorAndKeepsItThroughSyncState() throws {
+        let suite = "mergehawk-notification-author-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pullRequest = PullRequest(
+            id: "PR_1", title: "Example", number: 1, url: URL(string: "https://github.com/acme/app/pull/1")!,
+            repo: "acme/app", ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
+            reviewCount: 0, reviewRequestKind: .direct, isMine: false, author: "alice",
+            mergeable: .mergeable, draft: false
+        )
+        let notification = PullRequestNotification(
+            event: PullRequestEvent(type: .relationshipAdded, prId: "PR_1", relationshipChanges: [.directReviewRequest]),
+            pullRequest: pullRequest
+        )
+        XCTAssertEqual(notification.prAuthor, "alice")
+
+        let state = PullRequestSyncState(
+            account: GitHubAccount(login: "rw"), dashboard: .empty,
+            notificationHistory: [notification]
+        )
+        try PreferencesStore(defaults: defaults).storePullRequestSyncState(state)
+        let restored = try XCTUnwrap(PreferencesStore(defaults: defaults).pullRequestSyncState)
+        XCTAssertEqual(restored.notificationHistory, [notification])
+        XCTAssertEqual(restored.notificationHistory.first?.prAuthor, "alice")
+    }
+
+    func testPRNotificationHistoryRowStoredWithoutAnAuthorStillLoads() throws {
+        let suite = "mergehawk-notification-no-author-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pullRequest = PullRequest(
+            id: "PR_1", title: "Retained", number: 7, url: URL(string: "https://github.com/acme/app/pull/7")!,
+            repo: "acme/app", ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0,
+            reviewCount: 0, reviewRequestKind: .direct, isMine: false, author: "alice",
+            mergeable: .mergeable, draft: false
+        )
+        let original = PullRequestNotification(
+            event: PullRequestEvent(type: .relationshipAdded, prId: "PR_1", relationshipChanges: [.directReviewRequest]),
+            pullRequest: pullRequest
+        )
+        let legacy = try original.withoutStoredPRAuthor()
+        let state = PullRequestSyncState(
+            account: GitHubAccount(login: "rw"), dashboard: .empty,
+            notificationHistory: [legacy]
+        )
+        try PreferencesStore(defaults: defaults).storePullRequestSyncState(state)
+        let restored = try XCTUnwrap(PreferencesStore(defaults: defaults).pullRequestSyncState?.notificationHistory.first)
+        XCTAssertNil(restored.prAuthor)
+        XCTAssertEqual(restored.id, original.id)
+        XCTAssertEqual(restored.eventType, .relationshipAdded)
+        XCTAssertEqual(restored.relationshipChanges, [.directReviewRequest])
+        XCTAssertEqual(restored.prTitle, "Retained")
+        XCTAssertEqual(restored.prNumber, 7)
+        XCTAssertEqual(restored.repo, "acme/app")
+        XCTAssertEqual(restored.url, original.url)
+        XCTAssertEqual(restored.read, false)
+    }
+
     func testMockNotificationTypesUsePreciseDestinationsOnlyForPeopleActivity() {
         let notifications = MockPullRequestSource.notificationTypeFixturePullRequestNotifications
-        XCTAssertEqual(notifications.count, 9)
+        XCTAssertEqual(notifications.count, 10)
         for notification in notifications {
             switch notification.eventType {
             case .newComment, .reviewApproved, .reviewCommented, .changesRequested:
@@ -125,12 +183,12 @@ final class NotificationDestinationTests: XCTestCase {
         let assigned = PullRequestEvent(type: .relationshipAdded, prId: pullRequest.id, relationshipChanges: [.assigned])
 
         XCTAssertNil(ready.destinationURL)
-        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [ready]), "Ready for review")
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [ready], pullRequests: [pullRequest]), "Ready for review")
         XCTAssertEqual(
             NotificationClickRoute.route(events: [ready], pullRequests: [pullRequest]),
             .openPullRequest(PullRequestOpenRequest(pullRequestURL: base))
         )
-        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [assigned, ready]), "2 MergeHawk updates")
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [assigned, ready], pullRequests: [pullRequest]), "2 MergeHawk updates")
         XCTAssertEqual(
             NotificationClickRoute.route(events: [assigned, ready], pullRequests: [pullRequest]),
             .openNotifications
@@ -192,5 +250,16 @@ final class NotificationDestinationTests: XCTestCase {
             state: state, submittedAt: Date(timeIntervalSince1970: 2), author: "reviewer",
             hasSummaryText: true
         )
+    }
+}
+
+extension PullRequestNotification {
+    /// Rebuilds this in-app notification as history saved before the PR author was stored.
+    func withoutStoredPRAuthor() throws -> PullRequestNotification {
+        let data = try JSONEncoder().encode(self)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNotNil(object.removeValue(forKey: "prAuthor"))
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+        return try JSONDecoder().decode(PullRequestNotification.self, from: stripped)
     }
 }

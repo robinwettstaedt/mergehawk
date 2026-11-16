@@ -762,7 +762,7 @@ final class AgentModeXCTests: XCTestCase {
                     .newReview
                 ]
             )
-            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 9)
+            XCTAssertEqual(controller.visiblePullRequestNotifications.count, 10)
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
@@ -771,7 +771,7 @@ final class AgentModeXCTests: XCTestCase {
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
                     .map { PullRequestNotificationTitlePresentation.title(for: $0) }
-                    .contains("Assigned and review requested")
+                    .contains("Assigned and review requested on @platform-nora's PR")
             )
             XCTAssertTrue(
                 controller.visiblePullRequestNotifications
@@ -1062,8 +1062,8 @@ final class AgentModeXCTests: XCTestCase {
 
         XCTAssertEqual(records.map(\.title), [
             "Assigned to you",
-            "Review requested",
-            "Assigned and review requested"
+            "Review requested on @agent's PR",
+            "Assigned and review requested on @agent's PR"
         ])
         XCTAssertEqual(records[0].relationshipChanges, ["assigned"])
         XCTAssertEqual(records[1].relationshipChanges, ["direct_review_request"])
@@ -1078,7 +1078,7 @@ final class AgentModeXCTests: XCTestCase {
             NotificationContentBuilder.records(events: [event], pullRequests: [pullRequest]).map(\.title),
             ["Ready for review"]
         )
-        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event]), "Ready for review")
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event], pullRequests: [pullRequest]), "Ready for review")
         XCTAssertEqual(
             PullRequestNotificationTitlePresentation.title(
                 for: PullRequestNotification(event: event, pullRequest: pullRequest)
