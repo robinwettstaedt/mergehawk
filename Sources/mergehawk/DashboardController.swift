@@ -255,7 +255,7 @@ final class DashboardController: ObservableObject {
         }
     }
     @Published private(set) var collapsedRequestedSections: Set<RequestedSection> = []
-    /// Expanded Review requests stack groups, in memory only like collapsed sections.
+    /// Expanded stack groups, shared by both PR tabs and in memory only like collapsed sections.
     @Published private(set) var expandedStackIDs: Set<String> = []
     @Published var pinnedPullRequestIds: Set<String> {
         didSet {
@@ -582,23 +582,6 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    var sortedMyPullRequests: [PullRequest] {
-        Self.sortedWithPins(
-            filteredMyPullRequests.filter { !hiddenPullRequestIds.contains($0.id) },
-            pinnedIds: pinnedPullRequestIds,
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
-        )
-    }
-
-    var hiddenMyPullRequests: [PullRequest] {
-        Self.sorted(
-            filteredMyPullRequests.filter { hiddenPullRequestIds.contains($0.id) },
-            by: pullRequestSortOption,
-            direction: pullRequestSortDirection
-        )
-    }
-
     var sortedReviewRequests: [PullRequest] {
         Self.sortedWithPins(
             filteredReviewRequests.filter { !hiddenPullRequestIds.contains($0.id) },
@@ -617,7 +600,7 @@ final class DashboardController: ObservableObject {
     }
 
     var requestedSections: [RequestedSectionContent] {
-        ReviewRequestStacks.sections(
+        PullRequestStackGrouping.sections(
             requested: sourceFilteredReviewRequests.filter(Self.isRequestedPullRequest),
             matching: filteredReviewRequests,
             stacks: state.pullRequestStacks,
@@ -626,6 +609,19 @@ final class DashboardController: ObservableObject {
             unreadIDs: unreadPullRequestNotificationIds,
             sortOption: reviewRequestSortOption,
             sortDirection: reviewRequestSortDirection
+        )
+    }
+
+    var authoredList: PullRequestListContent {
+        PullRequestStackGrouping.list(
+            members: sourceFilteredMyPullRequests,
+            matching: filteredMyPullRequests,
+            stacks: state.pullRequestStacks,
+            hiddenIDs: hiddenPullRequestIds,
+            pinnedIDs: pinnedPullRequestIds,
+            unreadIDs: unreadPullRequestNotificationIds,
+            sortOption: pullRequestSortOption,
+            sortDirection: pullRequestSortDirection
         )
     }
 
@@ -641,8 +637,8 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    /// Option-click on a stack control: as for the Requested sections, the clicked stack's state decides. Expanding
-    /// opens every stack, including ones the filters hide, and collapsing closes them all.
+    /// Option-click on a stack control: the clicked stack's state decides, as Option-click on a section heading does.
+    /// Expanding opens every stack, including ones the filters hide, and collapsing closes them all.
     func toggleAllStacks(from stackID: String) {
         expandedStackIDs = isStackExpanded(stackID) ? [] : Set(state.pullRequestStacks.map(\.id))
     }
@@ -1109,27 +1105,9 @@ final class DashboardController: ObservableObject {
         hiddenPullRequestIds.contains(pullRequest.id)
     }
 
-    func togglePin(_ pullRequest: PullRequest) {
-        if pinnedPullRequestIds.contains(pullRequest.id) {
-            pinnedPullRequestIds.remove(pullRequest.id)
-        } else {
-            hiddenPullRequestIds.remove(pullRequest.id)
-            pinnedPullRequestIds.insert(pullRequest.id)
-        }
-    }
-
-    func toggleHide(_ pullRequest: PullRequest) {
-        if hiddenPullRequestIds.contains(pullRequest.id) {
-            hiddenPullRequestIds.remove(pullRequest.id)
-        } else {
-            pinnedPullRequestIds.remove(pullRequest.id)
-            hiddenPullRequestIds.insert(pullRequest.id)
-        }
-    }
-
-    /// Group actions set state on every requested member of a stack group, or on the standalone PR.
+    /// Group actions set state on every full member of a stack group, or on the standalone PR.
     /// Hiding also unpins, and pinning also unhides.
-    func setHidden(_ row: ReviewRequestRow, hidden: Bool) {
+    func setHidden(_ row: PullRequestListItem, hidden: Bool) {
         let ids = Self.actionIDs(for: row)
         if hidden {
             pinnedPullRequestIds.subtract(ids)
@@ -1139,7 +1117,7 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    func setPinned(_ row: ReviewRequestRow, pinned: Bool) {
+    func setPinned(_ row: PullRequestListItem, pinned: Bool) {
         let ids = Self.actionIDs(for: row)
         if pinned {
             hiddenPullRequestIds.subtract(ids)
@@ -1149,14 +1127,14 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    private static func actionIDs(for row: ReviewRequestRow) -> Set<String> {
-        row.stack?.requestedMemberIDs ?? [row.representative.id]
+    private static func actionIDs(for row: PullRequestListItem) -> Set<String> {
+        row.stack?.fullMemberIDs ?? [row.representative.id]
     }
 
-    /// A requested member opens like any PR; a context member only has its stack entry URL.
+    /// A full member opens like any PR; a context member only has its stack entry URL.
     func openStackMember(_ member: StackGroup.Member) {
         switch member {
-        case .requested(let pullRequest):
+        case .full(let pullRequest):
             openPullRequest(pullRequest)
         case .context(let entry):
             openPullRequest(PullRequestOpenRequest(pullRequestURL: entry.url))

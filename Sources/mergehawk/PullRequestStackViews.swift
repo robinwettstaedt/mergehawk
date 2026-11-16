@@ -1,12 +1,25 @@
 import mergehawkcore
 import SwiftUI
 
-/// The stack control on a requested stack card: stack symbol, "‹position›/‹size›", and an expand or collapse
-/// chevron. Other review requests and filter-excluded requests appear only in the tooltip.
+/// The stack control on a stack card: stack symbol, "‹position›/‹size›", and an expand or collapse chevron. The
+/// list's other members and filter-excluded members appear only in the tooltip.
 struct StackControlPresentation: Equatable {
     static let stackSymbolName = "square.3.layers.3d"
     static let collapsedChevronSymbolName = "chevron.down"
     static let expandedChevronSymbolName = "chevron.up"
+
+    /// What the tooltip calls the list's other members: each tab names its own.
+    enum MemberNoun: Equatable {
+        case reviewRequests
+        case authoredPRs
+
+        func count(_ count: Int) -> String {
+            switch self {
+            case .reviewRequests: "\(count) more review \(count == 1 ? "request" : "requests")"
+            case .authoredPRs: "\(count) more of your PRs"
+            }
+        }
+    }
 
     let stackID: String
     let fractionText: String
@@ -19,7 +32,7 @@ struct StackControlPresentation: Equatable {
 
     /// `displayedPosition` is the representative's position when collapsed, and the top member's position when
     /// expanded.
-    init(group: StackGroup, displayedPosition: Int, isExpanded: Bool) {
+    init(group: StackGroup, memberNoun: MemberNoun, displayedPosition: Int, isExpanded: Bool) {
         let size = group.stack.size
         stackID = group.stack.id
         fractionText = "\(displayedPosition)/\(size)"
@@ -28,11 +41,11 @@ struct StackControlPresentation: Equatable {
         templateText = "\(digits)/\(digits)"
         chevronSymbolName = isExpanded ? Self.expandedChevronSymbolName : Self.collapsedChevronSymbolName
         var parts = ["Stack", "position \(displayedPosition) of \(size)"]
-        let additional = group.additionalRequestCount
+        let additional = group.additionalMemberCount
         if additional > 0 {
-            parts.append("\(additional) more review \(additional == 1 ? "request" : "requests")")
+            parts.append(memberNoun.count(additional))
         }
-        let excluded = group.filterExcludedRequestCount
+        let excluded = group.filterExcludedMemberCount
         if excluded > 0 {
             parts.append("\(excluded) outside the current filter")
         }
@@ -167,8 +180,8 @@ struct StackPositionLabelAnchorsKey: PreferenceKey {
     }
 }
 
-/// The badges after a context stack member's title, in display order: Draft first, then its state. Requested
-/// members show only the ordinary Draft badge of a PR card.
+/// The badges after a context stack member's title, in display order: Draft first, then its state. Full members
+/// show only the ordinary Draft badge of a PR card.
 enum StackMemberBadge: String, Equatable {
     case draft = "Draft"
     case open = "Open"
