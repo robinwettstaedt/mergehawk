@@ -92,7 +92,7 @@ final class ConcurrentReadProbe: @unchecked Sendable {
                 if released { continuation.resume() }
             }
         }
-        let delay = delayMicroseconds(query: query, variables: variables)
+        let delay = Self.delayMicroseconds(seed: seed, max: maxDelayMicroseconds, query: query, variables: variables)
         if delay > 0 {
             try? await Task.sleep(for: .microseconds(delay))
         }
@@ -120,7 +120,14 @@ final class ConcurrentReadProbe: @unchecked Sendable {
         gated.forEach { $0.continuation.resume() }
     }
 
-    private func delayMicroseconds(query: String, variables: [String: GitHubQueryValue]) -> UInt64 {
+    /// A delay of up to `max` microseconds fixed by the seed and the request's query and variables, encoded with
+    /// sorted keys, so a seed gives each request the same delay in any process.
+    static func delayMicroseconds(
+        seed: UInt64,
+        max maxDelayMicroseconds: UInt64,
+        query: String,
+        variables: [String: GitHubQueryValue]
+    ) -> UInt64 {
         guard maxDelayMicroseconds > 0 else { return 0 }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

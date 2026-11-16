@@ -242,12 +242,18 @@ final class GitHubRetirementTests: XCTestCase {
 
     func testRateLimitArrivingAfterAnInvalidPayloadEndsTheRefreshWithTheLatestRetryDate() async throws {
         let before = Date()
+        let invalidPayloadServed = LockedBox<Date?>(nil)
+        // The rate limits answer only after the invalid payload was served and the client had time to handle it.
         RetirementURLProtocol.delay = { request in
-            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0.05 : 0.2
+            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0 : 0.01
         }
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
-            if query.contains("CompletePullRequests") { return Self.response(Self.json(["data": ["nodes": []]]), request) }
+            if query.contains("CompletePullRequests") {
+                invalidPayloadServed.withValue { $0 = Date() }
+                return Self.response(Self.json(["data": ["nodes": []]]), request)
+            }
+            Self.waitUntilHandled(invalidPayloadServed)
             let retryAfter = query.contains("query ViewerTeams") ? "60" : "120"
             return Self.response(Self.json(["message": "secondary rate limit"]), request, status: 403, headers: ["Retry-After": retryAfter])
         }
@@ -264,12 +270,18 @@ final class GitHubRetirementTests: XCTestCase {
     }
 
     func testAuthenticationWinsOverConcurrentInvalidPayloadAndRateLimit() async throws {
+        let invalidPayloadServed = LockedBox<Date?>(nil)
+        // The 401 and the rate limit answer only after the invalid payload was served and handled.
         RetirementURLProtocol.delay = { request in
-            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0.05 : 0.2
+            Self.graphQLQuery(request).contains("CompletePullRequests") ? 0 : 0.01
         }
         RetirementURLProtocol.handler = { request in
             let query = Self.graphQLQuery(request)
-            if query.contains("CompletePullRequests") { return Self.response(Self.json(["data": ["nodes": []]]), request) }
+            if query.contains("CompletePullRequests") {
+                invalidPayloadServed.withValue { $0 = Date() }
+                return Self.response(Self.json(["data": ["nodes": []]]), request)
+            }
+            Self.waitUntilHandled(invalidPayloadServed)
             if query.contains("DiscoveryBounds") { return Self.response(Data(), request, status: 401) }
             return Self.response(Self.json(["message": "secondary rate limit"]), request, status: 403, headers: ["Retry-After": "60"])
         }
@@ -963,6 +975,17 @@ final class GitHubRetirementTests: XCTestCase {
         XCTAssertEqual(controller.state, previous.dashboard)
         XCTAssertEqual(preferences.pullRequestSyncState, previous)
         XCTAssertEqual(controller.state.pullRequests.map(\.id), [previousPR.id])
+    }
+
+    /// Blocks a delayed answer until the earlier answer recorded in `served` has gone out and 0.1 s more passed,
+    /// so the client has handled it first.
+    private static func waitUntilHandled(_ served: LockedBox<Date?>) {
+        let deadline = Date().addingTimeInterval(5)
+        while served.value == nil, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        guard let servedAt = served.value else { return XCTFail("The earlier answer was never served") }
+        Thread.sleep(until: servedAt.addingTimeInterval(0.1))
     }
 
     private static func previousPR(

@@ -7,8 +7,19 @@ import XCTest
 /// pinned hashes and GraphQL request counts were recorded from the serial read, so a hash mismatch means the
 /// refresh result changed for the same GitHub data.
 final class RefreshGoldenTests: XCTestCase {
+    // The serial read's hashes. A hash mismatch means the refresh result changed for the same GitHub data.
+    private static let steadyStateHash = "584baa0120cb6208b708e50c1f84920d5c3200cd1cad42e5d3ac4cc50155b3c9"
+    private static let newPullRequestsHash = "5ed4265fca4d5c585fbdd6b0762806aa97a0c612da41217590d758aadf590396"
+    // The serial read sends 19 steady state, 19 with new PRs and 18 with teams reused. Known PRs now hydrate in
+    // one set of batches, one fewer than the serial read's discovered and dropped-out sets, and continuation
+    // rounds add one.
+    private static let steadyStateRequests = 19
+    private static let newPullRequestsRequests = 20
+    private static let reusedTeamsRequests = 18
+
     override func tearDown() {
         RefreshGoldenURLProtocol.handler = nil
+        RefreshGoldenURLProtocol.delay = nil
         super.tearDown()
     }
 
@@ -16,19 +27,30 @@ final class RefreshGoldenTests: XCTestCase {
         let outcome = try await RefreshGoldenFixture(includesNewPullRequests: false).refresh(reusesViewerTeams: false)
 
         Self.assertCoverage(outcome.result, newPullRequests: false)
-        // The serial read's hash and count. Known PRs hydrate in one set of batches, one fewer than the serial
-        // read's discovered and dropped-out sets, and continuation rounds add one.
-        XCTAssertEqual(outcome.hash, "584baa0120cb6208b708e50c1f84920d5c3200cd1cad42e5d3ac4cc50155b3c9")
-        XCTAssertEqual(outcome.graphQLRequests, 19)
+        XCTAssertEqual(outcome.hash, Self.steadyStateHash)
+        XCTAssertEqual(outcome.graphQLRequests, Self.steadyStateRequests)
     }
 
     func testRefreshWithNewPullRequestsMatchesTheSerialRead() async throws {
         let outcome = try await RefreshGoldenFixture(includesNewPullRequests: true).refresh(reusesViewerTeams: false)
 
         Self.assertCoverage(outcome.result, newPullRequests: true)
-        // The serial read's hash. Continuation rounds add one request to the serial read's 19.
-        XCTAssertEqual(outcome.hash, "5ed4265fca4d5c585fbdd6b0762806aa97a0c612da41217590d758aadf590396")
-        XCTAssertEqual(outcome.graphQLRequests, 20)
+        XCTAssertEqual(outcome.hash, Self.newPullRequestsHash)
+        XCTAssertEqual(outcome.graphQLRequests, Self.newPullRequestsRequests)
+    }
+
+    func testRefreshMatchesTheSerialReadForAnyResponseOrder() async throws {
+        for seed in UInt64(1)...5 {
+            let steady = try await RefreshGoldenFixture(includesNewPullRequests: false)
+                .refresh(reusesViewerTeams: false, seed: seed)
+            XCTAssertEqual(steady.hash, Self.steadyStateHash, "steady state, seed \(seed)")
+            XCTAssertEqual(steady.graphQLRequests, Self.steadyStateRequests, "steady state, seed \(seed)")
+
+            let withNew = try await RefreshGoldenFixture(includesNewPullRequests: true)
+                .refresh(reusesViewerTeams: false, seed: seed)
+            XCTAssertEqual(withNew.hash, Self.newPullRequestsHash, "new PRs, seed \(seed)")
+            XCTAssertEqual(withNew.graphQLRequests, Self.newPullRequestsRequests, "new PRs, seed \(seed)")
+        }
     }
 
     func testSteadyStateRefreshWithReusedViewerTeamsSendsNoTeamsRead() async throws {
@@ -36,8 +58,7 @@ final class RefreshGoldenTests: XCTestCase {
 
         XCTAssertFalse(outcome.queryNames.contains("ViewerTeams"))
         XCTAssertEqual(outcome.result.viewerTeams, [RefreshGoldenFixture.viewerTeam])
-        // The serial read's count, as in the steady state with teams read.
-        XCTAssertEqual(outcome.graphQLRequests, 18)
+        XCTAssertEqual(outcome.graphQLRequests, Self.reusedTeamsRequests)
     }
 
     /// The fixture's cases each reach the result: the rechecked team PR stays active, the merged PR retires, the
@@ -124,13 +145,27 @@ struct RefreshGoldenFixture {
         )
     }
 
-    /// Runs one complete PR refresh and records every GraphQL request's query name.
-    func refresh(reusesViewerTeams: Bool) async throws -> Outcome {
+    /// Runs one complete PR refresh and records every GraphQL request's query name. A `seed` delays each GraphQL
+    /// response by up to 10 ms, keyed on the seed and the request's content as `ConcurrentReadProbe` does.
+    func refresh(reusesViewerTeams: Bool, seed: UInt64? = nil) async throws -> Outcome {
         let server = makeServer()
         let queryNames = LockedBox<[String]>([])
         let discovered = known + new
         RefreshGoldenURLProtocol.handler = { request in
             try respond(to: request, server: server, discovered: discovered, queryNames: queryNames)
+        }
+        RefreshGoldenURLProtocol.delay = seed.map { seed in
+            { request in
+                guard request.url?.path == "/graphql", let body = Self.body(request),
+                      let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return 0 }
+                let microseconds = ConcurrentReadProbe.delayMicroseconds(
+                    seed: seed,
+                    max: 10_000,
+                    query: object["query"] as? String ?? "",
+                    variables: Self.queryValues(object["variables"] as? [String: Any] ?? [:])
+                )
+                return TimeInterval(microseconds) / 1_000_000
+            }
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RefreshGoldenURLProtocol.self]
@@ -451,9 +486,15 @@ struct RefreshGoldenFixture {
 
 final class RefreshGoldenURLProtocol: URLProtocol {
     static var handler: ((URLRequest) throws -> (Data, HTTPURLResponse))?
+    /// Seconds a request waits before its answer, so a seed reorders concurrent responses.
+    static var delay: ((URLRequest) -> TimeInterval)?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        guard let delay = Self.delay?(request), delay > 0 else { return respond() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { self.respond() }
+    }
+    private func respond() {
         do {
             guard let result = try Self.handler?(request) else { throw URLError(.badServerResponse) }
             client?.urlProtocol(self, didReceive: result.1, cacheStoragePolicy: .notAllowed)

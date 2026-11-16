@@ -391,11 +391,12 @@ final class GitHubConcurrentHydrationTests: XCTestCase {
             return Fixtures.json(["unexpected": true])
         }
 
-        let hydration = Task { try await probe.fetcher().hydrate([Fixtures.discovery()], login: "rw") }
+        let limiter = GitHubReadLimiter()
+        let hydration = Task { try await probe.fetcher(limiter: limiter).hydrate([Fixtures.discovery()], login: "rw") }
         await waitForCondition { probe.gatedRequests.count == 2 }
-        // The invalid payload answers first.
+        // The invalid payload answers and stops the read before the rate limit answers.
         probe.release { $0.batchShape == "other: 1" }
-        try await Task.sleep(for: .milliseconds(10))
+        await waitForCondition { limiter.isStopped }
         probe.openGate()
         do {
             _ = try await hydration.value
