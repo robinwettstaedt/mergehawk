@@ -206,6 +206,21 @@ struct PreferencesStore {
         }
     }
 
+    var appearance: AppAppearance {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: "appearance.mode"),
+                let appearance = AppAppearance(rawValue: rawValue)
+            else {
+                return .auto
+            }
+            return appearance
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "appearance.mode")
+        }
+    }
+
     var pullRequestSortOption: DashboardController.PullRequestSortOption {
         get {
             guard
