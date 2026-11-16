@@ -17,7 +17,7 @@ final class CommentNotificationPresentationTests: XCTestCase {
             let event = PullRequestEvent(type: type, prId: pullRequest.id, count: 1, actorLogin: actor, commentReason: reason)
             let row = PullRequestNotification(event: event, pullRequest: pullRequest)
             XCTAssertEqual(PullRequestNotificationTitlePresentation.title(for: row), expected)
-            XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event]), expected)
+            XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event], pullRequests: [pullRequest]), expected)
             XCTAssertEqual(NotificationContentBuilder.records(events: [event], pullRequests: [pullRequest]).first?.title, expected)
         }
 
@@ -31,7 +31,7 @@ final class CommentNotificationPresentationTests: XCTestCase {
         for (type, reason, actor, inApp, macOS) in generic {
             let event = PullRequestEvent(type: type, prId: pullRequest.id, count: 1, actorLogin: actor, commentReason: reason)
             XCTAssertEqual(PullRequestNotificationTitlePresentation.title(for: PullRequestNotification(event: event, pullRequest: pullRequest)), inApp)
-            XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event]), macOS)
+            XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: [event], pullRequests: [pullRequest]), macOS)
         }
     }
 
@@ -41,7 +41,7 @@ final class CommentNotificationPresentationTests: XCTestCase {
             PullRequestEvent(type: .newComment, prId: pullRequest.id, actorLogin: "alice", destinationURL: presentationURL("#c1"), commentReason: .mention),
             PullRequestEvent(type: .reviewCommented, prId: pullRequest.id, actorLogin: "bob", destinationURL: presentationURL("#c2"), commentReason: .threadParticipation),
         ]
-        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: events), "2 MergeHawk updates")
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: events, pullRequests: [pullRequest]), "2 MergeHawk updates")
         XCTAssertEqual(NotificationClickRoute.route(events: events, pullRequests: [pullRequest]), .openNotifications)
         XCTAssertEqual(
             NotificationClickRoute.route(events: [events[0]], pullRequests: [pullRequest]),

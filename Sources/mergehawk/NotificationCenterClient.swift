@@ -18,7 +18,7 @@ enum NotificationContentBuilder {
         return events.map { event in
             let pullRequest = prsById[event.prId]
             return NotificationRecord(
-                title: title(for: event),
+                title: title(for: event, pullRequestAuthor: pullRequest?.author),
                 body: body(for: [event], prsById: prsById),
                 eventType: event.type.rawValue,
                 pullRequestId: event.prId,
@@ -34,8 +34,13 @@ enum NotificationContentBuilder {
         }
     }
 
-    static func summaryTitle(for events: [PullRequestEvent]) -> String {
-        events.count == 1 ? title(for: events[0]) : "\(events.count) MergeHawk updates"
+    static func summaryTitle(for events: [PullRequestEvent], pullRequests: [PullRequest]) -> String {
+        guard events.count == 1 else {
+            return "\(events.count) MergeHawk updates"
+        }
+        let event = events[0]
+        let author = pullRequests.first { $0.id == event.prId }?.author
+        return title(for: event, pullRequestAuthor: author)
     }
 
     static func summaryBody(for events: [PullRequestEvent], pullRequests: [PullRequest]) -> String {
@@ -43,7 +48,7 @@ enum NotificationContentBuilder {
         return body(for: events, prsById: prsById)
     }
 
-    private static func title(for event: PullRequestEvent) -> String {
+    private static func title(for event: PullRequestEvent, pullRequestAuthor: String?) -> String {
         if let reasonTitle = CommentNotificationTitlePresentation.title(
             reason: event.commentReason,
             actorLogin: event.actorLogin
@@ -66,7 +71,10 @@ enum NotificationContentBuilder {
         case .changesRequested:
             actorText(for: event).map { "Changes requested by \($0)" } ?? "Changes requested"
         case .relationshipAdded:
-            RelationshipChangeTitlePresentation.title(for: event.relationshipChanges)
+            RelationshipChangeTitlePresentation.title(
+                for: event.relationshipChanges,
+                pullRequestAuthor: pullRequestAuthor
+            )
         case .readyForReview:
             "Ready for review"
         }
@@ -117,15 +125,20 @@ enum CommentNotificationTitlePresentation {
     }
 }
 
+/// Relationship titles shared by in-app rows and single-update macOS notifications.
 enum RelationshipChangeTitlePresentation {
-    static func title(for changes: Set<PullRequestNotificationRelationship>) -> String {
+    /// Review request titles name whose PR it is, not who requested the review.
+    static func title(for changes: Set<PullRequestNotificationRelationship>, pullRequestAuthor: String?) -> String {
         if changes == [.assigned] {
             return "Assigned to you"
         }
-        if changes.isSubset(of: [.directReviewRequest, .teamReviewRequest]) {
-            return "Review requested"
+        let base = changes.isSubset(of: [.directReviewRequest, .teamReviewRequest])
+            ? "Review requested"
+            : "Assigned and review requested"
+        guard let author = pullRequestAuthor, !author.isEmpty, author != "unknown" else {
+            return base
         }
-        return "Assigned and review requested"
+        return "\(base) on @\(author)'s PR"
     }
 }
 
@@ -258,7 +271,7 @@ final class NotificationCenterClient: NotificationPosting {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = NotificationContentBuilder.summaryTitle(for: events)
+        content.title = NotificationContentBuilder.summaryTitle(for: events, pullRequests: pullRequests)
         content.body = NotificationContentBuilder.summaryBody(for: events, pullRequests: pullRequests)
         content.sound = .default
         content.userInfo = NotificationClickRoute.route(events: events, pullRequests: pullRequests).userInfo

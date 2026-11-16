@@ -1109,7 +1109,7 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertEqual(added.map(\.eventType), [.relationshipAdded])
         XCTAssertEqual(added.first?.prId, newPR.id)
         XCTAssertEqual(added.first?.relationshipChanges, [.directReviewRequest])
-        XCTAssertEqual(fixture.notifications.records.map(\.title), ["Review requested"])
+        XCTAssertEqual(fixture.notifications.records.map(\.title), ["Review requested on @teammate's PR"])
         XCTAssertEqual(fixture.notifications.records.map(\.pullRequestId), [newPR.id])
     }
 
@@ -1183,7 +1183,7 @@ final class AtomicRefreshTests: XCTestCase {
 
             if assignedEnabled {
                 XCTAssertEqual(fixture.addedHistory.map(\.relationshipChanges), [[.assigned, .directReviewRequest]])
-                XCTAssertEqual(fixture.notifications.records.map(\.title), ["Assigned and review requested"])
+                XCTAssertEqual(fixture.notifications.records.map(\.title), ["Assigned and review requested on @teammate's PR"])
             } else {
                 XCTAssertTrue(fixture.addedHistory.isEmpty)
                 XCTAssertTrue(fixture.notifications.records.isEmpty)
@@ -1208,7 +1208,7 @@ final class AtomicRefreshTests: XCTestCase {
         XCTAssertEqual(fixture.notifications.records.map(\.clickAction), [NotificationClickRoute.openPullRequestAction])
         XCTAssertEqual(fixture.notifications.records.first?.clickPullRequestURL, ready.url.absoluteString)
         let posted = fixture.controller.state.events
-        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: posted), "Ready for review")
+        XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: posted, pullRequests: [ready]), "Ready for review")
         XCTAssertEqual(
             NotificationClickRoute.route(events: posted, pullRequests: [ready]),
             .openPullRequest(PullRequestOpenRequest(pullRequestURL: ready.url))
@@ -1243,7 +1243,7 @@ final class AtomicRefreshTests: XCTestCase {
             case (true, true):
                 XCTAssertEqual(titles, ["Assigned to you", "Ready for review"], label)
                 XCTAssertEqual(records.count, 2, label)
-                XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: posted), "2 MergeHawk updates", label)
+                XCTAssertEqual(NotificationContentBuilder.summaryTitle(for: posted, pullRequests: [readyAndAssigned]), "2 MergeHawk updates", label)
                 XCTAssertEqual(
                     Set(records.map(\.clickAction)), [NotificationClickRoute.openNotificationsAction], label
                 )
@@ -1308,7 +1308,7 @@ final class AtomicRefreshTests: XCTestCase {
             Set(fixture.notifications.records.map(\.clickAction)), [NotificationClickRoute.openNotificationsAction]
         )
         XCTAssertEqual(
-            NotificationContentBuilder.summaryTitle(for: fixture.controller.state.events), "2 MergeHawk updates"
+            NotificationContentBuilder.summaryTitle(for: fixture.controller.state.events, pullRequests: []), "2 MergeHawk updates"
         )
     }
 
@@ -1587,7 +1587,7 @@ final class AtomicRefreshTests: XCTestCase {
 
             if directEnabled {
                 XCTAssertEqual(fixture.addedHistory.map(\.relationshipChanges), [[.directReviewRequest]])
-                XCTAssertEqual(fixture.notifications.records.map(\.title), ["Review requested"])
+                XCTAssertEqual(fixture.notifications.records.map(\.title), ["Review requested on @teammate's PR"])
             } else {
                 XCTAssertTrue(fixture.addedHistory.isEmpty)
                 XCTAssertTrue(fixture.notifications.records.isEmpty)
