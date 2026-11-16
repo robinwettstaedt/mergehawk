@@ -22,6 +22,22 @@ final class VisualVerificationXCTests: XCTestCase {
         }
     }
 
+    func testCaptureNamesIncludeAuthoredStackCaptures() {
+        let names = VisualCaptureSelection.allScenarios
+        for size in ["default", "larger"] {
+            for state in ["collapsed", "expanded"] {
+                XCTAssertTrue(names.contains("menu-size-\(size)-authored-stacks-\(state)"), "\(size) \(state)")
+            }
+        }
+        for stack in ["several", "base", "filter", "stale"] {
+            for state in ["collapsed", "expanded"] {
+                XCTAssertTrue(names.contains("menu-authored-stack-\(stack)-\(state)-1024x632"), "\(stack) \(state)")
+            }
+        }
+        XCTAssertTrue(names.contains("menu-authored-stacks-ready-filter"))
+        XCTAssertTrue(names.contains("menu-authored-stacks-hidden"))
+    }
+
     func testWritesMockMenuScreenshots() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let outputPath = environment["MERGEHAWK_UI_ARTIFACT_DIR"], !outputPath.isEmpty else {
@@ -40,7 +56,7 @@ final class VisualVerificationXCTests: XCTestCase {
         waitTimeout = try visualWaitTimeout(environment: environment)
         let suiteName = "mergehawk-visual-verification-\(UUID().uuidString)"
         defer {
-            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-review-requests", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams", "\(suiteName)-budget-normal", "\(suiteName)-budget-stretched", "\(suiteName)-budget-paused", "\(suiteName)-budget-checking"] {
+            for name in [suiteName, "\(suiteName)-delayed", "\(suiteName)-failure", "\(suiteName)-save-error", "\(suiteName)-final", "\(suiteName)-quiet", "\(suiteName)-archived", "\(suiteName)-relative-times", "\(suiteName)-review-requests", "\(suiteName)-bots-off", "\(suiteName)-bots-on", "\(suiteName)-comments", "\(suiteName)-teams", "\(suiteName)-stacks", "\(suiteName)-nested-teams", "\(suiteName)-budget-normal", "\(suiteName)-budget-stretched", "\(suiteName)-budget-paused", "\(suiteName)-budget-checking"] {
                 UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
             }
         }
@@ -594,7 +610,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 }
                 XCTAssertEqual(PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!).hideArchivedRepositories, hideArchived)
                 let expectedCount = hideArchived ? 1 : 2
-                XCTAssertEqual(archivedController.sortedMyPullRequests.count, expectedCount)
+                XCTAssertEqual(archivedController.authoredList.visible.count, expectedCount)
                 XCTAssertEqual(archivedController.visiblePullRequestNotifications.count, expectedCount)
                 XCTAssertEqual(archivedController.sourceCatalog.repositoryCount, 2)
                 try renderSettings(
@@ -616,6 +632,74 @@ final class VisualVerificationXCTests: XCTestCase {
                     to: outputURL.appendingPathComponent("menu-archived-notifications-\(suffix).png")
                 )
             }
+        }
+
+        // PR notification history rows at each age bucket, with one unread in-app notification.
+        let relativeTimesCatalog = SourceCatalog(
+            repositories: [RepositorySource(owner: "example", name: "app")],
+            accountLogin: "rw"
+        )
+        let relativeTimeAges: [(TimeInterval, String)] = [
+            (20, "Fix flaky login test"),
+            (2 * 60, "Add retry to webhook delivery"),
+            (3 * 3_600, "Update onboarding copy"),
+            (5 * 86_400, "Migrate settings storage"),
+            (4 * 2_592_000, "Remove legacy sync path")
+        ]
+        let relativeTimePRs = relativeTimeAges.enumerated().map { index, entry in
+            PullRequest(
+                id: "PR_RELATIVE_\(index)", title: entry.1, number: 120 + index,
+                url: URL(string: "https://github.com/example/app/pull/\(120 + index)")!,
+                repo: "example/app", ciState: .passing, reviewDecision: .reviewRequired,
+                commentCount: 0, reviewCount: 0, isMine: true, author: "rw",
+                mergeable: .mergeable, draft: false,
+                createdAt: Self.visualNow.addingTimeInterval(-200 * 86_400),
+                updatedAt: Self.visualNow.addingTimeInterval(-1800)
+            )
+        }
+        let relativeTimeNotifications = zip(relativeTimeAges, relativeTimePRs).enumerated().map { index, pair in
+            PullRequestNotification(
+                event: PullRequestEvent(type: .newComment, prId: pair.1.id, activityId: "RELATIVE_COMMENT_\(index)"),
+                pullRequest: pair.1,
+                createdAt: Self.visualNow.addingTimeInterval(-pair.0.0),
+                read: index != 1
+            )
+        }
+        let relativeTimesProvider = VisualGitHubProvider(
+            sourceCatalog: relativeTimesCatalog,
+            installations: GitHubAppInstallations(installations: []),
+            pullRequests: relativeTimePRs
+        )
+        let relativeTimesController = try await MainActor.run { () throws -> DashboardController in
+            let store = try Self.seededVisualStore(
+                defaults: UserDefaults(suiteName: "\(suiteName)-relative-times")!,
+                pullRequests: relativeTimePRs,
+                catalog: relativeTimesCatalog,
+                notificationHistory: relativeTimeNotifications
+            )
+            return DashboardController(
+                tokenStore: InMemoryTokenStore(token: "visual-fixture"),
+                preferencesStore: store,
+                launchAtLoginService: InMemoryLaunchAtLoginService(),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0,
+                patGitHubClientFactory: { _ in relativeTimesProvider },
+                now: Self.visualClock
+            )
+        }
+        try await waitUntil(context: "relative times fixture startup refresh") {
+            await MainActor.run {
+                (relativeTimesController.state.syncedAt ?? .distantPast) > Date(timeIntervalSince1970: 10)
+                    && !relativeTimesController.isRefreshing
+            }
+        }
+        try await MainActor.run {
+            XCTAssertEqual(relativeTimesController.visiblePullRequestNotifications.count, relativeTimeAges.count)
+            relativeTimesController.selectedTab = .notifications
+            try renderMenu(
+                controller: relativeTimesController,
+                to: outputURL.appendingPathComponent("menu-notification-relative-times.png")
+            )
         }
 
         // Review request titles name the PR author. The long login is close to GitHub's 39 character maximum.
@@ -813,14 +897,14 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-actions-open.png"),
-                initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id)
+                initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id)
             )
             for size in MenuSize.allCases {
                 try renderMenu(
                     controller: controller,
                     to: menuSizeURL(size, "actions-open"),
                     availableFrame: MenuSizeCaptures.stateFrame,
-                    initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id),
+                    initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id),
                     menuSize: size
                 )
                 for (frameName, frame) in MenuSizeCaptures.reducedStateFrames {
@@ -828,7 +912,7 @@ final class VisualVerificationXCTests: XCTestCase {
                         controller: controller,
                         to: menuSizeURL(size, "actions-open-\(frameName)"),
                         availableFrame: frame,
-                        initialDropdown: .actions(XCTUnwrap(controller.sortedMyPullRequests.first).id),
+                        initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id),
                         menuSize: size
                     )
                 }
@@ -925,7 +1009,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     reviewRequests: true
                 )
             )
-            precondition(controller.sortedMyPullRequests.isEmpty)
+            precondition(controller.authoredList.visible.isEmpty)
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-empty.png"))
             controller.sourcePreferences = populatedSourcePreferences
 
@@ -1130,7 +1214,7 @@ final class VisualVerificationXCTests: XCTestCase {
         try await MainActor.run {
             stacksController.selectedTab = .reviewRequests
             let stackIDs = stacksController.state.pullRequestStacks.map(\.id)
-            XCTAssertEqual(stackIDs.count, 9)
+            XCTAssertEqual(stackIDs.count, 13)
             for size in MenuSizeCaptures.stackSizes {
                 try renderMenu(
                     controller: stacksController,
@@ -1159,7 +1243,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     try renderMenu(
                         controller: stacksController,
                         to: outputURL.appendingPathComponent(
-                            MenuSizeCaptures.focusedStackScenario(stack.name, isExpanded: isExpanded) + ".png"
+                            MenuSizeCaptures.focusedStackScenario(.reviewRequests, stack.name, isExpanded: isExpanded) + ".png"
                         ),
                         availableFrame: MenuSizeCaptures.largerTextFrame.1
                     )
@@ -1186,6 +1270,66 @@ final class VisualVerificationXCTests: XCTestCase {
                 mode: .reviewRequests,
                 to: outputURL.appendingPathComponent("menu-requested-stacks-hidden.png")
             )
+            stacksController.setHidden(spread, hidden: false)
+
+            // Authored stacks: collapsed and expanded groups, the Ready filter, and a hidden group.
+            stacksController.selectedTab = .myPRs
+            let authoredStackIDs = stacksController.authoredList.visible.compactMap(\.stack?.stack.id)
+            XCTAssertEqual(authoredStackIDs.count, 5)
+            for size in MenuSizeCaptures.stackSizes {
+                try renderMenu(
+                    controller: stacksController,
+                    to: menuSizeURL(size, "authored-stacks-collapsed"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
+            authoredStackIDs.forEach(stacksController.toggleStackExpanded)
+            for size in MenuSizeCaptures.stackSizes {
+                try renderMenu(
+                    controller: stacksController,
+                    to: menuSizeURL(size, "authored-stacks-expanded"),
+                    availableFrame: MenuSizeCaptures.stateFrame,
+                    menuSize: size
+                )
+            }
+            authoredStackIDs.forEach(stacksController.toggleStackExpanded)
+
+            // Focused captures in the width-constrained frame: each authored stack collapsed, then expanded on its own.
+            for stack in MenuSizeCaptures.focusedAuthoredStacks {
+                for isExpanded in [false, true] {
+                    if isExpanded { stacksController.toggleStackExpanded(stack.id) }
+                    try renderMenu(
+                        controller: stacksController,
+                        to: outputURL.appendingPathComponent(
+                            MenuSizeCaptures.focusedStackScenario(.authored, stack.name, isExpanded: isExpanded) + ".png"
+                        ),
+                        availableFrame: MenuSizeCaptures.largerTextFrame.1
+                    )
+                }
+                stacksController.toggleStackExpanded(stack.id)
+            }
+
+            stacksController.selectedPullRequestFilters = [.ready]
+            stacksController.toggleStackExpanded("STACK_MOCK_AUTHORED_FILTER")
+            try renderMenu(
+                controller: stacksController,
+                to: outputURL.appendingPathComponent("menu-authored-stacks-ready-filter.png")
+            )
+            stacksController.toggleStackExpanded("STACK_MOCK_AUTHORED_FILTER")
+            stacksController.selectedPullRequestFilters = []
+
+            let several = try XCTUnwrap(stacksController.authoredList.visible.first {
+                $0.stack?.stack.id == "STACK_MOCK_AUTHORED_SEVERAL"
+            })
+            stacksController.setHidden(several, hidden: true)
+            try renderHiddenExpanded(
+                controller: stacksController,
+                mode: .authored,
+                to: outputURL.appendingPathComponent("menu-authored-stacks-hidden.png")
+            )
+            stacksController.setHidden(several, hidden: false)
+            stacksController.selectedTab = .reviewRequests
         }
 
         // Two organizations: a parent with three children (one with its own child, one with a long slug, one
@@ -1852,9 +1996,11 @@ private enum MenuSizeCaptures {
         "access-prompt"
     ]
     static let fragments = ["my-prs-hidden-expanded", "review-requests-hidden-expanded", "header-tooltips"]
-    /// Review requests stacks are captured at the default and the largest menu size only.
+    /// Review requests and Authored stacks are captured at the default and the largest menu size only.
     static let stackSizes: [MenuSize] = [.standard, .larger]
-    static let stackStates = ["requested-stacks-collapsed", "requested-stacks-expanded"]
+    static let stackStates = [
+        "requested-stacks-collapsed", "requested-stacks-expanded", "authored-stacks-collapsed", "authored-stacks-expanded"
+    ]
     /// The pr-stacks acceptance stacks and the position-3 stack, each captured in the width-constrained frame.
     static let focusedStacks: [(name: String, id: String, section: DashboardController.RequestedSection)] = [
         ("all-open", "STACK_MOCK_ALL_OPEN", .assigned),
@@ -1863,12 +2009,28 @@ private enum MenuSizeCaptures {
         ("position-3", "STACK_MOCK_POSITION_3", .direct)
     ]
 
-    static func focusedStackScenario(_ name: String, isExpanded: Bool) -> String {
-        "menu-requested-stack-\(name)-\(isExpanded ? "expanded" : "collapsed")-\(largerTextFrame.0)"
+    /// The authored stacks, each captured in the same frame. Every one sits in the visible part of the default
+    /// Authored list, also when expanded.
+    static let focusedAuthoredStacks: [(name: String, id: String)] = [
+        ("several", "STACK_MOCK_AUTHORED_SEVERAL"),
+        ("base", "STACK_MOCK_AUTHORED_BASE"),
+        ("filter", "STACK_MOCK_AUTHORED_FILTER"),
+        ("stale", "STACK_MOCK_AUTHORED_STALE")
+    ]
+
+    static func focusedStackScenario(_ mode: PullRequestListView.Mode, _ name: String, isExpanded: Bool) -> String {
+        let tab = mode == .authored ? "authored" : "requested"
+        return "menu-\(tab)-stack-\(name)-\(isExpanded ? "expanded" : "collapsed")-\(largerTextFrame.0)"
     }
 
     static var focusedStackScenarios: Set<String> {
-        Set(focusedStacks.flatMap { stack in [false, true].map { focusedStackScenario(stack.name, isExpanded: $0) } })
+        let requested = focusedStacks.flatMap { stack in
+            [false, true].map { focusedStackScenario(.reviewRequests, stack.name, isExpanded: $0) }
+        }
+        let authored = focusedAuthoredStacks.flatMap { stack in
+            [false, true].map { focusedStackScenario(.authored, stack.name, isExpanded: $0) }
+        }
+        return Set(requested + authored)
     }
     /// General is excluded: its Menu Size control shows the selected size by design.
     static let settingsIsolationTabs: [(String, SettingsTab)] = [
@@ -1932,6 +2094,7 @@ private struct VisualCaptureSelection {
         "menu-archived-prs-off",
         "menu-archived-notifications-on",
         "menu-archived-notifications-off",
+        "menu-notification-relative-times",
         "menu-review-request-notifications",
         "settings-general",
         "settings-general-updates",
@@ -1983,6 +2146,8 @@ private struct VisualCaptureSelection {
         "menu-review-requests-ready",
         "menu-requested-stacks-ready-filter",
         "menu-requested-stacks-hidden",
+        "menu-authored-stacks-ready-filter",
+        "menu-authored-stacks-hidden",
         "menu-notifications-read",
         "settings-sources",
         "settings-sources-search-example",

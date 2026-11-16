@@ -716,7 +716,6 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let relationshipChanges: Set<PullRequestNotificationRelationship>
     public let commentReason: PullRequestCommentReason?
     public let createdAt: Date
-    public let prUpdatedAt: Date
     public var read: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -735,7 +734,6 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         case relationshipChanges
         case commentReason
         case createdAt
-        case prUpdatedAt
         case read
     }
 
@@ -761,7 +759,6 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.relationshipChanges = event.relationshipChanges
         self.commentReason = event.commentReason
         self.createdAt = createdAt
-        self.prUpdatedAt = pullRequest.updatedAt
         self.read = read
     }
 
@@ -785,7 +782,6 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         ) ?? []
         self.commentReason = try container.decodeIfPresent(PullRequestCommentReason.self, forKey: .commentReason)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
-        self.prUpdatedAt = try container.decode(Date.self, forKey: .prUpdatedAt)
         self.read = try container.decode(Bool.self, forKey: .read)
     }
 }

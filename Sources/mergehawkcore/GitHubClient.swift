@@ -154,10 +154,9 @@ public final class GitHubClient: CompletePullRequestFetching, SourceCatalogProvi
             }
         }
 
-        // Only stacks reachable from a review request can form a Review requests group.
-        let stackIDs = Set(active.compactMap { pr in
-            !pr.isMine && (pr.isAssignedToViewer || pr.reviewRequestKind != .none) ? pr.stackID : nil
-        })
+        // Both tabs group stacks, and every active PR is the viewer's own, assigned to the viewer, or review-requested,
+        // so every active PR's stack is read.
+        let stackIDs = Set(active.compactMap(\.stackID))
         let stacks = try await fetcher.fetchStacks(ids: stackIDs.sorted())
 
         return CompletePullRequestFetchResult(

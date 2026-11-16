@@ -51,6 +51,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case longLists = "long-lists"
     case newReviewRequest = "new-review-request"
     case reviewTeams = "review-teams"
+    case noTeams = "no-teams"
     case draftReadyForReview = "draft-ready-for-review"
     case prStacks = "pr-stacks"
     case budgetStretched = "budget-stretched"
@@ -416,7 +417,7 @@ public final class MockPullRequestSource {
             Self.draftReadyForReviewPullRequests(stage: 0)
         case .prStacks:
             Self.prStackPullRequests
-        case .refreshFailure, .mergedFinalActivity, .quietAccessLoss:
+        case .refreshFailure, .mergedFinalActivity, .quietAccessLoss, .noTeams:
             [Self.scenarioBaselinePullRequest]
         }
     }
@@ -426,6 +427,8 @@ public final class MockPullRequestSource {
         switch scenario {
         case .reviewTeams:
             Self.reviewTeamViewerTeams
+        case .noTeams:
+            []
         case .standard, .botNotifications, .commentNotifications, .delayedRefresh, .refreshFailure,
              .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview, .prStacks,
              .budgetStretched, .budgetPaused:
@@ -792,6 +795,8 @@ public final class MockPullRequestSource {
         let role: Role
         var draft = false
         var author = "platform-nora"
+        /// For a fetched member: the state its stack entry reports when that differs from its open PR.
+        var entryState: PullRequestStackEntry.State? = nil
     }
 
     private struct PRStackFixture {
@@ -801,10 +806,13 @@ public final class MockPullRequestSource {
         let members: [PRStackMember]
     }
 
-    /// Stacks for Review requests grouping. Requested members are fetched PRs; context-only members exist only
-    /// as stack entries. The unreadable stack has no entry at position 3, as when GitHub returns no PR there.
-    /// The all-open, partially merged, and closed-dependency stacks have only position 2 assigned; the position-3
-    /// stack is represented by its last member. Long titles truncate at the default menu size.
+    /// Stacks for Review requests and Authored grouping. Requested and own members are fetched PRs; context-only
+    /// members exist only as stack entries. The unreadable stack has no entry at position 3, as when GitHub returns
+    /// no PR there. The all-open, partially merged, and closed-dependency stacks have only position 2 assigned; the
+    /// position-3 stack is represented by its last member. Long titles truncate at the default menu size.
+    /// The authored stacks hold only the viewer's own members and context entries, so Review requests never sees
+    /// them: several own members above a merged base, an own base under other people's open PRs, an own draft
+    /// base the Ready filter excludes, and an own base whose entry reports merged while its PR is still open.
     private static let prStackFixtures: [PRStackFixture] = [
         PRStackFixture(id: "STACK_MOCK_SPREAD", repo: "mergehawk-labs/mergehawk", size: 4, members: [
             PRStackMember(position: 1, number: 201, title: "Extract the stack entry model", role: .context(.open), author: "docs-lee"),
@@ -866,6 +874,29 @@ public final class MockPullRequestSource {
             PRStackMember(position: 1, number: 531, title: "Store notification preferences per repository", role: .context(.merged), author: "design-systems-amy"),
             PRStackMember(position: 2, number: 532, title: "Read notification preferences at launch", role: .context(.open), author: "design-systems-amy"),
             PRStackMember(position: 3, number: 533, title: "Mute notifications for archived repositories", role: .direct, author: "design-systems-amy")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_AUTHORED_SEVERAL", repo: "mergehawk-labs/mergehawk", size: 4, members: [
+            PRStackMember(position: 1, number: 620, title: "Describe stacks in the glossary", role: .context(.merged), author: "docs-lee"),
+            PRStackMember(position: 2, number: 621, title: "Read the stacks of authored PRs", role: .mine),
+            PRStackMember(position: 3, number: 622, title: "Group authored PRs by stack", role: .mine),
+            PRStackMember(
+                position: 4, number: 623,
+                title: "Show authored stack cards with the same container, connector, badges, and animation as review requests",
+                role: .mine, draft: true
+            )
+        ]),
+        PRStackFixture(id: "STACK_MOCK_AUTHORED_BASE", repo: "mergehawk-labs/desktop-app", size: 3, members: [
+            PRStackMember(position: 1, number: 610, title: "Add the window state store", role: .mine),
+            PRStackMember(position: 2, number: 611, title: "Restore window positions at launch", role: .context(.open), author: "backend-mateo"),
+            PRStackMember(position: 3, number: 612, title: "Remember window sizes per display", role: .context(.open), draft: true, author: "platform-nora")
+        ]),
+        PRStackFixture(id: "STACK_MOCK_AUTHORED_FILTER", repo: "mergehawk-labs/mergehawk", size: 2, members: [
+            PRStackMember(position: 1, number: 630, title: "Sketch the export format", role: .mine, draft: true),
+            PRStackMember(position: 2, number: 631, title: "Export settings to a file", role: .mine)
+        ]),
+        PRStackFixture(id: "STACK_MOCK_AUTHORED_STALE", repo: "mergehawk-labs/mergehawk", size: 2, members: [
+            PRStackMember(position: 1, number: 640, title: "Rename the refresh scheduler", role: .mine, entryState: .merged),
+            PRStackMember(position: 2, number: 641, title: "Pace refreshes by the API budget", role: .mine)
         ])
     ]
 
@@ -901,7 +932,8 @@ public final class MockPullRequestSource {
         "PR_\(fixture.id)_\(member.position)"
     }
 
-    /// Requested stack members, the viewer's own stack member, and one unstacked requested PR per section.
+    /// The fetched stack members, requested and the viewer's own, one unstacked requested PR per section, and one
+    /// unstacked own PR.
     private static var prStackPullRequests: [PullRequest] {
         let members = prStackFixtures.flatMap { fixture in
             fixture.members.compactMap { member -> PullRequest? in
@@ -916,7 +948,8 @@ public final class MockPullRequestSource {
         let unstacked: [(String, Int, String, PRStackMember.Role)] = [
             ("PR_STACKS_UNSTACKED_ASSIGNED", 230, "Tidy the settings window layout", .assigned),
             ("PR_STACKS_UNSTACKED_DIRECT", 231, "Cache avatars between refreshes", .direct),
-            ("PR_STACKS_UNSTACKED_TEAM", 232, "Document the review team settings", .team)
+            ("PR_STACKS_UNSTACKED_TEAM", 232, "Document the review team settings", .team),
+            ("PR_STACKS_UNSTACKED_MINE", 600, "Show the API budget in Settings", .mine)
         ]
         return members + unstacked.map { id, number, title, role in
             prStackPullRequest(
@@ -929,7 +962,11 @@ public final class MockPullRequestSource {
     private static var prStackStacks: [PullRequestStack] {
         prStackFixtures.map { fixture in
             PullRequestStack(id: fixture.id, size: fixture.size, entries: fixture.members.map { member in
-                let state: PullRequestStackEntry.State = if case .context(let state) = member.role { state } else { .open }
+                let state: PullRequestStackEntry.State = if case .context(let state) = member.role {
+                    state
+                } else {
+                    member.entryState ?? .open
+                }
                 let author = if case .mine = member.role { "agent-fixture" } else { member.author }
                 return PullRequestStackEntry(
                     position: member.position,
@@ -1469,6 +1506,9 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             )
         case .prStacks:
             return CompletePullRequestFetchResult(activePullRequests: Self.prStackPullRequests)
+        case .noTeams:
+            // Only an authored PR, because a viewer with no teams gets no team review requests.
+            return CompletePullRequestFetchResult(activePullRequests: [Self.scenarioBaselinePullRequest])
         case .standard, .delayedRefresh, .budgetStretched, .budgetPaused:
             return CompletePullRequestFetchResult(activePullRequests: nextPullRequests())
         case .refreshFailure:
