@@ -51,17 +51,18 @@ final class GitHubFixtureServer: @unchecked Sendable {
     private let lock = NSLock()
     private var pullRequests: [PullRequestData]
     private var storedRequests: [Request] = []
-    private let beforeQuery: ((Int, GitHubFixtureServer) -> Void)?
-    private let afterQuery: ((Int, Request, inout [String: Any]) -> Void)?
+    private let beforeQuery: ((Request, GitHubFixtureServer) -> Void)?
+    private let afterQuery: ((Request, inout [String: Any]) -> Void)?
 
     /// Takes PR dictionaries as `GitHubPaginationTests.pullRequest(...)` builds them. Each connection's `nodes`,
     /// and each thread's `comments.nodes`, is the complete list. Input `totalCount` and `pageInfo` are ignored.
     /// `beforeQuery` can change the data before a query is answered. `afterQuery` can rewrite an answer, for
-    /// responses the data alone can't produce.
+    /// responses the data alone can't produce. Requests may arrive concurrently, so both key on the request's
+    /// content, never on its position, and keep any state they need in a `LockedBox`.
     init(
         pullRequests: [[String: Any]],
-        beforeQuery: ((Int, GitHubFixtureServer) -> Void)? = nil,
-        afterQuery: ((Int, Request, inout [String: Any]) -> Void)? = nil
+        beforeQuery: ((Request, GitHubFixtureServer) -> Void)? = nil,
+        afterQuery: ((Request, inout [String: Any]) -> Void)? = nil
     ) {
         self.beforeQuery = beforeQuery
         self.afterQuery = afterQuery
@@ -117,12 +118,14 @@ final class GitHubFixtureServer: @unchecked Sendable {
     }
 
     func read(query: String, variables: [String: GitHubQueryValue]) async throws -> Data {
+        try respond(query: query, variables: variables)
+    }
+
+    /// Answers one hydration or continuation query. `read` and URL protocol stubs both answer through it.
+    func respond(query: String, variables: [String: GitHubQueryValue]) throws -> Data {
         let request = Request(query: query, variables: variables)
-        let index = lock.withLock {
-            storedRequests.append(request)
-            return storedRequests.count - 1
-        }
-        beforeQuery?(index, self)
+        lock.withLock { storedRequests.append(request) }
+        beforeQuery?(request, self)
         do {
             var response = try lock.withLock { () throws -> [String: Any] in
                 if query.contains("query CompletePullRequests") {
@@ -133,7 +136,7 @@ final class GitHubFixtureServer: @unchecked Sendable {
                 }
                 throw UnknownShape(description: "query \(query)")
             }
-            afterQuery?(index, request, &response)
+            afterQuery?(request, &response)
             return try JSONSerialization.data(withJSONObject: response)
         } catch let error as UnknownShape {
             XCTFail("GitHubFixtureServer can't answer \(error.description)")

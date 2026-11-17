@@ -102,6 +102,62 @@ final class GitHubRequestTests: XCTestCase {
         }
     }
 
+    func testRetryPolicyEndsABackoffOnceTheRefreshHasStopped() async throws {
+        // Never stopped: a 503 then success retries as today.
+        let sleeps = LockedBox<[TimeInterval]>([])
+        let attempts = LockedBox(0)
+        let policy = GitHubReadRetryPolicy(sleep: { seconds in sleeps.withValue { $0.append(seconds) } })
+        let value: String = try await policy.run(isStopped: { false }) {
+            if attempts.increment() < 3 { throw GitHubReadError.http(status: 503) }
+            return "ok"
+        }
+        XCTAssertEqual(value, "ok")
+        XCTAssertEqual(sleeps.value, [1, 2])
+
+        // Stopped before the first retry: no sleep and one attempt.
+        let stoppedSleeps = LockedBox<[TimeInterval]>([])
+        let stoppedAttempts = LockedBox(0)
+        let stoppedPolicy = GitHubReadRetryPolicy(sleep: { seconds in stoppedSleeps.withValue { $0.append(seconds) } })
+        do {
+            _ = try await stoppedPolicy.run(isStopped: { true }) { () async throws -> String in
+                stoppedAttempts.increment()
+                throw URLError(.timedOut)
+            }
+            XCTFail("Expected a stopped read")
+        } catch {
+            XCTAssertTrue(error is GitHubReadStopped, "\(error)")
+        }
+        XCTAssertEqual(stoppedAttempts.value, 1)
+        XCTAssertEqual(stoppedSleeps.value, [])
+
+        // Stopped during the sleep: no second attempt.
+        let stopped = LockedBox(false)
+        let sleepingAttempts = LockedBox(0)
+        let sleepingPolicy = GitHubReadRetryPolicy(sleep: { _ in stopped.withValue { $0 = true } })
+        do {
+            _ = try await sleepingPolicy.run(isStopped: { stopped.value }) { () async throws -> String in
+                sleepingAttempts.increment()
+                throw GitHubReadError.http(status: 502)
+            }
+            XCTFail("Expected a stopped read")
+        } catch {
+            XCTAssertTrue(error is GitHubReadStopped, "\(error)")
+        }
+        XCTAssertEqual(sleepingAttempts.value, 1)
+
+        // Terminal errors throw at once without consulting the stop.
+        let consulted = LockedBox(false)
+        do {
+            _ = try await policy.run(isStopped: { consulted.withValue { $0 = true }; return true }) { () async throws -> String in
+                throw GitHubReadError.authentication
+            }
+            XCTFail("Expected authentication")
+        } catch {
+            XCTAssertEqual(error as? GitHubReadError, .authentication)
+        }
+        XCTAssertFalse(consulted.value)
+    }
+
     func testGraphQLErrorCopyJoinsGitHubMessagesAsSentences() {
         let error = GitHubReadError.graphQL([
             GitHubGraphQLErrorPayload(message: "Field 'x' doesn't exist", type: nil, path: nil),
@@ -148,7 +204,8 @@ final class GitHubRequestTests: XCTestCase {
 
         do {
             _ = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: nil)
+                // Reused teams leave discovery as the only read, so the count shows the rate limit isn't retried.
+                .fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: [])
             XCTFail("Expected rate limit")
         } catch let GitHubReadError.rateLimited(retryAt) {
             XCTAssertEqual(try XCTUnwrap(retryAt).timeIntervalSince1970, reset.timeIntervalSince1970, accuracy: 0.001)
@@ -172,7 +229,8 @@ final class GitHubRequestTests: XCTestCase {
 
         do {
             _ = try await GitHubClient(token: "token", session: Self.session())
-                .fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: nil)
+                // Reused teams leave discovery as the only read, so the count shows the rate limit isn't retried.
+                .fetchCompletePullRequests(login: "rw", previousState: nil, reusableViewerTeams: [])
             XCTFail("Expected rate limit")
         } catch let GitHubReadError.rateLimited(retryAt) {
             let value = try XCTUnwrap(retryAt)
@@ -256,12 +314,4 @@ private final class RequestURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
-}
-
-private final class LockedBox<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: Value
-    init(_ value: Value) { stored = value }
-    var value: Value { lock.withLock { stored } }
-    func withValue<Result>(_ body: (inout Value) -> Result) -> Result { lock.withLock { body(&stored) } }
 }

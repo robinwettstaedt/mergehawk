@@ -47,10 +47,10 @@ final class GitHubPaginationTests: XCTestCase {
             if query.contains("... on PullRequestReviewThread") {
                 XCTAssertTrue(query.contains("... on PullRequestReviewThread { comments(last: 10"))
                 XCTAssertTrue(query.contains("pullRequestReview { id }"))
-                XCTAssertEqual(
-                    GitHubFixtureServer.aliases(query: query, variables: variables).map(\.id),
-                    (1..<21).map { "T\($0)" } + ["T0"]
-                )
+                // T0 is listed by the thread page read alongside the first reads, so its read runs in the next round.
+                XCTAssertTrue([(1..<21).map { "T\($0)" }, ["T0"]].contains(
+                    GitHubFixtureServer.aliases(query: query, variables: variables).map(\.id)
+                ))
                 return Self.answer(query, variables) { alias in
                     alias.id == "T0"
                         ? Self.connection(total: 1, nodes: [Self.comment("THREAD_COMMENT", reviewID: "THREAD_REVIEW", typename: "Bot")])
@@ -100,7 +100,8 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(threadComment.url.absoluteString, "https://github.com/acme/app/pull/1#issuecomment-THREAD_COMMENT")
         XCTAssertEqual(threadComment.reviewId, "THREAD_REVIEW")
         XCTAssertEqual(transport.queries.filter { $0.contains("CompletePullRequests") }.count, 1)
-        XCTAssertEqual(transport.shapes, ["other: 5", "first reads: 21"])
+        // Entries a round's merge queues run in a later round, so T0's first read no longer joins T1 to T20.
+        assertRequestRounds(transport.shapes, [["other: 5", "first reads: 20"], ["first reads: 1"]])
     }
 
     func testNestedThreadCursorRoutesToItsThreadAndDeduplicatesBoundaryRepeat() async throws {
@@ -198,13 +199,14 @@ final class GitHubPaginationTests: XCTestCase {
                 previous: "reviews-before"
             )
         )
-        let continuations = LockedCounter()
+        let continuations = LockedBox(0)
         let transport = HydrationTransport { query, _ in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            let attempt = continuations.increment()
-            if attempt == 1 {
+            continuations.increment()
+            // The first read pages both connections. The re-read of comments alone is the retry.
+            if query.contains("reviews(last:") {
                 XCTAssertTrue(query.contains("comments(last:"))
                 XCTAssertTrue(query.contains("reviews(last:"))
                 return Self.json(["data": [
@@ -260,36 +262,30 @@ final class GitHubPaginationTests: XCTestCase {
         let initial = Self.pullRequest(
             threads: Self.connection(total: 3, nodes: [Self.threadIdentity("T")], previous: "threads-p2")
         )
-        let step = LockedCounter()
         let transport = HydrationTransport { query, variables in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            switch step.increment() {
-            case 1:
-                return Self.answer(query, variables) { _ in
-                    Self.connection(total: 3, nodes: [Self.threadIdentity("U")], previous: "threads-p3")
-                }
-            case 2, 5:
-                return Self.answer(query, variables) { alias in
-                    alias.id == "T"
+            let aliases = GitHubFixtureServer.aliases(query: query, variables: variables)
+            // The thread list shrinks at its last page, so T's older page read alongside it belongs to the
+            // discarded read.
+            let readsShrunkThreadPage = aliases.contains { $0.cursor == "threads-p3" }
+            return Self.answer(query, variables) { alias in
+                switch (alias.connection, alias.cursor) {
+                case ("reviewThreads", "threads-p2"):
+                    return Self.connection(total: 3, nodes: [Self.threadIdentity("U")], previous: "threads-p3")
+                case ("reviewThreads", "threads-p3"):
+                    return Self.connection(total: 2, nodes: [])
+                case ("reviewThreads", _):
+                    return Self.connection(total: 2, nodes: [Self.threadIdentity("T"), Self.threadIdentity("U")])
+                case (_, nil):
+                    return alias.id == "T"
                         ? Self.connection(total: 12, nodes: Array(tComments[2...]), previous: "t-older")
                         : Self.connection(total: 1, nodes: [Self.comment("U_C0")])
-                }
-            case 3:
-                // The thread list shrinks, so T's older page in the same batch belongs to the discarded read.
-                return Self.answer(query, variables) { alias in
-                    alias.connection == "reviewThreads"
-                        ? Self.connection(total: 2, nodes: [])
-                        : Self.connection(total: 12, nodes: [Self.comment("T_DISCARDED")])
-                }
-            case 4:
-                return Self.answer(query, variables) { _ in
-                    Self.connection(total: 2, nodes: [Self.threadIdentity("T"), Self.threadIdentity("U")])
-                }
-            default:
-                return Self.answer(query, variables) { _ in
-                    Self.connection(total: 12, nodes: Array(tComments[..<2]))
+                default:
+                    return readsShrunkThreadPage
+                        ? Self.connection(total: 12, nodes: [Self.comment("T_DISCARDED")])
+                        : Self.connection(total: 12, nodes: Array(tComments[..<2]))
                 }
             }
         }
@@ -300,9 +296,10 @@ final class GitHubPaginationTests: XCTestCase {
             Set(hydrated[0].pullRequest.recentCommentActivities.map(\.id)),
             Set(tComments.compactMap { $0["id"] as? String } + ["U_C0"])
         )
-        XCTAssertEqual(
+        // T and U's first reads now run in the rounds of the thread pages that list them, one more request.
+        assertRequestRounds(
             transport.shapes,
-            ["other: 1", "first reads: 2", "other: 2", "other: 1", "first reads: 2", "other: 1"]
+            [["other: 1", "first reads: 1"], ["other: 2", "first reads: 1"], ["other: 1"], ["first reads: 2"], ["other: 1"]]
         )
     }
 
@@ -823,14 +820,15 @@ final class GitHubPaginationTests: XCTestCase {
     }
 
     func testPartialHydrationRetainsSuccessfulSiblingAndRetriesOnlyFailedID() async throws {
-        let attempts = LockedCounter()
+        let attempts = LockedBox(0)
         let transport = HydrationTransport { query, variables in
             XCTAssertTrue(query.contains("CompletePullRequests"))
             guard case .strings(let ids) = variables["ids"] else {
                 throw GitHubReadError.invalidPayload
             }
-            let attempt = attempts.increment()
-            if attempt == 1 {
+            attempts.increment()
+            // The batch read carries both IDs. A single ID is the failed node's retry.
+            if ids.count == 2 {
                 XCTAssertEqual(ids, ["PR_OK", "PR_FAILED"])
                 var failedChild = Self.pullRequest(id: "PR_FAILED")
                 failedChild["comments"] = NSNull()
@@ -869,13 +867,14 @@ final class GitHubPaginationTests: XCTestCase {
                 previous: "reviews-before"
             )
         )
-        let continuationAttempts = LockedCounter()
+        let continuationAttempts = LockedBox(0)
         let transport = HydrationTransport { query, _ in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            let attempt = continuationAttempts.increment()
-            if attempt == 1 {
+            continuationAttempts.increment()
+            // The first read pages both connections. The reviews read alone is the failed alias's retry.
+            if query.contains("comments(last:") {
                 XCTAssertTrue(query.contains("comments(last:"))
                 XCTAssertTrue(query.contains("reviews(last:"))
                 return Self.json([
@@ -913,9 +912,11 @@ final class GitHubPaginationTests: XCTestCase {
             ("FORBIDDEN", .accessDenied),
             ("RATE_LIMITED", .rateLimited(retryAt: nil))
         ] {
-            let attempts = LockedCounter()
-            let transport = HydrationTransport { _, _ in
-                if attempts.increment() == 1 {
+            // The batch read and its single-node retry carry the same ID, so the answer keys on a per-ID count.
+            let attempts = LockedBox<[String: Int]>([:])
+            let transport = HydrationTransport { _, variables in
+                guard case .strings(let ids) = variables["ids"] else { throw GitHubReadError.invalidPayload }
+                if attempts.increment(ids.joined(separator: ",")) == 1 {
                     return Self.json([
                         "data": ["nodes": [NSNull()]],
                         "errors": [["message": "retry", "type": "INTERNAL", "path": ["nodes", 0]]]
@@ -932,7 +933,7 @@ final class GitHubPaginationTests: XCTestCase {
             } catch {
                 XCTAssertEqual(error as? GitHubReadError, expected)
             }
-            XCTAssertEqual(attempts.value, 2)
+            XCTAssertEqual(attempts.value, ["PR_1": 2])
         }
     }
 
@@ -1113,7 +1114,8 @@ final class GitHubPaginationTests: XCTestCase {
         XCTAssertEqual(comments["T_CONTINUED_ROOT"]?.reviewId, "R_OLD")
         XCTAssertEqual(Set(pullRequest.recentReviews.map(\.id)), ["R_NEW", "R_OLD"])
         XCTAssertEqual(pullRequest.reviewDecision, .approved)
-        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 2)
+        // T_CONTINUED's first read runs in the round after the thread page that lists it, not with T_OLD's.
+        XCTAssertEqual(transport.queries.filter { $0.contains("ContinuePullRequestConnections") }.count, 3)
     }
 
     func testPendingInlineCommentIsUnpublishedAndItsPublishedFormKeepsPublicationTime() async throws {
@@ -1268,13 +1270,12 @@ final class GitHubPaginationTests: XCTestCase {
     func testThreadCommentRestartRereadsTheNewestTenThenPagesOlderCommentsByHundred() async throws {
         let comments = (0..<16).map { Self.comment("TC\($0)") }
         let node = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.thread("T", comments: comments)]))
-        var deleted = false
-        let server = GitHubFixtureServer(pullRequests: [node]) { index, server in
+        let deleted = LockedBox(false)
+        let server = GitHubFixtureServer(pullRequests: [node]) { request, server in
             // The newest comment is deleted just before the first older page, so its total drops and the thread's
             // comments restart.
-            guard !deleted, case .string(let cursor) = server.requests[index].variables["cursor0"],
-                  cursor.hasPrefix("comments:T:") else { return }
-            deleted = true
+            guard case .string(let cursor) = request.variables["cursor0"], cursor.hasPrefix("comments:T:"),
+                  deleted.withValue({ value in defer { value = true }; return !value }) else { return }
             server.deleteThreadComment(threadID: "T", commentID: "TC15")
         }
 
@@ -1325,8 +1326,8 @@ final class GitHubPaginationTests: XCTestCase {
 
         let pullRequest = try await server.fetcher.hydrate([Self.discovery()], login: "rw")[0].pullRequest
 
-        XCTAssertEqual(server.requests.compactMap(\.batchShape), ["first reads: 3", "other: 1"])
-        XCTAssertEqual(server.requests.last?.aliases.map(\.id), ["T_ELEVEN"])
+        assertRequestRounds(server.requests.compactMap(\.batchShape), [["first reads: 3"], ["other: 1"]])
+        XCTAssertEqual(server.requests.first { $0.batchShape == "other: 1" }?.aliases.map(\.id), ["T_ELEVEN"])
         for (id, count) in counts {
             XCTAssertEqual(pullRequest.recentCommentActivities.filter { $0.threadId == id }.count, count, id)
         }
@@ -1376,9 +1377,9 @@ final class GitHubPaginationTests: XCTestCase {
 
         XCTAssertEqual(server.queries.filter { $0.contains("CompletePullRequests") }.count, 3)
         let shapes = server.requests.compactMap(\.batchShape)
-        XCTAssertEqual(
+        assertRequestRounds(
             shapes,
-            ["other: 20", "first reads: 100", "other: 5", "first reads: 100", "first reads: 50"]
+            [["other: 20", "first reads: 100", "other: 5", "first reads: 100"], ["first reads: 50"]]
         )
         for shape in shapes {
             let parts = shape.split(separator: ":")
@@ -1401,9 +1402,9 @@ final class GitHubPaginationTests: XCTestCase {
         let pullRequest = try await server.fetcher.hydrate([Self.discovery()], login: "rw")[0].pullRequest
 
         XCTAssertTrue(server.queries[0].contains("CompletePullRequests"))
-        XCTAssertEqual(
+        assertRequestRounds(
             server.requests.compactMap(\.batchShape),
-            ["other: 1", "first reads: 100", "first reads: 30"]
+            [["other: 1", "first reads: 100"], ["first reads: 30"]]
         )
         XCTAssertEqual(server.requests.last?.aliases.map(\.id), (0..<30).map { "PR_1_T\($0)" })
         XCTAssertEqual(pullRequest.commentActivityCount, 130)
@@ -1416,7 +1417,7 @@ final class GitHubPaginationTests: XCTestCase {
 
         let pullRequest = try await server.fetcher.hydrate([Self.discovery(id: "PR_1")], login: "rw")[0].pullRequest
 
-        XCTAssertEqual(server.requests.compactMap(\.batchShape), ["other: 1", "first reads: 2"])
+        assertRequestRounds(server.requests.compactMap(\.batchShape), [["other: 1", "first reads: 2"]])
         XCTAssertEqual(pullRequest.commentActivityCount, 13)
     }
 
@@ -1435,12 +1436,14 @@ final class GitHubPaginationTests: XCTestCase {
             login: "rw"
         )
 
-        XCTAssertEqual(server.requests.compactMap(\.batchShape), ["first reads: 4", "other: 2"])
+        assertRequestRounds(server.requests.compactMap(\.batchShape), [["first reads: 4", "other: 2"]])
         XCTAssertEqual(
-            server.requests.compactMap { $0.batchShape == nil ? nil : $0.aliases.map(\.id) },
-            [["PR_1_T0", "PR_1_T1", "PR_2_T0", "PR_2_T1"], ["PR_2", "PR_3"]]
+            server.requests.first { $0.batchShape == "first reads: 4" }?.aliases.map(\.id),
+            ["PR_1_T0", "PR_1_T1", "PR_2_T0", "PR_2_T1"]
         )
-        XCTAssertEqual(server.requests.last?.aliases.map(\.connection), ["comments", "reviews"])
+        let otherBatch = server.requests.first { $0.batchShape == "other: 2" }
+        XCTAssertEqual(otherBatch?.aliases.map(\.id), ["PR_2", "PR_3"])
+        XCTAssertEqual(otherBatch?.aliases.map(\.connection), ["comments", "reviews"])
         XCTAssertEqual(hydrated.map(\.pullRequest.commentActivityCount), [2, 13, 0])
         XCTAssertEqual(hydrated[2].pullRequest.reviewCount, 11)
     }
@@ -1464,8 +1467,10 @@ final class GitHubPaginationTests: XCTestCase {
 
         let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
 
-        XCTAssertEqual(transport.shapes, ["other: 1", "first reads: 3"])
-        XCTAssertEqual(transport.requests.last?.aliases.map(\.id), ["T1", "T2", "T0"])
+        // T0, listed by the thread page, gets its first read in the next round, so 3 requests instead of 2.
+        assertRequestRounds(transport.shapes, [["other: 1", "first reads: 2"], ["first reads: 1"]])
+        XCTAssertEqual(transport.requests.first { $0.batchShape == "first reads: 2" }?.aliases.map(\.id), ["T1", "T2"])
+        XCTAssertEqual(transport.requests.first { $0.batchShape == "first reads: 1" }?.aliases.map(\.id), ["T0"])
         XCTAssertEqual(Set(pullRequest.recentCommentActivities.map(\.id)), ["T0_C", "T1_C", "T2_C"])
     }
 
@@ -1475,19 +1480,17 @@ final class GitHubPaginationTests: XCTestCase {
             nodes: [Self.threadIdentity("T")],
             previous: "threads-p2"
         ))
-        let step = LockedCounter()
         let transport = HydrationTransport { query, variables in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            switch step.increment() {
-            case 1:
-                return Self.answer(query, variables) { _ in Self.connection(total: 1, nodes: []) }
-            case 2:
-                return Self.answer(query, variables) { _ in Self.connection(total: 1, nodes: [Self.threadIdentity("T")]) }
-            default:
+            return Self.answer(query, variables) { alias in
+                switch (alias.connection, alias.cursor) {
+                case ("reviewThreads", "threads-p2"): Self.connection(total: 1, nodes: [])
+                case ("reviewThreads", _): Self.connection(total: 1, nodes: [Self.threadIdentity("T")])
                 // A short first read at attempt 1 can't restart again.
-                return Self.answer(query, variables) { _ in Self.connection(total: 3, nodes: [Self.comment("T_C0")]) }
+                default: Self.connection(total: 3, nodes: [Self.comment("T_C0")])
+                }
             }
         }
 
@@ -1497,28 +1500,29 @@ final class GitHubPaginationTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? GitHubReadError, .incompleteCoverage("Connection returned 1 of 3 items"))
         }
-        XCTAssertEqual(transport.shapes, ["other: 1", "other: 1", "first reads: 1"])
+        // The attempt-0 first read is now sent in the restart's round and superseded, so 4 requests instead of 3.
+        assertRequestRounds(transport.shapes, [["other: 1", "first reads: 1"], ["other: 1"], ["first reads: 1"]])
     }
 
     func testThreadCommentsRestartedBeforeTheirThreadListRestartsAreReadAgain() async throws {
         let node = Self.threadedPullRequest("PR_1", threads: 301) { $0 == 250 ? 15 : 0 }
         let restartedThread = "PR_1_T250"
-        var shortenedFirstRead = false
-        var deletedOldestThread = false
+        let shortenedFirstRead = LockedBox(false)
+        let deletedOldestThread = LockedBox(false)
+        /// Sets the flag and returns whether it was still unset.
+        func takeOnce(_ flag: LockedBox<Bool>) -> Bool { flag.withValue { value in defer { value = true }; return !value } }
         let server = GitHubFixtureServer(
             pullRequests: [node],
-            beforeQuery: { index, server in
+            beforeQuery: { request, server in
                 // The thread list loses its oldest thread just before its last page at attempt 0 is read.
-                guard !deletedOldestThread,
-                      server.requests[index].aliases.contains(where: { $0.cursor == "reviewThreads:PR_1:1" }) else { return }
-                deletedOldestThread = true
+                guard request.aliases.contains(where: { $0.cursor == "reviewThreads:PR_1:1" }),
+                      takeOnce(deletedOldestThread) else { return }
                 server.deleteThread(prID: "PR_1", threadID: "PR_1_T0")
             },
-            afterQuery: { _, request, response in
+            afterQuery: { request, response in
                 // The thread's first read comes back short with no older page, which restarts its comments.
-                guard !shortenedFirstRead,
-                      let alias = request.aliases.first(where: { $0.id == restartedThread && $0.cursor == nil }) else { return }
-                shortenedFirstRead = true
+                guard let alias = request.aliases.first(where: { $0.id == restartedThread && $0.cursor == nil }),
+                      takeOnce(shortenedFirstRead) else { return }
                 var data = response["data"] as! [String: Any]
                 data[alias.name] = ["comments": Self.connection(
                     total: 15,
@@ -1530,11 +1534,19 @@ final class GitHubPaginationTests: XCTestCase {
 
         let pullRequest = try await server.fetcher.hydrate([Self.discovery()], login: "rw")[0].pullRequest
 
-        XCTAssertEqual(
-            Array(server.requests.compactMap(\.batchShape).prefix(6)),
-            ["other: 1", "first reads: 100", "other: 1", "first reads: 100", "first reads: 100", "other: 2"]
+        // Rounds send the thread pages with the first reads queued before them, and T250's restarted first read
+        // with the next hundred.
+        assertRequestRounds(
+            Array(server.requests.compactMap(\.batchShape).prefix(7)),
+            [
+                ["other: 1", "first reads: 100"],
+                ["other: 1", "first reads: 100", "first reads: 1"],
+                ["other: 2", "first reads: 100"]
+            ]
         )
-        let restartBatch = try XCTUnwrap(server.requests.filter { $0.batchShape != nil }.dropFirst(5).first)
+        let restartBatch = try XCTUnwrap(server.requests.first { request in
+            request.aliases.contains { $0.cursor == "reviewThreads:PR_1:1" }
+        })
         XCTAssertEqual(
             restartBatch.aliases.map(\.cursor),
             ["reviewThreads:PR_1:1", "comments:\(restartedThread):5"]
@@ -1550,12 +1562,12 @@ final class GitHubPaginationTests: XCTestCase {
         let second = Self.threadedPullRequest("PR_2", threads: 19) { _ in 11 }
         let server = GitHubFixtureServer(
             pullRequests: [first, second],
-            beforeQuery: { index, server in
-                if server.requests[index].aliases.contains(where: { $0.connection == "reviewThreads" && $0.cursor != nil }) {
+            beforeQuery: { request, server in
+                if request.aliases.contains(where: { $0.connection == "reviewThreads" && $0.cursor != nil }) {
                     server.deleteThread(prID: "PR_1", threadID: "PR_1_T0")
                 }
             },
-            afterQuery: { _, request, response in
+            afterQuery: { request, response in
                 // PR_1's first thread page holds only its newest thread, so its thread list continues.
                 guard request.query.contains("CompletePullRequests") else { return }
                 var data = response["data"] as! [String: Any]
@@ -1576,9 +1588,10 @@ final class GitHubPaginationTests: XCTestCase {
             login: "rw"
         )
 
-        XCTAssertEqual(
+        // PR_1's thread page now runs in the first round, alongside the first reads.
+        assertRequestRounds(
             server.requests.compactMap(\.batchShape),
-            ["first reads: 20", "other: 20", "other: 1", "first reads: 1", "other: 1"]
+            [["first reads: 20", "other: 1"], ["other: 20"], ["first reads: 1"], ["other: 1"]]
         )
         let olderPagesOfRestartedThread = server.requests.filter { request in
             request.aliases.contains { $0.id == "PR_1_T1" && $0.cursor != nil }
@@ -1620,8 +1633,9 @@ final class GitHubPaginationTests: XCTestCase {
                 Self.threadedPullRequest("PR_1", threads: 2),
                 Self.threadedPullRequest("PR_2", threads: 2)
             ],
-            beforeQuery: { index, server in
-                if index == 1 { server.deleteThread(prID: "PR_1", threadID: "PR_1_T0") }
+            beforeQuery: { request, server in
+                // The thread goes away just before the first read of all four threads.
+                if request.aliases.count == 4 { server.deleteThread(prID: "PR_1", threadID: "PR_1_T0") }
             }
         )
 
@@ -1630,7 +1644,7 @@ final class GitHubPaginationTests: XCTestCase {
             login: "rw"
         )
 
-        XCTAssertEqual(server.requests.compactMap(\.batchShape), ["first reads: 4", "first reads: 1"])
+        assertRequestRounds(server.requests.compactMap(\.batchShape), [["first reads: 4"], ["first reads: 1"]])
         let retry = try XCTUnwrap(server.requests.last)
         XCTAssertTrue(retry.query.contains("p: node(id: $pr) { id }"))
         XCTAssertEqual(retry.variables["pr"], .string("PR_1"))
@@ -1643,15 +1657,14 @@ final class GitHubPaginationTests: XCTestCase {
 
     func testMissingThreadWhoseRetryReturnsDataMergesNormally() async throws {
         let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
-        let step = LockedCounter()
         let transport = HydrationTransport { query, variables in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            if step.increment() == 1 {
+            // Only the retry reads the PR identity alongside the thread.
+            guard query.contains("p: node(id: $pr) { id }") else {
                 return Self.notFoundAtFirstAlias()
             }
-            XCTAssertTrue(query.contains("p: node(id: $pr) { id }"))
             return Self.json(["data": [
                 "c0": ["comments": Self.connection(total: 1, nodes: [Self.comment("T_C0")])],
                 "p": ["id": "PR_1"]
@@ -1699,9 +1712,10 @@ final class GitHubPaginationTests: XCTestCase {
     func testDeletedThreadOfAnUnreachablePullRequestFailsTheRefresh() async throws {
         let server = GitHubFixtureServer(
             pullRequests: [Self.threadedPullRequest("PR_1", threads: 2)],
-            beforeQuery: { index, server in
-                if index == 1 { server.deleteThread(prID: "PR_1", threadID: "PR_1_T0") }
-                if index == 2 { server.removePullRequest(id: "PR_1") }
+            beforeQuery: { request, server in
+                // The thread goes away before the first reads, and its PR before the confirming retry.
+                if request.aliases.count == 2 { server.deleteThread(prID: "PR_1", threadID: "PR_1_T0") }
+                if request.query.contains("p: node(id: $pr)") { server.removePullRequest(id: "PR_1") }
             }
         )
 
@@ -1717,12 +1731,12 @@ final class GitHubPaginationTests: XCTestCase {
 
     func testMissingThreadRetryWithAnErrorOnItsPullRequestFails() async throws {
         let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
-        let step = LockedCounter()
         let transport = HydrationTransport { query, _ in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            if step.increment() == 1 {
+            // Only the retry reads the PR identity alongside the thread.
+            guard query.contains("p: node(id: $pr) { id }") else {
                 return Self.notFoundAtFirstAlias()
             }
             return Self.json([
@@ -1746,13 +1760,13 @@ final class GitHubPaginationTests: XCTestCase {
                 total: 2,
                 nodes: [Self.threadIdentity("T"), Self.threadIdentity("U")]
             ))
-            let step = LockedCounter()
             let transport = HydrationTransport { query, variables in
                 if query.contains("CompletePullRequests") {
                     return Self.json(["data": ["nodes": [initial]]])
                 }
                 let internalError: [String: Any] = ["type": "INTERNAL", "path": ["c0"], "message": "Something went wrong"]
-                if step.increment() == 1 {
+                // The first read covers both threads. The retry reads T alone.
+                if GitHubFixtureServer.aliases(query: query, variables: variables).count == 2 {
                     return Self.json([
                         "data": ["c0": NSNull(), "c1": ["comments": Self.connection(total: 1, nodes: [Self.comment("U_C0")])]],
                         "errors": [internalError]
@@ -1801,15 +1815,14 @@ final class GitHubPaginationTests: XCTestCase {
 
     func testRateLimitOnAMissingThreadRetryStaysARateLimit() async throws {
         let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
-        let step = LockedCounter()
         let transport = HydrationTransport { query, _ in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            if step.increment() == 1 {
+            // Only the retry reads the PR identity alongside the thread.
+            guard query.contains("p: node(id: $pr) { id }") else {
                 return Self.notFoundAtFirstAlias()
             }
-            XCTAssertTrue(query.contains("p: node(id: $pr) { id }"))
             return Self.json([
                 "data": ["c0": NSNull(), "p": ["id": "PR_1"]],
                 "errors": [["type": "RATE_LIMITED", "path": ["c0"], "message": "Rate limited"]]
@@ -1826,12 +1839,12 @@ final class GitHubPaginationTests: XCTestCase {
 
     func testMissingThreadRetryWithoutErrorsIsNotDropped() async throws {
         let initial = Self.pullRequest(threads: Self.connection(total: 1, nodes: [Self.threadIdentity("T")]))
-        let step = LockedCounter()
         let transport = HydrationTransport { query, _ in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            if step.increment() == 1 {
+            // Only the retry reads the PR identity alongside the thread.
+            guard query.contains("p: node(id: $pr) { id }") else {
                 return Self.notFoundAtFirstAlias()
             }
             return Self.json(["data": ["c0": NSNull(), "p": ["id": "PR_1"]]])
@@ -1851,48 +1864,64 @@ final class GitHubPaginationTests: XCTestCase {
             nodes: [Self.threadIdentity("T")],
             previous: "threads-p2"
         ))
-        let step = LockedCounter()
+        // T's first read and its confirming retry find it gone. Its first read after it is listed again succeeds.
+        let firstReadsOfT = LockedBox(0)
         let transport = HydrationTransport { query, variables in
             if query.contains("CompletePullRequests") {
                 return Self.json(["data": ["nodes": [initial]]])
             }
-            switch step.increment() {
-            case 1:
-                return Self.answer(query, variables) { _ in
-                    Self.connection(total: 2, nodes: [Self.threadIdentity("U")], previous: "threads-p3")
-                }
-            case 2:
-                let aliases = GitHubFixtureServer.aliases(query: query, variables: variables)
-                let missing = try XCTUnwrap(aliases.first { $0.id == "T" })
-                var data: [String: Any] = [missing.name: NSNull()]
-                for alias in aliases where alias.id != "T" {
-                    data[alias.name] = ["comments": Self.connection(total: 1, nodes: [Self.comment("U_C0")])]
-                }
-                return Self.json([
-                    "data": data,
-                    "errors": [["type": "NOT_FOUND", "path": [missing.name], "message": "Not Found"]]
-                ])
-            case 3:
-                XCTAssertTrue(query.contains("p: node(id: $pr) { id }"))
+            if query.contains("p: node(id: $pr) { id }") {
                 return Self.notFoundAtFirstAlias(pullRequest: ["id": "PR_1"])
-            case 4:
-                return Self.answer(query, variables) { _ in Self.connection(total: 2, nodes: [Self.threadIdentity("T")]) }
-            default:
-                return Self.answer(query, variables) { _ in Self.connection(total: 1, nodes: [Self.comment("T_C0")]) }
             }
+            var data: [String: Any] = [:]
+            var errors: [[String: Any]] = []
+            for alias in GitHubFixtureServer.aliases(query: query, variables: variables) {
+                switch (alias.connection, alias.cursor) {
+                case ("reviewThreads", "threads-p2"):
+                    data[alias.name] = [alias.connection: Self.connection(
+                        total: 2, nodes: [Self.threadIdentity("U")], previous: "threads-p3"
+                    )]
+                case ("reviewThreads", _):
+                    data[alias.name] = [alias.connection: Self.connection(total: 2, nodes: [Self.threadIdentity("T")])]
+                default:
+                    if alias.id == "T", firstReadsOfT.increment() == 1 {
+                        data[alias.name] = NSNull()
+                        errors.append(["type": "NOT_FOUND", "path": [alias.name], "message": "Not Found"])
+                    } else {
+                        data[alias.name] = [alias.connection: Self.connection(
+                            total: 1, nodes: [Self.comment("\(alias.id)_C0")]
+                        )]
+                    }
+                }
+            }
+            var response: [String: Any] = ["data": data]
+            if !errors.isEmpty { response["errors"] = errors }
+            return Self.json(response)
         }
 
         let pullRequest = try await Self.fetcher(transport).hydrate([Self.discovery()], login: "rw")[0].pullRequest
 
-        XCTAssertEqual(
+        // U's first read runs in the round after the thread page that lists it, not with T's, one more request.
+        assertRequestRounds(
             transport.shapes,
-            ["other: 1", "first reads: 2", "first reads: 1", "other: 1", "first reads: 1"]
+            [["other: 1", "first reads: 1"], ["first reads: 1"], ["other: 1", "first reads: 1"], ["first reads: 1"]]
         )
         XCTAssertEqual(Set(pullRequest.recentCommentActivities.map(\.id)), ["T_C0", "U_C0"])
         XCTAssertEqual(
             Set(pullRequest.recentCommentActivities.compactMap(\.threadId)),
             ["T", "U"]
         )
+    }
+
+    // MARK: Request rounds
+
+    func testRequestRoundsAcceptAPermutedRoundAndRejectMovedMissingOrExtraRequests() {
+        let expected = [["a", "b"], ["c"]]
+        XCTAssertNil(requestRoundsMismatch(["b", "a", "c"], expected))
+        XCTAssertNotNil(requestRoundsMismatch(["a", "c", "b"], expected))
+        XCTAssertNotNil(requestRoundsMismatch(["a", "b"], expected))
+        XCTAssertNotNil(requestRoundsMismatch(["a", "b", "c", "c"], expected))
+        XCTAssertNotNil(requestRoundsMismatch(["a", "a", "c"], expected))
     }
 
     private static func fetcher(_ transport: HydrationTransport) -> GitHubPullRequestFetcher {
@@ -2121,11 +2150,4 @@ private final class HydrationTransport: @unchecked Sendable {
         lock.withLock { storedRequests.append(GitHubFixtureServer.Request(query: query, variables: variables)) }
         return try handler(query, variables)
     }
-}
-
-private final class LockedCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored = 0
-    var value: Int { lock.withLock { stored } }
-    func increment() -> Int { lock.withLock { stored += 1; return stored } }
 }

@@ -10,6 +10,9 @@ enum GitHubPullRequestQueries {
     /// Thread-comment reads without a cursor batch on their own. Each returns at most
     /// `threadCommentFirstReadPageSize` comments, so a full batch stays small.
     static let threadCommentFirstReadBatchSize = 100
+    /// Continuation batches sent together in one round. Independent of the read limiter's capacity, so a
+    /// refresh's rounds don't change with it.
+    static let continuationRoundWidth = 4
 
     static let pageInfoFields = "pageInfo { startCursor endCursor hasPreviousPage hasNextPage }"
 

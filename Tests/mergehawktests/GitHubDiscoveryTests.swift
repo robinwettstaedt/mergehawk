@@ -198,7 +198,7 @@ final class GitHubDiscoveryTests: XCTestCase {
     }
 
     func testDiscoveryRetriesAnUndercountLeafOnce() async throws {
-        let attempts = LockedInt()
+        let attempts = LockedBox(0)
         let transport = DiscoveryTransport { query, _ in
             if query.contains("DiscoveryBounds") {
                 return Self.boundsResponse(nonEmptyLanes: [.authored])
@@ -221,7 +221,7 @@ final class GitHubDiscoveryTests: XCTestCase {
     }
 
     func testMidPaginationCapCrossingRepartitionsTheFixedInterval() async throws {
-        let fullIntervalReads = LockedInt()
+        let fullIntervalReads = LockedBox(0)
         let transport = DiscoveryTransport { query, variables in
             if query.contains("DiscoveryBounds") {
                 return Self.boundsResponse(nonEmptyLanes: [.authored], oldest: 0, newest: 3)
@@ -378,13 +378,6 @@ final class GitHubDiscoveryTests: XCTestCase {
             try await transport.read(query: query, variables: variables)
         }
     }
-}
-
-private final class LockedInt: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored = 0
-    var value: Int { lock.withLock { stored } }
-    func increment() -> Int { lock.withLock { stored += 1; return stored } }
 }
 
 private final class DiscoveryTransport: @unchecked Sendable {
