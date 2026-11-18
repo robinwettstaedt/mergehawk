@@ -542,8 +542,8 @@ final class DashboardController: ObservableObject {
     }
 
     private var hasGitHubAppVisiblePullRequestData: Bool {
-        !sourceFilteredMyPullRequests.isEmpty
-            || sourceFilteredReviewRequests.contains(where: Self.isRequestedPullRequest)
+        !sourcePreferenceMyPullRequests.isEmpty
+            || sourcePreferenceReviewRequests.contains(where: Self.isRequestedPullRequest)
     }
 
     var accountLabel: String {
@@ -565,15 +565,29 @@ final class DashboardController: ObservableObject {
         PreferencesStore.refreshIntervalMinuteOptions
     }
 
+    /// Authored PRs the Sources settings allow, without ignored authors.
     var sourceFilteredMyPullRequests: [PullRequest] {
+        let ignored = ignoredAuthors
+        return sourcePreferenceMyPullRequests.filter { !ignored.ignores(author: $0.author, isBot: $0.authorIsBot) }
+    }
+
+    /// Counted PRs the Sources settings allow, without ignored authors. A team request only counts for one of the
+    /// viewer's teams that is not turned off.
+    var sourceFilteredReviewRequests: [PullRequest] {
+        let ignored = ignoredAuthors
+        return sourcePreferenceReviewRequests.filter { !ignored.ignores(author: $0.author, isBot: $0.authorIsBot) }
+    }
+
+    /// Authored PRs the Sources settings allow, ignored authors included.
+    private var sourcePreferenceMyPullRequests: [PullRequest] {
         let preferences = effectiveSourcePreferences
         return state.pullRequests.filter { pr in
             pr.isMine && preferences.allowsMyPullRequests(for: pr.repo)
         }
     }
 
-    /// Counted PRs: a team request only counts for one of the viewer's teams that is not turned off.
-    var sourceFilteredReviewRequests: [PullRequest] {
+    /// Counted PRs the Sources settings allow, ignored authors included.
+    private var sourcePreferenceReviewRequests: [PullRequest] {
         let preferences = effectiveSourcePreferences
         let counting = teamReviewCounting
         return state.pullRequests.map(counting.applied(to:)).filter { pr in
