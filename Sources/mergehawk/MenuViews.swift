@@ -1527,6 +1527,36 @@ private extension RunLoop.Mode {
     static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
 }
 
+/// A PR tab's rows: headings, and the cards of expanded sections, in section order.
+enum PullRequestListRows {
+    enum Row: Identifiable, Equatable {
+        case heading(PullRequestListSection, isFirst: Bool)
+        case item(PullRequestListItem, section: PullRequestSectionID)
+
+        /// A card keeps its item ID in every section, so a move between sections keeps its row.
+        var id: String {
+            switch self {
+            case .heading(let section, _): "heading:\(section.id)"
+            case .item(let item, _): item.id
+            }
+        }
+    }
+
+    static func rows(
+        sections: [PullRequestListSection],
+        showsHeadings: Bool,
+        isExpanded: (PullRequestSectionID) -> Bool
+    ) -> [Row] {
+        guard showsHeadings else {
+            return sections.flatMap { section in section.items.map { Row.item($0, section: section.id) } }
+        }
+        return sections.enumerated().flatMap { index, section in
+            [Row.heading(section, isFirst: index == 0)]
+                + (isExpanded(section.id) ? section.items.map { Row.item($0, section: section.id) } : [])
+        }
+    }
+}
+
 struct PullRequestListView: View {
     enum Mode {
         case authored
@@ -1579,64 +1609,58 @@ struct PullRequestListView: View {
     @ViewBuilder
     private var authoredContent: some View {
         let sections = controller.authoredSections
+        let showsHeadings = PullRequestListSection.showsHeadings(sections)
         if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
-        } else if PullRequestListSection.showsHeadings(sections) {
-            sectionedList(sections)
-        } else if sections.allSatisfy({ $0.items.isEmpty }) {
+        } else if !showsHeadings, sections.allSatisfy({ $0.items.isEmpty }) {
             EmptyMenuState(
                 text: controller.selectedPullRequestFilters.subtracting([.all]).isEmpty
                     ? PullRequestListCopy.emptyAuthored
                     : PullRequestListCopy.noFilterMatches
             )
         } else {
-            scrollingList(spacing: metrics.prColumns.rowSpacing) {
-                PullRequestColumnHeader()
-
-                stackListBody(sections.flatMap(\.items))
-            }
+            rowList(sections, showsHeadings: showsHeadings)
         }
     }
 
     private var requestedContent: some View {
-        sectionedList(controller.requestedSections)
+        rowList(controller.requestedSections, showsHeadings: true)
     }
 
-    private func sectionedList(_ sections: [PullRequestListSection]) -> some View {
-        scrollingList(spacing: metrics.prList.sectionSpacing) {
-            ForEach(sections, id: \.id) { section in
-                sectionView(section)
+    /// The whole tab as one flat sequence of headings and cards in one `ForEach`, so a card moving between sections
+    /// is one row changing place. Without headings, the column header leads the cards.
+    private func rowList(_ sections: [PullRequestListSection], showsHeadings: Bool) -> some View {
+        let rows = PullRequestListRows.rows(sections: sections, showsHeadings: showsHeadings) {
+            controller.isSectionExpanded($0, in: tab)
+        }
+        return ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                if !showsHeadings {
+                    PullRequestColumnHeader()
+                }
+                ForEach(rows) { row in
+                    rowView(row)
+                }
             }
+            .padding(.leading, metrics.prList.horizontalPadding)
+            .padding(.trailing, metrics.prList.trailingPadding)
+            .padding(.top, metrics.prList.topPadding)
+            .padding(.bottom, metrics.prList.bottomPadding)
+            .background(PullRequestListScrollerStyle())
         }
     }
 
-    private func scrollingList<Content: View>(spacing: CGFloat, @ViewBuilder content: () -> Content) -> some View {
-        ScrollView(.vertical) {
-            LazyVStack(spacing: spacing, content: content)
-                .padding(.leading, metrics.prList.horizontalPadding)
-                .padding(.trailing, metrics.prList.trailingPadding)
-                .padding(.top, metrics.prList.topPadding)
-                .padding(.bottom, metrics.prList.bottomPadding)
-                .background(PullRequestListScrollerStyle())
-        }
-    }
-
-    private func sectionView(_ section: PullRequestListSection) -> some View {
-        VStack(spacing: metrics.prColumns.rowSpacing) {
+    /// Spacing is each row's top padding: section spacing above every heading but the first, row spacing above
+    /// every card. An expanded stack stays inside its one row, so it pushes the rows below it.
+    @ViewBuilder
+    private func rowView(_ row: PullRequestListRows.Row) -> some View {
+        switch row {
+        case .heading(let section, let isFirst):
             sectionHeading(section)
-
-            if controller.isSectionExpanded(section.id, in: tab), !section.items.isEmpty {
-                stackListBody(section.items)
-            }
-        }
-    }
-
-    /// One list's items in a plain stack, so an expanding group pushes the rows below it.
-    private func stackListBody(_ items: [PullRequestListItem]) -> some View {
-        VStack(spacing: metrics.prColumns.rowSpacing) {
-            ForEach(items) { item in
-                stackListItem(item)
-            }
+                .padding(.top, isFirst ? 0 : metrics.prList.sectionSpacing)
+        case .item(let item, _):
+            stackListItem(item)
+                .padding(.top, metrics.prColumns.rowSpacing)
         }
     }
 

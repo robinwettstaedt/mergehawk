@@ -1093,6 +1093,94 @@ final class MenuViewTests: XCTestCase {
         ])
     }
 
+    // MARK: - Flat rows
+
+    private static func card(_ id: String, stack stackID: String? = nil) -> PullRequestListItem {
+        let pullRequest = PullRequest(
+            id: id, title: id, number: 1, url: URL(string: "https://github.com/acme/app/pull/1")!, repo: "acme/app",
+            ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, reviewCount: 0,
+            isMine: true, author: "rw", mergeable: .mergeable, draft: false
+        )
+        let group = stackID.map { stackID in
+            StackGroup(
+                stack: PullRequestStack(id: stackID, size: 2, entries: []), representativePosition: 1,
+                fullMemberIDs: [id], matchingMemberIDs: [id], members: [.full(pullRequest)]
+            )
+        }
+        return PullRequestListItem(representative: pullRequest, stack: group, isPinned: false, isHidden: false, isUnread: false)
+    }
+
+    private static func section(_ id: PullRequestSectionID, _ items: [PullRequestListItem]) -> PullRequestListSection {
+        PullRequestListSection(id: id, title: "\(id)", accessibilityTitle: "\(id)", items: items)
+    }
+
+    func testRowsListHeadingsAndTheItemsOfExpandedSectionsInSectionOrder() {
+        let sections = [
+            Self.section(.pinned, [Self.card("PR_P")]),
+            Self.section(.assigned, []),
+            Self.section(.direct, [Self.card("PR_D1"), Self.card("PR_D2", stack: "S")]),
+            Self.section(.team, [Self.card("PR_T")]),
+            Self.section(.hidden, [Self.card("PR_H")])
+        ]
+
+        let rows = PullRequestListRows.rows(sections: sections, showsHeadings: true) { $0 != .team && $0 != .hidden }
+
+        XCTAssertEqual(rows.map(\.id), [
+            "heading:pinned", "PR_P", "heading:assigned", "heading:direct", "PR_D1", "stack:S", "heading:team", "heading:hidden"
+        ])
+        let firstFlags = rows.compactMap { row -> Bool? in
+            if case .heading(_, let isFirst) = row { return isFirst }
+            return nil
+        }
+        let itemSections = rows.compactMap { row -> PullRequestSectionID? in
+            if case .item(_, let section) = row { return section }
+            return nil
+        }
+        XCTAssertEqual(firstFlags, [true, false, false, false, false])
+        XCTAssertEqual(itemSections, [.pinned, .direct, .direct])
+    }
+
+    func testRowIDsAreUniqueAndAnItemsRowIDIsItsItemID() {
+        let items = [Self.card("PR_1"), Self.card("PR_2", stack: "S"), Self.card("PR_3")]
+        let sections = [Self.section(.pinned, [items[0]]), Self.section(.active, Array(items[1...])), Self.section(.hidden, [])]
+
+        let rows = PullRequestListRows.rows(sections: sections, showsHeadings: true) { _ in true }
+
+        XCTAssertEqual(Set(rows.map(\.id)).count, rows.count)
+        for row in rows {
+            if case .item(let item, _) = row { XCTAssertEqual(row.id, item.id) }
+        }
+    }
+
+    func testTheNoHeadingsAuthoredLayoutHasNoHeadingRows() {
+        let sections = [Self.section(.active, [Self.card("PR_1"), Self.card("PR_2")])]
+
+        let rows = PullRequestListRows.rows(sections: sections, showsHeadings: false) { _ in false }
+
+        XCTAssertEqual(rows.map(\.id), ["PR_1", "PR_2"])
+    }
+
+    @MainActor
+    func testExpandingAStackInsidePinnedShowsAllItsMembersAndPushesTheNextHeadingDown() throws {
+        let controller = try stackMenuController()
+        let spread = try XCTUnwrap(controller.requestedSections.allItems.first { $0.stack?.stack.id == "STACK_MOCK_SPREAD" })
+        controller.setPinned(spread, pinned: true)
+        let group = try XCTUnwrap(controller.requestedSections[.pinned]?.items.first?.stack)
+        let frames = StackMenuFrames()
+        let (host, _) = hostStackMenu(controller, frames: frames)
+        defer { host.close() }
+        let assignedLabel = "Assigned, 5 items, expanded"
+        let collapsedHeading = try accessibilityButtonFrame(labeled: assignedLabel, in: host)
+
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+        settleStackToggle(host)
+
+        XCTAssertEqual(Set(frames.rows.keys), Set(group.members.map(\.pullRequestID)))
+        let expandedHeading = try accessibilityButtonFrame(labeled: assignedLabel, in: host)
+        // Window coordinates grow upwards, so a heading pushed down has a smaller minY.
+        XCTAssertLessThan(expandedHeading.minY, collapsedHeading.minY - CGFloat(group.members.count - 2) * 40)
+    }
+
     func testHeadingAccessibilityLabelCountsItemsAndSaysWhetherItIsExpanded() {
         let section = PullRequestListSection(id: .direct, title: "Direct", accessibilityTitle: "Direct", items: [])
 
