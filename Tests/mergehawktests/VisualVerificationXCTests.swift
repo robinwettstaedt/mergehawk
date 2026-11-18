@@ -610,7 +610,7 @@ final class VisualVerificationXCTests: XCTestCase {
                 }
                 XCTAssertEqual(PreferencesStore(defaults: UserDefaults(suiteName: archivedSuite)!).hideArchivedRepositories, hideArchived)
                 let expectedCount = hideArchived ? 1 : 2
-                XCTAssertEqual(archivedController.authoredList.visible.count, expectedCount)
+                XCTAssertEqual(archivedController.authoredSections.allItems.count, expectedCount)
                 XCTAssertEqual(archivedController.visiblePullRequestNotifications.count, expectedCount)
                 XCTAssertEqual(archivedController.sourceCatalog.repositoryCount, 2)
                 try renderSettings(
@@ -897,14 +897,14 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-actions-open.png"),
-                initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).representative.id)
+                initialDropdown: .actions(XCTUnwrap(controller.authoredSections.allItems.first).representative.id)
             )
             for size in MenuSize.allCases {
                 try renderMenu(
                     controller: controller,
                     to: menuSizeURL(size, "actions-open"),
                     availableFrame: MenuSizeCaptures.stateFrame,
-                    initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).representative.id),
+                    initialDropdown: .actions(XCTUnwrap(controller.authoredSections.allItems.first).representative.id),
                     menuSize: size
                 )
                 for (frameName, frame) in MenuSizeCaptures.reducedStateFrames {
@@ -912,12 +912,12 @@ final class VisualVerificationXCTests: XCTestCase {
                         controller: controller,
                         to: menuSizeURL(size, "actions-open-\(frameName)"),
                         availableFrame: frame,
-                        initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).representative.id),
+                        initialDropdown: .actions(XCTUnwrap(controller.authoredSections.allItems.first).representative.id),
                         menuSize: size
                     )
                 }
             }
-            let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.first?.visible.first?.representative)
+            let tooltipPullRequest = try XCTUnwrap(controller.requestedSections.allItems.first?.representative)
             try renderHeaderTooltips(
                 pullRequest: tooltipPullRequest,
                 to: outputURL.appendingPathComponent("menu-header-tooltips.png")
@@ -980,14 +980,14 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-hidden-collapsed.png"))
             try renderHiddenExpanded(
                 controller: controller,
-                mode: .authored,
+                tab: .myPRs,
                 to: outputURL.appendingPathComponent("menu-my-prs-hidden-expanded.png")
             )
             for size in MenuSize.allCases {
                 try renderHiddenExpanded(
                     controller: controller,
-                    mode: .authored,
-                    metrics: MenuMetrics(scale: size.factor),
+                    tab: .myPRs,
+                    menuSize: size,
                     to: menuSizeURL(size, "my-prs-hidden-expanded")
                 )
             }
@@ -1009,13 +1009,13 @@ final class VisualVerificationXCTests: XCTestCase {
                     reviewRequests: true
                 )
             )
-            precondition(controller.authoredList.visible.isEmpty)
+            precondition(controller.authoredSections.allItems.isEmpty)
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-empty.png"))
             controller.sourcePreferences = populatedSourcePreferences
 
             controller.selectedTab = .reviewRequests
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests.png"))
-            precondition(controller.collapsedRequestedSections.isEmpty)
+            precondition(controller.sectionExpansionOverrides.values.allSatisfy(\.isEmpty))
             for size in MenuSize.allCases {
                 try renderMenu(
                     controller: controller,
@@ -1050,21 +1050,21 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
             controller.pinnedPullRequestIds = []
-            controller.hiddenPullRequestIds = Set(controller.sortedReviewRequests.prefix(2).map(\.id))
+            controller.hiddenPullRequestIds = Set(controller.requestedSections.allItems.prefix(2).map(\.representative.id))
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-collapsed.png")
             )
             try renderHiddenExpanded(
                 controller: controller,
-                mode: .reviewRequests,
+                tab: .reviewRequests,
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-expanded.png")
             )
             for size in MenuSize.allCases {
                 try renderHiddenExpanded(
                     controller: controller,
-                    mode: .reviewRequests,
-                    metrics: MenuMetrics(scale: size.factor),
+                    tab: .reviewRequests,
+                    menuSize: size,
                     to: menuSizeURL(size, "review-requests-hidden-expanded")
                 )
             }
@@ -1085,7 +1085,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     reviewRequests: false
                 )
             )
-            precondition(controller.sortedReviewRequests.isEmpty)
+            precondition(controller.requestedSections.allItems.isEmpty)
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-review-requests-empty.png")
@@ -1095,12 +1095,12 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.selectedReviewRequestFilters = []
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-all.png"))
 
-            controller.toggleRequestedSection(.direct)
+            controller.toggleSection(.direct, in: .reviewRequests)
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-review-requests-section-collapsed.png")
             )
-            controller.toggleRequestedSection(.direct)
+            controller.toggleSection(.direct, in: .reviewRequests)
 
             controller.setRepositoryPreferences(
                 repo: "billing-platform-experiments/customer-subscription-dashboard",
@@ -1237,7 +1237,7 @@ final class VisualVerificationXCTests: XCTestCase {
             // Focused captures in the width-constrained frame: each stack collapsed, then expanded on its own.
             // The position-3 stack is in Direct, so Assigned is collapsed to bring Direct to the top.
             for stack in MenuSizeCaptures.focusedStacks {
-                if stack.section == .direct { stacksController.toggleRequestedSection(.assigned) }
+                if stack.section == .direct { stacksController.toggleSection(.assigned, in: .reviewRequests) }
                 for isExpanded in [false, true] {
                     if isExpanded { stacksController.toggleStackExpanded(stack.id) }
                     try renderMenu(
@@ -1249,7 +1249,7 @@ final class VisualVerificationXCTests: XCTestCase {
                     )
                 }
                 stacksController.toggleStackExpanded(stack.id)
-                if stack.section == .direct { stacksController.toggleRequestedSection(.assigned) }
+                if stack.section == .direct { stacksController.toggleSection(.assigned, in: .reviewRequests) }
             }
 
             stacksController.selectedReviewRequestFilters = [.ready]
@@ -1261,20 +1261,20 @@ final class VisualVerificationXCTests: XCTestCase {
             stacksController.toggleStackExpanded("STACK_MOCK_ASSIGNED")
             stacksController.selectedReviewRequestFilters = []
 
-            let spread = try XCTUnwrap(stacksController.requestedSections.flatMap(\.visible).first {
+            let spread = try XCTUnwrap(stacksController.requestedSections.allItems.first {
                 $0.stack?.stack.id == "STACK_MOCK_SPREAD"
             })
             stacksController.setHidden(spread, hidden: true)
             try renderHiddenExpanded(
                 controller: stacksController,
-                mode: .reviewRequests,
+                tab: .reviewRequests,
                 to: outputURL.appendingPathComponent("menu-requested-stacks-hidden.png")
             )
             stacksController.setHidden(spread, hidden: false)
 
             // Authored stacks: collapsed and expanded groups, the Ready filter, and a hidden group.
             stacksController.selectedTab = .myPRs
-            let authoredStackIDs = stacksController.authoredList.visible.compactMap(\.stack?.stack.id)
+            let authoredStackIDs = stacksController.authoredSections.allItems.compactMap(\.stack?.stack.id)
             XCTAssertEqual(authoredStackIDs.count, 5)
             for size in MenuSizeCaptures.stackSizes {
                 try renderMenu(
@@ -1319,13 +1319,13 @@ final class VisualVerificationXCTests: XCTestCase {
             stacksController.toggleStackExpanded("STACK_MOCK_AUTHORED_FILTER")
             stacksController.selectedPullRequestFilters = []
 
-            let several = try XCTUnwrap(stacksController.authoredList.visible.first {
+            let several = try XCTUnwrap(stacksController.authoredSections.allItems.first {
                 $0.stack?.stack.id == "STACK_MOCK_AUTHORED_SEVERAL"
             })
             stacksController.setHidden(several, hidden: true)
             try renderHiddenExpanded(
                 controller: stacksController,
-                mode: .authored,
+                tab: .myPRs,
                 to: outputURL.appendingPathComponent("menu-authored-stacks-hidden.png")
             )
             stacksController.setHidden(several, hidden: false)
@@ -1656,8 +1656,8 @@ final class VisualVerificationXCTests: XCTestCase {
             LazyVStack(spacing: 36) {
                 ForEach(PullRequestColumnLegend.Column.allCases) { column in
                     VStack(spacing: 3) {
-                        RequestedSectionHeading(
-                            section: .assigned,
+                        PullRequestSectionHeading(
+                            section: PullRequestListSection(id: .assigned, title: "Assigned", accessibilityTitle: "Assigned", items: []),
                             count: 1,
                             isExpanded: true,
                             previewHoveredColumn: column,
@@ -1689,28 +1689,23 @@ final class VisualVerificationXCTests: XCTestCase {
         try render(view, size: size, appearance: .aqua, to: lightURL)
     }
 
-    /// Hidden rows can only be expanded through view state, so this fragment is rendered outside the menu factory.
+    /// The menu with the tab's Hidden section expanded through the controller, collapsed again afterwards.
     @MainActor
     private func renderHiddenExpanded(
         controller: DashboardController,
-        mode: PullRequestListView.Mode,
-        metrics: MenuMetrics = .standard,
+        tab: DashboardController.MenuTab,
+        menuSize: MenuSize = .standard,
         to url: URL
     ) throws {
-        let view = PullRequestListView(
-            controller: controller,
-            mode: mode,
-            hiddenPullRequestsExpanded: true
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(.regularMaterial)
-        .environment(\.menuNow, Self.visualNow)
-        .environment(\.menuMetrics, metrics)
-        let size = CGSize(width: metrics.panel.width, height: metrics.panelHeight - 100 * metrics.scale)
-        try render(view, size: size, to: url)
-        let lightFilename = url.deletingPathExtension().lastPathComponent + "-light." + url.pathExtension
-        let lightURL = url.deletingLastPathComponent().appendingPathComponent(lightFilename)
-        try render(view, size: size, appearance: .aqua, to: lightURL)
+        let previousTab = controller.selectedTab
+        controller.selectedTab = tab
+        precondition(!controller.isSectionExpanded(.hidden, in: tab))
+        controller.toggleSection(.hidden, in: tab)
+        defer {
+            controller.toggleSection(.hidden, in: tab)
+            controller.selectedTab = previousTab
+        }
+        try renderMenu(controller: controller, to: url, menuSize: menuSize)
     }
 
     /// The Settings window never scales: each tab renders the same at every menu size as at Default.

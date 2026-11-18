@@ -377,16 +377,6 @@ enum PullRequestListCopy {
     static let noFilterMatches = "No PRs match these filters."
 }
 
-enum HiddenPullRequestsDisclosurePresentation {
-    static func title(count: Int) -> String {
-        "Hidden (\(count))"
-    }
-
-    static func accessibilityLabel(count: Int, isExpanded: Bool) -> String {
-        "\(title(count: count)), \(isExpanded ? "expanded" : "collapsed")"
-    }
-}
-
 enum PullRequestPinPresentation {
     static func symbolName(isPinned: Bool) -> String {
         isPinned ? "pin.fill" : "pin"
@@ -1546,24 +1536,17 @@ struct PullRequestListView: View {
     @ObservedObject var controller: DashboardController
     let mode: Mode
     @Binding var dropdownState: PullRequestMenuDropdownState
-    @State private var isHiddenExpanded: Bool
-    @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
     @Environment(\.menuMetrics) private var metrics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         controller: DashboardController,
         mode: Mode,
-        dropdownState: Binding<PullRequestMenuDropdownState> = .constant(PullRequestMenuDropdownState()),
-        hiddenPullRequestsExpanded: Bool = false
+        dropdownState: Binding<PullRequestMenuDropdownState> = .constant(PullRequestMenuDropdownState())
     ) {
         self.controller = controller
         self.mode = mode
         _dropdownState = dropdownState
-        _isHiddenExpanded = State(initialValue: hiddenPullRequestsExpanded)
-        _expandedRequestedHiddenSections = State(
-            initialValue: hiddenPullRequestsExpanded ? Set(DashboardController.RequestedSection.allCases) : []
-        )
     }
 
     var body: some View {
@@ -1584,129 +1567,92 @@ struct PullRequestListView: View {
         }
     }
 
+    private var tab: DashboardController.MenuTab {
+        switch mode {
+        case .authored: .myPRs
+        case .reviewRequests: .reviewRequests
+        }
+    }
+
     /// The empty states come from the grouped list, so own PRs the grouping drops (stale stack entries) count as
-    /// no PRs.
+    /// no PRs. With headings, a filter that matches nothing shows the headings with 0 instead.
     @ViewBuilder
     private var authoredContent: some View {
-        let list = controller.authoredList
+        let sections = controller.authoredSections
         if !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
-        } else if list.visible.isEmpty, list.hidden.isEmpty {
+        } else if PullRequestListSection.showsHeadings(sections) {
+            sectionedList(sections)
+        } else if sections.allSatisfy({ $0.items.isEmpty }) {
             EmptyMenuState(
                 text: controller.selectedPullRequestFilters.subtracting([.all]).isEmpty
                     ? PullRequestListCopy.emptyAuthored
                     : PullRequestListCopy.noFilterMatches
             )
         } else {
-            ScrollView(.vertical) {
-                LazyVStack(spacing: metrics.prColumns.rowSpacing) {
-                    PullRequestColumnHeader()
+            scrollingList(spacing: metrics.prColumns.rowSpacing) {
+                PullRequestColumnHeader()
 
-                    stackListBody(list, isHiddenExpanded: isHiddenExpanded) {
-                        isHiddenExpanded.toggle()
-                    }
-                }
-                .padding(.leading, metrics.prList.horizontalPadding)
-                .padding(.trailing, metrics.prList.trailingPadding)
-                .padding(.top, metrics.prList.topPadding)
-                .padding(.bottom, metrics.prList.bottomPadding)
-                .background(PullRequestListScrollerStyle())
+                stackListBody(sections.flatMap(\.items))
             }
         }
     }
 
     private var requestedContent: some View {
+        sectionedList(controller.requestedSections)
+    }
+
+    private func sectionedList(_ sections: [PullRequestListSection]) -> some View {
+        scrollingList(spacing: metrics.prList.sectionSpacing) {
+            ForEach(sections, id: \.id) { section in
+                sectionView(section)
+            }
+        }
+    }
+
+    private func scrollingList<Content: View>(spacing: CGFloat, @ViewBuilder content: () -> Content) -> some View {
         ScrollView(.vertical) {
-            LazyVStack(spacing: metrics.prList.sectionSpacing) {
-                ForEach(controller.requestedSections, id: \.section) { content in
-                    requestedSection(content)
-                }
-            }
-            .padding(.leading, metrics.prList.horizontalPadding)
-            .padding(.trailing, metrics.prList.trailingPadding)
-            .padding(.top, metrics.prList.topPadding)
-            .padding(.bottom, metrics.prList.bottomPadding)
-            .background(PullRequestListScrollerStyle())
+            LazyVStack(spacing: spacing, content: content)
+                .padding(.leading, metrics.prList.horizontalPadding)
+                .padding(.trailing, metrics.prList.trailingPadding)
+                .padding(.top, metrics.prList.topPadding)
+                .padding(.bottom, metrics.prList.bottomPadding)
+                .background(PullRequestListScrollerStyle())
         }
     }
 
-    private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
+    private func sectionView(_ section: PullRequestListSection) -> some View {
         VStack(spacing: metrics.prColumns.rowSpacing) {
-            requestedSectionDisclosure(content)
+            sectionHeading(section)
 
-            if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
-                stackListBody(
-                    content.content,
-                    isHiddenExpanded: expandedRequestedHiddenSections.contains(content.section)
-                ) {
-                    if expandedRequestedHiddenSections.contains(content.section) {
-                        expandedRequestedHiddenSections.remove(content.section)
-                    } else {
-                        expandedRequestedHiddenSections.insert(content.section)
-                    }
-                }
+            if controller.isSectionExpanded(section.id, in: tab), !section.items.isEmpty {
+                stackListBody(section.items)
             }
         }
     }
 
-    /// One list's items and its Hidden disclosure, in a plain stack so an expanding group pushes the rows below it.
-    private func stackListBody(
-        _ content: PullRequestListContent,
-        isHiddenExpanded: Bool,
-        toggleHidden: @escaping () -> Void
-    ) -> some View {
+    /// One list's items in a plain stack, so an expanding group pushes the rows below it.
+    private func stackListBody(_ items: [PullRequestListItem]) -> some View {
         VStack(spacing: metrics.prColumns.rowSpacing) {
-            ForEach(content.visible) { item in
+            ForEach(items) { item in
                 stackListItem(item)
-                    .id("visible-\(item.id)")
-            }
-
-            if !content.hidden.isEmpty {
-                hiddenDisclosure(count: content.hiddenCount, isExpanded: isHiddenExpanded, toggle: toggleHidden)
-
-                if isHiddenExpanded {
-                    ForEach(content.hidden) { item in
-                        stackListItem(item)
-                            .id("hidden-\(item.id)")
-                    }
-                }
             }
         }
     }
 
-    private func requestedSectionDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
-        RequestedSectionHeading(
-            section: content.section,
-            count: content.count,
-            isExpanded: controller.isRequestedSectionExpanded(content.section)
+    private func sectionHeading(_ section: PullRequestListSection) -> some View {
+        PullRequestSectionHeading(
+            section: section,
+            count: section.count,
+            isExpanded: controller.isSectionExpanded(section.id, in: tab)
         ) {
-            if NSEvent.modifierFlags.contains(.option) {
-                controller.toggleAllRequestedSections(from: content.section)
+            // The click's own flags, so a synthesized Option-click behaves like a real one.
+            if NSApp.currentEvent?.modifierFlags.contains(.option) == true {
+                controller.toggleAllSections(from: section.id, in: tab)
             } else {
-                controller.toggleRequestedSection(content.section)
+                controller.toggleSection(section.id, in: tab)
             }
         }
-    }
-
-    private func hiddenDisclosure(count: Int, isExpanded: Bool, toggle: @escaping () -> Void) -> some View {
-        Button(action: toggle) {
-            HStack(spacing: metrics.prList.disclosureSpacing) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(metrics.type.disclosureChevron.font)
-                Text(HiddenPullRequestsDisclosurePresentation.title(count: count))
-                    .font(metrics.type.disclosureTitle.font)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, metrics.prList.disclosureHorizontalPadding)
-            .frame(height: metrics.prList.disclosureHeight)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
-            count: count,
-            isExpanded: isExpanded
-        ))
     }
 
     /// A list item shows its representative; a stack group's actions apply to every full member.
@@ -2264,8 +2210,8 @@ struct PullRequestNotificationRow: View {
     }
 }
 
-struct RequestedSectionHeading: View {
-    let section: DashboardController.RequestedSection
+struct PullRequestSectionHeading: View {
+    let section: PullRequestListSection
     let count: Int
     let isExpanded: Bool
     var previewHoveredColumn: PullRequestColumnLegend.Column? = nil
@@ -2290,7 +2236,7 @@ struct RequestedSectionHeading: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("\(section.title), \(count) PRs, \(isExpanded ? "expanded" : "collapsed")")
+            .accessibilityLabel(Self.accessibilityLabel(section: section, count: count, isExpanded: isExpanded))
 
             if isExpanded {
                 PullRequestColumnLegend(previewHoveredColumn: previewHoveredColumn)
@@ -2299,6 +2245,12 @@ struct RequestedSectionHeading: View {
         .padding(.trailing, metrics.prColumns.horizontalInset)
         .frame(height: metrics.prColumns.headerHeight)
         .zIndex(1)
+    }
+
+    /// The count is cards, and a stack card holds several PRs, so it says items.
+    static func accessibilityLabel(section: PullRequestListSection, count: Int, isExpanded: Bool) -> String {
+        let items = CountSearchPresentation.countLabel(for: count, singular: "item", plural: "items")
+        return "\(section.accessibilityTitle), \(items), \(isExpanded ? "expanded" : "collapsed")"
     }
 }
 
@@ -3368,7 +3320,7 @@ extension ReviewDecisionIndicator.Kind {
     }
 }
 
-/// The small capsule count used by the Requested section headings.
+/// The small capsule count used by the PR section headings.
 struct CountBubble: View {
     let text: String
 

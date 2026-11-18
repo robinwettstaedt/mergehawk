@@ -969,6 +969,137 @@ final class MenuViewTests: XCTestCase {
         return (OffScreenHost(hostingView), size)
     }
 
+    // MARK: - PR sections
+
+    /// The section headings shown in the menu, top first.
+    @MainActor
+    private func sectionHeadings(in host: OffScreenHost) throws -> [String] {
+        try accessibilityButtons(in: host)
+            .filter { $0.label.range(of: #"^.+, \d+ items?, (expanded|collapsed)$"#, options: .regularExpression) != nil }
+            .sorted { $0.frame.minY > $1.frame.minY }
+            .map(\.label)
+    }
+
+    @MainActor
+    private func hostSectionsMenu(_ controller: DashboardController, tab: DashboardController.MenuTab) -> OffScreenHost {
+        controller.selectedTab = tab
+        let (host, _) = hostMenuRoot(controller: controller, tooltips: MenuTooltipController())
+        return host
+    }
+
+    /// Clicks a section heading by its accessibility label, with Option held when `option` is set.
+    @MainActor
+    private func clickHeading(_ label: String, in host: OffScreenHost, option: Bool = false) throws {
+        let frame = try accessibilityButtonFrame(labeled: label, in: host)
+        let location = CGPoint(x: frame.midX, y: frame.midY)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            host.send(try XCTUnwrap(NSEvent.mouseEvent(
+                with: type, location: location, modifierFlags: option ? .option : [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: host.window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            )))
+        }
+    }
+
+    @MainActor
+    func testRequestedRendersOneHeadingPerSectionInOrderAndNoHiddenCountControl() throws {
+        let controller = try isolatedSignedInMockController()
+        controller.pinnedPullRequestIds = ["PR_2"]
+        controller.hiddenPullRequestIds = ["PR_3"]
+        let host = hostSectionsMenu(controller, tab: .reviewRequests)
+        defer { host.close() }
+
+        XCTAssertEqual(try sectionHeadings(in: host), [
+            "Pinned, 1 item, expanded",
+            "Assigned, 1 item, expanded",
+            "Direct, 1 item, expanded",
+            "Team, 0 items, expanded",
+            "Hidden, 1 item, collapsed"
+        ])
+        XCTAssertFalse(try accessibilityButtons(in: host).contains { $0.label.hasPrefix("Hidden (") })
+    }
+
+    @MainActor
+    func testAuthoredWithoutPinnedOrHiddenPRsRendersTheColumnHeaderAndNoHeading() throws {
+        let controller = try isolatedSignedInMockController()
+        let host = hostSectionsMenu(controller, tab: .myPRs)
+        defer { host.close() }
+
+        XCTAssertEqual(try sectionHeadings(in: host), [])
+        XCTAssertEqual(try accessibilityElements(labeled: "Unresolved comments", in: host), 1, "the column header legend")
+    }
+
+    @MainActor
+    func testAuthoredWithAPinnedPRRendersPinnedAndActiveHeadingsAndNoColumnHeader() throws {
+        let controller = try isolatedSignedInMockController()
+        controller.pinnedPullRequestIds = ["PR_6"]
+        let host = hostSectionsMenu(controller, tab: .myPRs)
+        defer { host.close() }
+
+        XCTAssertEqual(try sectionHeadings(in: host), ["Pinned, 1 item, expanded", "Active, 2 items, expanded"])
+        // One legend per expanded heading, and none from a column header.
+        XCTAssertEqual(try accessibilityElements(labeled: "Unresolved comments", in: host), 2)
+    }
+
+    @MainActor
+    func testAuthoredWithAPinnedPRAndAFilterMatchingNothingShowsTheHeadingsWithZero() throws {
+        let controller = try isolatedSignedInMockController()
+        controller.pinnedPullRequestIds = ["PR_6"]
+        // No authored mock PR is approved.
+        controller.selectedPullRequestFilters = [.approved]
+        let host = hostSectionsMenu(controller, tab: .myPRs)
+        defer { host.close() }
+
+        XCTAssertEqual(try sectionHeadings(in: host), ["Pinned, 0 items, expanded", "Active, 0 items, expanded"])
+        XCTAssertEqual(try accessibilityButtons(in: host).filter { $0.label == "PR actions" }.count, 0)
+    }
+
+    @MainActor
+    func testACollapsedSectionRendersItsHeadingAndNoCards() throws {
+        let controller = try isolatedSignedInMockController()
+        let host = hostSectionsMenu(controller, tab: .reviewRequests)
+        defer { host.close() }
+        XCTAssertEqual(try accessibilityButtons(in: host).filter { $0.label == "PR actions" }.count, 4)
+
+        controller.toggleSection(.direct, in: .reviewRequests)
+        host.settle()
+
+        XCTAssertTrue(try sectionHeadings(in: host).contains("Direct, 2 items, collapsed"))
+        XCTAssertEqual(try accessibilityButtons(in: host).filter { $0.label == "PR actions" }.count, 2)
+    }
+
+    @MainActor
+    func testClickingAHeadingTogglesOnlyItsSectionAndOptionClickTogglesEveryShownSectionInTheTab() throws {
+        let controller = try isolatedSignedInMockController()
+        controller.pinnedPullRequestIds = ["PR_2", "PR_6"]
+        let host = hostSectionsMenu(controller, tab: .reviewRequests)
+        defer { host.close() }
+
+        try clickHeading("Direct, 1 item, expanded", in: host)
+        XCTAssertEqual(try sectionHeadings(in: host), [
+            "Pinned, 1 item, expanded", "Assigned, 1 item, expanded", "Direct, 1 item, collapsed", "Team, 1 item, expanded"
+        ])
+
+        try clickHeading("Assigned, 1 item, expanded", in: host, option: true)
+        XCTAssertEqual(try sectionHeadings(in: host), [
+            "Pinned, 1 item, collapsed", "Assigned, 1 item, collapsed", "Direct, 1 item, collapsed", "Team, 1 item, collapsed"
+        ])
+        XCTAssertTrue(controller.isSectionExpanded(.pinned, in: .myPRs))
+        XCTAssertTrue(controller.isSectionExpanded(.active, in: .myPRs))
+
+        try clickHeading("Team, 1 item, collapsed", in: host, option: true)
+        XCTAssertEqual(try sectionHeadings(in: host), [
+            "Pinned, 1 item, expanded", "Assigned, 1 item, expanded", "Direct, 1 item, expanded", "Team, 1 item, expanded"
+        ])
+    }
+
+    func testHeadingAccessibilityLabelCountsItemsAndSaysWhetherItIsExpanded() {
+        let section = PullRequestListSection(id: .direct, title: "Direct", accessibilityTitle: "Direct", items: [])
+
+        XCTAssertEqual(PullRequestSectionHeading.accessibilityLabel(section: section, count: 3, isExpanded: true), "Direct, 3 items, expanded")
+        XCTAssertEqual(PullRequestSectionHeading.accessibilityLabel(section: section, count: 1, isExpanded: false), "Direct, 1 item, collapsed")
+    }
+
     // MARK: - Header dropdown dismissal
 
     @MainActor
@@ -1002,7 +1133,7 @@ final class MenuViewTests: XCTestCase {
     @MainActor
     func testClickInTheTopBarLeadingInsetClosesAPullRequestActionsMenu() throws {
         let controller = try isolatedSignedInMockController()
-        let firstID = try XCTUnwrap(controller.authoredList.visible.first).id
+        let firstID = try XCTUnwrap(controller.authoredSections.allItems.first).representative.id
         try assertClickInTopBar(
             controller: controller,
             with: .actions(firstID),
@@ -1518,7 +1649,7 @@ final class MenuViewTests: XCTestCase {
             automaticRefreshInterval: 0
         )
         waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
-        let row = try XCTUnwrap(controller.requestedSections.flatMap(\.visible).first { $0.stack?.stack.id == stackID })
+        let row = try XCTUnwrap(controller.requestedSections.allItems.first { $0.stack?.stack.id == stackID })
         return (controller, row)
     }
 
@@ -2341,8 +2472,8 @@ final class MenuViewTests: XCTestCase {
                 controller.reviewRequestSortDirection = controller.reviewRequestSortDirection.toggled
             }
             let visibleRows = testCase.tab == .myPRs
-                ? controller.authoredList.visible
-                : controller.requestedSections.flatMap(\.visible)
+                ? controller.authoredSections.allItems
+                : controller.requestedSections.allItems
             XCTAssertGreaterThan(
                 try XCTUnwrap(visibleRows.firstIndex { $0.stack?.stack.id == testCase.stackID }, label), 0,
                 "other cards sit above the group, \(label)"
@@ -2400,8 +2531,8 @@ final class MenuViewTests: XCTestCase {
         defer { host.close() }
 
         // Only stack groups get a control, so the unstacked #600 card has none.
-        let stackIDs = controller.authoredList.visible.compactMap(\.stack?.stack.id)
-        XCTAssertTrue(controller.authoredList.visible.contains { $0.id == "PR_STACKS_UNSTACKED_MINE" && $0.stack == nil })
+        let stackIDs = controller.authoredSections.allItems.compactMap(\.stack?.stack.id)
+        XCTAssertTrue(controller.authoredSections.allItems.contains { $0.id == "PR_STACKS_UNSTACKED_MINE" && $0.stack == nil })
         XCTAssertEqual(Set(frames.controls.keys), Set(stackIDs))
         XCTAssertEqual(stackIDs.count, 5)
         let collapsed = try XCTUnwrap(frames.controls[Self.authoredSeveral])
@@ -2430,23 +2561,23 @@ final class MenuViewTests: XCTestCase {
     }
 
     @MainActor
-    func testAuthoredHiddenDisclosureCountsTheHiddenGroupsMembersAndShowsItAsAStackCard() throws {
+    func testAuthoredHiddenSectionCountsTheHiddenGroupAsOneCardAndShowsItAsAStackCard() throws {
         let controller = try stackMenuController(tab: .myPRs)
-        let several = try XCTUnwrap(controller.authoredList.visible.first { $0.stack?.stack.id == Self.authoredSeveral })
+        let several = try XCTUnwrap(controller.authoredSections.allItems.first { $0.stack?.stack.id == Self.authoredSeveral })
         controller.setHidden(several, hidden: true)
         let frames = StackMenuFrames()
         let (host, _) = hostStackMenu(controller, frames: frames)
         defer { host.close() }
         XCTAssertNil(frames.controls[Self.authoredSeveral])
 
-        let disclosure = try accessibilityButtonFrame(labeled: "Hidden (3), collapsed", in: host)
+        let heading = try accessibilityButtonFrame(labeled: "Hidden, 1 item, collapsed", in: host)
         try click(host, atTopLeft: CGPoint(
-            x: disclosure.midX, y: host.window.contentView!.bounds.height - disclosure.midY
+            x: heading.midX, y: host.window.contentView!.bounds.height - heading.midY
         ))
         relayout(host)
 
         XCTAssertEqual(frames.controls[Self.authoredSeveral]?.fractionText, "2/4")
-        _ = try accessibilityButtonFrame(labeled: "Hidden (3), expanded", in: host)
+        _ = try accessibilityButtonFrame(labeled: "Hidden, 1 item, expanded", in: host)
     }
 
     /// The grouped list decides the empty states, so a stale own entry the grouping drops leaves no header-only list.
@@ -2460,12 +2591,12 @@ final class MenuViewTests: XCTestCase {
             unreadIDs: ["PR_STACK_MOCK_AUTHORED_STALE_1"]
         )
         controller.selectedPullRequestFilters = [.needsAttention]
-        XCTAssertEqual(controller.authoredList.visible + controller.authoredList.hidden, [])
+        XCTAssertEqual(controller.authoredSections.allItems, [])
         let attention = try renderAuthoredList(controller)
 
         // No mock PR has changes requested, so this filter matches nothing through the plain filter.
         controller.selectedPullRequestFilters = [.changesRequested]
-        XCTAssertEqual(controller.authoredList.visible + controller.authoredList.hidden, [])
+        XCTAssertEqual(controller.authoredSections.allItems, [])
         XCTAssertEqual(attention, try renderAuthoredList(controller))
 
         let empty = try authoredProviderController(pullRequests: [], stacks: [], unreadIDs: [])
@@ -2490,7 +2621,7 @@ final class MenuViewTests: XCTestCase {
             pullRequests: [stale], stacks: [PullRequestStack(id: "S", size: 2, entries: entries)], unreadIDs: []
         )
         XCTAssertEqual(controller.sourceFilteredMyPullRequests.map(\.id), [stale.id])
-        XCTAssertEqual(controller.authoredList.count, 0)
+        XCTAssertEqual(controller.authoredSections.allItems, [])
 
         let empty = try authoredProviderController(pullRequests: [], stacks: [], unreadIDs: [])
         XCTAssertEqual(try renderAuthoredList(controller), try renderAuthoredList(empty))
@@ -2577,7 +2708,7 @@ final class MenuViewTests: XCTestCase {
         // As in the live inspection: Assigned collapsed, so Direct and Team fit until a Direct stack expands.
         for (stackID, representative) in [("STACK_MOCK_SPREAD", "2/4"), ("STACK_MOCK_POSITION_3", "3/3")] {
             let controller = try stackMenuController()
-            controller.toggleRequestedSection(.assigned)
+            controller.toggleSection(.assigned, in: .reviewRequests)
             let frames = StackMenuFrames()
             let (host, view) = hostStackMenu(controller, frames: frames)
             defer { host.close() }
@@ -2815,7 +2946,7 @@ final class MenuViewTests: XCTestCase {
             urlOpener: { opened.append($0) }
         )
         waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
-        let group = try XCTUnwrap(controller.requestedSections.flatMap(\.visible).first {
+        let group = try XCTUnwrap(controller.requestedSections.allItems.first {
             $0.stack?.stack.id == "STACK_MOCK_SPREAD"
         }?.stack)
 
@@ -3027,15 +3158,6 @@ final class MenuViewTests: XCTestCase {
     precondition(PullRequestListCopy.emptyAuthored == "No authored PRs.")
     precondition(PullRequestListCopy.emptyReviewRequests == "No review requests or assigned PRs.")
     precondition(PullRequestListCopy.noFilterMatches == "No PRs match these filters.")
-    precondition(HiddenPullRequestsDisclosurePresentation.title(count: 3) == "Hidden (3)")
-    precondition(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
-        count: 3,
-        isExpanded: false
-    ) == "Hidden (3), collapsed")
-    precondition(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
-        count: 3,
-        isExpanded: true
-    ) == "Hidden (3), expanded")
     precondition(PullRequestPinPresentation.symbolName(isPinned: false) == "pin")
     precondition(PullRequestPinPresentation.symbolName(isPinned: true) == "pin.fill")
     precondition(PullRequestPinPresentation.label(isPinned: false) == "Pin")
@@ -3296,13 +3418,6 @@ final class MenuViewTests: XCTestCase {
     precondition(DashboardController.filtered([older, newer, draft], by: [.approved], events: [event]).map(\.id) == ["older"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.ciFailing], events: [event]).map(\.id) == ["newer"])
     precondition(DashboardController.filtered([older, newer, draft], by: [.changesRequested, .draft], events: [event]).map(\.id) == ["newer", "draft"])
-    precondition(DashboardController.sortedWithPins([older, newer, draft], pinnedIds: ["older"], by: .createdDate).map(\.id) == ["older", "draft", "newer"])
-    precondition(DashboardController.sortedWithPins([older, newer, draft], pinnedIds: ["draft", "older"], by: .updatedDate).map(\.id) == ["draft", "older", "newer"])
-    precondition(DashboardController.sortedWithPins(
-        DashboardController.filtered([older, newer, draft], by: [.ready], events: [event]),
-        pinnedIds: ["draft"],
-        by: .createdDate
-    ).map(\.id) == ["newer", "older"])
 
     let directReview = PullRequest(
         id: "direct",
@@ -3644,6 +3759,41 @@ private struct TopBarPoints {
         return controlsTop - metrics.dropdownOffset - dropdown.verticalPadding
             - CGFloat(index) * (dropdown.itemHeight + dropdown.itemSpacing)
     }
+}
+
+/// Every accessibility element in the hosted view with its label, role and window frame, found through the in-process
+/// NSAccessibility protocol, so it needs no Accessibility permission.
+@MainActor
+private func accessibilityTree(in host: OffScreenHost) throws -> [(label: String, role: NSAccessibility.Role?, frame: CGRect)] {
+    // SwiftUI builds its accessibility tree only once an assistive client asks for it.
+    let enhancedInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+    NSApplication.shared.accessibilitySetValue(true, forAttribute: enhancedInterface)
+    defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhancedInterface) }
+    host.settle()
+    var queue: [AnyObject] = [try XCTUnwrap(host.window.contentView)]
+    var visited: Set<ObjectIdentifier> = []
+    var elements: [(label: String, role: NSAccessibility.Role?, frame: CGRect)] = []
+    var index = 0
+    while index < queue.count, visited.count < 5_000 {
+        let object = queue[index]
+        index += 1
+        guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+        if let label = object.accessibilityLabel?(), let element = object as? NSAccessibilityElementProtocol {
+            elements.append((label, object.accessibilityRole?(), host.window.convertFromScreen(element.accessibilityFrame())))
+        }
+        queue += ((object.accessibilityChildren?() ?? nil) ?? []).map { $0 as AnyObject }
+    }
+    return elements
+}
+
+@MainActor
+private func accessibilityButtons(in host: OffScreenHost) throws -> [(label: String, frame: CGRect)] {
+    try accessibilityTree(in: host).filter { $0.role == .button }.map { ($0.label, $0.frame) }
+}
+
+@MainActor
+private func accessibilityElements(labeled label: String, in host: OffScreenHost) throws -> Int {
+    try accessibilityTree(in: host).filter { $0.label == label }.count
 }
 
 /// The window frame of the one accessibility button with this label in the hosted view, found through the in-process

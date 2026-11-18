@@ -11,7 +11,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
     private typealias ReviewRequestFilterOption = DashboardController.ReviewRequestFilterOption
     private typealias PullRequestFilterOption = DashboardController.PullRequestFilterOption
 
-    func testWithoutStacksSectionsMatchTodaysPartitionOrderingAndCounts() {
+    func testWithoutStacksEachRequestedSectionHoldsItsPRsSortedWithoutPinnedFirst() {
         let requested = MockPullRequestSource(scenario: .longLists).firstRefreshPullRequests
             .filter(DashboardController.isRequestedPullRequest)
         XCTAssertGreaterThan(requested.count, 6)
@@ -22,86 +22,285 @@ final class PullRequestStackGroupingTests: XCTestCase {
             for direction in [PullRequestSortDirection.ascending, .descending] {
                 for filters in [Set<ReviewRequestFilterOption>(), [.draft], [.ready]] {
                     let matching = DashboardController.filteredReviewRequests(requested, by: filters)
-                    let visible = DashboardController.sortedWithPins(
-                        matching.filter { !hidden.contains($0.id) }, pinnedIds: pinned, by: option, direction: direction
-                    )
-                    let hiddenPRs = DashboardController.sorted(
-                        matching.filter { hidden.contains($0.id) }, by: option, direction: direction
-                    )
+                    func expected(_ id: PullRequestSectionID) -> [String] {
+                        DashboardController.sorted(matching.filter { pr in
+                            if hidden.contains(pr.id) { return id == .hidden }
+                            if pinned.contains(pr.id) { return id == .pinned }
+                            return Section.section(for: pr)?.sectionID == id
+                        }, by: option, direction: direction).map(\.id)
+                    }
 
-                    let sections = PullRequestStackGrouping.sections(
+                    let sections = PullRequestStackGrouping.requestedSections(
                         requested: requested, matching: matching, stacks: [],
                         hiddenIDs: hidden, pinnedIDs: pinned, unreadIDs: unread,
                         sortOption: option, sortDirection: direction
                     )
 
-                    XCTAssertEqual(sections.map(\.section), Section.allCases)
-                    for content in sections {
-                        let todayVisible = visible.filter { Section.section(for: $0) == content.section }
-                        let todayHidden = hiddenPRs.filter { Section.section(for: $0) == content.section }
-                        XCTAssertEqual(content.visible.map(\.representative.id), todayVisible.map(\.id))
-                        XCTAssertEqual(content.hidden.map(\.representative.id), todayHidden.map(\.id))
-                        XCTAssertEqual(content.count, todayVisible.count + todayHidden.count)
-                        XCTAssertEqual(content.hiddenCount, todayHidden.count)
-                        XCTAssertTrue(content.visible.allSatisfy { $0.stack == nil && !$0.isHidden })
-                        XCTAssertEqual(content.visible.map(\.isPinned), todayVisible.map { pinned.contains($0.id) })
-                        XCTAssertEqual(content.visible.map(\.isUnread), todayVisible.map { unread.contains($0.id) })
+                    let context = "\(option) \(direction) \(filters)"
+                    XCTAssertEqual(sections.map(\.id), [.pinned, .assigned, .direct, .team, .hidden], context)
+                    for section in sections {
+                        XCTAssertEqual(section.items.map(\.representative.id), expected(section.id), context)
+                        XCTAssertEqual(section.count, section.items.count, context)
+                        XCTAssertTrue(section.items.allSatisfy { $0.stack == nil }, context)
+                        XCTAssertTrue(section.items.allSatisfy { $0.isHidden == (section.id == .hidden) }, context)
+                        XCTAssertTrue(section.items.allSatisfy { $0.isPinned == (section.id == .pinned) }, context)
+                        XCTAssertEqual(section.items.map(\.isUnread), section.items.map { unread.contains($0.id) }, context)
                     }
+                    XCTAssertEqual(sections.map(\.count).reduce(0, +), matching.count, context)
                 }
             }
         }
     }
 
-    func testWithoutStacksAuthoredListMatchesTodaysFilteredSortedAndHiddenLists() {
+    func testWithoutStacksAuthoredSectionsHoldTheirPRsSortedWithoutPinnedFirst() {
         let own = MockPullRequestSource(scenario: .longLists).firstRefreshPullRequests.filter(\.isMine)
         XCTAssertGreaterThan(own.count, 6)
         let hidden = Set(own.prefix(3).map(\.id))
-        let pinned = Set(own.dropFirst(2).prefix(3).map(\.id))
+        let pinned = Set(own.dropFirst(3).prefix(3).map(\.id))
         let unread = Set(own.suffix(3).map(\.id) + own.prefix(1).map(\.id))
         let filterSets: [Set<PullRequestFilterOption>] = [[], [.needsAttention], [.draft], [.changesRequested, .ciFailing]]
         for option in [PullRequestSortOption.createdDate, .updatedDate, .changeSize] {
             for direction in [PullRequestSortDirection.ascending, .descending] {
                 for filters in filterSets {
                     let matching = DashboardController.filtered(own, by: filters, attentionPullRequestIds: unread)
-                    let todayVisible = DashboardController.sortedWithPins(
-                        matching.filter { !hidden.contains($0.id) }, pinnedIds: pinned, by: option, direction: direction
-                    )
-                    let todayHidden = DashboardController.sorted(
-                        matching.filter { hidden.contains($0.id) }, by: option, direction: direction
-                    )
+                    func expected(_ id: PullRequestSectionID) -> [String] {
+                        DashboardController.sorted(matching.filter { pr in
+                            if hidden.contains(pr.id) { return id == .hidden }
+                            if pinned.contains(pr.id) { return id == .pinned }
+                            return id == .active
+                        }, by: option, direction: direction).map(\.id)
+                    }
 
-                    let list = PullRequestStackGrouping.list(
+                    let sections = PullRequestStackGrouping.authoredSections(
                         members: own, matching: matching, stacks: [],
                         hiddenIDs: hidden, pinnedIDs: pinned, unreadIDs: unread,
                         sortOption: option, sortDirection: direction
                     )
 
                     let context = "\(option) \(direction) \(filters)"
-                    XCTAssertEqual(list.visible.map(\.representative.id), todayVisible.map(\.id), context)
-                    XCTAssertEqual(list.hidden.map(\.representative.id), todayHidden.map(\.id), context)
-                    XCTAssertEqual(list.count, todayVisible.count + todayHidden.count, context)
-                    XCTAssertEqual(list.hiddenCount, todayHidden.count, context)
-                    XCTAssertTrue((list.visible + list.hidden).allSatisfy { $0.stack == nil }, context)
-                    XCTAssertTrue(list.hidden.allSatisfy(\.isHidden) && !list.visible.contains(where: \.isHidden), context)
-                    XCTAssertEqual(list.hidden.map(\.isPinned), todayHidden.map { pinned.contains($0.id) }, context)
-                    XCTAssertEqual(list.visible.map(\.isPinned), todayVisible.map { pinned.contains($0.id) }, context)
-                    XCTAssertEqual(list.visible.map(\.isUnread), todayVisible.map { unread.contains($0.id) }, context)
-                    XCTAssertEqual(list.hidden.map(\.isUnread), todayHidden.map { unread.contains($0.id) }, context)
+                    XCTAssertEqual(sections.map(\.id), [.pinned, .active, .hidden], context)
+                    for section in sections {
+                        XCTAssertEqual(section.items.map(\.representative.id), expected(section.id), context)
+                        XCTAssertTrue(section.items.allSatisfy { $0.isHidden == (section.id == .hidden) }, context)
+                        XCTAssertTrue(section.items.allSatisfy { $0.isPinned == (section.id == .pinned) }, context)
+                        XCTAssertEqual(section.items.map(\.isUnread), section.items.map { unread.contains($0.id) }, context)
+                    }
+                    XCTAssertEqual(sections.map(\.count).reduce(0, +), matching.count, context)
                 }
             }
         }
     }
+
+    // MARK: - Sections
+
+    func testPinnedPRFromAssignedDirectOrTeamAppearsOnlyInPinned() {
+        let assigned = Self.pr("PR_ASSIGNED", .assigned)
+        let direct = Self.pr("PR_DIRECT", .direct)
+        let team = Self.pr("PR_TEAM", .team)
+
+        for pinned in [assigned, direct, team] {
+            let sections = Self.sections([assigned, direct, team], stacks: [], pinned: [pinned.id])
+
+            let holding = sections.filter { $0.items.contains { $0.id == pinned.id } }.map(\.id)
+            XCTAssertEqual(holding, [.pinned], pinned.id)
+        }
+    }
+
+    func testHiddenPRAppearsOnlyInHiddenEvenWhenItIsAlsoPinned() {
+        let direct = Self.pr("PR_DIRECT", .direct)
+        let team = Self.pr("PR_TEAM", .team)
+
+        let hidden = Self.sections([direct, team], stacks: [], hidden: [direct.id])
+        // Hiding a pinned PR unpins it, but even a PR that is both shows only under Hidden.
+        let hiddenAndPinned = Self.sections([direct, team], stacks: [], hidden: [direct.id], pinned: [direct.id])
+
+        XCTAssertEqual(Self.ids(hidden), [.assigned: [], .direct: [], .team: [team.id], .hidden: [direct.id]])
+        XCTAssertEqual(Self.ids(hiddenAndPinned), Self.ids(hidden))
+        XCTAssertEqual(hiddenAndPinned.map(\.id), [.assigned, .direct, .team, .hidden])
+    }
+
+    func testPinnedAndHiddenAreAbsentWhenNothingIsPinnedOrHiddenAndRelationshipSectionsAlwaysShow() {
+        XCTAssertEqual(Self.sections([], stacks: []).map(\.id), [.assigned, .direct, .team])
+        XCTAssertEqual(Self.sections([Self.pr("PR_DIRECT", .direct)], stacks: []).map(\.id), [.assigned, .direct, .team])
+    }
+
+    func testSectionOrderIsPinnedAssignedDirectTeamHidden() {
+        let pinned = Self.pr("PR_PINNED", .team)
+        let hidden = Self.pr("PR_HIDDEN", .assigned)
+
+        let sections = Self.sections([pinned, hidden], stacks: [], hidden: [hidden.id], pinned: [pinned.id])
+
+        XCTAssertEqual(sections.map(\.id), [.pinned, .assigned, .direct, .team, .hidden])
+        XCTAssertEqual(sections.map(\.title), ["Pinned", "Assigned", "Direct", "Team", "Hidden"])
+        XCTAssertEqual(sections.map(\.accessibilityTitle), sections.map(\.title))
+    }
+
+    func testStackWithAPinnedOpenMemberIsOneCardInPinned() throws {
+        let bottom = Self.pr("PR_BOTTOM", .direct, stack: "S")
+        let top = Self.pr("PR_TOP", .team, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, bottom.id, .open), (2, top.id, .open)])
+
+        let sections = Self.sections([bottom, top], stacks: [stack], pinned: [top.id])
+
+        XCTAssertEqual(Self.ids(sections), [.pinned: [bottom.id], .assigned: [], .direct: [], .team: []])
+        let card = try XCTUnwrap(sections.first?.items.first)
+        XCTAssertTrue(card.isPinned)
+        XCTAssertEqual(card.stack?.fullMemberIDs, [bottom.id, top.id])
+    }
+
+    func testStackPinnedThroughADraftMemberStaysInPinnedWithReadySelected() throws {
+        let ready = Self.pr("PR_READY", .direct, stack: "S")
+        let draft = Self.pr("PR_DRAFT", .direct, draft: true, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, ready.id, .open), (2, draft.id, .open)])
+
+        let sections = Self.sections([ready, draft], filters: [.ready], stacks: [stack], pinned: [draft.id])
+
+        XCTAssertEqual(Self.ids(sections), [.pinned: [ready.id], .assigned: [], .direct: [], .team: []])
+        XCTAssertEqual(sections.first?.items.first?.isPinned, true)
+    }
+
+    func testStackWithEveryOpenMemberHiddenIsOneCardInHiddenAndStaysThereWithDraftSelected() throws {
+        let ready = Self.pr("PR_READY", .direct, stack: "S")
+        let draft = Self.pr("PR_DRAFT", .direct, draft: true, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, ready.id, .open), (2, draft.id, .open)])
+
+        let all = Self.sections([ready, draft], stacks: [stack], hidden: [ready.id, draft.id], pinned: [draft.id])
+        let draftOnly = Self.sections([ready, draft], filters: [.draft], stacks: [stack], hidden: [ready.id, draft.id])
+
+        XCTAssertEqual(Self.ids(all), [.assigned: [], .direct: [], .team: [], .hidden: [ready.id]])
+        XCTAssertEqual(all.last?.items.first?.isHidden, true)
+        XCTAssertEqual(all.last?.items.first?.isPinned, false)
+        XCTAssertEqual(Self.ids(draftOnly), [.assigned: [], .direct: [], .team: [], .hidden: [draft.id]])
+    }
+
+    func testPartlyHiddenStackStaysInItsRelationshipSectionWithReadySelectedAndShowsOnlyTheHiddenReadyMember() throws {
+        let draft = Self.pr("PR_A", .direct, draft: true, stack: "S")
+        let ready = Self.pr("PR_B", .direct, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, draft.id, .open), (2, ready.id, .open)])
+
+        let sections = Self.sections([draft, ready], filters: [.ready], stacks: [stack], hidden: [ready.id])
+
+        XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [ready.id], .team: []])
+        let card = try XCTUnwrap(sections.first { $0.id == .direct }?.items.first)
+        XCTAssertFalse(card.isHidden)
+        XCTAssertEqual(card.stack?.matchingMemberIDs, [ready.id])
+    }
+
+    func testStackWithAnAssignedDraftMemberAndATeamReadyMemberStaysInAssignedWithReadySelected() throws {
+        let team = Self.pr("PR_TEAM", .team, stack: "S")
+        let assigned = Self.pr("PR_ASSIGNED", .assigned, draft: true, stack: "S")
+        let stack = Self.stack("S", size: 3, [(1, "PR_MERGED", .merged), (2, team.id, .open), (3, assigned.id, .open)])
+
+        let sections = Self.sections([team, assigned], filters: [.ready], stacks: [stack])
+
+        XCTAssertEqual(Self.ids(sections), [.assigned: ["PR_TEAM"], .direct: [], .team: []])
+        let group = try XCTUnwrap(Self.row(team.id, in: sections)?.stack)
+        XCTAssertEqual(group.members.first, .full(assigned))
+        XCTAssertEqual(group.filterExcludedMemberCount, 1)
+    }
+
+    func testFilterMatchingNoPinnedOrHiddenPRKeepsPinnedAndHiddenWithCountZero() {
+        let pinned = Self.pr("PR_PINNED", .direct, draft: true)
+        let hidden = Self.pr("PR_HIDDEN", .team, draft: true)
+        let ready = Self.pr("PR_READY", .assigned)
+
+        let sections = Self.sections(
+            [pinned, hidden, ready], filters: [.ready], stacks: [], hidden: [hidden.id], pinned: [pinned.id]
+        )
+
+        XCTAssertEqual(sections.map(\.id), [.pinned, .assigned, .direct, .team, .hidden])
+        XCTAssertEqual(sections.map(\.count), [0, 1, 0, 0, 0])
+    }
+
+    func testSectionCountIsItsNumberOfCardsSoAThreeMemberStackCountsOne() {
+        let one = Self.pr("PR_1", .direct, stack: "S")
+        let two = Self.pr("PR_2", .direct, stack: "S")
+        let three = Self.pr("PR_3", .team, stack: "S")
+        let standalone = Self.pr("PR_STANDALONE", .direct)
+        let stack = Self.stack("S", size: 3, [(1, one.id, .open), (2, two.id, .open), (3, three.id, .open)])
+
+        let sections = Self.sections([one, two, three, standalone], stacks: [stack])
+
+        XCTAssertEqual(sections.map(\.count), [0, 2, 0])
+    }
+
+    func testCountsAcrossSectionsAddUpToTheCardsInTheTab() {
+        let stacked = (1...3).map { Self.pr("PR_S\($0)", $0 == 2 ? .team : .direct, stack: "S") }
+        let stack = Self.stack("S", size: 3, stacked.enumerated().map { ($0.offset + 1, $0.element.id, .open) })
+        let others = [
+            Self.pr("PR_A", .assigned), Self.pr("PR_D", .direct), Self.pr("PR_T", .team),
+            Self.pr("PR_P", .team), Self.pr("PR_H", .direct)
+        ]
+
+        let sections = Self.sections(stacked + others, stacks: [stack], hidden: ["PR_H"], pinned: ["PR_P", "PR_S2"])
+
+        let cards = sections.flatMap(\.items)
+        XCTAssertEqual(cards.count, 6)
+        XCTAssertEqual(Set(cards.map(\.id)).count, cards.count)
+        XCTAssertEqual(sections.map(\.count).reduce(0, +), cards.count)
+        XCTAssertEqual(sections.map(\.count), [2, 1, 1, 1, 1])
+    }
+
+    func testEachSectionIsSortedByTheSortOptionWithoutPinnedFirst() {
+        let newest = Self.pr("PR_NEWEST", .direct, updated: 300)
+        let pinnedStandalone = Self.pr("PR_PINNED", .direct, updated: 100)
+        let representative = Self.pr("PR_REP", .direct, updated: 50, stack: "S")
+        let pinnedMember = Self.pr("PR_MEMBER", .team, updated: 10, stack: "S")
+        let older = Self.pr("PR_OLDER", .direct, updated: 20)
+        let stack = Self.stack("S", size: 2, [(1, representative.id, .open), (2, pinnedMember.id, .open)])
+
+        let sections = Self.sections(
+            [newest, pinnedStandalone, representative, pinnedMember, older],
+            stacks: [stack],
+            pinned: [pinnedStandalone.id, pinnedMember.id]
+        )
+
+        XCTAssertEqual(Self.ids(sections), [
+            .pinned: [pinnedStandalone.id, representative.id], .assigned: [], .direct: [newest.id, older.id], .team: []
+        ])
+    }
+
+    func testAuthoredWithNothingPinnedOrHiddenIsOneActiveSectionWithoutHeadings() {
+        let sections = Self.list([Self.pr("PR_1", .mine), Self.pr("PR_2", .mine)], stacks: [])
+
+        XCTAssertEqual(sections.map(\.id), [.active])
+        XCTAssertEqual(sections.first?.title, "Active")
+        XCTAssertEqual(sections.first?.count, 2)
+        XCTAssertFalse(PullRequestListSection.showsHeadings(sections))
+    }
+
+    func testAuthoredWithOnePinnedPRIsPinnedAndActiveWithoutHidden() {
+        let pinned = Self.pr("PR_PINNED", .mine)
+        let other = Self.pr("PR_OTHER", .mine)
+
+        let sections = Self.list([pinned, other], stacks: [], pinned: [pinned.id])
+
+        XCTAssertEqual(Self.ids(sections), [.pinned: [pinned.id], .active: [other.id]])
+        XCTAssertEqual(sections.map(\.id), [.pinned, .active])
+        XCTAssertTrue(PullRequestListSection.showsHeadings(sections))
+    }
+
+    func testAuthoredWithEverythingPinnedHasActiveWithCountZero() {
+        let one = Self.pr("PR_1", .mine)
+        let two = Self.pr("PR_2", .mine)
+
+        let sections = Self.list([one, two], stacks: [], pinned: [one.id, two.id])
+
+        XCTAssertEqual(sections.map(\.id), [.pinned, .active])
+        XCTAssertEqual(sections.map(\.count), [2, 0])
+    }
+
+    // MARK: - Stacks
 
     func testOtherAuthorsOpenPRsInAnOwnStackAreContextMembers() throws {
         let own = Self.pr("PR_OWN", .mine, stack: "S")
         let requesting = Self.pr("PR_REQUESTING", .direct, stack: "S")
         let stack = Self.stack("S", size: 3, [(1, own.id, .open), (2, requesting.id, .open), (3, "PR_OTHER", .open)])
 
-        let list = Self.list([own], stacks: [stack])
+        let sections = Self.list([own], stacks: [stack])
 
-        XCTAssertEqual(list.visible.map(\.representative.id), [own.id])
-        XCTAssertEqual(list.count, 1)
-        let group = try XCTUnwrap(list.visible.first?.stack)
+        XCTAssertEqual(Self.ids(sections), [.active: [own.id]])
+        let group = try XCTUnwrap(sections.first?.items.first?.stack)
         XCTAssertEqual(group.fullMemberIDs, [own.id])
         XCTAssertEqual(group.members, [.context(stack.entries[2]), .context(stack.entries[1]), .full(own)])
     }
@@ -111,18 +310,16 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let open = Self.pr("PR_OPEN", .mine, stack: "S")
         let stack = Self.stack("S", size: 2, [(1, stale.id, .merged), (2, open.id, .open)])
 
-        let list = Self.list([stale, open], stacks: [stack])
+        let sections = Self.list([stale, open], stacks: [stack])
 
-        XCTAssertEqual(list.visible.map(\.representative.id), [open.id])
-        XCTAssertEqual(list.count, 1)
-        let group = try XCTUnwrap(list.visible.first?.stack)
+        XCTAssertEqual(Self.ids(sections), [.active: [open.id]])
+        let group = try XCTUnwrap(sections.first?.items.first?.stack)
         XCTAssertEqual(group.members.last, .context(stack.entries[0]))
 
         let onlyStale = Self.stack("S", size: 2, [(1, stale.id, .merged), (2, "PR_OTHER", .open)])
         let empty = Self.list([stale], stacks: [onlyStale])
-        XCTAssertEqual(empty.visible, [])
-        XCTAssertEqual(empty.hidden, [])
-        XCTAssertEqual(empty.count, 0)
+        XCTAssertEqual(empty.map(\.id), [.active])
+        XCTAssertEqual(empty.first?.items, [])
     }
 
     func testAttentionFilterRepresentsTheLowestUnreadOwnMember() throws {
@@ -131,17 +328,16 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let top = Self.pr("PR_TOP", .mine, stack: "S")
         let stack = Self.stack("S", size: 3, [(1, bottom.id, .open), (2, middle.id, .open), (3, top.id, .open)])
 
-        let list = Self.list(
+        let sections = Self.list(
             [bottom, middle, top], filters: [.needsAttention], stacks: [stack], unread: [middle.id, top.id]
         )
 
-        let item = try XCTUnwrap(list.visible.first)
-        XCTAssertEqual(list.visible.count, 1)
+        let item = try XCTUnwrap(sections.first?.items.first)
+        XCTAssertEqual(sections.first?.count, 1)
         XCTAssertEqual(item.representative.id, middle.id)
         XCTAssertEqual(item.stack?.representativePosition, 2)
         XCTAssertEqual(item.stack?.filterExcludedMemberCount, 1)
         XCTAssertEqual(item.stack?.additionalMemberCount, 2)
-        XCTAssertEqual(list.count, 2)
     }
 
     func testTwoRequestedMembersFormOneRowRepresentedByTheLowerPosition() throws {
@@ -179,20 +375,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let sections = Self.sections([team, assigned], stacks: [stack])
 
         XCTAssertEqual(Self.ids(sections), [.assigned: ["PR_TEAM"], .direct: [], .team: []])
-        XCTAssertEqual(sections.first { $0.section == .assigned }?.count, 2)
-    }
-
-    func testReadyFilterWithADraftAssignedMemberPlacesTheGroupInTeam() throws {
-        let team = Self.pr("PR_TEAM", .team, stack: "S")
-        let assigned = Self.pr("PR_ASSIGNED", .assigned, draft: true, stack: "S")
-        let stack = Self.stack("S", size: 3, [(1, "PR_MERGED", .merged), (2, team.id, .open), (3, assigned.id, .open)])
-
-        let sections = Self.sections([team, assigned], filters: [.ready], stacks: [stack])
-
-        XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [], .team: ["PR_TEAM"]])
-        let group = try XCTUnwrap(Self.row(team.id, in: sections)?.stack)
-        XCTAssertEqual(group.members.first, .full(assigned))
-        XCTAssertEqual(group.filterExcludedMemberCount, 1)
+        XCTAssertEqual(sections.first { $0.id == .assigned }?.count, 1)
     }
 
     func testStackWithoutAMatchingRequestedMemberShowsNoRow() {
@@ -201,7 +384,8 @@ final class PullRequestStackGroupingTests: XCTestCase {
 
         let sections = Self.sections([draft], filters: [.ready], stacks: [stack])
 
-        XCTAssertTrue(sections.allSatisfy { $0.visible.isEmpty && $0.hidden.isEmpty && $0.count == 0 })
+        XCTAssertEqual(sections.map(\.id), [.assigned, .direct, .team])
+        XCTAssertTrue(sections.allSatisfy { $0.items.isEmpty && $0.count == 0 })
     }
 
     func testStackWithOnlyOneReadableRequestedEntryStillFormsAGroup() throws {
@@ -257,7 +441,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let group = try XCTUnwrap(Self.row(unstamped.id, in: sections)?.stack)
         XCTAssertEqual(group.fullMemberIDs, [unstamped.id, member.id])
         XCTAssertEqual(group.members, [.full(member), .full(unstamped)])
-        XCTAssertEqual(sections.map(\.count), [0, 2, 0])
+        XCTAssertEqual(sections.map(\.count), [0, 1, 0])
     }
 
     func testRequestedPRNamingAnotherStackJoinsTheStackThatListsIt() throws {
@@ -291,12 +475,12 @@ final class PullRequestStackGroupingTests: XCTestCase {
         // Without a matching stack ID, the lowest stack ID wins.
         let unstamped = Self.pr("PR_SHARED", .direct)
         let lowest = Self.sections([unstamped, inA, inB], stacks: [stackB, stackA])
-        let rows = lowest.flatMap { $0.visible + $0.hidden }
+        let rows = lowest.flatMap(\.items)
         XCTAssertEqual(rows.map(\.representative.id).sorted(), [inA.id, inB.id])
         XCTAssertEqual(rows.first { $0.representative.id == inA.id }?.stack?.fullMemberIDs, [inA.id, unstamped.id])
         let other = try XCTUnwrap(rows.first { $0.representative.id == inB.id }?.stack)
         XCTAssertEqual(other.members, [.full(inB)])
-        XCTAssertEqual(lowest.map(\.count), [0, 2, 1])
+        XCTAssertEqual(lowest.map(\.count), [0, 1, 1])
     }
 
     func testAdditionalRequestCountIgnoresTheFilterAndExcludedCountCountsFilteredMembers() throws {
@@ -321,10 +505,10 @@ final class PullRequestStackGroupingTests: XCTestCase {
 
         let sections = Self.sections([ready, draft], filters: [.ready], stacks: [stack])
 
-        let direct = try XCTUnwrap(sections.first { $0.section == .direct })
+        let direct = try XCTUnwrap(sections.first { $0.id == .direct })
         XCTAssertEqual(direct.count, 1)
-        XCTAssertEqual(direct.visible.first?.stack?.additionalMemberCount, 1)
-        XCTAssertEqual(direct.visible.first?.stack?.filterExcludedMemberCount, 1)
+        XCTAssertEqual(direct.items.first?.stack?.additionalMemberCount, 1)
+        XCTAssertEqual(direct.items.first?.stack?.filterExcludedMemberCount, 1)
     }
 
     func testFoldedInMembersCountInTheGroupsSectionAndNeverInTheirOwn() {
@@ -336,7 +520,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
 
         let sections = Self.sections([direct, team, teamToo, standalone], stacks: [stack])
 
-        XCTAssertEqual(sections.map(\.count), [0, 3, 1])
+        XCTAssertEqual(sections.map(\.count), [0, 1, 1])
         XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: ["PR_TEAM"], .team: ["PR_STANDALONE"]])
     }
 
@@ -347,61 +531,10 @@ final class PullRequestStackGroupingTests: XCTestCase {
 
         let sections = Self.sections([bottom, above], stacks: [stack], hidden: [bottom.id])
 
-        let direct = try XCTUnwrap(sections.first { $0.section == .direct })
-        XCTAssertEqual(direct.visible.map(\.representative.id), [above.id])
-        XCTAssertTrue(direct.hidden.isEmpty)
-        XCTAssertEqual(direct.visible.first?.stack?.representativePosition, 2)
-        XCTAssertEqual(direct.count, 2)
-        XCTAssertEqual(direct.hiddenCount, 0)
-    }
-
-    func testAllMatchingMembersHiddenMovesTheGroupUnderHiddenAndItIsNeverPinned() throws {
-        let one = Self.pr("PR_1", .direct, stack: "S")
-        let two = Self.pr("PR_2", .direct, stack: "S")
-        let stack = Self.stack("S", size: 2, [(1, one.id, .open), (2, two.id, .open)])
-
-        let sections = Self.sections([one, two], stacks: [stack], hidden: [one.id, two.id], pinned: [two.id])
-
-        let direct = try XCTUnwrap(sections.first { $0.section == .direct })
-        XCTAssertTrue(direct.visible.isEmpty)
-        XCTAssertEqual(direct.hidden.map(\.representative.id), [one.id])
-        XCTAssertEqual(direct.hiddenCount, 2)
-        XCTAssertEqual(direct.count, 2)
-        XCTAssertEqual(direct.hidden.first?.isHidden, true)
-        XCTAssertEqual(direct.hidden.first?.isPinned, false)
-    }
-
-    func testHiddenReadyMemberAndPinnedDraftMemberWithReadySelectedIsHiddenAndNotPinned() throws {
-        let ready = Self.pr("PR_READY", .direct, stack: "S")
-        let draft = Self.pr("PR_DRAFT", .direct, draft: true, stack: "S")
-        let stack = Self.stack("S", size: 2, [(1, ready.id, .open), (2, draft.id, .open)])
-
-        let sections = Self.sections(
-            [ready, draft], filters: [.ready], stacks: [stack], hidden: [ready.id], pinned: [draft.id]
-        )
-
-        let row = try XCTUnwrap(sections.first { $0.section == .direct }?.hidden.first)
-        XCTAssertEqual(row.representative.id, ready.id)
-        XCTAssertTrue(row.isHidden)
-        XCTAssertFalse(row.isPinned)
-    }
-
-    func testPinnedMemberSortsTheVisibleGroupWithThePinnedRows() {
-        let newest = Self.pr("PR_NEWEST", .direct, updated: 300)
-        let pinnedStandalone = Self.pr("PR_PINNED", .direct, updated: 100)
-        let representative = Self.pr("PR_REP", .direct, updated: 50, stack: "S")
-        let pinnedMember = Self.pr("PR_MEMBER", .team, updated: 10, stack: "S")
-        let stack = Self.stack("S", size: 2, [(1, representative.id, .open), (2, pinnedMember.id, .open)])
-
-        let sections = Self.sections(
-            [newest, pinnedStandalone, representative, pinnedMember],
-            stacks: [stack],
-            pinned: [pinnedStandalone.id, pinnedMember.id]
-        )
-
-        let direct = sections.first { $0.section == .direct }
-        XCTAssertEqual(direct?.visible.map(\.representative.id), [pinnedStandalone.id, representative.id, newest.id])
-        XCTAssertEqual(direct?.visible.map(\.isPinned), [true, true, false])
+        XCTAssertEqual(Self.ids(sections), [.assigned: [], .direct: [above.id], .team: []])
+        let direct = try XCTUnwrap(sections.first { $0.id == .direct })
+        XCTAssertEqual(direct.items.first?.stack?.representativePosition, 2)
+        XCTAssertEqual(direct.items.first?.isHidden, false)
     }
 
     func testUnreadFoldedInMemberMarksTheGroupRowUnread() {
@@ -438,8 +571,8 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let above = Self.pr("PR_ABOVE", .direct, stack: "S")
         let stack = Self.stack("S", size: 2, [(1, bottom.id, .open), (2, above.id, .open)])
 
-        let before = try XCTUnwrap(Self.sections([bottom, above], stacks: [stack]).flatMap(\.visible).first)
-        let after = try XCTUnwrap(Self.sections([bottom, above], stacks: [stack], hidden: [bottom.id]).flatMap(\.visible).first)
+        let before = try XCTUnwrap(Self.sections([bottom, above], stacks: [stack]).flatMap(\.items).first)
+        let after = try XCTUnwrap(Self.sections([bottom, above], stacks: [stack], hidden: [bottom.id]).flatMap(\.items).first)
 
         XCTAssertEqual(before.representative.id, bottom.id)
         XCTAssertEqual(after.representative.id, above.id)
@@ -451,8 +584,8 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let ready = Self.pr("PR_READY", .direct, stack: "S")
         let stack = Self.stack("S", size: 2, [(1, draft.id, .open), (2, ready.id, .open)])
 
-        let all = try XCTUnwrap(Self.sections([draft, ready], stacks: [stack]).flatMap(\.visible).first)
-        let readyOnly = try XCTUnwrap(Self.sections([draft, ready], filters: [.ready], stacks: [stack]).flatMap(\.visible).first)
+        let all = try XCTUnwrap(Self.sections([draft, ready], stacks: [stack]).flatMap(\.items).first)
+        let readyOnly = try XCTUnwrap(Self.sections([draft, ready], filters: [.ready], stacks: [stack]).flatMap(\.items).first)
 
         XCTAssertEqual(all.representative.id, draft.id)
         XCTAssertEqual(readyOnly.representative.id, ready.id)
@@ -462,17 +595,17 @@ final class PullRequestStackGroupingTests: XCTestCase {
     func testStandaloneCardIDIsItsPRID() throws {
         let standalone = Self.pr("PR_STANDALONE", .direct)
 
-        let item = try XCTUnwrap(Self.sections([standalone], stacks: []).flatMap(\.visible).first)
+        let item = try XCTUnwrap(Self.sections([standalone], stacks: []).flatMap(\.items).first)
 
         XCTAssertEqual(item.id, standalone.id)
     }
 
     // MARK: - pr-stacks mock scenario
 
-    private static func prStacksSections(filters: Set<ReviewRequestFilterOption> = []) -> [ReviewRequestSectionContent] {
+    private static func prStacksSections(filters: Set<ReviewRequestFilterOption> = []) -> [PullRequestListSection] {
         let source = MockPullRequestSource(scenario: .prStacks)
         let requested = source.firstRefreshPullRequests.filter(DashboardController.isRequestedPullRequest)
-        return PullRequestStackGrouping.sections(
+        return PullRequestStackGrouping.requestedSections(
             requested: requested,
             matching: DashboardController.filteredReviewRequests(requested, by: filters),
             stacks: source.stacks,
@@ -482,7 +615,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
     }
 
     private static func prStacksGroup(_ stackID: String) throws -> (row: PullRequestListItem, group: StackGroup) {
-        let row = try XCTUnwrap(prStacksSections().flatMap(\.visible).first { $0.stack?.stack.id == stackID }, stackID)
+        let row = try XCTUnwrap(prStacksSections().flatMap(\.items).first { $0.stack?.stack.id == stackID }, stackID)
         return (row, try XCTUnwrap(row.stack, stackID))
     }
 
@@ -493,11 +626,11 @@ final class PullRequestStackGroupingTests: XCTestCase {
             ("STACK_MOCK_PARTIALLY_MERGED", .merged, [.open]),
             ("STACK_MOCK_CLOSED_DEPENDENCY", .closed, [.open])
         ]
-        let assigned = try XCTUnwrap(Self.prStacksSections().first { $0.section == .assigned })
+        let assigned = try XCTUnwrap(Self.prStacksSections().first { $0.id == .assigned })
         for (stackID, positionOneState, positionThreeBadges) in positionOneStates {
             let (row, group) = try Self.prStacksGroup(stackID)
             XCTAssertEqual(row.representative.id, "PR_\(stackID)_2", stackID)
-            XCTAssertTrue(assigned.visible.contains(row), "assigned, \(stackID)")
+            XCTAssertTrue(assigned.items.contains(row), "assigned, \(stackID)")
             XCTAssertEqual(group.stack.size, 3, stackID)
             XCTAssertEqual(group.members.map { group.position(of: $0) }, [3, 2, 1], stackID)
             XCTAssertEqual(group.fullMemberIDs, [row.representative.id], stackID)
@@ -525,7 +658,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let source = MockPullRequestSource(scenario: .prStacks)
         let entries = Dictionary(source.stacks.flatMap(\.entries).map { ($0.pullRequestID, $0) }, uniquingKeysWith: { first, _ in first })
         let sections = Self.prStacksSections()
-        let rows = sections.flatMap { $0.visible + $0.hidden }
+        let rows = sections.flatMap(\.items)
 
         let finished = Set(entries.values.filter { $0.state != .open }.map(\.pullRequestID))
         XCTAssertEqual(finished.count, 8)
@@ -533,11 +666,11 @@ final class PullRequestStackGroupingTests: XCTestCase {
             XCTAssertFalse(finished.contains(row.representative.id), row.id)
             XCTAssertTrue(row.stack?.fullMemberIDs.isDisjoint(with: finished) ?? true, row.id)
         }
-        // Each section counts only its matching requested PRs, folded-in members included.
+        // Every requested PR is in exactly one card, and each section counts its cards.
         let requested = source.firstRefreshPullRequests.filter(DashboardController.isRequestedPullRequest)
         XCTAssertTrue(Set(requested.map(\.id)).isDisjoint(with: finished))
-        XCTAssertEqual(sections.map(\.count).reduce(0, +), requested.count)
-        XCTAssertEqual(sections.map(\.count), [6, 8, 1])
+        XCTAssertEqual(rows.map { $0.stack?.matchingMemberIDs.count ?? 1 }.reduce(0, +), requested.count)
+        XCTAssertEqual(sections.map(\.count), [5, 6, 1])
     }
 
     // MARK: - Fixtures
@@ -586,8 +719,8 @@ final class PullRequestStackGroupingTests: XCTestCase {
         hidden: Set<String> = [],
         pinned: Set<String> = [],
         unread: Set<String> = []
-    ) -> [ReviewRequestSectionContent] {
-        PullRequestStackGrouping.sections(
+    ) -> [PullRequestListSection] {
+        PullRequestStackGrouping.requestedSections(
             requested: requested,
             matching: DashboardController.filteredReviewRequests(requested, by: filters),
             stacks: stacks,
@@ -603,25 +736,36 @@ final class PullRequestStackGroupingTests: XCTestCase {
         _ own: [PullRequest],
         filters: Set<PullRequestFilterOption> = [],
         stacks: [PullRequestStack],
+        hidden: Set<String> = [],
+        pinned: Set<String> = [],
         unread: Set<String> = []
-    ) -> PullRequestListContent {
-        PullRequestStackGrouping.list(
+    ) -> [PullRequestListSection] {
+        PullRequestStackGrouping.authoredSections(
             members: own,
             matching: DashboardController.filtered(own, by: filters, attentionPullRequestIds: unread),
             stacks: stacks,
-            hiddenIDs: [],
-            pinnedIDs: [],
+            hiddenIDs: hidden,
+            pinnedIDs: pinned,
             unreadIDs: unread,
             sortOption: .createdDate,
             sortDirection: .descending
         )
     }
 
-    private static func ids(_ sections: [ReviewRequestSectionContent]) -> [Section: [String]] {
-        Dictionary(uniqueKeysWithValues: sections.map { ($0.section, ($0.visible + $0.hidden).map(\.representative.id)) })
+    /// Each section's cards by representative PR ID.
+    private static func ids(_ sections: [PullRequestListSection]) -> [PullRequestSectionID: [String]] {
+        Dictionary(uniqueKeysWithValues: sections.map { ($0.id, $0.items.map(\.representative.id)) })
     }
 
-    private static func row(_ id: String, in sections: [ReviewRequestSectionContent]) -> PullRequestListItem? {
-        sections.flatMap { $0.visible + $0.hidden }.first { $0.representative.id == id }
+    private static func row(_ id: String, in sections: [PullRequestListSection]) -> PullRequestListItem? {
+        sections.flatMap(\.items).first { $0.representative.id == id }
     }
+}
+
+extension Array where Element == PullRequestListSection {
+    subscript(_ id: PullRequestSectionID) -> PullRequestListSection? {
+        first { $0.id == id }
+    }
+
+    var allItems: [PullRequestListItem] { flatMap(\.items) }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import mergehawkcore
 
@@ -160,6 +161,14 @@ final class DashboardController: ObservableObject {
             }
         }
 
+        var sectionID: PullRequestSectionID {
+            switch self {
+            case .assigned: .assigned
+            case .direct: .direct
+            case .team: .team
+            }
+        }
+
         static func section(for pullRequest: PullRequest) -> Self? {
             guard !pullRequest.isMine else { return nil }
             if pullRequest.isAssignedToViewer { return .assigned }
@@ -181,8 +190,6 @@ final class DashboardController: ObservableObject {
 
         var id: String { team.id }
     }
-
-    typealias RequestedSectionContent = ReviewRequestSectionContent
 
     @Published private var presentation: PublishedPresentation
     var state: DashboardState { presentation.dashboard }
@@ -254,7 +261,9 @@ final class DashboardController: ObservableObject {
             preferencesStore.selectedReviewRequestFilters = selectedReviewRequestFilters
         }
     }
-    @Published private(set) var collapsedRequestedSections: Set<RequestedSection> = []
+    /// Sections whose collapse state differs from their default, per PR tab, in memory only.
+    @Published private(set) var sectionExpansionOverrides: [MenuTab: Set<PullRequestSectionID>] = [:]
+    private var sectionOverridePruning: AnyCancellable?
     /// Expanded stack groups, shared by both PR tabs and in memory only like collapsed sections.
     @Published private(set) var expandedStackIDs: Set<String> = []
     @Published var pinnedPullRequestIds: Set<String> {
@@ -443,6 +452,7 @@ final class DashboardController: ObservableObject {
         self.notificationClient.requestAuthorization()
         configureInitialSource()
         startAutomaticRefresh()
+        observeSectionsForOverridePruning()
     }
 
     deinit {
@@ -582,25 +592,8 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    var sortedReviewRequests: [PullRequest] {
-        Self.sortedWithPins(
-            filteredReviewRequests.filter { !hiddenPullRequestIds.contains($0.id) },
-            pinnedIds: pinnedPullRequestIds,
-            by: reviewRequestSortOption,
-            direction: reviewRequestSortDirection
-        )
-    }
-
-    var hiddenReviewRequests: [PullRequest] {
-        Self.sorted(
-            filteredReviewRequests.filter { hiddenPullRequestIds.contains($0.id) },
-            by: reviewRequestSortOption,
-            direction: reviewRequestSortDirection
-        )
-    }
-
-    var requestedSections: [RequestedSectionContent] {
-        PullRequestStackGrouping.sections(
+    var requestedSections: [PullRequestListSection] {
+        PullRequestStackGrouping.requestedSections(
             requested: sourceFilteredReviewRequests.filter(Self.isRequestedPullRequest),
             matching: filteredReviewRequests,
             stacks: state.pullRequestStacks,
@@ -612,8 +605,8 @@ final class DashboardController: ObservableObject {
         )
     }
 
-    var authoredList: PullRequestListContent {
-        PullRequestStackGrouping.list(
+    var authoredSections: [PullRequestListSection] {
+        PullRequestStackGrouping.authoredSections(
             members: sourceFilteredMyPullRequests,
             matching: filteredMyPullRequests,
             stacks: state.pullRequestStacks,
@@ -643,22 +636,61 @@ final class DashboardController: ObservableObject {
         expandedStackIDs = isStackExpanded(stackID) ? [] : Set(state.pullRequestStacks.map(\.id))
     }
 
-    func isRequestedSectionExpanded(_ section: RequestedSection) -> Bool {
-        !collapsedRequestedSections.contains(section)
+    func isSectionExpanded(_ section: PullRequestSectionID, in tab: MenuTab) -> Bool {
+        section.isExpandedByDefault != sectionExpansionOverrides[tab, default: []].contains(section)
     }
 
-    func toggleRequestedSection(_ section: RequestedSection) {
-        if collapsedRequestedSections.contains(section) {
-            collapsedRequestedSections.remove(section)
-        } else {
-            collapsedRequestedSections.insert(section)
+    func toggleSection(_ section: PullRequestSectionID, in tab: MenuTab) {
+        sectionExpansionOverrides[tab, default: []].formSymmetricDifference([section])
+    }
+
+    /// Option-click on a section heading: the clicked section's state decides for every section the tab shows.
+    func toggleAllSections(from section: PullRequestSectionID, in tab: MenuTab) {
+        let expands = !isSectionExpanded(section, in: tab)
+        var overrides = sectionExpansionOverrides[tab, default: []]
+        for shown in shownSectionIDs(in: tab) {
+            if expands == shown.isExpandedByDefault {
+                overrides.remove(shown)
+            } else {
+                overrides.insert(shown)
+            }
         }
+        sectionExpansionOverrides[tab] = overrides
     }
 
-    func toggleAllRequestedSections(from section: RequestedSection) {
-        collapsedRequestedSections = isRequestedSectionExpanded(section)
-            ? Set(RequestedSection.allCases)
-            : []
+    /// The sections with a heading in a PR tab. Authored without headings has none.
+    private func shownSectionIDs(in tab: MenuTab) -> [PullRequestSectionID] {
+        let sections: [PullRequestListSection]
+        switch tab {
+        case .reviewRequests: sections = requestedSections
+        case .myPRs: sections = authoredSections
+        case .notifications: return []
+        }
+        return PullRequestListSection.showsHeadings(sections) ? sections.map(\.id) : []
+    }
+
+    /// The one place collapse overrides are pruned: after any change, a section that is no longer shown loses its
+    /// override, so it comes back in its default state. Without overrides there is nothing to prune, so ordinary
+    /// updates do no grouping work here.
+    private func observeSectionsForOverridePruning() {
+        sectionOverridePruning = objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.pruneSectionExpansionOverrides()
+                }
+            }
+    }
+
+    private func pruneSectionExpansionOverrides() {
+        guard sectionExpansionOverrides.values.contains(where: { !$0.isEmpty }) else { return }
+        var pruned = sectionExpansionOverrides
+        for (tab, overrides) in sectionExpansionOverrides where !overrides.isEmpty {
+            pruned[tab] = overrides.intersection(shownSectionIDs(in: tab))
+        }
+        if pruned != sectionExpansionOverrides {
+            sectionExpansionOverrides = pruned
+        }
     }
 
     private var filteredMyPullRequests: [PullRequest] {
@@ -785,18 +817,6 @@ final class DashboardController: ObservableObject {
                 compare(lhs, rhs, by: changeSize, ascending: ascending)
             }
         }
-    }
-
-    static func sortedWithPins(
-        _ pullRequests: [PullRequest],
-        pinnedIds: Set<String>,
-        by option: PullRequestSortOption,
-        direction: PullRequestSortDirection = .descending
-    ) -> [PullRequest] {
-        let pinned = pullRequests.filter { pinnedIds.contains($0.id) }
-        let unpinned = pullRequests.filter { !pinnedIds.contains($0.id) }
-        return sorted(pinned, by: option, direction: direction)
-            + sorted(unpinned, by: option, direction: direction)
     }
 
     func refresh() {

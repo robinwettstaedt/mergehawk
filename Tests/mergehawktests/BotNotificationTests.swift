@@ -60,9 +60,9 @@ final class BotNotificationTests: XCTestCase {
         XCTAssertFalse(fixture.controller.hasAttention)
         XCTAssertEqual(fixture.controller.attentionCount, 0)
         XCTAssertFalse(fixture.controller.isUnreadPullRequest(fixture.controller.state.pullRequests[0]))
-        XCTAssertEqual(fixture.controller.authoredList.visible.count, 1)
+        XCTAssertEqual(fixture.controller.authoredSections.allItems.count, 1)
         fixture.controller.selectedPullRequestFilters = [.needsAttention]
-        XCTAssertTrue(fixture.controller.authoredList.visible.isEmpty)
+        XCTAssertTrue(fixture.controller.authoredSections.allItems.isEmpty)
         XCTAssertEqual(fixture.controller.state.pullRequests.count, 1)
         XCTAssertEqual(fixture.controller.state.pullRequests[0].reviewDecision, .changesRequested)
         XCTAssertEqual(fixture.controller.state.pullRequests[0].commentCount, 2)
