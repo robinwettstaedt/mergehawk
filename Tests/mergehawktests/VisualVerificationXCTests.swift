@@ -897,14 +897,14 @@ final class VisualVerificationXCTests: XCTestCase {
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-my-prs-actions-open.png"),
-                initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id)
+                initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).representative.id)
             )
             for size in MenuSize.allCases {
                 try renderMenu(
                     controller: controller,
                     to: menuSizeURL(size, "actions-open"),
                     availableFrame: MenuSizeCaptures.stateFrame,
-                    initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id),
+                    initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).representative.id),
                     menuSize: size
                 )
                 for (frameName, frame) in MenuSizeCaptures.reducedStateFrames {
@@ -912,7 +912,7 @@ final class VisualVerificationXCTests: XCTestCase {
                         controller: controller,
                         to: menuSizeURL(size, "actions-open-\(frameName)"),
                         availableFrame: frame,
-                        initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).id),
+                        initialDropdown: .actions(XCTUnwrap(controller.authoredList.visible.first).representative.id),
                         menuSize: size
                     )
                 }

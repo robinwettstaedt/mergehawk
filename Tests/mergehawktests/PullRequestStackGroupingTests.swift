@@ -39,8 +39,8 @@ final class PullRequestStackGroupingTests: XCTestCase {
                     for content in sections {
                         let todayVisible = visible.filter { Section.section(for: $0) == content.section }
                         let todayHidden = hiddenPRs.filter { Section.section(for: $0) == content.section }
-                        XCTAssertEqual(content.visible.map(\.id), todayVisible.map(\.id))
-                        XCTAssertEqual(content.hidden.map(\.id), todayHidden.map(\.id))
+                        XCTAssertEqual(content.visible.map(\.representative.id), todayVisible.map(\.id))
+                        XCTAssertEqual(content.hidden.map(\.representative.id), todayHidden.map(\.id))
                         XCTAssertEqual(content.count, todayVisible.count + todayHidden.count)
                         XCTAssertEqual(content.hiddenCount, todayHidden.count)
                         XCTAssertTrue(content.visible.allSatisfy { $0.stack == nil && !$0.isHidden })
@@ -77,8 +77,8 @@ final class PullRequestStackGroupingTests: XCTestCase {
                     )
 
                     let context = "\(option) \(direction) \(filters)"
-                    XCTAssertEqual(list.visible.map(\.id), todayVisible.map(\.id), context)
-                    XCTAssertEqual(list.hidden.map(\.id), todayHidden.map(\.id), context)
+                    XCTAssertEqual(list.visible.map(\.representative.id), todayVisible.map(\.id), context)
+                    XCTAssertEqual(list.hidden.map(\.representative.id), todayHidden.map(\.id), context)
                     XCTAssertEqual(list.count, todayVisible.count + todayHidden.count, context)
                     XCTAssertEqual(list.hiddenCount, todayHidden.count, context)
                     XCTAssertTrue((list.visible + list.hidden).allSatisfy { $0.stack == nil }, context)
@@ -99,7 +99,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
 
         let list = Self.list([own], stacks: [stack])
 
-        XCTAssertEqual(list.visible.map(\.id), [own.id])
+        XCTAssertEqual(list.visible.map(\.representative.id), [own.id])
         XCTAssertEqual(list.count, 1)
         let group = try XCTUnwrap(list.visible.first?.stack)
         XCTAssertEqual(group.fullMemberIDs, [own.id])
@@ -113,7 +113,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
 
         let list = Self.list([stale, open], stacks: [stack])
 
-        XCTAssertEqual(list.visible.map(\.id), [open.id])
+        XCTAssertEqual(list.visible.map(\.representative.id), [open.id])
         XCTAssertEqual(list.count, 1)
         let group = try XCTUnwrap(list.visible.first?.stack)
         XCTAssertEqual(group.members.last, .context(stack.entries[0]))
@@ -292,9 +292,9 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let unstamped = Self.pr("PR_SHARED", .direct)
         let lowest = Self.sections([unstamped, inA, inB], stacks: [stackB, stackA])
         let rows = lowest.flatMap { $0.visible + $0.hidden }
-        XCTAssertEqual(rows.map(\.id).sorted(), [inA.id, inB.id])
-        XCTAssertEqual(rows.first { $0.id == inA.id }?.stack?.fullMemberIDs, [inA.id, unstamped.id])
-        let other = try XCTUnwrap(rows.first { $0.id == inB.id }?.stack)
+        XCTAssertEqual(rows.map(\.representative.id).sorted(), [inA.id, inB.id])
+        XCTAssertEqual(rows.first { $0.representative.id == inA.id }?.stack?.fullMemberIDs, [inA.id, unstamped.id])
+        let other = try XCTUnwrap(rows.first { $0.representative.id == inB.id }?.stack)
         XCTAssertEqual(other.members, [.full(inB)])
         XCTAssertEqual(lowest.map(\.count), [0, 2, 1])
     }
@@ -348,7 +348,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         let sections = Self.sections([bottom, above], stacks: [stack], hidden: [bottom.id])
 
         let direct = try XCTUnwrap(sections.first { $0.section == .direct })
-        XCTAssertEqual(direct.visible.map(\.id), [above.id])
+        XCTAssertEqual(direct.visible.map(\.representative.id), [above.id])
         XCTAssertTrue(direct.hidden.isEmpty)
         XCTAssertEqual(direct.visible.first?.stack?.representativePosition, 2)
         XCTAssertEqual(direct.count, 2)
@@ -364,7 +364,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
 
         let direct = try XCTUnwrap(sections.first { $0.section == .direct })
         XCTAssertTrue(direct.visible.isEmpty)
-        XCTAssertEqual(direct.hidden.map(\.id), [one.id])
+        XCTAssertEqual(direct.hidden.map(\.representative.id), [one.id])
         XCTAssertEqual(direct.hiddenCount, 2)
         XCTAssertEqual(direct.count, 2)
         XCTAssertEqual(direct.hidden.first?.isHidden, true)
@@ -381,7 +381,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         )
 
         let row = try XCTUnwrap(sections.first { $0.section == .direct }?.hidden.first)
-        XCTAssertEqual(row.id, ready.id)
+        XCTAssertEqual(row.representative.id, ready.id)
         XCTAssertTrue(row.isHidden)
         XCTAssertFalse(row.isPinned)
     }
@@ -400,7 +400,7 @@ final class PullRequestStackGroupingTests: XCTestCase {
         )
 
         let direct = sections.first { $0.section == .direct }
-        XCTAssertEqual(direct?.visible.map(\.id), [pinnedStandalone.id, representative.id, newest.id])
+        XCTAssertEqual(direct?.visible.map(\.representative.id), [pinnedStandalone.id, representative.id, newest.id])
         XCTAssertEqual(direct?.visible.map(\.isPinned), [true, true, false])
     }
 
@@ -429,6 +429,42 @@ final class PullRequestStackGroupingTests: XCTestCase {
             guard case .context = member else { return XCTFail("\(member.pullRequestID) should be a context member") }
         }
         XCTAssertEqual(group.members[2], .full(requested))
+    }
+
+    // MARK: - Card identity
+
+    func testStackCardKeepsItsIDWhenHidingItsRepresentativeChangesTheRepresentative() throws {
+        let bottom = Self.pr("PR_BOTTOM", .direct, stack: "S")
+        let above = Self.pr("PR_ABOVE", .direct, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, bottom.id, .open), (2, above.id, .open)])
+
+        let before = try XCTUnwrap(Self.sections([bottom, above], stacks: [stack]).flatMap(\.visible).first)
+        let after = try XCTUnwrap(Self.sections([bottom, above], stacks: [stack], hidden: [bottom.id]).flatMap(\.visible).first)
+
+        XCTAssertEqual(before.representative.id, bottom.id)
+        XCTAssertEqual(after.representative.id, above.id)
+        XCTAssertEqual(before.id, after.id)
+    }
+
+    func testStackCardKeepsItsIDWhenTheFilterChangesTheRepresentative() throws {
+        let draft = Self.pr("PR_DRAFT", .direct, draft: true, stack: "S")
+        let ready = Self.pr("PR_READY", .direct, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, draft.id, .open), (2, ready.id, .open)])
+
+        let all = try XCTUnwrap(Self.sections([draft, ready], stacks: [stack]).flatMap(\.visible).first)
+        let readyOnly = try XCTUnwrap(Self.sections([draft, ready], filters: [.ready], stacks: [stack]).flatMap(\.visible).first)
+
+        XCTAssertEqual(all.representative.id, draft.id)
+        XCTAssertEqual(readyOnly.representative.id, ready.id)
+        XCTAssertEqual(all.id, readyOnly.id)
+    }
+
+    func testStandaloneCardIDIsItsPRID() throws {
+        let standalone = Self.pr("PR_STANDALONE", .direct)
+
+        let item = try XCTUnwrap(Self.sections([standalone], stacks: []).flatMap(\.visible).first)
+
+        XCTAssertEqual(item.id, standalone.id)
     }
 
     // MARK: - pr-stacks mock scenario
@@ -582,10 +618,10 @@ final class PullRequestStackGroupingTests: XCTestCase {
     }
 
     private static func ids(_ sections: [ReviewRequestSectionContent]) -> [Section: [String]] {
-        Dictionary(uniqueKeysWithValues: sections.map { ($0.section, ($0.visible + $0.hidden).map(\.id)) })
+        Dictionary(uniqueKeysWithValues: sections.map { ($0.section, ($0.visible + $0.hidden).map(\.representative.id)) })
     }
 
     private static func row(_ id: String, in sections: [ReviewRequestSectionContent]) -> PullRequestListItem? {
-        sections.flatMap { $0.visible + $0.hidden }.first { $0.id == id }
+        sections.flatMap { $0.visible + $0.hidden }.first { $0.representative.id == id }
     }
 }

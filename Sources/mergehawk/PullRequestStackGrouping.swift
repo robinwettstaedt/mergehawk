@@ -9,8 +9,11 @@ struct PullRequestListItem: Identifiable, Equatable {
     let isHidden: Bool
     let isUnread: Bool
 
-    /// Unique because every PR is in at most one row.
-    var id: String { representative.id }
+    /// Stable while the representative changes: a stack card is identified by its stack, a standalone card by
+    /// its PR. Unique because every PR is in at most one card and every stack in at most one card.
+    var id: String {
+        if let stack { "stack:\(stack.stack.id)" } else { representative.id }
+    }
 }
 
 /// A stack's group in one PR list.
@@ -174,7 +177,7 @@ enum PullRequestStackGrouping {
         sortDirection: DashboardController.PullRequestSortDirection
     ) -> PullRequestListContent {
         func sortedItems(_ items: [PullRequestListItem]) -> [PullRequestListItem] {
-            let itemByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+            let itemByID = Dictionary(uniqueKeysWithValues: items.map { ($0.representative.id, $0) })
             return DashboardController.sorted(items.map(\.representative), by: sortOption, direction: sortDirection)
                 .compactMap { itemByID[$0.id] }
         }

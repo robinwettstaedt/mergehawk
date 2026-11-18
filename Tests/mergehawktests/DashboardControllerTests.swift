@@ -1259,13 +1259,13 @@ final class DashboardControllerXCTests: XCTestCase {
     @MainActor
     private static func rowIDs(_ controller: DashboardController) -> [DashboardController.RequestedSection: [String]] {
         Dictionary(uniqueKeysWithValues: controller.requestedSections.map {
-            ($0.section, ($0.visible + $0.hidden).map(\.id).sorted())
+            ($0.section, ($0.visible + $0.hidden).map(\.representative.id).sorted())
         })
     }
 
     @MainActor
     private static func row(_ id: String, in controller: DashboardController) throws -> PullRequestListItem {
-        try XCTUnwrap(controller.requestedSections.flatMap { $0.visible + $0.hidden }.first { $0.id == id }, id)
+        try XCTUnwrap(controller.requestedSections.flatMap { $0.visible + $0.hidden }.first { $0.representative.id == id }, id)
     }
 
     @MainActor
@@ -1345,7 +1345,7 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertTrue(controller.hiddenPullRequestIds.isSuperset(of: [Self.spreadRepresentative, Self.spreadTeamMember]))
         XCTAssertTrue(controller.pinnedPullRequestIds.isDisjoint(with: [Self.spreadRepresentative, Self.spreadTeamMember]))
         let direct = try XCTUnwrap(controller.requestedSections.first { $0.section == .direct })
-        XCTAssertEqual(direct.hidden.map(\.id), [Self.spreadRepresentative])
+        XCTAssertEqual(direct.hidden.map(\.representative.id), [Self.spreadRepresentative])
         XCTAssertFalse(direct.visible.contains { $0.id == Self.spreadRepresentative })
         XCTAssertEqual(direct.hiddenCount, 2)
         XCTAssertEqual(direct.count, 8)
@@ -1354,7 +1354,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: [Self.spreadRepresentative, Self.spreadTeamMember]))
         XCTAssertTrue(controller.requestedSections.first { $0.section == .direct }?.visible.contains {
-            $0.id == Self.spreadRepresentative
+            $0.representative.id == Self.spreadRepresentative
         } == true)
     }
 
@@ -1369,7 +1369,7 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertTrue(controller.pinnedPullRequestIds.isSuperset(of: [Self.spreadRepresentative, Self.spreadTeamMember]))
         XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: [Self.spreadRepresentative, Self.spreadTeamMember]))
         let direct = try XCTUnwrap(controller.requestedSections.first { $0.section == .direct })
-        XCTAssertEqual(direct.visible.first?.id, Self.spreadRepresentative)
+        XCTAssertEqual(direct.visible.first?.representative.id, Self.spreadRepresentative)
         XCTAssertEqual(direct.visible.first?.isPinned, true)
         XCTAssertEqual(direct.visible.dropFirst().map(\.isPinned), Array(repeating: false, count: direct.visible.count - 1))
     }
@@ -1485,7 +1485,7 @@ final class DashboardControllerXCTests: XCTestCase {
     @MainActor
     private static func authoredItem(_ id: String, in controller: DashboardController) throws -> PullRequestListItem {
         let list = controller.authoredList
-        return try XCTUnwrap((list.visible + list.hidden).first { $0.id == id }, id)
+        return try XCTUnwrap((list.visible + list.hidden).first { $0.representative.id == id }, id)
     }
 
     @MainActor
@@ -1494,11 +1494,11 @@ final class DashboardControllerXCTests: XCTestCase {
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
 
         let list = controller.authoredList
-        XCTAssertEqual(list.visible.map(\.id), Self.authoredDefaultOrder)
+        XCTAssertEqual(list.visible.map(\.representative.id), Self.authoredDefaultOrder)
         XCTAssertEqual(list.hidden, [])
         let ownIDs = Set(controller.state.pullRequests.filter(\.isMine).map(\.id))
         let stackedOwnIDs = ownIDs.subtracting(["PR_STACKS_UNSTACKED_MINE"])
-        let itemIDs = Set(list.visible.map(\.id))
+        let itemIDs = Set(list.visible.map(\.representative.id))
         let grouped = list.visible.compactMap(\.stack).reduce(into: Set<String>()) { $0.formUnion($1.fullMemberIDs) }
         XCTAssertTrue(stackedOwnIDs.subtracting([Self.authoredStaleMember]).isSubset(of: grouped))
         XCTAssertEqual(itemIDs.intersection(stackedOwnIDs.subtracting(grouped)), [], "no own stack member stands alone")
@@ -1538,14 +1538,14 @@ final class DashboardControllerXCTests: XCTestCase {
 
         XCTAssertTrue(controller.hiddenPullRequestIds.isSuperset(of: Self.severalOwnMembers))
         XCTAssertTrue(controller.pinnedPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
-        XCTAssertEqual(controller.authoredList.hidden.map(\.id), [several])
+        XCTAssertEqual(controller.authoredList.hidden.map(\.representative.id), [several])
         XCTAssertFalse(controller.authoredList.visible.contains { $0.id == several })
         XCTAssertEqual(controller.authoredList.hiddenCount, 3)
 
         controller.setHidden(try Self.authoredItem(several, in: controller), hidden: false)
 
         XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
-        XCTAssertEqual(controller.authoredList.visible.map(\.id), Self.authoredDefaultOrder)
+        XCTAssertEqual(controller.authoredList.visible.map(\.representative.id), Self.authoredDefaultOrder)
 
         controller.hiddenPullRequestIds = ["PR_STACK_MOCK_AUTHORED_SEVERAL_4"]
         controller.setPinned(try Self.authoredItem(several, in: controller), pinned: true)
@@ -1553,13 +1553,13 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertTrue(controller.pinnedPullRequestIds.isSuperset(of: Self.severalOwnMembers))
         XCTAssertTrue(controller.hiddenPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
         let visible = controller.authoredList.visible
-        XCTAssertEqual(visible.first?.id, several)
+        XCTAssertEqual(visible.first?.representative.id, several)
         XCTAssertEqual(visible.map(\.isPinned), [true] + Array(repeating: false, count: visible.count - 1))
 
         controller.setPinned(try Self.authoredItem(several, in: controller), pinned: false)
 
         XCTAssertTrue(controller.pinnedPullRequestIds.isDisjoint(with: Self.severalOwnMembers))
-        XCTAssertEqual(controller.authoredList.visible.map(\.id), Self.authoredDefaultOrder)
+        XCTAssertEqual(controller.authoredList.visible.map(\.representative.id), Self.authoredDefaultOrder)
     }
 
     @MainActor
@@ -1608,12 +1608,12 @@ final class DashboardControllerXCTests: XCTestCase {
         controller.selectedPullRequestFilters = [.needsAttention]
 
         let first = try XCTUnwrap(controller.authoredList.visible.first)
-        XCTAssertEqual(controller.authoredList.visible.map(\.id), [unreadIDs[0]])
+        XCTAssertEqual(controller.authoredList.visible.map(\.representative.id), [unreadIDs[0]])
         XCTAssertEqual(first.stack?.filterExcludedMemberCount, 1)
         controller.openPullRequest(first.representative)
 
         let second = try XCTUnwrap(controller.authoredList.visible.first)
-        XCTAssertEqual(controller.authoredList.visible.map(\.id), [unreadIDs[1]])
+        XCTAssertEqual(controller.authoredList.visible.map(\.representative.id), [unreadIDs[1]])
         XCTAssertEqual(second.stack?.filterExcludedMemberCount, 2)
         controller.openPullRequest(second.representative)
 
@@ -1647,7 +1647,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         let items = controller.authoredList.visible + controller.authoredList.hidden
         XCTAssertFalse(items.contains { $0.stack?.stack.id == "STACK_MOCK_AUTHORED_BASE" })
-        XCTAssertEqual(items.map(\.id), Self.authoredDefaultOrder.filter { $0 != "PR_STACK_MOCK_AUTHORED_BASE_1" })
+        XCTAssertEqual(items.map(\.representative.id), Self.authoredDefaultOrder.filter { $0 != "PR_STACK_MOCK_AUTHORED_BASE_1" })
     }
 
     @MainActor
