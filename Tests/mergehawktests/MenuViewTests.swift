@@ -1128,15 +1128,10 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(rows.map(\.id), [
             "heading:pinned", "PR_P", "heading:assigned", "heading:direct", "PR_D1", "stack:S", "heading:team", "heading:hidden"
         ])
-        let firstFlags = rows.compactMap { row -> Bool? in
-            if case .heading(_, let isFirst) = row { return isFirst }
-            return nil
-        }
         let itemSections = rows.compactMap { row -> PullRequestSectionID? in
             if case .item(_, let section) = row { return section }
             return nil
         }
-        XCTAssertEqual(firstFlags, [true, false, false, false, false])
         XCTAssertEqual(itemSections, [.pinned, .direct, .direct])
     }
 
@@ -1179,6 +1174,138 @@ final class MenuViewTests: XCTestCase {
         let expandedHeading = try accessibilityButtonFrame(labeled: assignedLabel, in: host)
         // Window coordinates grow upwards, so a heading pushed down has a smaller minY.
         XCTAssertLessThan(expandedHeading.minY, collapsedHeading.minY - CGFloat(group.members.count - 2) * 40)
+    }
+
+    // MARK: - Moves between sections
+
+    @MainActor
+    private static func requestedRows(_ controller: DashboardController) -> [PullRequestListRows.Row] {
+        PullRequestListRows.rows(sections: controller.requestedSections, showsHeadings: true) {
+            controller.isSectionExpanded($0, in: .reviewRequests)
+        }
+    }
+
+    /// Each card row's ID with the section it is listed in.
+    private static func cardSections(_ rows: [PullRequestListRows.Row]) -> [String: PullRequestSectionID] {
+        Dictionary(uniqueKeysWithValues: rows.compactMap { row -> (String, PullRequestSectionID)? in
+            if case .item(_, let section) = row { return (row.id, section) }
+            return nil
+        })
+    }
+
+    @MainActor
+    func testPinningACardInDirectMovesItsRowToPinnedWithTheSameRowID() throws {
+        let controller = try isolatedSignedInMockController()
+        let card = try XCTUnwrap(controller.requestedSections[.direct]?.items.first { $0.id == "PR_5" })
+        XCTAssertEqual(Self.cardSections(Self.requestedRows(controller))[card.id], .direct)
+
+        controller.setPinned(card, pinned: true)
+
+        let rows = Self.requestedRows(controller)
+        XCTAssertEqual(Self.cardSections(rows)[card.id], .pinned)
+        XCTAssertEqual(rows.filter { $0.id == card.id }.count, 1)
+        XCTAssertEqual(rows.first?.id, "heading:pinned")
+    }
+
+    @MainActor
+    func testHidingAStackCardKeepsItsRowIDWhenItsRepresentativeChanges() throws {
+        let controller = try stackMenuController()
+        controller.hiddenPullRequestIds = ["PR_STACK_MOCK_SPREAD_2"]
+        let card = try XCTUnwrap(controller.requestedSections.allItems.first { $0.stack?.stack.id == "STACK_MOCK_SPREAD" })
+        XCTAssertEqual(card.representative.id, "PR_STACK_MOCK_SPREAD_3")
+
+        controller.setHidden(card, hidden: true)
+
+        let hidden = try XCTUnwrap(controller.requestedSections[.hidden]?.items.first)
+        XCTAssertEqual(hidden.representative.id, "PR_STACK_MOCK_SPREAD_2")
+        XCTAssertEqual(hidden.id, card.id)
+        controller.toggleSection(.hidden, in: .reviewRequests)
+        XCTAssertEqual(Self.cardSections(Self.requestedRows(controller))[card.id], .hidden)
+    }
+
+    @MainActor
+    func testAnExpandedStackStaysExpandedAfterItIsPinned() throws {
+        let controller = try stackMenuController()
+        let card = try XCTUnwrap(controller.requestedSections.allItems.first { $0.stack?.stack.id == "STACK_MOCK_SPREAD" })
+        controller.toggleStackExpanded("STACK_MOCK_SPREAD")
+
+        controller.setPinned(card, pinned: true)
+
+        XCTAssertTrue(controller.isStackExpanded("STACK_MOCK_SPREAD"))
+        XCTAssertEqual(controller.requestedSections[.pinned]?.items.map(\.id), [card.id])
+    }
+
+    func testReduceMotionTurnsTheMoveAnimationOff() {
+        XCTAssertNil(PullRequestMoveAnimation.animation(reduceMotion: true))
+        XCTAssertNotNil(PullRequestMoveAnimation.animation(reduceMotion: false))
+    }
+
+    func testTheAnchorIsTheTopVisibleRowOrTheNextNonMovingRowWhenTheTopRowMoves() {
+        let sections = [
+            Self.section(.assigned, [Self.card("PR_A")]),
+            Self.section(.direct, [Self.card("PR_D1"), Self.card("PR_D2")])
+        ]
+        let rows = PullRequestListRows.rows(sections: sections, showsHeadings: true) { _ in true }
+
+        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_A", movingID: "PR_D1"), "PR_A")
+        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_A", movingID: "PR_A"), "heading:direct")
+        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_D1", movingID: "PR_D1"), "PR_D2")
+        XCTAssertNil(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_D2", movingID: "PR_D2"))
+        XCTAssertNil(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: nil, movingID: "PR_D2"))
+    }
+
+    /// A Pinned heading and card appearing above the visible rows leave the rows above the moving card where they
+    /// were, and the rows below it close up by the card's height.
+    @MainActor
+    func testPinningACardInAScrolledListKeepsTheRowsAboveItInPlace() throws {
+        let controller = DashboardController(
+            tokenStore: InMemoryTokenStore(),
+            preferencesStore: PreferencesStore(defaults: try isolatedDefaults()),
+            launchConfiguration: LaunchConfiguration(
+                usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .longLists
+            ),
+            automaticRefreshInterval: 0
+        )
+        waitUntil(timeout: 1.0) { controller.state.syncedAt != nil && !controller.isRefreshing }
+        let host = hostSectionsMenu(controller, tab: .reviewRequests)
+        defer { host.close() }
+        let scrollView = try listScrollView(in: try XCTUnwrap(host.window.contentView))
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 400))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        host.settle()
+        let viewport = scrollView.convert(scrollView.contentView.frame, to: nil)
+        func visibleCards() throws -> [(label: String, frame: CGRect)] {
+            try accessibilityTree(in: host)
+                .filter { $0.label.contains(" #") && $0.frame.minY >= viewport.minY && $0.frame.maxY <= viewport.maxY }
+                .sorted { $0.frame.maxY > $1.frame.maxY }
+                .map { ($0.label, $0.frame) }
+        }
+        let before = try visibleCards()
+        XCTAssertGreaterThan(before.count, 5)
+        let moving = before[3]
+        let actions = try XCTUnwrap(try accessibilityButtons(in: host).first {
+            $0.label == "PR actions" && moving.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY))
+        })
+        try clickWindow(host, CGPoint(x: actions.frame.midX, y: actions.frame.midY))
+        let pin = try XCTUnwrap(try accessibilityButtons(in: host).first { $0.label == "Pin" })
+        try clickWindow(host, CGPoint(x: pin.frame.midX, y: pin.frame.midY))
+        RunLoop.main.run(until: Date().addingTimeInterval(PullRequestMoveAnimation.duration + 0.1))
+
+        XCTAssertEqual(controller.requestedSections[.pinned]?.count, 1)
+        let after = Dictionary(try visibleCards().map { ($0.label, $0.frame.minY) }, uniquingKeysWith: { first, _ in first })
+        for card in before[..<3] {
+            XCTAssertEqual(try XCTUnwrap(after[card.label], card.label), card.frame.minY, accuracy: 0.5, card.label)
+        }
+        let cardStep = before[0].frame.minY - before[1].frame.minY
+        for card in before[4...] where after[card.label] != nil {
+            XCTAssertEqual(after[card.label]!, card.frame.minY + cardStep, accuracy: 0.5, card.label)
+        }
+    }
+
+    @MainActor
+    private func clickWindow(_ host: OffScreenHost, _ location: CGPoint) throws {
+        host.send(try host.mouseEvent(.leftMouseDown, at: location))
+        host.send(try host.mouseEvent(.leftMouseUp, at: location))
     }
 
     func testHeadingAccessibilityLabelCountsItemsAndSaysWhetherItIsExpanded() {
