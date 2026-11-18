@@ -282,6 +282,17 @@ final class DashboardController: ObservableObject {
             preferencesStore.hideArchivedRepositories = hideArchivedRepositories
         }
     }
+    @Published var ignoresBotPullRequests: Bool {
+        didSet {
+            preferencesStore.ignoresBotPullRequests = ignoresBotPullRequests
+        }
+    }
+    /// Cleaned logins in the order they were added. Change it through `addIgnoredAccount` and `removeIgnoredAccount`.
+    @Published private(set) var ignoredAccounts: [String] {
+        didSet {
+            preferencesStore.ignoredAccounts = ignoredAccounts
+        }
+    }
     @Published var sourceCatalog: SourceCatalog {
         didSet {
             preferencesStore.sourceCatalog = sourceCatalog
@@ -434,6 +445,8 @@ final class DashboardController: ObservableObject {
         self.turnedOffReviewTeamIDs = preferencesStore.turnedOffReviewTeamIDs
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.hideArchivedRepositories = preferencesStore.hideArchivedRepositories
+        self.ignoresBotPullRequests = preferencesStore.ignoresBotPullRequests
+        self.ignoredAccounts = preferencesStore.ignoredAccounts
         self.sourceCatalog = preferencesStore.sourceCatalog
         self.sourceCatalogSyncedAt = preferencesStore.sourceCatalogSyncedAt
         self.sourceCatalogAccountLogin = preferencesStore.sourceCatalogAccountLogin
@@ -463,6 +476,38 @@ final class DashboardController: ObservableObject {
         return pullRequestNotificationHistory
             .filter { preferences.allowsNotifications(for: $0.repo) }
             .sorted(by: Self.compareNotifications)
+    }
+
+    /// The ignore rule for the current settings. Read it once per computation, never per element.
+    var ignoredAuthors: IgnoredAuthors {
+        IgnoredAuthors(
+            ignoresBots: ignoresBotPullRequests,
+            accounts: ignoredAccounts,
+            knownBotLogins: IgnoredAuthors.knownBotLogins(
+                pullRequests: state.pullRequests,
+                notifications: pullRequestNotificationHistory
+            )
+        )
+    }
+
+    func canAddIgnoredAccount(_ input: String) -> Bool {
+        guard let login = IgnoredAuthors.cleanedLogin(input) else {
+            return false
+        }
+        return !ignoredAccounts.contains { $0.caseInsensitiveCompare(login) == .orderedSame }
+    }
+
+    @discardableResult
+    func addIgnoredAccount(_ input: String) -> Bool {
+        guard canAddIgnoredAccount(input), let login = IgnoredAuthors.cleanedLogin(input) else {
+            return false
+        }
+        ignoredAccounts.append(login)
+        return true
+    }
+
+    func removeIgnoredAccount(_ login: String) {
+        ignoredAccounts.removeAll { $0.caseInsensitiveCompare(login) == .orderedSame }
     }
 
     private var effectiveSourcePreferences: SourcePreferences {

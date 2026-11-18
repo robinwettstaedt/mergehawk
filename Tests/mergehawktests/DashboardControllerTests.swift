@@ -1793,6 +1793,44 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testIgnoredAccountsAreCleanedDeduplicatedAndPersisted() {
+        let suiteName = "mergehawk-ignored-accounts-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        func makeController() -> DashboardController {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: defaults),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+        }
+        let controller = makeController()
+        XCTAssertFalse(controller.ignoresBotPullRequests)
+        XCTAssertEqual(controller.ignoredAccounts, [])
+
+        XCTAssertTrue(controller.addIgnoredAccount("@Platform-Nora"))
+        XCTAssertEqual(controller.ignoredAccounts, ["Platform-Nora"])
+        XCTAssertFalse(controller.canAddIgnoredAccount("platform-nora"))
+        XCTAssertFalse(controller.addIgnoredAccount("platform-nora"))
+        XCTAssertFalse(controller.canAddIgnoredAccount("   "))
+        XCTAssertFalse(controller.addIgnoredAccount("   "))
+        XCTAssertTrue(controller.addIgnoredAccount("renovate[bot]"))
+        controller.ignoresBotPullRequests = true
+        XCTAssertEqual(controller.ignoredAccounts, ["Platform-Nora", "renovate"])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).ignoredAccounts, ["Platform-Nora", "renovate"])
+        XCTAssertTrue(PreferencesStore(defaults: defaults).ignoresBotPullRequests)
+
+        let reloaded = makeController()
+        XCTAssertTrue(reloaded.ignoresBotPullRequests)
+        XCTAssertEqual(reloaded.ignoredAccounts, ["Platform-Nora", "renovate"])
+
+        controller.removeIgnoredAccount("PLATFORM-NORA")
+        XCTAssertEqual(controller.ignoredAccounts, ["renovate"])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).ignoredAccounts, ["renovate"])
+    }
+
+    @MainActor
     private func waitUntilAsync(condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(1)
         while Date() < deadline {
