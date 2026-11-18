@@ -240,6 +240,8 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
     public let isAssignedToViewer: Bool
     public let isMine: Bool
     public let author: String
+    /// Whether GitHub reports the PR author as a bot account. Nil when the author type was not read.
+    public let authorIsBot: Bool?
     public let authorAvatarURL: URL?
     public let headRefName: String
     public let mergeable: MergeableState
@@ -271,6 +273,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         isAssignedToViewer: Bool = false,
         isMine: Bool,
         author: String,
+        authorIsBot: Bool? = nil,
         authorAvatarURL: URL? = nil,
         headRefName: String = "",
         mergeable: MergeableState,
@@ -300,6 +303,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.isAssignedToViewer = isAssignedToViewer
         self.isMine = isMine
         self.author = author
+        self.authorIsBot = authorIsBot
         self.authorAvatarURL = authorAvatarURL
         self.headRefName = headRefName
         self.mergeable = mergeable
@@ -338,6 +342,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         case isAssignedToViewer
         case isMine
         case author
+        case authorIsBot
         case authorAvatarURL
         case headRefName
         case mergeable
@@ -373,6 +378,7 @@ public struct PullRequest: Identifiable, Codable, Equatable, Sendable {
         self.isAssignedToViewer = try container.decode(Bool.self, forKey: .isAssignedToViewer)
         self.isMine = try container.decode(Bool.self, forKey: .isMine)
         self.author = try container.decode(String.self, forKey: .author)
+        self.authorIsBot = try container.decodeIfPresent(Bool.self, forKey: .authorIsBot)
         self.authorAvatarURL = try container.decodeIfPresent(URL.self, forKey: .authorAvatarURL)
         self.headRefName = try container.decode(String.self, forKey: .headRefName)
         self.mergeable = try container.decode(MergeableState.self, forKey: .mergeable)
@@ -709,6 +715,8 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
     public let prNumber: Int
     public let repo: String
     public let prAuthor: String?
+    /// Whether the PR author was a bot when the row was created. Nil for rows stored before this was recorded.
+    public let prAuthorIsBot: Bool?
     public let url: URL
     public let destinationURL: URL?
     public let actorLogin: String?
@@ -727,6 +735,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         case prNumber
         case repo
         case prAuthor
+        case prAuthorIsBot
         case url
         case destinationURL
         case actorLogin
@@ -752,6 +761,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.prNumber = pullRequest.number
         self.repo = pullRequest.repo
         self.prAuthor = pullRequest.author
+        self.prAuthorIsBot = pullRequest.authorIsBot
         self.url = pullRequest.url
         self.destinationURL = event.destinationURL
         self.actorLogin = event.actorLogin
@@ -772,6 +782,7 @@ public struct PullRequestNotification: Identifiable, Codable, Equatable, Sendabl
         self.prNumber = try container.decode(Int.self, forKey: .prNumber)
         self.repo = try container.decode(String.self, forKey: .repo)
         self.prAuthor = try container.decodeIfPresent(String.self, forKey: .prAuthor)
+        self.prAuthorIsBot = try container.decodeIfPresent(Bool.self, forKey: .prAuthorIsBot)
         self.url = try container.decode(URL.self, forKey: .url)
         self.destinationURL = try container.decodeIfPresent(URL.self, forKey: .destinationURL)
         self.actorLogin = try container.decodeIfPresent(String.self, forKey: .actorLogin)

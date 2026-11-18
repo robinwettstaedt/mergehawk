@@ -1361,6 +1361,7 @@ struct GitHubPullRequestFetcher: Sendable {
             isAssignedToViewer: value.assignees.values.contains { $0.login.caseInsensitiveCompare(login) == .orderedSame },
             isMine: value.discovery.isAuthored || payload.author?.login.caseInsensitiveCompare(login) == .orderedSame,
             author: payload.author?.login ?? "unknown",
+            authorIsBot: payload.author?.isBot,
             authorAvatarURL: payload.author?.avatarUrl,
             headRefName: payload.headRefName,
             mergeable: mergeable,
