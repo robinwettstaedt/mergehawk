@@ -256,6 +256,7 @@ final class DashboardController: ObservableObject {
     /// Sections whose collapse state differs from their default, per PR tab, in memory only.
     @Published private(set) var sectionExpansionOverrides: [MenuTab: Set<PullRequestSectionID>] = [:]
     private var sectionOverridePruning: AnyCancellable?
+    private var isSectionPruneScheduled = false
     /// Expanded stack groups, shared by both PR tabs and in memory only like collapsed sections.
     @Published private(set) var expandedStackIDs: Set<String> = []
     @Published var pinnedPullRequestIds: Set<String> {
@@ -645,28 +646,66 @@ final class DashboardController: ObservableObject {
         return PullRequestListSection.showsHeadings(sections) ? sections.map(\.id) : []
     }
 
-    /// The one place collapse overrides are pruned: after any change, a section that is no longer shown loses its
-    /// override, so it comes back in its default state. Without overrides there is nothing to prune, so ordinary
-    /// updates do no grouping work here.
+    /// The one place collapse overrides are pruned: after a change, a section that is no longer shown loses its
+    /// override, so it comes back in its default state. Changes in one run loop turn are pruned once, after them.
     private func observeSectionsForOverridePruning() {
-        sectionOverridePruning = objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.pruneSectionExpansionOverrides()
+        sectionOverridePruning = objectWillChange.sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.isSectionPruneScheduled else { return }
+                self.isSectionPruneScheduled = true
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.isSectionPruneScheduled = false
+                        self.pruneSectionExpansionOverrides()
+                    }
                 }
             }
+        }
     }
 
+    /// Assigned and Direct always show, and a team section shows while its team counts, so only Pinned, Hidden and
+    /// Active need the grouping, and then only whether Pinned and Hidden have an item, not the cards.
     private func pruneSectionExpansionOverrides() {
         guard sectionExpansionOverrides.values.contains(where: { !$0.isEmpty }) else { return }
+        let countedTeamIDs = Set(teamReviewCounting.sectionTeams.map(\.id))
         var pruned = sectionExpansionOverrides
         for (tab, overrides) in sectionExpansionOverrides where !overrides.isEmpty {
-            pruned[tab] = overrides.intersection(shownSectionIDs(in: tab))
+            var presence: (hasPinned: Bool, hasHidden: Bool)?
+            func pinnedAndHidden() -> (hasPinned: Bool, hasHidden: Bool) {
+                if let presence { return presence }
+                let found = pinnedAndHiddenPresence(in: tab)
+                presence = found
+                return found
+            }
+            pruned[tab] = overrides.filter { section in
+                switch section {
+                case .assigned, .direct: true
+                case .team(let teamID): countedTeamIDs.contains(teamID)
+                case .pinned: pinnedAndHidden().hasPinned
+                case .hidden: pinnedAndHidden().hasHidden
+                // Active has a heading only while Pinned or Hidden shows.
+                case .active: pinnedAndHidden().hasPinned || pinnedAndHidden().hasHidden
+                }
+            }
         }
         if pruned != sectionExpansionOverrides {
             sectionExpansionOverrides = pruned
         }
+    }
+
+    private func pinnedAndHiddenPresence(in tab: MenuTab) -> (hasPinned: Bool, hasHidden: Bool) {
+        let members: [PullRequest]
+        switch tab {
+        case .reviewRequests: members = sourceFilteredReviewRequests.filter(Self.isRequestedPullRequest)
+        case .myPRs: members = sourceFilteredMyPullRequests
+        case .notifications: return (false, false)
+        }
+        return PullRequestStackGrouping.pinnedAndHiddenPresence(
+            members: members,
+            stacks: state.pullRequestStacks,
+            hiddenIDs: hiddenPullRequestIds,
+            pinnedIDs: pinnedPullRequestIds
+        )
     }
 
     private var filteredMyPullRequests: [PullRequest] {

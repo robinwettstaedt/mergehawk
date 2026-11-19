@@ -221,8 +221,17 @@ enum PullRequestStackGrouping {
             .compactMap { itemByRepresentativeID[$0.id] }
     }
 
-    /// Pinned and Hidden show only when an item belongs there, whatever the filter. A pinned or hidden item sits
-    /// only in Pinned or Hidden.
+    /// A pinned or hidden item sits only in Pinned or Hidden, otherwise in its relationship section.
+    private static func sectionID(
+        of item: GroupedItem,
+        relationship: (GroupedItem) -> PullRequestSectionID?
+    ) -> PullRequestSectionID? {
+        if item.isHidden { return .hidden }
+        if item.isPinned { return .pinned }
+        return relationship(item)
+    }
+
+    /// Pinned and Hidden show only when an item belongs there, whatever the filter.
     private static func sections(
         of items: [GroupedItem],
         relationshipSections: [(id: PullRequestSectionID, title: String, accessibilityTitle: String)],
@@ -230,27 +239,42 @@ enum PullRequestStackGrouping {
         sortOption: DashboardController.PullRequestSortOption,
         sortDirection: DashboardController.PullRequestSortDirection
     ) -> [PullRequestListSection] {
-        func sectionID(of item: GroupedItem) -> PullRequestSectionID? {
-            if item.isHidden { return .hidden }
-            if item.isPinned { return .pinned }
-            return relationship(item)
+        var itemsBySection: [PullRequestSectionID: [GroupedItem]] = [:]
+        for item in items {
+            if let id = sectionID(of: item, relationship: relationship) {
+                itemsBySection[id, default: []].append(item)
+            }
         }
-        let present = Set(items.compactMap(sectionID(of:)))
-        let shown = (present.contains(.pinned) ? [(id: PullRequestSectionID.pinned, title: "Pinned", accessibilityTitle: "Pinned")] : [])
+        let shown = (itemsBySection[.pinned] != nil ? [(id: PullRequestSectionID.pinned, title: "Pinned", accessibilityTitle: "Pinned")] : [])
             + relationshipSections
-            + (present.contains(.hidden) ? [(id: PullRequestSectionID.hidden, title: "Hidden", accessibilityTitle: "Hidden")] : [])
+            + (itemsBySection[.hidden] != nil ? [(id: PullRequestSectionID.hidden, title: "Hidden", accessibilityTitle: "Hidden")] : [])
         return shown.map { section in
             PullRequestListSection(
                 id: section.id,
                 title: section.title,
                 accessibilityTitle: section.accessibilityTitle,
                 items: sorted(
-                    items.filter { sectionID(of: $0) == section.id }.compactMap(\.card),
+                    (itemsBySection[section.id] ?? []).compactMap(\.card),
                     by: sortOption,
                     direction: sortDirection
                 )
             )
         }
+    }
+
+    /// Whether a list would show Pinned and Hidden, without building or sorting any card: with no member passing a
+    /// filter, the grouping builds no cards. For pruning collapse state cheaply.
+    static func pinnedAndHiddenPresence(
+        members: [PullRequest],
+        stacks: [PullRequestStack],
+        hiddenIDs: Set<String>,
+        pinnedIDs: Set<String>
+    ) -> (hasPinned: Bool, hasHidden: Bool) {
+        let items = items(
+            members: members, matching: [], stacks: stacks, hiddenIDs: hiddenIDs, pinnedIDs: pinnedIDs, unreadIDs: []
+        )
+        let ids = items.compactMap { sectionID(of: $0, relationship: { _ in nil }) }
+        return (ids.contains(.pinned), ids.contains(.hidden))
     }
 
     /// `requested` is the counted requested PRs before the Draft/Ready filter; `matching` is the subset passing it.

@@ -1692,6 +1692,7 @@ struct PullRequestListView: View {
     /// is one row changing place. Without headings, the column header leads the cards. The stack is not lazy: a lazy
     /// stack holds the visible rows in place on its own, at once, so while the rows animated to their new places the
     /// visible rows jumped and slid back. The scroll anchor holds them on the animation's curve instead.
+    // The scroll correction needs every row measured, so the list stays non-lazy unless the anchoring is replaced.
     private func rowList(_ rows: [PullRequestListRows.Row]) -> some View {
         ScrollView(.vertical) {
             VStack(spacing: 0) {

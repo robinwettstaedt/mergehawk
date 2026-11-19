@@ -299,6 +299,26 @@ final class PullRequestStackGroupingTests: XCTestCase {
         XCTAssertEqual(sections.map(\.count), [2, 0])
     }
 
+    func testPinnedAndHiddenPresenceMatchesTheSectionsWithoutBuildingCards() {
+        let one = Self.pr("PR_1", .direct, stack: "S")
+        let two = Self.pr("PR_2", .direct, draft: true, stack: "S")
+        let stack = Self.stack("S", size: 2, [(1, one.id, .open), (2, two.id, .open)])
+        let standalone = Self.pr("PR_STANDALONE", .assigned)
+        let cases: [(hidden: Set<String>, pinned: Set<String>)] = [
+            ([], []), ([one.id], []), ([one.id, two.id], []), ([], [two.id]), ([standalone.id], [one.id])
+        ]
+
+        for (hidden, pinned) in cases {
+            let presence = PullRequestStackGrouping.pinnedAndHiddenPresence(
+                members: [one, two, standalone], stacks: [stack], hiddenIDs: hidden, pinnedIDs: pinned
+            )
+            let sections = Self.sections([one, two, standalone], filters: [.ready], stacks: [stack], hidden: hidden, pinned: pinned)
+
+            XCTAssertEqual(presence.hasPinned, sections[.pinned] != nil, "\(hidden) \(pinned)")
+            XCTAssertEqual(presence.hasHidden, sections[.hidden] != nil, "\(hidden) \(pinned)")
+        }
+    }
+
     // MARK: - Team sections
 
     private static let platform = TeamReference(id: "T_PLATFORM", organization: "acme", slug: "platform")
