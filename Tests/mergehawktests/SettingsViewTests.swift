@@ -708,6 +708,61 @@ final class SettingsViewTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testIgnoredAccountsListGrowsWithItsRowsUpToItsMaximumHeight() throws {
+        let logins = ["Platform-Nora", "renovate"] + (3...12).map { "account-\($0)" }
+        var popoverHeights: [CGFloat] = []
+        for count in [0, 2, 12] {
+            let (controller, defaults, suite) = makeSettingsController(scenario: nil)
+            defer { defaults.removePersistentDomain(forName: suite) }
+            for login in logins.prefix(count) {
+                controller.addIgnoredAccount(login)
+            }
+            // Shown in a real popover, which sizes its content the way the Edit button's popover does.
+            let anchor = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+            let host = OffScreenHost(anchor)
+            defer { host.close() }
+            let popover = NSPopover()
+            popover.contentViewController = NSHostingController(rootView: IgnoredAccountsEditor(controller: controller))
+            popover.show(relativeTo: CGRect(x: 150, y: 150, width: 1, height: 1), of: anchor, preferredEdge: .maxY)
+            defer { popover.close() }
+            host.settle()
+            host.settle()
+            let label = "\(count) accounts"
+            let root = try XCTUnwrap(popover.contentViewController?.view, label)
+            popoverHeights.append(root.frame.height)
+
+            let scrollView = Self.firstSubview(of: NSScrollView.self, in: root)
+            guard count > 0 else {
+                XCTAssertNil(scrollView, label)
+                continue
+            }
+            let list = try XCTUnwrap(scrollView, label)
+            let rowsHeight = try XCTUnwrap(list.documentView, label).frame.height
+            if count == 2 {
+                XCTAssertGreaterThan(rowsHeight, 20, "two rows, \(label)")
+                XCTAssertEqual(list.frame.height, rowsHeight, accuracy: 0.5, "both rows show in full, \(label)")
+            } else {
+                XCTAssertGreaterThan(rowsHeight, IgnoredAccountsEditor.maxListHeight, label)
+                XCTAssertEqual(list.frame.height, IgnoredAccountsEditor.maxListHeight, accuracy: 0.5, label)
+            }
+        }
+        XCTAssertEqual(popoverHeights, popoverHeights.sorted(), "the popover grows with its list")
+        XCTAssertEqual(Set(popoverHeights).count, 3, "the popover grows with its list")
+    }
+
+    private static func firstSubview<View: NSView>(of type: View.Type, in root: NSView) -> View? {
+        if let match = root as? View {
+            return match
+        }
+        for subview in root.subviews {
+            if let match = firstSubview(of: type, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
     /// The screen frame of the first accessibility element with this label, or nil once the timeout passes.
     @MainActor
     private func accessibilityFrame(labeled label: String, in host: OffScreenHost, timeout: TimeInterval = 2) -> CGRect? {

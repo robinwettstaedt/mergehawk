@@ -72,8 +72,13 @@ struct IgnoredAuthorSettingsRows: View {
 
 /// The ignored accounts editor: an add field and the accounts in the order they were added.
 struct IgnoredAccountsEditor: View {
+    /// The list grows with its rows up to this height, then scrolls.
+    static let maxListHeight: CGFloat = 180
+
     @ObservedObject var controller: DashboardController
     @State private var input = ""
+    /// The rows' full height. A popover sizes a scroll view to its minimum, so the list gets an explicit height.
+    @State private var rowsHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -107,8 +112,9 @@ struct IgnoredAccountsEditor: View {
                             }
                         }
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowsHeight = $0 }
                 }
-                .frame(maxHeight: 180)
+                .frame(height: min(rowsHeight, Self.maxListHeight))
             }
         }
         .padding(12)
