@@ -550,23 +550,11 @@ final class DashboardController: ObservableObject {
         TeamReviewCounting(viewerTeams: state.viewerTeams, turnedOffTeamIDs: turnedOffReviewTeamIDs)
     }
 
-    /// The viewer's teams from the last complete PR refresh as a tree like GitHub's team list: organizations in
-    /// order, each team followed by its child teams, siblings by slug. A team whose parent is not one of the
-    /// viewer's teams is top level.
+    /// The viewer's teams from the last complete PR refresh in Settings order (`settingsOrder(of:)`), with their PR
+    /// counts.
     var reviewTeamRows: [ReviewTeamRow] {
-        let viewerTeams = state.viewerTeams
-        let viewerTeamIDs = Set(viewerTeams.map(\.team.id))
-        let bySlug: (ViewerTeam, ViewerTeam) -> Bool = {
-            ($0.team.organization, $0.team.slug, $0.team.id) < ($1.team.organization, $1.team.slug, $1.team.id)
-        }
-        let childrenByParentID = Dictionary(grouping: viewerTeams.filter {
-            $0.parentTeamID.map(viewerTeamIDs.contains) == true
-        }) { $0.parentTeamID! }
-        let roots = viewerTeams.filter { $0.parentTeamID.map(viewerTeamIDs.contains) != true }.sorted(by: bySlug)
-
-        var rows: [ReviewTeamRow] = []
-        func append(_ viewerTeam: ViewerTeam, depth: Int) {
-            rows.append(ReviewTeamRow(
+        settingsOrder(of: state.viewerTeams).map { viewerTeam, depth in
+            ReviewTeamRow(
                 team: viewerTeam.team,
                 depth: depth,
                 isCounting: !turnedOffReviewTeamIDs.contains(viewerTeam.team.id),
@@ -575,13 +563,8 @@ final class DashboardController: ObservableObject {
                 }.count,
                 avatarURL: viewerTeam.avatarURL,
                 organizationAvatarURL: viewerTeam.organizationAvatarURL
-            ))
-            for child in (childrenByParentID[viewerTeam.team.id] ?? []).sorted(by: bySlug) {
-                append(child, depth: depth + 1)
-            }
+            )
         }
-        roots.forEach { append($0, depth: 0) }
-        return rows
     }
 
     func setReviewTeam(_ id: String, counting: Bool) {
