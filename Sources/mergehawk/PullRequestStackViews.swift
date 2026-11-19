@@ -452,3 +452,60 @@ struct StackUnfoldReveal: ViewModifier, Animatable {
         }
     }
 }
+
+/// How Pin, Unpin, Hide and Unhide move a card to another section: the card slides from its old place to its new one
+/// on the stack expansion's curve, slower because it can cross the list. With Reduce Motion it moves at once.
+enum PullRequestMoveAnimation {
+    static let duration: TimeInterval = 0.3
+
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: duration)
+    }
+
+    /// A row that appears fades in at its full height, so the list can hold the visible rows in place when it
+    /// appears above them. A row that leaves in place, such as a heading, or a card moving into a collapsed section,
+    /// fades while its height closes.
+    static var rowTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity,
+            removal: .opacity.combined(with: .modifier(
+                active: RowHeightReveal(progress: 0),
+                identity: RowHeightReveal(progress: 1)
+            ))
+        )
+    }
+}
+
+/// Shows the top `progress` of a row and takes only that much height, so the rows below close up as it shrinks.
+private struct RowHeightReveal: ViewModifier, Animatable {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        RowHeightLayout(progress: progress) {
+            content
+        }
+        .mask(alignment: .top) {
+            // At rest the mask reaches past the row, so its shadow and hover lift are never clipped.
+            Rectangle().padding(progress < 1 ? 0 : -100)
+        }
+    }
+}
+
+/// Takes `progress` of its content's height and places the content at its top.
+private struct RowHeightLayout: Layout {
+    var progress: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews.first?.sizeThatFits(proposal) ?? .zero
+        return CGSize(width: size.width, height: size.height * progress)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
+    }
+}

@@ -117,7 +117,15 @@ final class IgnoredAuthorListTests: XCTestCase {
 
     @MainActor
     private static func requestedIDs(_ controller: DashboardController) -> Set<String> {
-        Set(controller.requestedSections.flatMap { $0.visible + $0.hidden }.map(\.id))
+        Set(controller.requestedSections.flatMap(\.items).map(\.id))
+    }
+
+    @MainActor
+    private static func itemIDs(
+        in section: PullRequestSectionID,
+        of sections: [PullRequestListSection]
+    ) -> [String] {
+        sections.first { $0.id == section }?.items.map(\.id) ?? []
     }
 
     @MainActor
@@ -131,13 +139,13 @@ final class IgnoredAuthorListTests: XCTestCase {
         controller.hiddenPullRequestIds = [hiddenBot.id]
         XCTAssertEqual(Self.requestedIDs(controller), [bot.id, hiddenBot.id, human.id])
         XCTAssertEqual(Self.requestedCount(controller), 3)
-        XCTAssertEqual(controller.hiddenReviewRequests.map(\.id), [hiddenBot.id])
+        XCTAssertEqual(Self.itemIDs(in: .hidden, of: controller.requestedSections), [hiddenBot.id])
 
         controller.ignoresBotPullRequests = true
 
         XCTAssertEqual(Self.requestedIDs(controller), [human.id])
         XCTAssertEqual(Self.requestedCount(controller), 1)
-        XCTAssertEqual(controller.hiddenReviewRequests, [])
+        XCTAssertFalse(controller.requestedSections.contains { $0.id == .hidden })
 
         controller.ignoresBotPullRequests = false
 
@@ -174,14 +182,12 @@ final class IgnoredAuthorListTests: XCTestCase {
     func testIgnoringTheViewersOwnLoginEmptiesAuthored() throws {
         let own = Self.pr("PR_OWN", author: "rw", isMine: true, request: .none)
         let (controller, _) = try makeController(CompletePullRequestFetchResult(activePullRequests: [own]))
-        XCTAssertEqual(controller.authoredList.visible.map(\.id), [own.id])
-        XCTAssertEqual(controller.authoredList.count, 1)
+        XCTAssertEqual(controller.authoredSections.flatMap(\.items).map(\.id), [own.id])
 
         controller.addIgnoredAccount("RW")
 
-        XCTAssertEqual(controller.authoredList.visible, [])
-        XCTAssertEqual(controller.authoredList.hidden, [])
-        XCTAssertEqual(controller.authoredList.count, 0)
+        XCTAssertEqual(controller.authoredSections.flatMap(\.items), [])
+        XCTAssertEqual(controller.authoredSections.map(\.count).reduce(0, +), 0)
     }
 
     @MainActor
@@ -198,17 +204,14 @@ final class IgnoredAuthorListTests: XCTestCase {
         controller.ignoresBotPullRequests = true
 
         XCTAssertEqual(Self.requestedIDs(controller), [human.id])
-        XCTAssertEqual(controller.hiddenReviewRequests, [])
+        XCTAssertFalse(controller.requestedSections.contains { $0.id == .pinned || $0.id == .hidden })
         XCTAssertEqual(controller.pinnedPullRequestIds, [pinned.id])
         XCTAssertEqual(controller.hiddenPullRequestIds, [hidden.id])
 
         controller.ignoresBotPullRequests = false
 
-        let pinnedSection = try XCTUnwrap(controller.requestedSections.first { $0.visible.contains { $0.id == pinned.id } })
-        XCTAssertEqual(pinnedSection.visible.first?.id, pinned.id)
-        XCTAssertEqual(pinnedSection.visible.first?.isPinned, true)
-        XCTAssertEqual(controller.requestedSections.flatMap(\.hidden).map(\.id), [hidden.id])
-        XCTAssertEqual(controller.hiddenReviewRequests.map(\.id), [hidden.id])
+        XCTAssertEqual(Self.itemIDs(in: .pinned, of: controller.requestedSections), [pinned.id])
+        XCTAssertEqual(Self.itemIDs(in: .hidden, of: controller.requestedSections), [hidden.id])
     }
 
     @MainActor
@@ -220,11 +223,11 @@ final class IgnoredAuthorListTests: XCTestCase {
             activePullRequests: [onlyBot, botBase, humanTop],
             stacks: [Self.stack("S_SOLO", [onlyBot]), Self.stack("S_MIXED", [botBase, humanTop])]
         ))
-        XCTAssertEqual(Self.requestedCount(controller), 3)
+        XCTAssertEqual(Self.requestedCount(controller), 2, "A stack card counts once")
 
         controller.ignoresBotPullRequests = true
 
-        let rows = controller.requestedSections.flatMap { $0.visible + $0.hidden }
+        let rows = controller.requestedSections.flatMap(\.items)
         XCTAssertFalse(rows.contains { $0.stack?.stack.id == "S_SOLO" || $0.id == onlyBot.id })
         let mixed = try XCTUnwrap(rows.first { $0.stack?.stack.id == "S_MIXED" }?.stack)
         XCTAssertEqual(mixed.fullMemberIDs, [humanTop.id])
@@ -236,7 +239,7 @@ final class IgnoredAuthorListTests: XCTestCase {
     }
 
     @MainActor
-    func testTeamsSettingsCountsKeepIgnoredPullRequests() throws {
+    func testTeamSectionDropsIgnoredPullRequestsButTeamsSettingsCountsKeepThem() throws {
         let bot = Self.pr("PR_BOT", author: "dependabot", isBot: true, request: .team, requestedTeams: [Self.reviewers])
         let human = Self.pr("PR_HUMAN", author: "teammate", request: .team, requestedTeams: [Self.reviewers])
         let (controller, _) = try makeController(CompletePullRequestFetchResult(
@@ -247,6 +250,9 @@ final class IgnoredAuthorListTests: XCTestCase {
         controller.ignoresBotPullRequests = true
 
         XCTAssertEqual(Self.requestedIDs(controller), [human.id])
+        let teamSection = try XCTUnwrap(controller.requestedSections.first { $0.id == .team(id: Self.reviewers.id) })
+        XCTAssertEqual(teamSection.items.map(\.id), [human.id])
+        XCTAssertEqual(teamSection.count, 1)
         XCTAssertEqual(controller.reviewTeamRows.map(\.pullRequestCount), [2])
     }
 
@@ -266,7 +272,7 @@ final class IgnoredAuthorListTests: XCTestCase {
         controller.addIgnoredAccount("rw")
 
         XCTAssertEqual(Self.requestedIDs(controller), [])
-        XCTAssertEqual(controller.authoredList.count, 0)
+        XCTAssertEqual(controller.authoredSections.flatMap(\.items), [])
         XCTAssertFalse(controller.showsGitHubAppRepositoryAccessPrompt)
     }
 }

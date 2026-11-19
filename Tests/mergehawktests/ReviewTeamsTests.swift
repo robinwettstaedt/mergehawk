@@ -110,6 +110,72 @@ final class ReviewTeamsTests: XCTestCase {
         XCTAssertEqual(unflaggedWithCountedTeam.reviewRequestKind, .directAndTeam)
     }
 
+    // MARK: - Settings order and team sections
+
+    static let web = TeamReference(id: "T_web", organization: "acme", slug: "web")
+    static let webA = TeamReference(id: "T_web_a", organization: "acme", slug: "web-a")
+    static let alpha = TeamReference(id: "T_alpha", organization: "beta-org", slug: "alpha")
+    static let zeta = TeamReference(id: "T_zeta", organization: "acme", slug: "zeta")
+
+    /// acme: developers › web › web-a, and zeta. beta-org: alpha. Listed out of order on purpose.
+    static let treeTeams = [
+        ViewerTeam(team: webA, parentTeamID: web.id),
+        ViewerTeam(team: alpha),
+        ViewerTeam(team: zeta),
+        ViewerTeam(team: web, parentTeamID: developers.id),
+        ViewerTeam(team: developers)
+    ]
+
+    func testSettingsOrderIsOrganizationThenTopLevelSlugWithEachTeamFollowedByItsChildren() {
+        let ordered = settingsOrder(of: Self.treeTeams)
+
+        XCTAssertEqual(ordered.map(\.viewerTeam.team.slug), ["developers", "web", "web-a", "zeta", "alpha"])
+        XCTAssertEqual(ordered.map(\.depth), [0, 1, 2, 0, 0])
+        XCTAssertEqual(
+            TeamReviewCounting(viewerTeams: Self.treeTeams, turnedOffTeamIDs: [Self.web.id]).sectionTeams,
+            [Self.developers, Self.webA, Self.zeta, Self.alpha]
+        )
+    }
+
+    func testAPRRequestingATeamAndItsChildGoesUnderTheChild() {
+        let counting = TeamReviewCounting(viewerTeams: Self.treeTeams, turnedOffTeamIDs: [])
+
+        XCTAssertEqual(counting.sectionTeam(for: [Self.developers, Self.web]), Self.web)
+    }
+
+    func testAPRRequestingOnlyTheParentGoesUnderTheParent() {
+        let counting = TeamReviewCounting(viewerTeams: Self.treeTeams, turnedOffTeamIDs: [])
+
+        XCTAssertEqual(counting.sectionTeam(for: [Self.developers]), Self.developers)
+    }
+
+    func testATurnedOffMiddleTeamStillLinksItsParentAndChild() {
+        let counting = TeamReviewCounting(viewerTeams: Self.treeTeams, turnedOffTeamIDs: [Self.web.id])
+
+        XCTAssertEqual(counting.sectionTeam(for: [Self.developers, Self.webA]), Self.webA)
+    }
+
+    func testAPRRequestingTwoUnrelatedCountedTeamsGoesUnderTheFirstInOrder() {
+        let counting = TeamReviewCounting(viewerTeams: Self.treeTeams, turnedOffTeamIDs: [])
+
+        XCTAssertEqual(counting.sectionTeam(for: [Self.alpha, Self.zeta]), Self.zeta)
+        XCTAssertEqual(counting.sectionTeam(for: [Self.zeta, Self.webA]), Self.webA)
+    }
+
+    func testAPRRequestingATurnedOffTeamAndACountedTeamGoesUnderTheCountedOne() {
+        let counting = TeamReviewCounting(viewerTeams: Self.treeTeams, turnedOffTeamIDs: [Self.zeta.id])
+
+        XCTAssertEqual(counting.sectionTeam(for: [Self.zeta, Self.alpha]), Self.alpha)
+    }
+
+    func testAPRRequestingNoCountedTeamHasNoSectionTeam() {
+        let counting = TeamReviewCounting(viewerTeams: Self.treeTeams, turnedOffTeamIDs: [Self.zeta.id])
+
+        XCTAssertNil(counting.sectionTeam(for: [Self.security]))
+        XCTAssertNil(counting.sectionTeam(for: [Self.zeta]))
+        XCTAssertNil(counting.sectionTeam(for: []))
+    }
+
     func testPullRequestAndDashboardStateRoundTripWithTeams() throws {
         let pr = Self.pullRequest(kind: .team, requestedTeams: [Self.developers, Self.security])
         let dashboard = DashboardState(

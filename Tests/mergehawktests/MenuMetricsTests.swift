@@ -196,8 +196,6 @@ final class MenuMetricsTests: XCTestCase {
         ("prList.topPadding", \.prList.topPadding, 5),
         ("prList.bottomPadding", \.prList.bottomPadding, 12),
         ("prList.sectionSpacing", \.prList.sectionSpacing, 20),
-        ("prList.disclosureSpacing", \.prList.disclosureSpacing, 7),
-        ("prList.disclosureHorizontalPadding", \.prList.disclosureHorizontalPadding, 10),
         ("prList.sectionHeadingSpacing", \.prList.sectionHeadingSpacing, 8),
         ("prList.sectionCountHorizontalPadding", \.prList.sectionCountHorizontalPadding, 6),
         ("prList.sectionCountVerticalPadding", \.prList.sectionCountVerticalPadding, 2),
@@ -266,7 +264,7 @@ final class MenuMetricsTests: XCTestCase {
     ]
 
     func testSpacingIsOnTheScaleOrADocumentedOneOff() {
-        XCTAssertEqual(Self.spacingTokens.count, 92)
+        XCTAssertEqual(Self.spacingTokens.count, 90)
         for token in Self.spacingTokens {
             let value = metrics[keyPath: token.keyPath]
             if Self.spacingOneOffs.contains(token.name) {
@@ -360,8 +358,6 @@ final class MenuMetricsTests: XCTestCase {
         .init(name: "refreshTimestamp", keyPath: \.type.refreshTimestamp, mer86Size: 10, size: 10, weight: .medium),
         .init(name: "bannerMessage", keyPath: \.type.bannerMessage, mer86Size: 12, size: 11),
         .init(name: "bannerSymbol", keyPath: \.type.bannerSymbol, mer86Size: 13, size: 13),
-        .init(name: "disclosureChevron", keyPath: \.type.disclosureChevron, mer86Size: 9, size: 10, weight: .semibold),
-        .init(name: "disclosureTitle", keyPath: \.type.disclosureTitle, mer86Size: 10, size: 10, weight: .semibold),
         .init(name: "dropdownItem", keyPath: \.type.dropdownItem, mer86Size: 11, size: 11, weight: .semibold),
         .init(name: "dropdownCheckmark", keyPath: \.type.dropdownCheckmark, mer86Size: 11, size: 11, weight: .semibold),
         .init(name: "sectionChevron", keyPath: \.type.sectionChevron, mer86Size: 12, size: 11, weight: .semibold),

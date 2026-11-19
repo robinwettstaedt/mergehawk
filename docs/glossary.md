@@ -14,8 +14,15 @@ issues, prompts, tests, UI copy, and implementation notes.
 | Notification payload | The title/body/update metadata MergeHawk would send to macOS Notification Center. |
 | PR / pull request | The app-level umbrella term for a provider-hosted code review/change request, including equivalent concepts from future version control platform integrations. |
 | Ignored PR | A PR opened by a bot while "Ignore PRs opened by bots" is on, or by an account in "Ignored accounts". It leaves the lists and counts, creates no notifications, and its existing notification rows are hidden. |
-| Hidden PR | A PR the user moved to the Hidden dropdown with the manual per-PR Hide action. UI only: its notifications are unchanged. |
+| Hidden PR | A PR the user moved to the Hidden section with the manual per-PR Hide action. UI only: its notifications are unchanged. |
 | Muted bot activity | Comments and reviews by bots on PRs the user still sees, muted by "Mute bot comment and review notifications". |
+| Section | A collapsible group of PR cards under a heading in a PR tab (`Authored` or `Requested`). |
+| Pinned section | The section at the top of a PR tab holding every pinned PR or stack, shown while it holds one. |
+| Hidden section | The section at the bottom of a PR tab holding every hidden PR or stack, shown while it holds one, collapsed by default. |
+| Active section | The `Authored` section for PRs that are neither pinned nor hidden, shown while Pinned or Hidden is shown. |
+| Relationship section | A `Requested` section for the viewer's relationship to a PR: `Assigned`, `Direct` or a team section. Always shown. |
+| Counted team | One of the viewer's teams turned on in Settings › Teams. Only review requests to counted teams count. |
+| Team section | One `Requested` section per counted team, in Settings › Teams order. A PR goes under its most specific requested counted team. |
 | Provider | The version control platform or service that supplies PRs and updates. |
 | Update | A provider-derived change MergeHawk notices for a PR, such as a new comment, review, failed CI, or requested changes. |
 | Complete PR refresh | One provider read attempt that discovers relevant PRs, fetches their complete paginated activity, reconciles disappeared PRs, and commits one coherent app state. |
@@ -111,8 +118,9 @@ accuracy.
 A PR MergeHawk leaves out because of who opened it: a GitHub bot while "Ignore
 PRs opened by bots" is on, or an account in "Ignored accounts" (both in
 Settings › Sources). Ignoring is by author only. An ignored PR is not in the
-Authored or Requested lists, their Hidden dropdowns, or their counts, and it
-creates no in-app or macOS local notifications. Its existing notification rows
+Authored or Requested lists, in any of their sections (Pinned and Hidden
+included), or in their counts, and it creates no in-app or macOS local
+notifications. Its existing notification rows
 are hidden until the ignore is lifted. Ignoring overrides the per-repository
 Sources checkboxes, and it keeps the PR's pinned and hidden state.
 
@@ -121,6 +129,65 @@ still notifies, or with **muted bot activity**, which mutes bot comments and
 reviews on PRs the user still sees. "Hide archived repositories" and turned-off
 review teams also remove PRs and notifications, but they are separate filters,
 not ignoring.
+
+### Section
+
+A collapsible group of PR cards under a heading in a PR tab. The heading shows
+the section's title, its count of cards (a stack card counts once), and the
+column legend while expanded. Clicking a heading collapses or expands its
+section, and Option-clicking it does the same for every section in the tab.
+Collapse state lives in memory per tab: every section starts expanded except
+Hidden.
+
+A PR or stack sits in exactly one section. The PR filter only removes cards
+inside a section: it never adds or removes a heading and never moves a card to
+another section.
+
+### Pinned Section
+
+The first section of a PR tab, holding every pinned PR or stack whatever its
+relationship. Shown while the tab has at least one pinned item with the filter
+set to `All`, and then kept with a count of 0 under any filter.
+
+### Hidden Section
+
+The last section of a PR tab, holding every hidden PR or stack. A stack is
+hidden when every open member is hidden. Shown while the tab has at least one
+hidden item with the filter set to `All`, and collapsed by default.
+
+### Active Section
+
+The `Authored` section for own PRs that are neither pinned nor hidden. Shown
+only while the Pinned or Hidden section is shown, even with 0 cards. Without
+them, `Authored` is a plain list under the column header with no heading.
+
+### Relationship Section
+
+A `Requested` section for how the viewer is asked to review: `Assigned`,
+`Direct` or one of the team sections. Always shown, even with 0 cards. An item
+that is neither pinned nor hidden goes to the first of Assigned, Direct and
+Team that one of its open members belongs to, and within Team to its team
+section.
+
+### Counted Team
+
+One of the viewer's GitHub teams that is turned on in Settings › Teams. A team
+review request counts, and brings a PR into `Requested`, only when it names a
+counted team. Turning a team off never turns its parent or child teams off.
+
+### Team Section
+
+One `Requested` section per counted team, shown even with 0 cards, in the
+Settings › Teams order: organizations in order, top-level teams by slug, each
+team followed by its child teams. The heading shows the team slug, or
+`org/slug` when two counted teams share a slug, and its accessibility label
+uses `@org/slug`.
+
+A PR requesting several counted teams appears once. Of its requested counted
+teams, any team that is an ancestor of another one is set aside (the viewer's
+full team tree decides, turned-off teams included), and the PR goes under the
+first remaining team in Settings order, so the most specific team wins. A stack
+uses the counted teams requested by its open members that are in Team.
 
 ## Provider Terms
 

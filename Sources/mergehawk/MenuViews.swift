@@ -377,16 +377,6 @@ enum PullRequestListCopy {
     static let noFilterMatches = "No PRs match these filters."
 }
 
-enum HiddenPullRequestsDisclosurePresentation {
-    static func title(count: Int) -> String {
-        "Hidden (\(count))"
-    }
-
-    static func accessibilityLabel(count: Int, isExpanded: Bool) -> String {
-        "\(title(count: count)), \(isExpanded ? "expanded" : "collapsed")"
-    }
-}
-
 enum PullRequestPinPresentation {
     static func symbolName(isPinned: Bool) -> String {
         isPinned ? "pin.fill" : "pin"
@@ -1537,6 +1527,90 @@ private extension RunLoop.Mode {
     static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
 }
 
+/// A PR tab's rows: headings, and the cards of expanded sections, in section order. A tab without headings has
+/// the column header above its cards instead.
+enum PullRequestListRows {
+    enum Row: Identifiable, Equatable {
+        case columnHeader
+        case heading(PullRequestListSection)
+        case item(PullRequestListItem, section: PullRequestSectionID)
+
+        /// A card keeps its item ID in every section, so a move between sections keeps its row.
+        var id: String {
+            switch self {
+            case .columnHeader: "column-header"
+            case .heading(let section): "heading:\(section.id)"
+            case .item(let item, _): item.id
+            }
+        }
+    }
+
+    /// The row to hold in place while a card moves: the top visible row, or, when that is the moving card or a
+    /// row the move removes, the next row after it that stays.
+    static func anchorRowID(oldRows: [Row], newRowIDs: Set<String>, visibleTopID: String?, movingID: String) -> String? {
+        guard let visibleTopID, let start = oldRows.firstIndex(where: { $0.id == visibleTopID }) else { return nil }
+        return oldRows[start...].first { $0.id != movingID && newRowIDs.contains($0.id) }?.id
+    }
+
+    /// The rows' total height. A row without a measured height is a heading or the column header that appears, the
+    /// only rows a move adds, and both are `headingHeight` tall. Nil when a card's height is unknown.
+    static func height(
+        of rows: ArraySlice<Row>,
+        heights: [String: CGFloat],
+        headingHeight: CGFloat
+    ) -> CGFloat? {
+        var total: CGFloat = 0
+        for row in rows {
+            if let height = heights[row.id] {
+                total += height
+            } else if case .item = row {
+                return nil
+            } else {
+                total += headingHeight
+            }
+        }
+        return total
+    }
+
+    /// How far a row moves when the rows change: the height of the rows above it afterwards less the height of the
+    /// rows above it before. Nil when the row is gone or a height is unknown.
+    static func offsetChange(
+        of rowID: String,
+        oldRows: [Row],
+        newRows: [Row],
+        heights: [String: CGFloat],
+        headingHeight: CGFloat
+    ) -> CGFloat? {
+        guard
+            let oldIndex = oldRows.firstIndex(where: { $0.id == rowID }),
+            let newIndex = newRows.firstIndex(where: { $0.id == rowID }),
+            let before = height(of: oldRows[..<oldIndex], heights: heights, headingHeight: headingHeight),
+            let after = height(of: newRows[..<newIndex], heights: heights, headingHeight: headingHeight)
+        else { return nil }
+        return after - before
+    }
+
+    /// The first row whose bottom is below the top of the visible area. Rows the lazy list has not laid out have
+    /// no frame.
+    static func topVisibleRowID(rows: [Row], frames: [String: CGRect], visibleMinY: CGFloat) -> String? {
+        rows.first { frames[$0.id].map { $0.maxY > visibleMinY } ?? false }?.id
+    }
+
+    static func rows(
+        sections: [PullRequestListSection],
+        showsHeadings: Bool,
+        isExpanded: (PullRequestSectionID) -> Bool
+    ) -> [Row] {
+        guard showsHeadings else {
+            return [.columnHeader] + sections.flatMap { section in section.items.map { Row.item($0, section: section.id) } }
+        }
+        return sections.flatMap { section in
+            [Row.heading(section)]
+                + (isExpanded(section.id) ? section.items.map { Row.item($0, section: section.id) } : [])
+        }
+    }
+}
+
 struct PullRequestListView: View {
     enum Mode {
         case authored
@@ -1546,24 +1620,19 @@ struct PullRequestListView: View {
     @ObservedObject var controller: DashboardController
     let mode: Mode
     @Binding var dropdownState: PullRequestMenuDropdownState
-    @State private var isHiddenExpanded: Bool
-    @State private var expandedRequestedHiddenSections: Set<DashboardController.RequestedSection>
+    /// Holds the visible rows in place while a card moves.
+    @State private var scrollAnchor = PullRequestListScrollAnchor()
     @Environment(\.menuMetrics) private var metrics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         controller: DashboardController,
         mode: Mode,
-        dropdownState: Binding<PullRequestMenuDropdownState> = .constant(PullRequestMenuDropdownState()),
-        hiddenPullRequestsExpanded: Bool = false
+        dropdownState: Binding<PullRequestMenuDropdownState> = .constant(PullRequestMenuDropdownState())
     ) {
         self.controller = controller
         self.mode = mode
         _dropdownState = dropdownState
-        _isHiddenExpanded = State(initialValue: hiddenPullRequestsExpanded)
-        _expandedRequestedHiddenSections = State(
-            initialValue: hiddenPullRequestsExpanded ? Set(DashboardController.RequestedSection.allCases) : []
-        )
     }
 
     var body: some View {
@@ -1575,138 +1644,145 @@ struct PullRequestListView: View {
         if controller.showsGitHubAppRepositoryAccessPrompt {
             GitHubAppRepositoryAccessPrompt(controller: controller)
         } else {
-            switch mode {
-            case .authored:
-                authoredContent
-            case .reviewRequests:
-                requestedContent
-            }
+            listContent
+        }
+    }
+
+    private var tab: DashboardController.MenuTab {
+        switch mode {
+        case .authored: .myPRs
+        case .reviewRequests: .reviewRequests
+        }
+    }
+
+    private var sections: [PullRequestListSection] {
+        switch mode {
+        case .authored: controller.authoredSections
+        case .reviewRequests: controller.requestedSections
+        }
+    }
+
+    private func rows(of sections: [PullRequestListSection]) -> [PullRequestListRows.Row] {
+        PullRequestListRows.rows(sections: sections, showsHeadings: PullRequestListSection.showsHeadings(sections)) {
+            controller.isSectionExpanded($0, in: tab)
         }
     }
 
     /// The empty states come from the grouped list, so own PRs the grouping drops (stale stack entries) count as
-    /// no PRs.
+    /// no PRs. With headings, a filter that matches nothing shows the headings with 0 instead. Requested always
+    /// shows headings.
     @ViewBuilder
-    private var authoredContent: some View {
-        let list = controller.authoredList
-        if !hasSourcePullRequests {
+    private var listContent: some View {
+        let sections = sections
+        let showsHeadings = PullRequestListSection.showsHeadings(sections)
+        if mode == .authored, !hasSourcePullRequests {
             EmptyMenuState(text: emptyText)
-        } else if list.visible.isEmpty, list.hidden.isEmpty {
+        } else if !showsHeadings, sections.allSatisfy({ $0.items.isEmpty }) {
             EmptyMenuState(
                 text: controller.selectedPullRequestFilters.subtracting([.all]).isEmpty
                     ? PullRequestListCopy.emptyAuthored
                     : PullRequestListCopy.noFilterMatches
             )
         } else {
-            ScrollView(.vertical) {
-                LazyVStack(spacing: metrics.prColumns.rowSpacing) {
-                    PullRequestColumnHeader()
-
-                    stackListBody(list, isHiddenExpanded: isHiddenExpanded) {
-                        isHiddenExpanded.toggle()
-                    }
-                }
-                .padding(.leading, metrics.prList.horizontalPadding)
-                .padding(.trailing, metrics.prList.trailingPadding)
-                .padding(.top, metrics.prList.topPadding)
-                .padding(.bottom, metrics.prList.bottomPadding)
-                .background(PullRequestListScrollerStyle())
-            }
+            rowList(rows(of: sections))
         }
     }
 
-    private var requestedContent: some View {
+    /// The whole tab as one flat sequence of headings and cards in one `ForEach`, so a card moving between sections
+    /// is one row changing place. Without headings, the column header leads the cards. The stack is not lazy: a lazy
+    /// stack holds the visible rows in place on its own, at once, so while the rows animated to their new places the
+    /// visible rows jumped and slid back. The scroll anchor holds them on the animation's curve instead.
+    // The scroll correction needs every row measured, so the list stays non-lazy unless the anchoring is replaced.
+    private func rowList(_ rows: [PullRequestListRows.Row]) -> some View {
         ScrollView(.vertical) {
-            LazyVStack(spacing: metrics.prList.sectionSpacing) {
-                ForEach(controller.requestedSections, id: \.section) { content in
-                    requestedSection(content)
+            VStack(spacing: 0) {
+                ForEach(rows) { row in
+                    rowView(row)
+                        .anchorPreference(key: PullRequestListRowFramesKey.self, value: .bounds) { [row.id: $0] }
                 }
             }
             .padding(.leading, metrics.prList.horizontalPadding)
             .padding(.trailing, metrics.prList.trailingPadding)
-            .padding(.top, metrics.prList.topPadding)
+            // Every heading, and the column header, has the section spacing above it, so a row's spacing never
+            // depends on the rows around it and a row appearing above the visible rows only adds its own height.
+            // The first row's spacing is taken back here.
+            .padding(.top, metrics.prList.topPadding - metrics.prList.sectionSpacing)
             .padding(.bottom, metrics.prList.bottomPadding)
-            .background(PullRequestListScrollerStyle())
-        }
-    }
-
-    private func requestedSection(_ content: DashboardController.RequestedSectionContent) -> some View {
-        VStack(spacing: metrics.prColumns.rowSpacing) {
-            requestedSectionDisclosure(content)
-
-            if controller.isRequestedSectionExpanded(content.section), content.count > 0 {
-                stackListBody(
-                    content.content,
-                    isHiddenExpanded: expandedRequestedHiddenSections.contains(content.section)
-                ) {
-                    if expandedRequestedHiddenSections.contains(content.section) {
-                        expandedRequestedHiddenSections.remove(content.section)
-                    } else {
-                        expandedRequestedHiddenSections.insert(content.section)
-                    }
+            .background(PullRequestListScrollerStyle(anchor: scrollAnchor))
+            .backgroundPreferenceValue(PullRequestListRowFramesKey.self) { anchors in
+                GeometryReader { proxy in
+                    let _ = scrollAnchor.record(anchors.mapValues { proxy[$0] })
+                    Color.clear
                 }
             }
         }
     }
 
-    /// One list's items and its Hidden disclosure, in a plain stack so an expanding group pushes the rows below it.
-    private func stackListBody(
-        _ content: PullRequestListContent,
-        isHiddenExpanded: Bool,
-        toggleHidden: @escaping () -> Void
-    ) -> some View {
-        VStack(spacing: metrics.prColumns.rowSpacing) {
-            ForEach(content.visible) { item in
-                stackListItem(item)
-                    .id("visible-\(item.id)")
-            }
+    /// Pin, Unpin, Hide and Unhide: the card slides to its new section while the rows in view hold still. Rows
+    /// appearing or leaving above the visible area would move the visible rows, so the list scrolls by the same
+    /// amount on the same curve, keeping the top visible row where it is on screen. When that row is the moving
+    /// card, or leaves with the move, the next row that stays is held instead.
+    private func move(_ item: PullRequestListItem, _ change: () -> Void) {
+        let oldRows = rows(of: sections)
+        let frames = scrollAnchor.rowFrames
+        let topVisibleID = scrollAnchor.visibleMinY.flatMap {
+            PullRequestListRows.topVisibleRowID(rows: oldRows, frames: frames, visibleMinY: $0)
+        }
+        let animation = PullRequestMoveAnimation.animation(reduceMotion: reduceMotion)
+        withAnimation(animation, change)
+        let newRows = rows(of: sections)
+        guard let anchorID = PullRequestListRows.anchorRowID(
+            oldRows: oldRows,
+            newRowIDs: Set(newRows.map(\.id)),
+            visibleTopID: topVisibleID,
+            movingID: item.id
+        ) else { return }
+        let heights = frames.mapValues(\.height)
+        let headingHeight = metrics.prColumns.headerHeight + metrics.prList.sectionSpacing
+        guard
+            let delta = PullRequestListRows.offsetChange(
+                of: anchorID, oldRows: oldRows, newRows: newRows, heights: heights, headingHeight: headingHeight
+            ),
+            let oldHeight = PullRequestListRows.height(of: oldRows[...], heights: heights, headingHeight: headingHeight),
+            let newHeight = PullRequestListRows.height(of: newRows[...], heights: heights, headingHeight: headingHeight)
+        else { return }
+        scrollAnchor.scroll(by: delta, contentHeightChange: newHeight - oldHeight, animated: animation != nil)
+    }
 
-            if !content.hidden.isEmpty {
-                hiddenDisclosure(count: content.hiddenCount, isExpanded: isHiddenExpanded, toggle: toggleHidden)
-
-                if isHiddenExpanded {
-                    ForEach(content.hidden) { item in
-                        stackListItem(item)
-                            .id("hidden-\(item.id)")
-                    }
-                }
-            }
+    /// Spacing is each row's top padding: section spacing above every heading and the column header, row spacing
+    /// above every card.
+    /// An expanded stack stays inside its one row, so it pushes the rows below it.
+    @ViewBuilder
+    private func rowView(_ row: PullRequestListRows.Row) -> some View {
+        switch row {
+        case .columnHeader:
+            PullRequestColumnHeader()
+                .padding(.top, metrics.prList.sectionSpacing)
+                .transition(PullRequestMoveAnimation.rowTransition)
+        case .heading(let section):
+            sectionHeading(section)
+                .padding(.top, metrics.prList.sectionSpacing)
+                .transition(PullRequestMoveAnimation.rowTransition)
+        case .item(let item, _):
+            stackListItem(item)
+                .padding(.top, metrics.prColumns.rowSpacing)
+                .transition(PullRequestMoveAnimation.rowTransition)
         }
     }
 
-    private func requestedSectionDisclosure(_ content: DashboardController.RequestedSectionContent) -> some View {
-        RequestedSectionHeading(
-            section: content.section,
-            count: content.count,
-            isExpanded: controller.isRequestedSectionExpanded(content.section)
+    private func sectionHeading(_ section: PullRequestListSection) -> some View {
+        PullRequestSectionHeading(
+            section: section,
+            count: section.count,
+            isExpanded: controller.isSectionExpanded(section.id, in: tab)
         ) {
-            if NSEvent.modifierFlags.contains(.option) {
-                controller.toggleAllRequestedSections(from: content.section)
+            // The click's own flags, so a synthesized Option-click behaves like a real one.
+            if NSApp.currentEvent?.modifierFlags.contains(.option) == true {
+                controller.toggleAllSections(from: section.id, in: tab)
             } else {
-                controller.toggleRequestedSection(content.section)
+                controller.toggleSection(section.id, in: tab)
             }
         }
-    }
-
-    private func hiddenDisclosure(count: Int, isExpanded: Bool, toggle: @escaping () -> Void) -> some View {
-        Button(action: toggle) {
-            HStack(spacing: metrics.prList.disclosureSpacing) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(metrics.type.disclosureChevron.font)
-                Text(HiddenPullRequestsDisclosurePresentation.title(count: count))
-                    .font(metrics.type.disclosureTitle.font)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, metrics.prList.disclosureHorizontalPadding)
-            .frame(height: metrics.prList.disclosureHeight)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(HiddenPullRequestsDisclosurePresentation.accessibilityLabel(
-            count: count,
-            isExpanded: isExpanded
-        ))
     }
 
     /// A list item shows its representative; a stack group's actions apply to every full member.
@@ -1782,10 +1858,10 @@ struct PullRequestListView: View {
             isActionsOpen: dropdownState.openMenu == .actions(pullRequest.id),
             toggleActions: { dropdownState.toggle(.actions(pullRequest.id)) },
             toggleHide: {
-                controller.setHidden(row, hidden: !row.isHidden)
+                move(row) { controller.setHidden(row, hidden: !row.isHidden) }
             },
             togglePin: {
-                controller.setPinned(row, pinned: !row.isPinned)
+                move(row) { controller.setPinned(row, pinned: !row.isPinned) }
             },
             metadataAccessory: positionLabel,
             stackControl: chrome == .card
@@ -2267,8 +2343,8 @@ struct PullRequestNotificationRow: View {
     }
 }
 
-struct RequestedSectionHeading: View {
-    let section: DashboardController.RequestedSection
+struct PullRequestSectionHeading: View {
+    let section: PullRequestListSection
     let count: Int
     let isExpanded: Bool
     var previewHoveredColumn: PullRequestColumnLegend.Column? = nil
@@ -2293,7 +2369,7 @@ struct RequestedSectionHeading: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("\(section.title), \(count) PRs, \(isExpanded ? "expanded" : "collapsed")")
+            .accessibilityLabel(Self.accessibilityLabel(section: section, count: count, isExpanded: isExpanded))
 
             if isExpanded {
                 PullRequestColumnLegend(previewHoveredColumn: previewHoveredColumn)
@@ -2302,6 +2378,12 @@ struct RequestedSectionHeading: View {
         .padding(.trailing, metrics.prColumns.horizontalInset)
         .frame(height: metrics.prColumns.headerHeight)
         .zIndex(1)
+    }
+
+    /// The count is cards, and a stack card holds several PRs, so it says items.
+    static func accessibilityLabel(section: PullRequestListSection, count: Int, isExpanded: Bool) -> String {
+        let items = CountSearchPresentation.countLabel(for: count, singular: "item", plural: "items")
+        return "\(section.accessibilityTitle), \(items), \(isExpanded ? "expanded" : "collapsed")"
     }
 }
 
@@ -3372,7 +3454,7 @@ extension ReviewDecisionIndicator.Kind {
     }
 }
 
-/// The small capsule count used by the Requested section headings.
+/// The small capsule count used by the PR section headings.
 struct CountBubble: View {
     let text: String
 
