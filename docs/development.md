@@ -164,6 +164,7 @@ scripts/run-agent-app.sh --slot local --mock --mock-scenario review-teams --ui m
 scripts/run-agent-app.sh --slot local --mock --mock-scenario no-teams --ui settings --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario budget-stretched --ui settings --open
 scripts/run-agent-app.sh --slot local --mock --mock-scenario budget-paused --ui settings --open
+scripts/run-agent-app.sh --slot local --mock --mock-scenario ignored-authors --ui menu --open
 ```
 
 Each scenario publishes a baseline first; use the menu refresh action to trigger
@@ -188,6 +189,10 @@ Settings › Teams to see the Requested tab change; the first refresh adds
 `plm-team` to the pull request that only requested `developers`.
 The `no-teams` scenario reports no teams for the viewer and returns only one authored
 pull request, so Settings › Teams shows its empty state.
+The `ignored-authors` scenario has a quiet baseline followed by three direct review
+requests: from the GitHub bots `dependabot` and `renovate` and from the person
+`platform-nora`. Turn on “Ignore PRs opened by bots” in Settings › Sources before the
+update refresh to see only the `platform-nora` request in Requested and Notifications.
 Every scenario reports a fixture GitHub API budget of 5,000 points that resets
 50 minutes after launch, and each complete refresh spends 55 points. The
 `budget-stretched` and `budget-paused` scenarios start with less of it left, so

@@ -56,6 +56,7 @@ public enum MockPullRequestScenario: String, CaseIterable, Sendable {
     case prStacks = "pr-stacks"
     case budgetStretched = "budget-stretched"
     case budgetPaused = "budget-paused"
+    case ignoredAuthors = "ignored-authors"
 }
 
 public enum MockPullRequestError: Error, LocalizedError, Equatable, Sendable {
@@ -411,6 +412,8 @@ public final class MockPullRequestSource {
             Self.longListPullRequests(stage: 0)
         case .newReviewRequest:
             Self.newReviewRequestPullRequests(stage: 0)
+        case .ignoredAuthors:
+            Self.ignoredAuthorPullRequests(stage: 0)
         case .reviewTeams:
             Self.reviewTeamPullRequests(stage: 0)
         case .draftReadyForReview:
@@ -431,7 +434,7 @@ public final class MockPullRequestSource {
             []
         case .standard, .botNotifications, .commentNotifications, .delayedRefresh, .refreshFailure,
              .mergedFinalActivity, .quietAccessLoss, .longLists, .newReviewRequest, .draftReadyForReview, .prStacks,
-             .budgetStretched, .budgetPaused:
+             .budgetStretched, .budgetPaused, .ignoredAuthors:
             Self.standardViewerTeams
         }
     }
@@ -778,6 +781,50 @@ public final class MockPullRequestSource {
                 "PR_NEW_REQUEST_COMBINED", number: 95,
                 title: "Combine an assignment and a review request on a newly seen pull request",
                 request: .direct, assigned: true, author: "design-systems-amy"
+            ),
+        ]
+    }
+
+    /// Stage 0 is a quiet baseline with one authored pull request. Stage 1 adds three pull requests that request the
+    /// viewer's review directly: two opened by GitHub bots (`dependabot` and `renovate`) and one by a person
+    /// (`platform-nora`). Later refreshes repeat stage 1.
+    private static func ignoredAuthorPullRequests(stage: Int) -> [PullRequest] {
+        let base = Date(timeIntervalSince1970: 1_777_950_000)
+        func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
+        func pullRequest(
+            _ id: String, number: Int, title: String, author: String, isBot: Bool,
+            request: ReviewRequestKind = .direct, mine: Bool = false
+        ) -> PullRequest {
+            PullRequest(
+                id: id, title: title, number: number,
+                url: URL(string: "https://github.com/mergehawk-labs/mergehawk/pull/\(number)")!,
+                repo: "mergehawk-labs/mergehawk", ciState: .passing, reviewDecision: .reviewRequired,
+                additions: 12, deletions: 4, commentCount: 0, reviewCount: 0,
+                headRefOid: "ignored-authors-fixture", reviewRequestKind: request, isMine: mine,
+                author: author, authorIsBot: isBot, headRefName: "MER-121-ignored-authors-\(number)",
+                mergeable: .mergeable, draft: false, createdAt: at(-86_400), updatedAt: at(-3_600)
+            )
+        }
+        let baseline = pullRequest(
+            "PR_IGNORED_AUTHORS_BASELINE", number: 120, title: "Keep the baseline quiet",
+            author: "agent-fixture", isBot: false, request: .none, mine: true
+        )
+        guard stage >= 1 else {
+            return [baseline]
+        }
+        return [
+            baseline,
+            pullRequest(
+                "PR_IGNORED_AUTHORS_DEPENDABOT", number: 121,
+                title: "Bump swift-argument-parser from 1.5.0 to 1.6.0", author: "dependabot", isBot: true
+            ),
+            pullRequest(
+                "PR_IGNORED_AUTHORS_RENOVATE", number: 122,
+                title: "Update dependency swift-format to v601", author: "renovate", isBot: true
+            ),
+            pullRequest(
+                "PR_IGNORED_AUTHORS_PERSON", number: 123,
+                title: "Document the release checklist", author: "platform-nora", isBot: false
             ),
         ]
     }
@@ -1498,6 +1545,10 @@ extension MockPullRequestSource: CompletePullRequestFetching {
             let stage = min(index, 1)
             index += 1
             return CompletePullRequestFetchResult(activePullRequests: Self.newReviewRequestPullRequests(stage: stage))
+        case .ignoredAuthors:
+            let stage = min(index, 1)
+            index += 1
+            return CompletePullRequestFetchResult(activePullRequests: Self.ignoredAuthorPullRequests(stage: stage))
         case .draftReadyForReview:
             let stage = min(index, 1)
             index += 1

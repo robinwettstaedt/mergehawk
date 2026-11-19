@@ -153,6 +153,44 @@ final class AgentModeXCTests: XCTestCase {
         XCTAssertFalse(notifications.records.contains { $0.pullRequestId == "PR_NEW_REQUEST_AUTHORED" })
     }
 
+    func testIgnoredAuthorsScenarioAddsBotAndPersonReviewRequestsOnItsSecondRefresh() async throws {
+        let source = MockPullRequestSource(scenario: .ignoredAuthors)
+        let first = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
+        XCTAssertEqual(first.activePullRequests.map(\.id), ["PR_IGNORED_AUTHORS_BASELINE"])
+        let second = try await source.fetchCompletePullRequests(login: "agent-fixture", previousState: nil, reusableViewerTeams: nil)
+        let requested = second.activePullRequests.filter { $0.reviewRequestKind == .direct }
+        XCTAssertEqual(requested.map(\.author), ["dependabot", "renovate", "platform-nora"])
+        XCTAssertEqual(requested.map(\.authorIsBot), [true, true, false])
+        XCTAssertTrue(requested.allSatisfy { $0.repo == "mergehawk-labs/mergehawk" })
+        XCTAssertEqual(
+            requested.first?.title, "Bump swift-argument-parser from 1.5.0 to 1.6.0"
+        )
+    }
+
+    @MainActor
+    func testIgnoredAuthorsScenarioNotifiesOnlyForAuthorsThatAreNotIgnored() async {
+        for ignoresPerson in [false, true] {
+            let suite = "ignored-authors-scenario-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let notifications = RecordingNotificationClient()
+            let controller = DashboardController(tokenStore: InMemoryTokenStore(), preferencesStore: PreferencesStore(defaults: defaults), launchConfiguration: LaunchConfiguration(usesMockData: true, suppressesMacOSNotifications: true, mockPullRequestScenario: .ignoredAuthors), notificationClient: notifications, automaticRefreshInterval: 0)
+            await waitUntil(timeout: 1) { await MainActor.run { controller.state.syncedAt != nil && !controller.isRefreshing } }
+            XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
+
+            controller.ignoresBotPullRequests = true
+            if ignoresPerson {
+                controller.addIgnoredAccount("platform-nora")
+            }
+            controller.refresh()
+            await waitUntil(timeout: 1) { await MainActor.run { controller.state.pullRequests.count == 4 && !controller.isRefreshing } }
+
+            let expected = ignoresPerson ? [] : ["PR_IGNORED_AUTHORS_PERSON"]
+            XCTAssertEqual(controller.pullRequestNotificationHistory.map(\.prId), expected, "\(ignoresPerson)")
+            XCTAssertEqual(notifications.records.map(\.pullRequestId), expected, "\(ignoresPerson)")
+        }
+    }
+
     @MainActor
     func testDraftReadyForReviewScenarioNotifiesForRequestedDraftsThatBecomeReady() async {
         let suite = "draft-ready-for-review-scenario-\(UUID().uuidString)"
