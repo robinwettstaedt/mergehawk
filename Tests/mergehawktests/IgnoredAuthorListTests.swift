@@ -109,6 +109,12 @@ final class IgnoredAuthorListTests: XCTestCase {
         return (controller, provider)
     }
 
+    /// Requested PRs across every section, so the tests don't depend on how sections are grouped.
+    @MainActor
+    private static func requestedCount(_ controller: DashboardController) -> Int {
+        controller.requestedSections.map(\.count).reduce(0, +)
+    }
+
     @MainActor
     private static func requestedIDs(_ controller: DashboardController) -> Set<String> {
         Set(controller.requestedSections.flatMap { $0.visible + $0.hidden }.map(\.id))
@@ -124,19 +130,19 @@ final class IgnoredAuthorListTests: XCTestCase {
         ))
         controller.hiddenPullRequestIds = [hiddenBot.id]
         XCTAssertEqual(Self.requestedIDs(controller), [bot.id, hiddenBot.id, human.id])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 3, 0])
+        XCTAssertEqual(Self.requestedCount(controller), 3)
         XCTAssertEqual(controller.hiddenReviewRequests.map(\.id), [hiddenBot.id])
 
         controller.ignoresBotPullRequests = true
 
         XCTAssertEqual(Self.requestedIDs(controller), [human.id])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0])
+        XCTAssertEqual(Self.requestedCount(controller), 1)
         XCTAssertEqual(controller.hiddenReviewRequests, [])
 
         controller.ignoresBotPullRequests = false
 
         XCTAssertEqual(Self.requestedIDs(controller), [bot.id, hiddenBot.id, human.id])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 3, 0])
+        XCTAssertEqual(Self.requestedCount(controller), 3)
         XCTAssertEqual(provider.fetchCount, 1)
     }
 
@@ -156,7 +162,7 @@ final class IgnoredAuthorListTests: XCTestCase {
         controller.addIgnoredAccount("@Platform-Nora")
 
         XCTAssertEqual(Self.requestedIDs(controller), [human.id])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0])
+        XCTAssertEqual(Self.requestedCount(controller), 1)
 
         controller.removeIgnoredAccount("platform-nora")
 
@@ -198,10 +204,10 @@ final class IgnoredAuthorListTests: XCTestCase {
 
         controller.ignoresBotPullRequests = false
 
-        let direct = try XCTUnwrap(controller.requestedSections.first { $0.section == .direct })
-        XCTAssertEqual(direct.visible.first?.id, pinned.id)
-        XCTAssertEqual(direct.visible.first?.isPinned, true)
-        XCTAssertEqual(direct.hidden.map(\.id), [hidden.id])
+        let pinnedSection = try XCTUnwrap(controller.requestedSections.first { $0.visible.contains { $0.id == pinned.id } })
+        XCTAssertEqual(pinnedSection.visible.first?.id, pinned.id)
+        XCTAssertEqual(pinnedSection.visible.first?.isPinned, true)
+        XCTAssertEqual(controller.requestedSections.flatMap(\.hidden).map(\.id), [hidden.id])
         XCTAssertEqual(controller.hiddenReviewRequests.map(\.id), [hidden.id])
     }
 
@@ -214,7 +220,7 @@ final class IgnoredAuthorListTests: XCTestCase {
             activePullRequests: [onlyBot, botBase, humanTop],
             stacks: [Self.stack("S_SOLO", [onlyBot]), Self.stack("S_MIXED", [botBase, humanTop])]
         ))
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 3, 0])
+        XCTAssertEqual(Self.requestedCount(controller), 3)
 
         controller.ignoresBotPullRequests = true
 
@@ -226,7 +232,7 @@ final class IgnoredAuthorListTests: XCTestCase {
             return XCTFail("The ignored member should be a context member")
         }
         XCTAssertEqual(entry.pullRequestID, botBase.id)
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0])
+        XCTAssertEqual(Self.requestedCount(controller), 1)
     }
 
     @MainActor
