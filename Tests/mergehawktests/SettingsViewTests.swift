@@ -681,7 +681,7 @@ final class SettingsViewTests: XCTestCase {
             IgnoredAuthorSettingsCopy.botsTitle, IgnoredAuthorSettingsCopy.botsHelp,
             IgnoredAuthorSettingsCopy.accountsTitle, IgnoredAuthorSettingsCopy.accountsHelp,
             IgnoredAuthorSettingsCopy.placeholder, IgnoredAuthorSettingsCopy.add, IgnoredAuthorSettingsCopy.edit,
-            IgnoredAuthorSettingsCopy.emptyList, IgnoredAuthorSettingsCopy.muteBotNotificationsHelp,
+            IgnoredAuthorSettingsCopy.editAccessibilityLabel, IgnoredAuthorSettingsCopy.emptyList, IgnoredAuthorSettingsCopy.muteBotNotificationsHelp,
             IgnoredAuthorSettingsCopy.countText(0), IgnoredAuthorSettingsCopy.countText(1),
             IgnoredAuthorSettingsCopy.countText(3), IgnoredAuthorSettingsCopy.removeLabel("platform-nora")
         ]
@@ -701,7 +701,7 @@ final class SettingsViewTests: XCTestCase {
 
             let archived = try XCTUnwrap(accessibilityFrame(labeled: "Hide archived repositories", in: host), label)
             let bots = try XCTUnwrap(accessibilityFrame(labeled: IgnoredAuthorSettingsCopy.botsTitle, in: host), label)
-            let edit = try XCTUnwrap(accessibilityFrame(labeled: IgnoredAuthorSettingsCopy.edit, in: host), label)
+            let edit = try XCTUnwrap(accessibilityFrame(labeled: IgnoredAuthorSettingsCopy.editAccessibilityLabel, in: host), label)
             // Screen coordinates grow upward, so a lower row has a smaller y.
             XCTAssertLessThan(bots.maxY, archived.minY + 0.5, label)
             XCTAssertLessThan(edit.maxY, bots.minY + 0.5, label)

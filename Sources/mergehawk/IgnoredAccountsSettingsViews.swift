@@ -10,6 +10,7 @@ enum IgnoredAuthorSettingsCopy {
     static let placeholder = "GitHub username"
     static let add = "Add"
     static let edit = "Edit"
+    static let editAccessibilityLabel = "Edit ignored accounts"
     static let emptyList = "No ignored accounts"
     static let muteBotNotificationsHelp = "Mutes new comments and reviews by bots on PRs you still see. Existing notifications remain. To ignore bot PRs entirely, turn on Ignore PRs opened by bots in Sources."
 
@@ -53,6 +54,7 @@ struct IgnoredAuthorSettingsRows: View {
                 isEditingAccounts = true
             }
             .controlSize(.small)
+            .accessibilityLabel(IgnoredAuthorSettingsCopy.editAccessibilityLabel)
             .accessibilityHint(IgnoredAuthorSettingsCopy.accountsHelp)
             .popover(isPresented: $isEditingAccounts, arrowEdge: .bottom) {
                 IgnoredAccountsEditor(controller: controller)
