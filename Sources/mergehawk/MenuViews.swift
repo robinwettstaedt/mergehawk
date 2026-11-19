@@ -1716,6 +1716,8 @@ struct PullRequestListView: View {
     @ViewBuilder
     private func stackListItem(_ row: PullRequestListItem) -> some View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
+            // Built once per stack. Stack entries carry no bot type, so a bot counts only when it is a known bot.
+            let ignored = controller.ignoredAuthors
             StackMemberContainer(group: group, isUnread: row.isUnread) { member, position in
                 let isFirst = member.pullRequestID == group.members.first?.pullRequestID
                 let control = isFirst ? stackControl(group, displayedPosition: group.topMemberPosition, isExpanded: true) : nil
@@ -1732,7 +1734,7 @@ struct PullRequestListView: View {
                         chrome: .containerRow,
                         stackControl: control,
                         metadataAccessory: positionLabel,
-                        isIgnored: controller.isIgnored(entry)
+                        isIgnored: ignored.ignores(author: entry.author, isBot: nil)
                     ) {
                         controller.openStackMember(member)
                     }

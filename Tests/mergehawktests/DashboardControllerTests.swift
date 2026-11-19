@@ -1806,24 +1806,22 @@ final class DashboardControllerXCTests: XCTestCase {
         let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(activePullRequests: [botPR]))
         let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
         waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
-        func entry(_ author: String) -> PullRequestStackEntry {
-            PullRequestStackEntry(
-                position: 1, pullRequestID: "PR_\(author)", number: 2, title: "Entry",
-                url: URL(string: "https://github.com/acme/app/pull/2")!, state: .open, isDraft: false, author: author
-            )
+        // The expanded stack passes each context entry's author with no bot type, as here.
+        func isIgnored(_ author: String) -> Bool {
+            controller.ignoredAuthors.ignores(author: author, isBot: nil)
         }
 
-        XCTAssertFalse(controller.isIgnored(entry("Dependabot")))
-        XCTAssertFalse(controller.isIgnored(entry("platform-nora")))
+        XCTAssertFalse(isIgnored("Dependabot"))
+        XCTAssertFalse(isIgnored("platform-nora"))
 
         controller.addIgnoredAccount("Platform-Nora")
-        XCTAssertTrue(controller.isIgnored(entry("platform-nora")))
-        XCTAssertFalse(controller.isIgnored(entry("Dependabot")))
+        XCTAssertTrue(isIgnored("platform-nora"))
+        XCTAssertFalse(isIgnored("Dependabot"))
 
         controller.ignoresBotPullRequests = true
-        XCTAssertTrue(controller.isIgnored(entry("Dependabot")))
-        XCTAssertFalse(controller.isIgnored(entry("renovate")), "a bot the app knows nothing about")
-        XCTAssertFalse(controller.isIgnored(entry("teammate")))
+        XCTAssertTrue(isIgnored("Dependabot"))
+        XCTAssertFalse(isIgnored("renovate"), "a bot the app knows nothing about")
+        XCTAssertFalse(isIgnored("teammate"))
     }
 
     @MainActor
