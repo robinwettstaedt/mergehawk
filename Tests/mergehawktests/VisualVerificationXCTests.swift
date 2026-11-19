@@ -1199,6 +1199,30 @@ final class VisualVerificationXCTests: XCTestCase {
         try await waitUntil(context: "review-teams synchronization") {
             await MainActor.run { teamsController.state.syncedAt != nil && !teamsController.isRefreshing }
         }
+        // Requested with one section per counted team: every team counted, then `developers` turned off.
+        try await MainActor.run {
+            teamsController.selectedTab = .reviewRequests
+            let teamSections = teamsController.requestedSections.filter { if case .team = $0.id { true } else { false } }
+            XCTAssertEqual(teamSections.first?.title, "engineering")
+            XCTAssertTrue(teamSections.contains { $0.count > 0 })
+            try renderMenu(controller: teamsController, to: outputURL.appendingPathComponent("menu-review-requests-teams.png"))
+            for size in MenuSizeCaptures.teamSectionSizes {
+                try renderMenu(
+                    controller: teamsController,
+                    to: menuSizeURL(size, "review-requests-teams"),
+                    menuSize: size
+                )
+            }
+            teamsController.setReviewTeam("T_MOCK_DEVELOPERS", counting: false)
+            XCTAssertNil(teamsController.requestedSections[.team(id: "T_MOCK_DEVELOPERS")])
+            try renderMenu(
+                controller: teamsController,
+                to: outputURL.appendingPathComponent("menu-review-requests-teams-developers-off.png")
+            )
+            teamsController.setReviewTeam("T_MOCK_DEVELOPERS", counting: true)
+            teamsController.selectedTab = .notifications
+        }
+
         try await MainActor.run {
             teamsController.setReviewTeam("T_MOCK_DEVELOPERS", counting: false)
             let depthsByOrganization = Dictionary(grouping: teamsController.reviewTeamRows, by: \.team.organization)
@@ -2013,6 +2037,8 @@ private enum MenuSizeCaptures {
     static let fragments = [
         "my-prs-hidden-expanded", "review-requests-hidden-collapsed", "review-requests-hidden-expanded", "header-tooltips"
     ]
+    /// Requested with every review team counted is also captured at the smallest and the largest menu size.
+    static let teamSectionSizes: [MenuSize] = [.small, .larger]
     /// Review requests and Authored stacks are captured at the default and the largest menu size only.
     static let stackSizes: [MenuSize] = [.standard, .larger]
     static let stackStates = [
@@ -2077,6 +2103,7 @@ private enum MenuSizeCaptures {
         let menuNames = tabFrameNames + states + reducedStateNames + smallestScaleStateNames + fragments
         return Set(MenuSize.allCases.flatMap { size in menuNames.map { scenario(size, $0) } })
             .union(stackSizes.flatMap { size in stackStates.map { scenario(size, $0) } })
+            .union(teamSectionSizes.map { scenario($0, "review-requests-teams") })
             .union(focusedStackScenarios)
             .union((settingsIsolationTabs + settingsIsolationPendingSignInTabs).map { settingsIsolationScenario($0.0) })
     }
@@ -2158,6 +2185,8 @@ private struct VisualCaptureSelection {
         "menu-review-requests-hidden-expanded",
         "menu-review-requests-empty",
         "menu-review-requests-all",
+        "menu-review-requests-teams",
+        "menu-review-requests-teams-developers-off",
         "menu-review-requests-section-collapsed",
         "menu-review-requests-section-empty",
         "menu-review-requests-filtered-empty",

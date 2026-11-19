@@ -17,7 +17,9 @@ issues, prompts, tests, UI copy, and implementation notes.
 | Pinned section | The section at the top of a PR tab holding every pinned PR or stack, shown while it holds one. |
 | Hidden section | The section at the bottom of a PR tab holding every hidden PR or stack, shown while it holds one, collapsed by default. |
 | Active section | The `Authored` section for PRs that are neither pinned nor hidden, shown while Pinned or Hidden is shown. |
-| Relationship section | A `Requested` section for the viewer's relationship to a PR: `Assigned`, `Direct` or `Team`. Always shown. |
+| Relationship section | A `Requested` section for the viewer's relationship to a PR: `Assigned`, `Direct` or a team section. Always shown. |
+| Counted team | One of the viewer's teams turned on in Settings › Teams. Only review requests to counted teams count. |
+| Team section | One `Requested` section per counted team, in Settings › Teams order. A PR goes under its most specific requested counted team. |
 | Provider | The version control platform or service that supplies PRs and updates. |
 | Update | A provider-derived change MergeHawk notices for a PR, such as a new comment, review, failed CI, or requested changes. |
 | Complete PR refresh | One provider read attempt that discovers relevant PRs, fetches their complete paginated activity, reconciles disappeared PRs, and commits one coherent app state. |
@@ -142,9 +144,30 @@ them, `Authored` is a plain list under the column header with no heading.
 ### Relationship Section
 
 A `Requested` section for how the viewer is asked to review: `Assigned`,
-`Direct` or `Team`. Always shown, even with 0 cards. An item that is neither
-pinned nor hidden goes to the first of these that one of its open members
-belongs to.
+`Direct` or one of the team sections. Always shown, even with 0 cards. An item
+that is neither pinned nor hidden goes to the first of Assigned, Direct and
+Team that one of its open members belongs to, and within Team to its team
+section.
+
+### Counted Team
+
+One of the viewer's GitHub teams that is turned on in Settings › Teams. A team
+review request counts, and brings a PR into `Requested`, only when it names a
+counted team. Turning a team off never turns its parent or child teams off.
+
+### Team Section
+
+One `Requested` section per counted team, shown even with 0 cards, in the
+Settings › Teams order: organizations in order, top-level teams by slug, each
+team followed by its child teams. The heading shows the team slug, or
+`org/slug` when two counted teams share a slug, and its accessibility label
+uses `@org/slug`.
+
+A PR requesting several counted teams appears once. Of its requested counted
+teams, any team that is an ancestor of another one is set aside (the viewer's
+full team tree decides, turned-off teams included), and the PR goes under the
+first remaining team in Settings order, so the most specific team wins. A stack
+uses the counted teams requested by its open members that are in Team.
 
 ## Provider Terms
 
