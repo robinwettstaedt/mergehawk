@@ -1013,7 +1013,8 @@ final class MenuViewTests: XCTestCase {
             "Pinned, 1 item, expanded",
             "Assigned, 1 item, expanded",
             "Direct, 1 item, expanded",
-            "Team, 0 items, expanded",
+            "@billing-platform-experiments/billing-reviewers, 0 items, expanded",
+            "@mergehawk-labs/reviewers, 0 items, expanded",
             "Hidden, 1 item, collapsed"
         ])
         XCTAssertFalse(try accessibilityButtons(in: host).contains { $0.label.hasPrefix("Hidden (") })
@@ -1075,21 +1076,26 @@ final class MenuViewTests: XCTestCase {
         let host = hostSectionsMenu(controller, tab: .reviewRequests)
         defer { host.close() }
 
+        let billing = "@billing-platform-experiments/billing-reviewers"
+        let reviewers = "@mergehawk-labs/reviewers"
         try clickHeading("Direct, 1 item, expanded", in: host)
         XCTAssertEqual(try sectionHeadings(in: host), [
-            "Pinned, 1 item, expanded", "Assigned, 1 item, expanded", "Direct, 1 item, collapsed", "Team, 1 item, expanded"
+            "Pinned, 1 item, expanded", "Assigned, 1 item, expanded", "Direct, 1 item, collapsed",
+            "\(billing), 1 item, expanded", "\(reviewers), 0 items, expanded"
         ])
 
         try clickHeading("Assigned, 1 item, expanded", in: host, option: true)
         XCTAssertEqual(try sectionHeadings(in: host), [
-            "Pinned, 1 item, collapsed", "Assigned, 1 item, collapsed", "Direct, 1 item, collapsed", "Team, 1 item, collapsed"
+            "Pinned, 1 item, collapsed", "Assigned, 1 item, collapsed", "Direct, 1 item, collapsed",
+            "\(billing), 1 item, collapsed", "\(reviewers), 0 items, collapsed"
         ])
         XCTAssertTrue(controller.isSectionExpanded(.pinned, in: .myPRs))
         XCTAssertTrue(controller.isSectionExpanded(.active, in: .myPRs))
 
-        try clickHeading("Team, 1 item, collapsed", in: host, option: true)
+        try clickHeading("\(billing), 1 item, collapsed", in: host, option: true)
         XCTAssertEqual(try sectionHeadings(in: host), [
-            "Pinned, 1 item, expanded", "Assigned, 1 item, expanded", "Direct, 1 item, expanded", "Team, 1 item, expanded"
+            "Pinned, 1 item, expanded", "Assigned, 1 item, expanded", "Direct, 1 item, expanded",
+            "\(billing), 1 item, expanded", "\(reviewers), 0 items, expanded"
         ])
     }
 
@@ -1119,14 +1125,14 @@ final class MenuViewTests: XCTestCase {
             Self.section(.pinned, [Self.card("PR_P")]),
             Self.section(.assigned, []),
             Self.section(.direct, [Self.card("PR_D1"), Self.card("PR_D2", stack: "S")]),
-            Self.section(.team, [Self.card("PR_T")]),
+            Self.section(.team(id: "T_WEB"), [Self.card("PR_T")]),
             Self.section(.hidden, [Self.card("PR_H")])
         ]
 
-        let rows = PullRequestListRows.rows(sections: sections, showsHeadings: true) { $0 != .team && $0 != .hidden }
+        let rows = PullRequestListRows.rows(sections: sections, showsHeadings: true) { $0 != .team(id: "T_WEB") && $0 != .hidden }
 
         XCTAssertEqual(rows.map(\.id), [
-            "heading:pinned", "PR_P", "heading:assigned", "heading:direct", "PR_D1", "stack:S", "heading:team", "heading:hidden"
+            "heading:pinned", "PR_P", "heading:assigned", "heading:direct", "PR_D1", "stack:S", "heading:team:T_WEB", "heading:hidden"
         ])
         let itemSections = rows.compactMap { row -> PullRequestSectionID? in
             if case .item(_, let section) = row { return section }
@@ -2990,10 +2996,14 @@ final class MenuViewTests: XCTestCase {
 
     @MainActor
     func testCardsAndStackControlsKeepTheirXWhenTheListBecomesScrollable() throws {
-        // As in the live inspection: Assigned collapsed, so Direct and Team fit until a Direct stack expands.
+        // As in the live inspection: Assigned collapsed, so Direct and the team section with PRs fit until a Direct
+        // stack expands. The team without PRs is turned off, as the inspected Mac had a single team.
         for (stackID, representative) in [("STACK_MOCK_SPREAD", "2/4"), ("STACK_MOCK_POSITION_3", "3/3")] {
             let controller = try stackMenuController()
             controller.toggleSection(.assigned, in: .reviewRequests)
+            for case .team(let teamID) in controller.requestedSections.filter({ $0.items.isEmpty }).map(\.id) {
+                controller.setReviewTeam(teamID, counting: false)
+            }
             let frames = StackMenuFrames()
             let (host, view) = hostStackMenu(controller, frames: frames)
             defer { host.close() }

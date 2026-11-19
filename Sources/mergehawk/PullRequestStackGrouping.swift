@@ -48,17 +48,31 @@ struct StackGroup: Equatable {
     }
 }
 
-/// A section of a PR tab. Task 8 turns `.team` into one ID per counted team.
+/// A section of a PR tab. A team section is identified by the team's node ID, so a renamed team keeps its section.
 enum PullRequestSectionID: Hashable {
     case pinned
     case active
     case assigned
     case direct
-    case team
+    case team(id: String)
     case hidden
 
     /// Hidden starts collapsed, every other section expanded.
     var isExpandedByDefault: Bool { self != .hidden }
+}
+
+extension PullRequestSectionID: CustomStringConvertible {
+    /// Used in row IDs, such as `heading:team:<team ID>`.
+    var description: String {
+        switch self {
+        case .pinned: "pinned"
+        case .active: "active"
+        case .assigned: "assigned"
+        case .direct: "direct"
+        case .team(let id): "team:\(id)"
+        case .hidden: "hidden"
+        }
+    }
 }
 
 /// A collapsible group of cards under a heading in a PR tab, sorted by the tab's sort option.
@@ -70,6 +84,15 @@ struct PullRequestListSection: Equatable {
 
     /// A stack card counts 1, however many PRs it holds.
     var count: Int { items.count }
+
+    /// Team sections show the team slug, or `org/slug` when another counted team has the same slug. Accessibility
+    /// always uses the full `@org/slug`.
+    static func teamTitles(_ teams: [TeamReference]) -> [(title: String, accessibilityTitle: String)] {
+        let slugCounts = Dictionary(teams.map { ($0.slug, 1) }, uniquingKeysWith: +)
+        return teams.map { team in
+            (slugCounts[team.slug, default: 0] > 1 ? "\(team.organization)/\(team.slug)" : team.slug, team.displayName)
+        }
+    }
 
     /// A tab shows headings unless its only section is Active.
     static func showsHeadings(_ sections: [PullRequestListSection]) -> Bool {
@@ -202,25 +225,25 @@ enum PullRequestStackGrouping {
     /// only in Pinned or Hidden.
     private static func sections(
         of items: [GroupedItem],
-        relationshipSections: [(id: PullRequestSectionID, title: String)],
-        relationship: (GroupedItem) -> PullRequestSectionID,
+        relationshipSections: [(id: PullRequestSectionID, title: String, accessibilityTitle: String)],
+        relationship: (GroupedItem) -> PullRequestSectionID?,
         sortOption: DashboardController.PullRequestSortOption,
         sortDirection: DashboardController.PullRequestSortDirection
     ) -> [PullRequestListSection] {
-        func sectionID(of item: GroupedItem) -> PullRequestSectionID {
+        func sectionID(of item: GroupedItem) -> PullRequestSectionID? {
             if item.isHidden { return .hidden }
             if item.isPinned { return .pinned }
             return relationship(item)
         }
-        let present = Set(items.map(sectionID(of:)))
-        let shown = (present.contains(.pinned) ? [(id: PullRequestSectionID.pinned, title: "Pinned")] : [])
+        let present = Set(items.compactMap(sectionID(of:)))
+        let shown = (present.contains(.pinned) ? [(id: PullRequestSectionID.pinned, title: "Pinned", accessibilityTitle: "Pinned")] : [])
             + relationshipSections
-            + (present.contains(.hidden) ? [(id: PullRequestSectionID.hidden, title: "Hidden")] : [])
+            + (present.contains(.hidden) ? [(id: PullRequestSectionID.hidden, title: "Hidden", accessibilityTitle: "Hidden")] : [])
         return shown.map { section in
             PullRequestListSection(
                 id: section.id,
                 title: section.title,
-                accessibilityTitle: section.title,
+                accessibilityTitle: section.accessibilityTitle,
                 items: sorted(
                     items.filter { sectionID(of: $0) == section.id }.compactMap(\.card),
                     by: sortOption,
@@ -231,19 +254,26 @@ enum PullRequestStackGrouping {
     }
 
     /// `requested` is the counted requested PRs before the Draft/Ready filter; `matching` is the subset passing it.
-    /// Assigned, Direct and Team always show. An item that is neither pinned nor hidden sits in the first of them
-    /// that one of its open members belongs to.
+    /// Assigned, Direct and one section per counted team, in Settings order, always show. An item that is neither
+    /// pinned nor hidden sits in the first of Assigned, Direct and Team that one of its open members belongs to. In
+    /// Team, it goes under the most specific counted team its Team members request.
     static func requestedSections(
         requested: [PullRequest],
         matching: [PullRequest],
         stacks: [PullRequestStack],
+        teamCounting: TeamReviewCounting,
         hiddenIDs: Set<String>,
         pinnedIDs: Set<String>,
         unreadIDs: Set<String>,
         sortOption: DashboardController.PullRequestSortOption,
         sortDirection: DashboardController.PullRequestSortDirection
     ) -> [PullRequestListSection] {
-        sections(
+        typealias Relationship = DashboardController.RequestedSection
+        let teams = teamCounting.sectionTeams
+        let teamSections = zip(teams, PullRequestListSection.teamTitles(teams)).map { team, titles in
+            (id: PullRequestSectionID.team(id: team.id), title: titles.title, accessibilityTitle: titles.accessibilityTitle)
+        }
+        return sections(
             of: items(
                 members: requested,
                 matching: matching,
@@ -252,11 +282,20 @@ enum PullRequestStackGrouping {
                 pinnedIDs: pinnedIDs,
                 unreadIDs: unreadIDs
             ),
-            relationshipSections: DashboardController.RequestedSection.allCases.map { ($0.sectionID, $0.title) },
+            relationshipSections: [
+                (id: .assigned, title: Relationship.assigned.title, accessibilityTitle: Relationship.assigned.title),
+                (id: .direct, title: Relationship.direct.title, accessibilityTitle: Relationship.direct.title)
+            ] + teamSections,
             relationship: { item in
-                let memberSections = Set(item.openMembers.compactMap(DashboardController.RequestedSection.section(for:)))
-                // Every requested PR has a relationship, so the fallback is never used.
-                return (DashboardController.RequestedSection.allCases.first(where: memberSections.contains) ?? .team).sectionID
+                let memberSections = Set(item.openMembers.compactMap(Relationship.section(for:)))
+                switch Relationship.allCases.first(where: memberSections.contains) {
+                case .assigned: return .assigned
+                case .direct: return .direct
+                case .team:
+                    let teamMembers = item.openMembers.filter { Relationship.section(for: $0) == .team }
+                    return teamCounting.sectionTeam(for: teamMembers.flatMap(\.requestedTeams)).map { .team(id: $0.id) }
+                case nil: return nil
+                }
             },
             sortOption: sortOption,
             sortDirection: sortDirection
@@ -284,7 +323,7 @@ enum PullRequestStackGrouping {
                 pinnedIDs: pinnedIDs,
                 unreadIDs: unreadIDs
             ),
-            relationshipSections: [(.active, "Active")],
+            relationshipSections: [(.active, "Active", "Active")],
             relationship: { _ in .active },
             sortOption: sortOption,
             sortDirection: sortDirection

@@ -172,7 +172,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         XCTAssertTrue(controller.hideArchivedRepositories)
         XCTAssertEqual(controller.sourceFilteredMyPullRequests.map(\.id), [active.id])
-        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct, .team])
+        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct, .team(id: reviewers.id)])
         XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0])
         XCTAssertEqual(controller.authoredSections.map(\.id), [.active])
         XCTAssertEqual(Set(controller.visiblePullRequestNotifications.map(\.activityId)), ["ACTIVE", "OLD"])
@@ -182,7 +182,7 @@ final class DashboardControllerXCTests: XCTestCase {
         let committed = try XCTUnwrap(store.pullRequestSyncState)
         controller.hideArchivedRepositories = false
         XCTAssertEqual(Set(controller.sourceFilteredMyPullRequests.map(\.id)), [authored.id, active.id])
-        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct, .team, .hidden])
+        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct, .team(id: reviewers.id), .hidden])
         XCTAssertEqual(controller.requestedSections.map(\.count), [1, 1, 1, 1])
         XCTAssertEqual(controller.requestedSections[.hidden]?.items.map(\.id), [direct.id])
         XCTAssertEqual(Set(controller.visiblePullRequestNotifications.map(\.activityId)), ["ARCHIVED", "ACTIVE", "OLD"])
@@ -272,6 +272,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
     // MARK: Review teams
 
+    private static let standardTeamSections = PullRequestSectionID.teamSections(MockPullRequestSource(scenario: .standard).viewerTeams)
     private static let engineering = TeamReference(id: "T_ENG", organization: "acme", slug: "engineering")
     private static let developers = TeamReference(id: "T_DEV", organization: "acme", slug: "developers")
     private static let plmTeam = TeamReference(id: "T_PLM", organization: "acme", slug: "plm-team")
@@ -295,12 +296,8 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
-    private static func requestedIDs(
-        _ controller: DashboardController
-    ) -> [PullRequestSectionID: [String]] {
-        Dictionary(uniqueKeysWithValues: controller.requestedSections.map {
-            ($0.id, $0.items.map(\.representative.id).sorted())
-        })
+    private static func requestedIDs(_ controller: DashboardController) -> [String: [String]] {
+        controller.requestedSections.cardIDsByKind
     }
 
     @MainActor
@@ -344,16 +341,82 @@ final class DashboardControllerXCTests: XCTestCase {
         let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider, notifications: notifications)
         waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
         let storedState = PreferencesStore(defaults: defaults).pullRequestSyncState
-        XCTAssertEqual(Self.requestedIDs(controller)[.team], ["PR_DEV", "PR_PLM"])
+        XCTAssertEqual(Self.requestedIDs(controller)["team"], ["PR_DEV", "PR_PLM"])
 
         controller.setReviewTeam(Self.developers.id, counting: false)
-        XCTAssertEqual(Self.requestedIDs(controller)[.team], ["PR_PLM"])
+        XCTAssertEqual(Self.requestedIDs(controller)["team"], ["PR_PLM"])
 
         controller.setReviewTeam(Self.developers.id, counting: true)
-        XCTAssertEqual(Self.requestedIDs(controller)[.team], ["PR_DEV", "PR_PLM"])
+        XCTAssertEqual(Self.requestedIDs(controller)["team"], ["PR_DEV", "PR_PLM"])
         XCTAssertTrue(controller.pullRequestNotificationHistory.isEmpty)
         XCTAssertTrue(notifications.records.isEmpty)
         XCTAssertEqual(PreferencesStore(defaults: defaults).pullRequestSyncState, storedState)
+    }
+
+    @MainActor
+    private func makeTeamSectionsController() -> (DashboardController, ReviewTeamGitHubProvider) {
+        let suiteName = "team-sections-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(
+            activePullRequests: [Self.teamPR("PR_DEV", [Self.developers]), Self.teamPR("PR_PLM", [Self.plmTeam])],
+            viewerTeams: Self.nestedViewerTeams
+        ))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        return (controller, provider)
+    }
+
+    @MainActor
+    func testATeamSectionKeepsItsCollapseStateThroughARename() throws {
+        let (controller, provider) = makeTeamSectionsController()
+        let section = PullRequestSectionID.team(id: Self.developers.id)
+        controller.toggleSection(section, in: .reviewRequests)
+
+        let renamed = TeamReference(id: Self.developers.id, organization: "acme", slug: "devs")
+        provider.result = CompletePullRequestFetchResult(
+            activePullRequests: [Self.teamPR("PR_DEV", [renamed]), Self.teamPR("PR_PLM", [Self.plmTeam])],
+            viewerTeams: [
+                ViewerTeam(team: renamed, parentTeamID: Self.engineering.id),
+                ViewerTeam(team: Self.engineering),
+                ViewerTeam(team: Self.plmTeam, parentTeamID: renamed.id)
+            ]
+        )
+        Self.refreshAndWait(controller, provider)
+        settleSectionPruning()
+
+        XCTAssertEqual(controller.requestedSections[section]?.title, "devs")
+        XCTAssertFalse(controller.isSectionExpanded(section, in: .reviewRequests))
+    }
+
+    @MainActor
+    func testOptionClickTogglesTheTeamSectionsWithTheRest() throws {
+        let (controller, _) = makeTeamSectionsController()
+        let teamSections = PullRequestSectionID.teamSections(Self.nestedViewerTeams)
+        XCTAssertEqual(teamSections.count, 3)
+
+        controller.toggleAllSections(from: .direct, in: .reviewRequests)
+
+        for section in [PullRequestSectionID.assigned, .direct] + teamSections {
+            XCTAssertFalse(controller.isSectionExpanded(section, in: .reviewRequests), "\(section)")
+        }
+    }
+
+    @MainActor
+    func testTurningACollapsedTeamOffAndOnBringsItBackExpanded() throws {
+        let (controller, _) = makeTeamSectionsController()
+        let section = PullRequestSectionID.team(id: Self.plmTeam.id)
+        controller.toggleSection(section, in: .reviewRequests)
+        settleSectionPruning()
+
+        controller.setReviewTeam(Self.plmTeam.id, counting: false)
+        settleSectionPruning()
+        XCTAssertNil(controller.requestedSections[section])
+        controller.setReviewTeam(Self.plmTeam.id, counting: true)
+        settleSectionPruning()
+
+        XCTAssertNotNil(controller.requestedSections[section])
+        XCTAssertTrue(controller.isSectionExpanded(section, in: .reviewRequests))
     }
 
     @MainActor
@@ -370,8 +433,8 @@ final class DashboardControllerXCTests: XCTestCase {
 
         controller.setReviewTeam(Self.developers.id, counting: false)
 
-        XCTAssertEqual(Self.requestedIDs(controller)[.direct], ["PR_DIRECT_DEV"])
-        XCTAssertEqual(Self.requestedIDs(controller)[.team], [])
+        XCTAssertEqual(Self.requestedIDs(controller)["direct"], ["PR_DIRECT_DEV"])
+        XCTAssertEqual(Self.requestedIDs(controller)["team"], [])
     }
 
     @MainActor
@@ -397,7 +460,7 @@ final class DashboardControllerXCTests: XCTestCase {
         let relaunched = Self.makeReviewTeamController(defaults: defaults, provider: offline)
         waitUntil(timeout: 1) { relaunched.refreshErrorMessage != nil }
 
-        XCTAssertEqual(sections, [.assigned: [], .direct: ["PR_DIRECT_DEV"], .team: ["PR_ENG"]])
+        XCTAssertEqual(sections, ["assigned": [], "direct": ["PR_DIRECT_DEV"], "team": ["PR_ENG"]])
         XCTAssertEqual(Self.requestedIDs(relaunched), sections)
         XCTAssertEqual(relaunched.reviewTeamRows, rows)
         XCTAssertEqual(relaunched.state.viewerTeams, Self.nestedViewerTeams)
@@ -685,7 +748,7 @@ final class DashboardControllerXCTests: XCTestCase {
         }) { DashboardController.RequestedSection.section(for: $0)! }.mapValues { $0.map(\.id).sorted() }
         XCTAssertEqual(rawSections[.team]?.isEmpty, false)
         for section in DashboardController.RequestedSection.allCases {
-            XCTAssertEqual(Self.requestedIDs(controller)[section.sectionID], rawSections[section] ?? [], section.rawValue)
+            XCTAssertEqual(Self.requestedIDs(controller)[section.rawValue], rawSections[section] ?? [], section.rawValue)
         }
     }
 
@@ -911,7 +974,7 @@ final class DashboardControllerXCTests: XCTestCase {
         let controller = DashboardController(tokenStore: InMemoryTokenStore(), automaticRefreshInterval: 0)
 
         for tab in [DashboardController.MenuTab.reviewRequests, .myPRs] {
-            for section in [PullRequestSectionID.pinned, .active, .assigned, .direct, .team] {
+            for section in [PullRequestSectionID.pinned, .active, .assigned, .direct, .team(id: "T_ANY")] {
                 XCTAssertTrue(controller.isSectionExpanded(section, in: tab), "\(tab) \(section)")
             }
             XCTAssertFalse(controller.isSectionExpanded(.hidden, in: tab), "\(tab)")
@@ -954,7 +1017,7 @@ final class DashboardControllerXCTests: XCTestCase {
 
         controller.toggleAllSections(from: .direct, in: .reviewRequests)
 
-        XCTAssertEqual(controller.requestedSections.map(\.id), [.pinned, .assigned, .direct, .team, .hidden])
+        XCTAssertEqual(controller.requestedSections.map(\.id), [.pinned, .assigned, .direct] + Self.standardTeamSections + [.hidden])
         for section in controller.requestedSections.map(\.id) {
             XCTAssertTrue(controller.isSectionExpanded(section, in: .reviewRequests), "\(section)")
         }
@@ -1072,9 +1135,9 @@ final class DashboardControllerXCTests: XCTestCase {
     func testRequestedSectionsSortWithoutPinnedFirstAndKeepCollapseThroughRefreshes() {
         let (controller, _) = makeMockController()
 
-        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct, .team])
-        XCTAssertEqual(controller.requestedSections.map { $0.items.map(\.id) }, [["PR_7"], ["PR_5", "PR_2"], ["PR_3"]])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 1])
+        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct] + Self.standardTeamSections)
+        XCTAssertEqual(controller.requestedSections.map { $0.items.map(\.id) }, [["PR_7"], ["PR_5", "PR_2"], ["PR_3"], []])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 1, 0])
 
         controller.toggleSection(.direct, in: .reviewRequests)
         XCTAssertFalse(controller.isSectionExpanded(.direct, in: .reviewRequests))
@@ -1087,7 +1150,7 @@ final class DashboardControllerXCTests: XCTestCase {
         }
         settleSectionPruning()
         XCTAssertFalse(controller.isSectionExpanded(.direct, in: .reviewRequests))
-        XCTAssertEqual(controller.requestedSections.map { $0.items.map(\.id) }, [["PR_7", "PR_2"], ["PR_5"], ["PR_3"]])
+        XCTAssertEqual(controller.requestedSections.map { $0.items.map(\.id) }, [["PR_7", "PR_2"], ["PR_5"], ["PR_3"], []])
         let cardIDs = controller.requestedSections.allItems.map(\.id)
         XCTAssertEqual(cardIDs.count, Set(cardIDs).count)
         controller.toggleSection(.direct, in: .reviewRequests)
@@ -1108,14 +1171,14 @@ final class DashboardControllerXCTests: XCTestCase {
         waitUntil(timeout: 1.0) { controller.state.syncedAt != nil }
 
         controller.selectedReviewRequestFilters = [.draft]
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 1])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 1, 0])
         controller.hiddenPullRequestIds = ["PR_3"]
-        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct, .team, .hidden])
+        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct] + Self.standardTeamSections + [.hidden])
         XCTAssertEqual(controller.requestedSections[.hidden]?.items.map(\.id), ["PR_3"])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 0, 1])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 0, 0, 1])
 
         controller.selectedReviewRequestFilters = [.ready]
-        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 0, 0])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [1, 2, 0, 0, 0])
         controller.selectedReviewRequestFilters = [.draft]
         controller.setRepositoryPreferences(
             repo: "billing-platform-experiments/customer-subscription-dashboard",
@@ -1125,8 +1188,8 @@ final class DashboardControllerXCTests: XCTestCase {
                 reviewRequests: .disabled
             )
         )
-        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct, .team])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 0])
+        XCTAssertEqual(controller.requestedSections.map(\.id), [.assigned, .direct] + Self.standardTeamSections)
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 0, 0, 0])
     }
 
     @MainActor
@@ -1393,10 +1456,8 @@ final class DashboardControllerXCTests: XCTestCase {
     private static let authoredStaleMember = "PR_STACK_MOCK_AUTHORED_STALE_1"
 
     @MainActor
-    private static func rowIDs(_ controller: DashboardController) -> [PullRequestSectionID: [String]] {
-        Dictionary(uniqueKeysWithValues: controller.requestedSections.map {
-            ($0.id, $0.items.map(\.representative.id).sorted())
-        })
+    private static func rowIDs(_ controller: DashboardController) -> [String: [String]] {
+        controller.requestedSections.cardIDsByKind
     }
 
     @MainActor
@@ -1410,14 +1471,14 @@ final class DashboardControllerXCTests: XCTestCase {
         try await waitUntilAsync { controller.state.syncedAt != nil && !controller.isRefreshing }
 
         XCTAssertEqual(Self.rowIDs(controller), [
-            .assigned: ([Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_ASSIGNED"] + Self.acceptanceRepresentatives).sorted(),
-            .direct: [
+            "assigned": ([Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_ASSIGNED"] + Self.acceptanceRepresentatives).sorted(),
+            "direct": [
                 Self.filterDraftMember, "PR_STACKS_UNSTACKED_DIRECT", "PR_STACK_MOCK_LAST_OPEN_2",
                 Self.spreadRepresentative, "PR_STACK_MOCK_UNREADABLE_2", Self.positionThreeRepresentative
             ].sorted(),
-            .team: ["PR_STACKS_UNSTACKED_TEAM"]
+            "team": ["PR_STACKS_UNSTACKED_TEAM"]
         ])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [5, 6, 1])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [5, 6, 0, 1])
         // The authored stacks hold no requested member, so they never show here.
         let stackIDs = controller.requestedSections.allItems.compactMap(\.stack?.stack.id)
         XCTAssertEqual(
@@ -1464,10 +1525,10 @@ final class DashboardControllerXCTests: XCTestCase {
         controller.selectedReviewRequestFilters = [.ready]
 
         let ids = Self.rowIDs(controller)
-        XCTAssertEqual(ids[.assigned], ([Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_ASSIGNED"] + Self.acceptanceRepresentatives).sorted())
-        XCTAssertEqual(ids[.team], ["PR_STACKS_UNSTACKED_TEAM"])
-        XCTAssertTrue(ids[.direct]?.contains(Self.filterReadyMember) == true)
-        XCTAssertEqual(controller.requestedSections.map(\.count), [5, 6, 1])
+        XCTAssertEqual(ids["assigned"], ([Self.assignedStackTeamMember, "PR_STACKS_UNSTACKED_ASSIGNED"] + Self.acceptanceRepresentatives).sorted())
+        XCTAssertEqual(ids["team"], ["PR_STACKS_UNSTACKED_TEAM"])
+        XCTAssertTrue(ids["direct"]?.contains(Self.filterReadyMember) == true)
+        XCTAssertEqual(controller.requestedSections.map(\.count), [5, 6, 0, 1])
     }
 
     @MainActor
@@ -1563,12 +1624,12 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertEqual(reduced.fullMemberIDs, ["PR_A", "PR_C"])
         XCTAssertEqual(reduced.additionalMemberCount, 1)
         XCTAssertEqual(reduced.members.map { if case .full = $0 { true } else { false } }, [true, false, true])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0, 0])
 
         controller.setReviewTeam(Self.developers.id, counting: true)
 
         XCTAssertEqual(try Self.row("PR_A", in: controller).stack?.fullMemberIDs, ["PR_A", "PR_B", "PR_C"])
-        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [0, 1, 0, 0, 0])
     }
 
     @MainActor
@@ -1584,7 +1645,7 @@ final class DashboardControllerXCTests: XCTestCase {
         let rows = controller.requestedSections.allItems
         XCTAssertFalse(rows.contains { $0.representative.repo == "mergehawk-labs/desktop-app" })
         XCTAssertFalse(rows.contains { ["STACK_MOCK_ASSIGNED", "STACK_MOCK_FILTER"].contains($0.stack?.stack.id) })
-        XCTAssertEqual(controller.requestedSections.map(\.count), [4, 5, 1])
+        XCTAssertEqual(controller.requestedSections.map(\.count), [4, 5, 0, 1])
     }
 
     @MainActor
@@ -2645,7 +2706,7 @@ private enum TestTimeout: Error {
     precondition(controller.state.pullRequests.map(\.id) == ["PR_1", "PR_4", "PR_6", "PR_2", "PR_3", "PR_7", "PR_5"])
     precondition(controller.authoredSections.allItems.map(\.id) == ["PR_6", "PR_1", "PR_4"])
 
-    precondition(controller.requestedSections.map(\.id) == [.assigned, .direct, .team])
+    precondition(controller.requestedSections.map(\.id) == [.assigned, .direct] + PullRequestSectionID.teamSections(MockPullRequestSource(scenario: .standard).viewerTeams))
     precondition(controller.requestedSections.map { $0.items.map(\.id) } == [["PR_7", "PR_2"], ["PR_5"], ["PR_3"]])
 
     controller.selectedReviewRequestFilters = [.draft]

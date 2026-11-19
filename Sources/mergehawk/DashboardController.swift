@@ -161,14 +161,6 @@ final class DashboardController: ObservableObject {
             }
         }
 
-        var sectionID: PullRequestSectionID {
-            switch self {
-            case .assigned: .assigned
-            case .direct: .direct
-            case .team: .team
-            }
-        }
-
         static func section(for pullRequest: PullRequest) -> Self? {
             guard !pullRequest.isMine else { return nil }
             if pullRequest.isAssignedToViewer { return .assigned }
@@ -580,6 +572,7 @@ final class DashboardController: ObservableObject {
             requested: sourceFilteredReviewRequests.filter(Self.isRequestedPullRequest),
             matching: filteredReviewRequests,
             stacks: state.pullRequestStacks,
+            teamCounting: teamReviewCounting,
             hiddenIDs: hiddenPullRequestIds,
             pinnedIDs: pinnedPullRequestIds,
             unreadIDs: unreadPullRequestNotificationIds,
