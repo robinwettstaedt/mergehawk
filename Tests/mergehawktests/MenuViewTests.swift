@@ -1147,12 +1147,32 @@ final class MenuViewTests: XCTestCase {
         }
     }
 
-    func testTheNoHeadingsAuthoredLayoutHasNoHeadingRows() {
+    func testTheNoHeadingsAuthoredLayoutHasTheColumnHeaderAndNoHeadingRows() {
         let sections = [Self.section(.active, [Self.card("PR_1"), Self.card("PR_2")])]
 
         let rows = PullRequestListRows.rows(sections: sections, showsHeadings: false) { _ in false }
 
-        XCTAssertEqual(rows.map(\.id), ["PR_1", "PR_2"])
+        XCTAssertEqual(rows.map(\.id), ["column-header", "PR_1", "PR_2"])
+    }
+
+    /// The first pin in Authored swaps the column header for the Pinned and Active headings. The header and a heading
+    /// are the same height, so a card below moves only by the Active heading, and back again on unpinning.
+    func testAHeldRowMovesByOneHeadingWhenAuthoredSwitchesBetweenThePlainListAndSections() {
+        let first = Self.card("PR_1")
+        let rest = [Self.card("PR_2"), Self.card("PR_3")]
+        let plain = PullRequestListRows.rows(sections: [Self.section(.active, [first] + rest)], showsHeadings: false) { _ in true }
+        let sectioned = PullRequestListRows.rows(
+            sections: [Self.section(.pinned, [first]), Self.section(.active, rest)], showsHeadings: true
+        ) { _ in true }
+        let cards: [String: CGFloat] = ["PR_1": 58, "PR_2": 58, "PR_3": 58]
+
+        XCTAssertEqual(PullRequestListRows.offsetChange(
+            of: "PR_2", oldRows: plain, newRows: sectioned, heights: cards.merging(["column-header": 52]) { a, _ in a }, headingHeight: 52
+        ), 52)
+        XCTAssertEqual(PullRequestListRows.offsetChange(
+            of: "PR_2", oldRows: sectioned, newRows: plain,
+            heights: cards.merging(["heading:pinned": 52, "heading:active": 52]) { a, _ in a }, headingHeight: 52
+        ), -52)
     }
 
     @MainActor

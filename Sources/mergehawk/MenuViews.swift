@@ -1527,15 +1527,18 @@ private extension RunLoop.Mode {
     static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
 }
 
-/// A PR tab's rows: headings, and the cards of expanded sections, in section order.
+/// A PR tab's rows: headings, and the cards of expanded sections, in section order. A tab without headings has
+/// the column header above its cards instead.
 enum PullRequestListRows {
     enum Row: Identifiable, Equatable {
+        case columnHeader
         case heading(PullRequestListSection)
         case item(PullRequestListItem, section: PullRequestSectionID)
 
         /// A card keeps its item ID in every section, so a move between sections keeps its row.
         var id: String {
             switch self {
+            case .columnHeader: "column-header"
             case .heading(let section): "heading:\(section.id)"
             case .item(let item, _): item.id
             }
@@ -1549,8 +1552,8 @@ enum PullRequestListRows {
         return oldRows[start...].first { $0.id != movingID && newRowIDs.contains($0.id) }?.id
     }
 
-    /// The rows' total height. A row without a measured height is a heading that appears, the only row a move
-    /// adds. Nil when a card's height is unknown.
+    /// The rows' total height. A row without a measured height is a heading or the column header that appears, the
+    /// only rows a move adds, and both are `headingHeight` tall. Nil when a card's height is unknown.
     static func height(
         of rows: ArraySlice<Row>,
         heights: [String: CGFloat],
@@ -1560,10 +1563,10 @@ enum PullRequestListRows {
         for row in rows {
             if let height = heights[row.id] {
                 total += height
-            } else if case .heading = row {
-                total += headingHeight
-            } else {
+            } else if case .item = row {
                 return nil
+            } else {
+                total += headingHeight
             }
         }
         return total
@@ -1599,7 +1602,7 @@ enum PullRequestListRows {
         isExpanded: (PullRequestSectionID) -> Bool
     ) -> [Row] {
         guard showsHeadings else {
-            return sections.flatMap { section in section.items.map { Row.item($0, section: section.id) } }
+            return [.columnHeader] + sections.flatMap { section in section.items.map { Row.item($0, section: section.id) } }
         }
         return sections.flatMap { section in
             [Row.heading(section)]
@@ -1681,7 +1684,7 @@ struct PullRequestListView: View {
                     : PullRequestListCopy.noFilterMatches
             )
         } else {
-            rowList(rows(of: sections), showsHeadings: showsHeadings)
+            rowList(rows(of: sections))
         }
     }
 
@@ -1689,12 +1692,9 @@ struct PullRequestListView: View {
     /// is one row changing place. Without headings, the column header leads the cards. The stack is not lazy: a lazy
     /// stack holds the visible rows in place on its own, at once, so while the rows animated to their new places the
     /// visible rows jumped and slid back. The scroll anchor holds them on the animation's curve instead.
-    private func rowList(_ rows: [PullRequestListRows.Row], showsHeadings: Bool) -> some View {
+    private func rowList(_ rows: [PullRequestListRows.Row]) -> some View {
         ScrollView(.vertical) {
             VStack(spacing: 0) {
-                if !showsHeadings {
-                    PullRequestColumnHeader()
-                }
                 ForEach(rows) { row in
                     rowView(row)
                         .anchorPreference(key: PullRequestListRowFramesKey.self, value: .bounds) { [row.id: $0] }
@@ -1702,10 +1702,10 @@ struct PullRequestListView: View {
             }
             .padding(.leading, metrics.prList.horizontalPadding)
             .padding(.trailing, metrics.prList.trailingPadding)
-            // Every heading has the section spacing above it, so a row's spacing never depends on the rows around
-            // it and a heading appearing above the visible rows only adds its own height. The first heading's
-            // spacing is taken back here.
-            .padding(.top, metrics.prList.topPadding - (showsHeadings ? metrics.prList.sectionSpacing : 0))
+            // Every heading, and the column header, has the section spacing above it, so a row's spacing never
+            // depends on the rows around it and a row appearing above the visible rows only adds its own height.
+            // The first row's spacing is taken back here.
+            .padding(.top, metrics.prList.topPadding - metrics.prList.sectionSpacing)
             .padding(.bottom, metrics.prList.bottomPadding)
             .background(PullRequestListScrollerStyle(anchor: scrollAnchor))
             .backgroundPreferenceValue(PullRequestListRowFramesKey.self) { anchors in
@@ -1748,11 +1748,16 @@ struct PullRequestListView: View {
         scrollAnchor.scroll(by: delta, contentHeightChange: newHeight - oldHeight, animated: animation != nil)
     }
 
-    /// Spacing is each row's top padding: section spacing above every heading, row spacing above every card.
+    /// Spacing is each row's top padding: section spacing above every heading and the column header, row spacing
+    /// above every card.
     /// An expanded stack stays inside its one row, so it pushes the rows below it.
     @ViewBuilder
     private func rowView(_ row: PullRequestListRows.Row) -> some View {
         switch row {
+        case .columnHeader:
+            PullRequestColumnHeader()
+                .padding(.top, metrics.prList.sectionSpacing)
+                .transition(PullRequestMoveAnimation.rowTransition)
         case .heading(let section):
             sectionHeading(section)
                 .padding(.top, metrics.prList.sectionSpacing)
