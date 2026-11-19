@@ -1731,7 +1731,8 @@ struct PullRequestListView: View {
                         repo: row.representative.repo,
                         chrome: .containerRow,
                         stackControl: control,
-                        metadataAccessory: positionLabel
+                        metadataAccessory: positionLabel,
+                        isIgnored: controller.isIgnored(entry)
                     ) {
                         controller.openStackMember(member)
                     }
@@ -2418,6 +2419,7 @@ enum PullRequestCardPart: Hashable {
     case stackControl
     case draftBadge
     case stateBadge
+    case ignoredBadge
 }
 
 /// The frames of a card's parts. A list of cards reports the last card's parts.

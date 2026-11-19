@@ -495,6 +495,12 @@ final class DashboardController: ObservableObject {
         )
     }
 
+    /// Whether a stack context entry's author is ignored. Stack entries carry no bot type, so a bot counts only when
+    /// it is a known bot.
+    func isIgnored(_ entry: PullRequestStackEntry) -> Bool {
+        ignoredAuthors.ignores(author: entry.author, isBot: nil)
+    }
+
     func canAddIgnoredAccount(_ input: String) -> Bool {
         guard let login = IgnoredAuthors.cleanedLogin(input) else {
             return false

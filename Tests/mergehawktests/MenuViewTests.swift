@@ -2026,6 +2026,44 @@ final class MenuViewTests: XCTestCase {
         NSHostingView(rootView: view.fixedSize().environment(\.menuMetrics, metrics)).fittingSize.width
     }
 
+    func testIgnoredBadgeFollowsDraftAndTheStateBadge() {
+        XCTAssertEqual(StackMemberBadge.badges(for: Self.contextEntry(draft: false), isIgnored: true), [.open, .ignored])
+        XCTAssertEqual(
+            StackMemberBadge.badges(for: Self.contextEntry(draft: true), isIgnored: true),
+            [.draft, .open, .ignored]
+        )
+        XCTAssertEqual(
+            StackMemberBadge.badges(for: Self.contextEntry(draft: false, state: .merged), isIgnored: true),
+            [.merged, .ignored]
+        )
+        XCTAssertEqual(StackMemberBadge.badges(for: Self.contextEntry(draft: true)), [.draft, .open])
+        XCTAssertEqual(StackMemberBadge.badges(for: Self.contextEntry(draft: false), isIgnored: false), [.open])
+    }
+
+    @MainActor
+    func testIgnoredContextCardReportsTheIgnoredBadgeApartFromTheStateBadge() throws {
+        let metrics = MenuMetrics.standard
+        let card = StackContextCard(
+            entry: Self.contextEntry(draft: false),
+            repo: "mergehawk-labs/mergehawk",
+            chrome: .containerRow,
+            isIgnored: true
+        ) {}
+        let parts = measure(card, width: 800, metrics: metrics).parts
+        let state = try XCTUnwrap(parts[.stateBadge])
+        let ignored = try XCTUnwrap(parts[.ignoredBadge])
+        XCTAssertEqual(state.width, intrinsicWidth(StackMemberBadgeView(badge: .open), metrics: metrics), accuracy: 0.5)
+        XCTAssertEqual(ignored.width, intrinsicWidth(StackMemberBadgeView(badge: .ignored), metrics: metrics), accuracy: 0.5)
+        XCTAssertLessThanOrEqual(state.maxX, ignored.minX + 0.5)
+
+        let plain = measure(
+            StackContextCard(entry: Self.contextEntry(draft: false), repo: "mergehawk-labs/mergehawk", chrome: .containerRow) {},
+            width: 800,
+            metrics: metrics
+        ).parts
+        XCTAssertNil(plain[.ignoredBadge])
+    }
+
     @MainActor
     func testTheWidestChangeCountsFitTheChangesColumnUnscaled() {
         // The widest labels of realistic counts, below 10 million lines: "+999k", "+9.9m" and "+10m".

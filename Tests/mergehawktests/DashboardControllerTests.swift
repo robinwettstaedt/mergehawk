@@ -1793,6 +1793,40 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testStackEntryIsIgnoredByAccountOrAsAKnownBotOnlyWithTheToggle() {
+        let suiteName = "ignored-stack-entry-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let botPR = PullRequest(
+            id: "PR_BOT", title: "Bump", number: 1, url: URL(string: "https://github.com/acme/app/pull/1")!,
+            repo: "acme/app", ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, reviewCount: 0,
+            reviewRequestKind: .direct, isMine: false, author: "dependabot", authorIsBot: true,
+            mergeable: .mergeable, draft: false
+        )
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(activePullRequests: [botPR]))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        func entry(_ author: String) -> PullRequestStackEntry {
+            PullRequestStackEntry(
+                position: 1, pullRequestID: "PR_\(author)", number: 2, title: "Entry",
+                url: URL(string: "https://github.com/acme/app/pull/2")!, state: .open, isDraft: false, author: author
+            )
+        }
+
+        XCTAssertFalse(controller.isIgnored(entry("Dependabot")))
+        XCTAssertFalse(controller.isIgnored(entry("platform-nora")))
+
+        controller.addIgnoredAccount("Platform-Nora")
+        XCTAssertTrue(controller.isIgnored(entry("platform-nora")))
+        XCTAssertFalse(controller.isIgnored(entry("Dependabot")))
+
+        controller.ignoresBotPullRequests = true
+        XCTAssertTrue(controller.isIgnored(entry("Dependabot")))
+        XCTAssertFalse(controller.isIgnored(entry("renovate")), "a bot the app knows nothing about")
+        XCTAssertFalse(controller.isIgnored(entry("teammate")))
+    }
+
+    @MainActor
     func testIgnoredAccountsAreCleanedDeduplicatedAndPersisted() {
         let suiteName = "mergehawk-ignored-accounts-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
