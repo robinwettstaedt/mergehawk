@@ -1542,12 +1542,55 @@ enum PullRequestListRows {
         }
     }
 
-    /// The row to hold in place while a card moves: the top visible row, or, when that is the moving card, the
-    /// next row after it that is not the moving card.
-    static func anchorRowID(oldRows: [Row], visibleTopID: String?, movingID: String) -> String? {
-        guard visibleTopID == movingID else { return visibleTopID }
-        guard let index = oldRows.firstIndex(where: { $0.id == movingID }) else { return nil }
-        return oldRows[(index + 1)...].first { $0.id != movingID }?.id
+    /// The row to hold in place while a card moves: the top visible row, or, when that is the moving card or a
+    /// row the move removes, the next row after it that stays.
+    static func anchorRowID(oldRows: [Row], newRowIDs: Set<String>, visibleTopID: String?, movingID: String) -> String? {
+        guard let visibleTopID, let start = oldRows.firstIndex(where: { $0.id == visibleTopID }) else { return nil }
+        return oldRows[start...].first { $0.id != movingID && newRowIDs.contains($0.id) }?.id
+    }
+
+    /// The rows' total height. A row without a measured height is a heading that appears, the only row a move
+    /// adds. Nil when a card's height is unknown.
+    static func height(
+        of rows: ArraySlice<Row>,
+        heights: [String: CGFloat],
+        headingHeight: CGFloat
+    ) -> CGFloat? {
+        var total: CGFloat = 0
+        for row in rows {
+            if let height = heights[row.id] {
+                total += height
+            } else if case .heading = row {
+                total += headingHeight
+            } else {
+                return nil
+            }
+        }
+        return total
+    }
+
+    /// How far a row moves when the rows change: the height of the rows above it afterwards less the height of the
+    /// rows above it before. Nil when the row is gone or a height is unknown.
+    static func offsetChange(
+        of rowID: String,
+        oldRows: [Row],
+        newRows: [Row],
+        heights: [String: CGFloat],
+        headingHeight: CGFloat
+    ) -> CGFloat? {
+        guard
+            let oldIndex = oldRows.firstIndex(where: { $0.id == rowID }),
+            let newIndex = newRows.firstIndex(where: { $0.id == rowID }),
+            let before = height(of: oldRows[..<oldIndex], heights: heights, headingHeight: headingHeight),
+            let after = height(of: newRows[..<newIndex], heights: heights, headingHeight: headingHeight)
+        else { return nil }
+        return after - before
+    }
+
+    /// The first row whose bottom is below the top of the visible area. Rows the lazy list has not laid out have
+    /// no frame.
+    static func topVisibleRowID(rows: [Row], frames: [String: CGRect], visibleMinY: CGFloat) -> String? {
+        rows.first { frames[$0.id].map { $0.maxY > visibleMinY } ?? false }?.id
     }
 
     static func rows(
@@ -1574,8 +1617,8 @@ struct PullRequestListView: View {
     @ObservedObject var controller: DashboardController
     let mode: Mode
     @Binding var dropdownState: PullRequestMenuDropdownState
-    /// The top visible row, which the list holds in place when rows above it change.
-    @State private var scrolledRowID: String?
+    /// Holds the visible rows in place while a card moves.
+    @State private var scrollAnchor = PullRequestListScrollAnchor()
     @Environment(\.menuMetrics) private var metrics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1643,18 +1686,20 @@ struct PullRequestListView: View {
     }
 
     /// The whole tab as one flat sequence of headings and cards in one `ForEach`, so a card moving between sections
-    /// is one row changing place. Without headings, the column header leads the cards.
+    /// is one row changing place. Without headings, the column header leads the cards. The stack is not lazy: a lazy
+    /// stack holds the visible rows in place on its own, at once, so while the rows animated to their new places the
+    /// visible rows jumped and slid back. The scroll anchor holds them on the animation's curve instead.
     private func rowList(_ rows: [PullRequestListRows.Row], showsHeadings: Bool) -> some View {
         ScrollView(.vertical) {
-            LazyVStack(spacing: 0) {
+            VStack(spacing: 0) {
                 if !showsHeadings {
                     PullRequestColumnHeader()
                 }
                 ForEach(rows) { row in
                     rowView(row)
+                        .anchorPreference(key: PullRequestListRowFramesKey.self, value: .bounds) { [row.id: $0] }
                 }
             }
-            .scrollTargetLayout()
             .padding(.leading, metrics.prList.horizontalPadding)
             .padding(.trailing, metrics.prList.trailingPadding)
             // Every heading has the section spacing above it, so a row's spacing never depends on the rows around
@@ -1662,21 +1707,45 @@ struct PullRequestListView: View {
             // spacing is taken back here.
             .padding(.top, metrics.prList.topPadding - (showsHeadings ? metrics.prList.sectionSpacing : 0))
             .padding(.bottom, metrics.prList.bottomPadding)
-            .background(PullRequestListScrollerStyle())
+            .background(PullRequestListScrollerStyle(anchor: scrollAnchor))
+            .backgroundPreferenceValue(PullRequestListRowFramesKey.self) { anchors in
+                GeometryReader { proxy in
+                    let _ = scrollAnchor.record(anchors.mapValues { proxy[$0] })
+                    Color.clear
+                }
+            }
         }
-        .scrollPosition(id: $scrolledRowID, anchor: .top)
     }
 
-    /// Pin, Unpin, Hide and Unhide: the card slides to its new section while the rows in view hold still.
-    /// The list keeps the bound top row in place when rows above it change. When that row is the moving card, the
-    /// next row takes its place, so the list does not follow the card.
+    /// Pin, Unpin, Hide and Unhide: the card slides to its new section while the rows in view hold still. Rows
+    /// appearing or leaving above the visible area would move the visible rows, so the list scrolls by the same
+    /// amount on the same curve, keeping the top visible row where it is on screen. When that row is the moving
+    /// card, or leaves with the move, the next row that stays is held instead.
     private func move(_ item: PullRequestListItem, _ change: () -> Void) {
-        scrolledRowID = PullRequestListRows.anchorRowID(
-            oldRows: rows(of: sections),
-            visibleTopID: scrolledRowID,
+        let oldRows = rows(of: sections)
+        let frames = scrollAnchor.rowFrames
+        let topVisibleID = scrollAnchor.visibleMinY.flatMap {
+            PullRequestListRows.topVisibleRowID(rows: oldRows, frames: frames, visibleMinY: $0)
+        }
+        let animation = PullRequestMoveAnimation.animation(reduceMotion: reduceMotion)
+        withAnimation(animation, change)
+        let newRows = rows(of: sections)
+        guard let anchorID = PullRequestListRows.anchorRowID(
+            oldRows: oldRows,
+            newRowIDs: Set(newRows.map(\.id)),
+            visibleTopID: topVisibleID,
             movingID: item.id
-        )
-        withAnimation(PullRequestMoveAnimation.animation(reduceMotion: reduceMotion), change)
+        ) else { return }
+        let heights = frames.mapValues(\.height)
+        let headingHeight = metrics.prColumns.headerHeight + metrics.prList.sectionSpacing
+        guard
+            let delta = PullRequestListRows.offsetChange(
+                of: anchorID, oldRows: oldRows, newRows: newRows, heights: heights, headingHeight: headingHeight
+            ),
+            let oldHeight = PullRequestListRows.height(of: oldRows[...], heights: heights, headingHeight: headingHeight),
+            let newHeight = PullRequestListRows.height(of: newRows[...], heights: heights, headingHeight: headingHeight)
+        else { return }
+        scrollAnchor.scroll(by: delta, contentHeightChange: newHeight - oldHeight, animated: animation != nil)
     }
 
     /// Spacing is each row's top padding: section spacing above every heading, row spacing above every card.

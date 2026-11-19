@@ -1240,18 +1240,68 @@ final class MenuViewTests: XCTestCase {
         XCTAssertNotNil(PullRequestMoveAnimation.animation(reduceMotion: false))
     }
 
-    func testTheAnchorIsTheTopVisibleRowOrTheNextNonMovingRowWhenTheTopRowMoves() {
+    func testTheAnchorIsTheTopVisibleRowOrTheNextRowThatStaysWhenTheTopRowMovesOrLeaves() {
         let sections = [
+            Self.section(.pinned, [Self.card("PR_P")]),
             Self.section(.assigned, [Self.card("PR_A")]),
             Self.section(.direct, [Self.card("PR_D1"), Self.card("PR_D2")])
         ]
         let rows = PullRequestListRows.rows(sections: sections, showsHeadings: true) { _ in true }
+        let all = Set(rows.map(\.id))
+        let withoutPinned = all.subtracting(["heading:pinned"])
 
-        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_A", movingID: "PR_D1"), "PR_A")
-        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_A", movingID: "PR_A"), "heading:direct")
-        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_D1", movingID: "PR_D1"), "PR_D2")
-        XCTAssertNil(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: "PR_D2", movingID: "PR_D2"))
-        XCTAssertNil(PullRequestListRows.anchorRowID(oldRows: rows, visibleTopID: nil, movingID: "PR_D2"))
+        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, newRowIDs: all, visibleTopID: "PR_A", movingID: "PR_D1"), "PR_A")
+        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, newRowIDs: all, visibleTopID: "PR_A", movingID: "PR_A"), "heading:direct")
+        XCTAssertEqual(PullRequestListRows.anchorRowID(oldRows: rows, newRowIDs: all, visibleTopID: "PR_D1", movingID: "PR_D1"), "PR_D2")
+        XCTAssertEqual(
+            PullRequestListRows.anchorRowID(oldRows: rows, newRowIDs: withoutPinned, visibleTopID: "heading:pinned", movingID: "PR_P"),
+            "heading:assigned"
+        )
+        XCTAssertNil(PullRequestListRows.anchorRowID(oldRows: rows, newRowIDs: all, visibleTopID: "PR_D2", movingID: "PR_D2"))
+        XCTAssertNil(PullRequestListRows.anchorRowID(oldRows: rows, newRowIDs: all, visibleTopID: nil, movingID: "PR_D2"))
+    }
+
+    func testAHeldRowMovesByTheHeightOfTheRowsAppearingAndLeavingAboveIt() {
+        let card = Self.card("PR_D1")
+        let old = PullRequestListRows.rows(
+            sections: [Self.section(.assigned, [Self.card("PR_A")]), Self.section(.direct, [card, Self.card("PR_D2")])],
+            showsHeadings: true
+        ) { _ in true }
+        let new = PullRequestListRows.rows(
+            sections: [
+                Self.section(.pinned, [card]),
+                Self.section(.assigned, [Self.card("PR_A")]),
+                Self.section(.direct, [Self.card("PR_D2")])
+            ],
+            showsHeadings: true
+        ) { _ in true }
+        let heights: [String: CGFloat] = [
+            "heading:assigned": 52, "PR_A": 58, "heading:direct": 52, "PR_D1": 58, "PR_D2": 58
+        ]
+
+        // Pinned's heading (measured as a heading) and the card now sit above Assigned.
+        XCTAssertEqual(PullRequestListRows.offsetChange(of: "heading:assigned", oldRows: old, newRows: new, heights: heights, headingHeight: 52), 110)
+        // Below the card's old place the card's own height leaves again.
+        XCTAssertEqual(PullRequestListRows.offsetChange(of: "PR_D2", oldRows: old, newRows: new, heights: heights, headingHeight: 52), 52)
+        XCTAssertEqual(PullRequestListRows.height(of: new[...], heights: heights, headingHeight: 52), 330)
+        XCTAssertNil(PullRequestListRows.offsetChange(of: "heading:pinned", oldRows: old, newRows: new, heights: heights, headingHeight: 52))
+        XCTAssertNil(PullRequestListRows.height(of: old[...], heights: [:], headingHeight: 52))
+    }
+
+    func testTheTopVisibleRowIsTheFirstLaidOutRowReachingBelowTheVisibleTop() {
+        let rows = PullRequestListRows.rows(
+            sections: [Self.section(.direct, [Self.card("PR_1"), Self.card("PR_2"), Self.card("PR_3")])],
+            showsHeadings: true
+        ) { _ in true }
+        let frames = [
+            "PR_1": CGRect(x: 0, y: 40, width: 100, height: 50),
+            "PR_2": CGRect(x: 0, y: 90, width: 100, height: 50),
+            "PR_3": CGRect(x: 0, y: 140, width: 100, height: 50)
+        ]
+
+        XCTAssertEqual(PullRequestListRows.topVisibleRowID(rows: rows, frames: frames, visibleMinY: 0), "PR_1")
+        XCTAssertEqual(PullRequestListRows.topVisibleRowID(rows: rows, frames: frames, visibleMinY: 100), "PR_2")
+        XCTAssertNil(PullRequestListRows.topVisibleRowID(rows: rows, frames: frames, visibleMinY: 200))
     }
 
     /// A Pinned heading and card appearing above the visible rows leave the rows above the moving card where they

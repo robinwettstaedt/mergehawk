@@ -27,11 +27,15 @@ enum PullRequestListScroller {
 /// changes size (seen on macOS 15 with the legacy preference), so the view restores it whenever the scroll view's
 /// style changes, the content resizes, or the preference changes. The system setting is never changed.
 struct PullRequestListScrollerStyle: NSViewRepresentable {
+    /// Also told which scroll view holds the list.
+    var anchor: PullRequestListScrollAnchor? = nil
+
     func makeNSView(context: Context) -> PullRequestListScrollerStyleView {
         PullRequestListScrollerStyleView()
     }
 
     func updateNSView(_ view: PullRequestListScrollerStyleView, context: Context) {
+        view.anchor = anchor
         view.apply()
     }
 }
@@ -41,6 +45,7 @@ final class PullRequestListScrollerStyleView: NSView {
     private var styleObservation: NSKeyValueObservation?
     private weak var observedScrollView: NSScrollView?
     private var isApplying = false
+    weak var anchor: PullRequestListScrollAnchor?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -78,6 +83,7 @@ final class PullRequestListScrollerStyleView: NSView {
 
     func apply() {
         guard let scrollView = enclosingScrollView else { return }
+        anchor?.scrollView = scrollView
         if scrollView !== observedScrollView {
             observe(scrollView)
         }
@@ -101,5 +107,52 @@ final class PullRequestListScrollerStyleView: NSView {
                 }
             }
         }
+    }
+}
+
+/// Each laid-out PR list row's frame, by row ID.
+struct PullRequestListRowFramesKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
+    }
+}
+
+/// Keeps the visible rows in place on screen while the list changes around them. SwiftUI animates the rows to their
+/// new places, so rows appearing or leaving above the visible area would slide the visible rows down or up. The
+/// anchor scrolls the list by the same amount on the move animation's curve, so on screen the two cancel out.
+@MainActor
+final class PullRequestListScrollAnchor {
+    weak var scrollView: NSScrollView?
+    /// Every row's frame in the list content's coordinates, which are the scroll view's document coordinates.
+    /// During an animation these are the animated frames.
+    private(set) var rowFrames: [String: CGRect] = [:]
+
+    var visibleMinY: CGFloat? { scrollView?.contentView.bounds.minY }
+
+    /// Called with every layout's row frames.
+    func record(_ frames: [String: CGRect]) {
+        rowFrames = frames
+    }
+
+    /// Scrolls by `delta` alongside the change being made now. `contentHeightChange` is how much the list grows,
+    /// so the scroll stays within the content it ends with.
+    func scroll(by delta: CGFloat, contentHeightChange: CGFloat, animated: Bool) {
+        guard abs(delta) > 0.5, let scrollView, let documentView = scrollView.documentView else { return }
+        let clipView = scrollView.contentView
+        let maxY = max(0, documentView.frame.height + contentHeightChange - clipView.bounds.height)
+        let origin = CGPoint(x: clipView.bounds.minX, y: min(max(0, clipView.bounds.minY + delta), maxY))
+        guard origin != clipView.bounds.origin else { return }
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = PullRequestMoveAnimation.duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                clipView.animator().setBoundsOrigin(origin)
+            }
+        } else {
+            clipView.setBoundsOrigin(origin)
+        }
+        scrollView.reflectScrolledClipView(clipView)
     }
 }
