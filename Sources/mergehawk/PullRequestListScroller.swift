@@ -139,11 +139,42 @@ final class PullRequestListScrollAnchor {
     /// Scrolls by `delta` alongside the change being made now. `contentHeightChange` is how much the list grows,
     /// so the scroll stays within the content it ends with.
     func scroll(by delta: CGFloat, contentHeightChange: CGFloat, animated: Bool) {
+        removePendingScroll()
         guard abs(delta) > 0.5, let scrollView, let documentView = scrollView.documentView else { return }
         let clipView = scrollView.contentView
         let maxY = max(0, documentView.frame.height + contentHeightChange - clipView.bounds.height)
-        let origin = CGPoint(x: clipView.bounds.minX, y: min(max(0, clipView.bounds.minY + delta), maxY))
-        guard origin != clipView.bounds.origin else { return }
+        let target = min(max(0, clipView.bounds.minY + delta), maxY)
+        guard target != clipView.bounds.minY else { return }
+        guard target > max(0, documentView.frame.height - clipView.bounds.height) else {
+            Self.scroll(scrollView, to: target, animated: animated)
+            return
+        }
+        // The content grows with the change, and the clip view keeps its origin within the old content height, so
+        // the scroll waits for SwiftUI to lay out the taller content.
+        documentView.postsFrameChangedNotifications = true
+        pendingScroll = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: documentView, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let scrollView = self.scrollView else { return }
+                self.removePendingScroll()
+                Self.scroll(scrollView, to: target, animated: animated)
+            }
+        }
+    }
+
+    private var pendingScroll: NSObjectProtocol?
+
+    private func removePendingScroll() {
+        if let pendingScroll {
+            NotificationCenter.default.removeObserver(pendingScroll)
+        }
+        pendingScroll = nil
+    }
+
+    private static func scroll(_ scrollView: NSScrollView, to y: CGFloat, animated: Bool) {
+        let clipView = scrollView.contentView
+        let origin = clipView.constrainBoundsRect(CGRect(origin: CGPoint(x: clipView.bounds.minX, y: y), size: clipView.bounds.size)).origin
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = PullRequestMoveAnimation.duration

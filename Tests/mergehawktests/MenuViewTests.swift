@@ -1261,6 +1261,31 @@ final class MenuViewTests: XCTestCase {
         XCTAssertEqual(controller.requestedSections[.pinned]?.items.map(\.id), [card.id])
     }
 
+    /// Near the bottom, the clip view would clamp a scroll past the old content height, so an instant correction
+    /// for content that grows with the change waits for the taller content.
+    @MainActor
+    func testAnInstantScrollCorrectionPastTheOldContentHeightWaitsForTheTallerContent() throws {
+        let scrollView = NSScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 400))
+        let document = FlippedDocumentView(frame: CGRect(x: 0, y: 0, width: 300, height: 1000))
+        scrollView.documentView = document
+        let host = OffScreenHost(scrollView)
+        defer { host.close() }
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 600))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let anchor = PullRequestListScrollAnchor()
+        anchor.scrollView = scrollView
+
+        anchor.scroll(by: 100, contentHeightChange: 100, animated: false)
+        XCTAssertEqual(scrollView.contentView.bounds.minY, 600)
+        document.setFrameSize(CGSize(width: 300, height: 1100))
+        host.settle()
+
+        XCTAssertEqual(scrollView.contentView.bounds.minY, 700)
+
+        anchor.scroll(by: -50, contentHeightChange: 0, animated: false)
+        XCTAssertEqual(scrollView.contentView.bounds.minY, 650, "a scroll within the content applies at once")
+    }
+
     func testReduceMotionTurnsTheMoveAnimationOff() {
         XCTAssertNil(PullRequestMoveAnimation.animation(reduceMotion: true))
         XCTAssertNotNil(PullRequestMoveAnimation.animation(reduceMotion: false))
@@ -4121,4 +4146,8 @@ private func accessibilityButtonFrame(labeled label: String, in host: OffScreenH
     XCTAssertEqual(matches.count, 1, "buttons labeled \(label)")
     let screenFrame = try XCTUnwrap(matches.first).accessibilityFrame()
     return host.window.convertFromScreen(screenFrame)
+}
+
+private final class FlippedDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }

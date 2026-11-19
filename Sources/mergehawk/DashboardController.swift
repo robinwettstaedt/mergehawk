@@ -663,33 +663,49 @@ final class DashboardController: ObservableObject {
         }
     }
 
-    /// Assigned and Direct always show, and a team section shows while its team counts, so only Pinned, Hidden and
-    /// Active need the grouping, and then only whether Pinned and Hidden have an item, not the cards.
     private func pruneSectionExpansionOverrides() {
         guard sectionExpansionOverrides.values.contains(where: { !$0.isEmpty }) else { return }
         let countedTeamIDs = Set(teamReviewCounting.sectionTeams.map(\.id))
         var pruned = sectionExpansionOverrides
         for (tab, overrides) in sectionExpansionOverrides where !overrides.isEmpty {
             var presence: (hasPinned: Bool, hasHidden: Bool)?
-            func pinnedAndHidden() -> (hasPinned: Bool, hasHidden: Bool) {
-                if let presence { return presence }
-                let found = pinnedAndHiddenPresence(in: tab)
-                presence = found
-                return found
-            }
             pruned[tab] = overrides.filter { section in
-                switch section {
-                case .assigned, .direct: true
-                case .team(let teamID): countedTeamIDs.contains(teamID)
-                case .pinned: pinnedAndHidden().hasPinned
-                case .hidden: pinnedAndHidden().hasHidden
-                // Active has a heading only while Pinned or Hidden shows.
-                case .active: pinnedAndHidden().hasPinned || pinnedAndHidden().hasHidden
+                Self.showsHeading(for: section, in: tab, countedTeamIDs: countedTeamIDs) {
+                    if let presence { return presence }
+                    let found = pinnedAndHiddenPresence(in: tab)
+                    presence = found
+                    return found
                 }
             }
         }
         if pruned != sectionExpansionOverrides {
             sectionExpansionOverrides = pruned
+        }
+    }
+
+    /// Whether the tab shows a heading for the section, as the collapse prune sees it. Assigned and Direct always
+    /// show in Requested, and a team section shows while its team counts, so only Pinned, Hidden and Active ask
+    /// `pinnedAndHidden`, the cheap grouping.
+    func showsHeading(for section: PullRequestSectionID, in tab: MenuTab) -> Bool {
+        Self.showsHeading(
+            for: section, in: tab, countedTeamIDs: Set(teamReviewCounting.sectionTeams.map(\.id))
+        ) { pinnedAndHiddenPresence(in: tab) }
+    }
+
+    private static func showsHeading(
+        for section: PullRequestSectionID,
+        in tab: MenuTab,
+        countedTeamIDs: Set<String>,
+        pinnedAndHidden: () -> (hasPinned: Bool, hasHidden: Bool)
+    ) -> Bool {
+        switch (tab, section) {
+        case (.reviewRequests, .assigned), (.reviewRequests, .direct): true
+        case (.reviewRequests, .team(let teamID)): countedTeamIDs.contains(teamID)
+        case (.reviewRequests, .pinned), (.myPRs, .pinned): pinnedAndHidden().hasPinned
+        case (.reviewRequests, .hidden), (.myPRs, .hidden): pinnedAndHidden().hasHidden
+        // Active has a heading only while Pinned or Hidden shows.
+        case (.myPRs, .active): pinnedAndHidden().hasPinned || pinnedAndHidden().hasHidden
+        default: false
         }
     }
 

@@ -47,9 +47,6 @@ struct MenuMetrics: Equatable {
         var bannerMessage: FontToken
         /// The banner's warning and dismiss symbols.
         var bannerSymbol: FontToken
-        /// Chevron of the "Hidden (n)" disclosure rows.
-        var disclosureChevron: FontToken
-        var disclosureTitle: FontToken
         var dropdownItem: FontToken
         var dropdownCheckmark: FontToken
         var sectionChevron: FontToken
@@ -182,9 +179,6 @@ struct MenuMetrics: Equatable {
         var topPadding: CGFloat
         var bottomPadding: CGFloat
         var sectionSpacing: CGFloat
-        var disclosureSpacing: CGFloat
-        var disclosureHorizontalPadding: CGFloat
-        var disclosureHeight: CGFloat
         var sectionHeadingSpacing: CGFloat
         var sectionChevronWidth: CGFloat
         var sectionCountHorizontalPadding: CGFloat
@@ -457,8 +451,6 @@ struct MenuMetrics: Equatable {
             refreshTimestamp: FontToken(size: s(caption), weight: .medium),
             bannerMessage: FontToken(size: s(body)),
             bannerSymbol: FontToken(size: s(title)),
-            disclosureChevron: FontToken(size: s(caption), weight: .semibold),
-            disclosureTitle: FontToken(size: s(caption), weight: .semibold),
             dropdownItem: FontToken(size: s(body), weight: .semibold),
             dropdownCheckmark: FontToken(size: s(body), weight: .semibold),
             sectionChevron: FontToken(size: s(body), weight: .semibold),
@@ -555,9 +547,6 @@ struct MenuMetrics: Equatable {
             topPadding: s(4),
             bottomPadding: s(12),
             sectionSpacing: s(20),
-            disclosureSpacing: s(6),
-            disclosureHorizontalPadding: s(8),
-            disclosureHeight: s(30),
             sectionHeadingSpacing: s(8),
             sectionChevronWidth: s(12),
             sectionCountHorizontalPadding: s(6),

@@ -1109,6 +1109,44 @@ final class DashboardControllerXCTests: XCTestCase {
         XCTAssertTrue(controller.isSectionExpanded(.pinned, in: .reviewRequests))
     }
 
+    /// The prune decides which sections still show without grouping cards. It must agree with the real sections.
+    @MainActor
+    func testThePruneSeesExactlyTheSectionsEachTabShows() {
+        for scenario in [MockPullRequestScenario.standard, .noTeams, .reviewTeams] {
+            let (controller, _) = makeMockController(scenario: scenario)
+            let teams = controller.state.viewerTeams.map(\.team.id)
+            let candidates: [PullRequestSectionID] = [.pinned, .active, .assigned, .direct, .hidden]
+                + teams.map { .team(id: $0) } + [.team(id: "T_NOT_A_VIEWER_TEAM")]
+            let requested = controller.sourceFilteredReviewRequests.filter(DashboardController.isRequestedPullRequest).map(\.id)
+            let authored = controller.sourceFilteredMyPullRequests.map(\.id)
+            let fixtures: [(String, pinned: Set<String>, hidden: Set<String>, turnedOff: Set<String>)] = [
+                ("nothing pinned or hidden", [], [], []),
+                ("pinned only", Set(requested.prefix(1) + authored.prefix(1)), [], []),
+                ("hidden only", [], Set(requested.suffix(1) + authored.suffix(1)), []),
+                ("both", Set(requested.prefix(1) + authored.prefix(1)), Set(requested.suffix(1) + authored.suffix(1)), []),
+                ("Authored hidden only", [], Set(authored.prefix(1)), []),
+                ("a turned-off team", [], [], Set(teams.prefix(1)))
+            ]
+            for (name, pinned, hidden, turnedOff) in fixtures {
+                controller.pinnedPullRequestIds = pinned
+                controller.hiddenPullRequestIds = hidden
+                controller.turnedOffReviewTeamIDs = turnedOff
+                let authoredSections = controller.authoredSections
+                let expected: [DashboardController.MenuTab: Set<PullRequestSectionID>] = [
+                    .reviewRequests: Set(controller.requestedSections.map(\.id)),
+                    .myPRs: PullRequestListSection.showsHeadings(authoredSections) ? Set(authoredSections.map(\.id)) : []
+                ]
+                for tab in [DashboardController.MenuTab.reviewRequests, .myPRs] {
+                    XCTAssertEqual(
+                        Set(candidates.filter { controller.showsHeading(for: $0, in: tab) }),
+                        expected[tab],
+                        "\(scenario) \(name) \(tab)"
+                    )
+                }
+            }
+        }
+    }
+
     @MainActor
     func testChangingTheFilterOrSortKeepsEveryOverride() {
         let (controller, _) = makeMockController()
