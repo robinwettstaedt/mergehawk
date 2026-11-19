@@ -72,13 +72,6 @@ final class IgnoredAuthorsTests: XCTestCase {
         )
     }
 
-    func testContainsAccountIsCaseInsensitive() {
-        let rule = IgnoredAuthors(ignoresBots: false, accounts: ["Platform-Nora"], knownBotLogins: [])
-        XCTAssertTrue(rule.contains(account: "platform-nora"))
-        XCTAssertTrue(rule.contains(account: "PLATFORM-NORA"))
-        XCTAssertFalse(rule.contains(account: "nora"))
-    }
-
     private func pullRequest(id: String, author: String, authorIsBot: Bool?) -> PullRequest {
         PullRequest(
             id: id,

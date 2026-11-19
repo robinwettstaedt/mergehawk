@@ -65,8 +65,4 @@ public struct IgnoredAuthors: Equatable, Sendable {
         case nil: return knownBotLogins.contains(login)
         }
     }
-
-    public func contains(account: String) -> Bool {
-        accounts.contains(account.lowercased())
-    }
 }
