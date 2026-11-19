@@ -176,6 +176,18 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testIgnoreSettingsDefaultOffAndEmptyAndRoundTrip() {
+        withStore { store, defaults in
+            XCTAssertFalse(store.ignoresBotPullRequests)
+            XCTAssertEqual(store.ignoredAccounts, [])
+            store.ignoresBotPullRequests = true
+            store.ignoredAccounts = ["Platform-Nora", "renovate"]
+            let restored = PreferencesStore(defaults: defaults)
+            XCTAssertTrue(restored.ignoresBotPullRequests)
+            XCTAssertEqual(restored.ignoredAccounts, ["Platform-Nora", "renovate"])
+        }
+    }
+
     func testNotificationPreferencesRoundTripThroughSerializedDefaults() {
         withStore { store, defaults in
             let preferences = NotificationPreferences(

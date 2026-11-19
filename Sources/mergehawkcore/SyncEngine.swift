@@ -205,6 +205,7 @@ public final class SyncEngine {
             isAssignedToViewer: previous.isAssignedToViewer,
             isMine: previous.isMine,
             author: current.author,
+            authorIsBot: current.authorIsBot,
             authorAvatarURL: current.authorAvatarURL,
             headRefName: current.headRefName,
             mergeable: current.mergeable,

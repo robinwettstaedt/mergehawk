@@ -50,7 +50,7 @@ enum GitHubPullRequestQueries {
       additions
       deletions
       statusCheckRollup { state }
-      author { login avatarUrl(size: 64) }
+      author { login avatarUrl(size: 64) __typename }
       repository { nameWithOwner isArchived }
       stack { id }
       comments(last: 10) { \(conversationCommentConnectionFields) }

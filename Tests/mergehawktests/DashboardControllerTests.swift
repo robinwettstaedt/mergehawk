@@ -2030,6 +2030,76 @@ final class DashboardControllerXCTests: XCTestCase {
     }
 
     @MainActor
+    func testStackEntryIsIgnoredByAccountOrAsAKnownBotOnlyWithTheToggle() {
+        let suiteName = "ignored-stack-entry-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let botPR = PullRequest(
+            id: "PR_BOT", title: "Bump", number: 1, url: URL(string: "https://github.com/acme/app/pull/1")!,
+            repo: "acme/app", ciState: .passing, reviewDecision: .reviewRequired, commentCount: 0, reviewCount: 0,
+            reviewRequestKind: .direct, isMine: false, author: "dependabot", authorIsBot: true,
+            mergeable: .mergeable, draft: false
+        )
+        let provider = ReviewTeamGitHubProvider(result: CompletePullRequestFetchResult(activePullRequests: [botPR]))
+        let controller = Self.makeReviewTeamController(defaults: defaults, provider: provider)
+        waitUntil(timeout: 1) { provider.fetchCount == 1 && !controller.isRefreshing }
+        // The expanded stack passes each context entry's author with no bot type, as here.
+        func isIgnored(_ author: String) -> Bool {
+            controller.ignoredAuthors.ignores(author: author, isBot: nil)
+        }
+
+        XCTAssertFalse(isIgnored("Dependabot"))
+        XCTAssertFalse(isIgnored("platform-nora"))
+
+        controller.addIgnoredAccount("Platform-Nora")
+        XCTAssertTrue(isIgnored("platform-nora"))
+        XCTAssertFalse(isIgnored("Dependabot"))
+
+        controller.ignoresBotPullRequests = true
+        XCTAssertTrue(isIgnored("Dependabot"))
+        XCTAssertFalse(isIgnored("renovate"), "a bot the app knows nothing about")
+        XCTAssertFalse(isIgnored("teammate"))
+    }
+
+    @MainActor
+    func testIgnoredAccountsAreCleanedDeduplicatedAndPersisted() {
+        let suiteName = "mergehawk-ignored-accounts-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        func makeController() -> DashboardController {
+            DashboardController(
+                tokenStore: InMemoryTokenStore(),
+                preferencesStore: PreferencesStore(defaults: defaults),
+                launchConfiguration: LaunchConfiguration(usesMockData: false, suppressesMacOSNotifications: true),
+                automaticRefreshInterval: 0
+            )
+        }
+        let controller = makeController()
+        XCTAssertFalse(controller.ignoresBotPullRequests)
+        XCTAssertEqual(controller.ignoredAccounts, [])
+
+        XCTAssertTrue(controller.addIgnoredAccount("@Platform-Nora"))
+        XCTAssertEqual(controller.ignoredAccounts, ["Platform-Nora"])
+        XCTAssertFalse(controller.canAddIgnoredAccount("platform-nora"))
+        XCTAssertFalse(controller.addIgnoredAccount("platform-nora"))
+        XCTAssertFalse(controller.canAddIgnoredAccount("   "))
+        XCTAssertFalse(controller.addIgnoredAccount("   "))
+        XCTAssertTrue(controller.addIgnoredAccount("renovate[bot]"))
+        controller.ignoresBotPullRequests = true
+        XCTAssertEqual(controller.ignoredAccounts, ["Platform-Nora", "renovate"])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).ignoredAccounts, ["Platform-Nora", "renovate"])
+        XCTAssertTrue(PreferencesStore(defaults: defaults).ignoresBotPullRequests)
+
+        let reloaded = makeController()
+        XCTAssertTrue(reloaded.ignoresBotPullRequests)
+        XCTAssertEqual(reloaded.ignoredAccounts, ["Platform-Nora", "renovate"])
+
+        controller.removeIgnoredAccount("PLATFORM-NORA")
+        XCTAssertEqual(controller.ignoredAccounts, ["renovate"])
+        XCTAssertEqual(PreferencesStore(defaults: defaults).ignoredAccounts, ["renovate"])
+    }
+
+    @MainActor
     private func waitUntilAsync(condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(1)
         while Date() < deadline {

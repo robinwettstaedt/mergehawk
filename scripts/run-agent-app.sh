@@ -102,9 +102,9 @@ if [[ "$UI_SURFACE" != "settings" && "$UI_SURFACE" != "menu" && "$UI_SURFACE" !=
   exit 2
 fi
 case "$MOCK_SCENARIO" in
-  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications|long-lists|new-review-request|review-teams|no-teams|draft-ready-for-review|pr-stacks|budget-stretched|budget-paused) ;;
+  standard|delayed-refresh|refresh-failure|merged-final-activity|quiet-access-loss|bot-notifications|comment-notifications|long-lists|new-review-request|review-teams|no-teams|draft-ready-for-review|pr-stacks|budget-stretched|budget-paused|ignored-authors) ;;
   *)
-    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications, comment-notifications, long-lists, new-review-request, review-teams, no-teams, draft-ready-for-review, pr-stacks, budget-stretched or budget-paused" >&2
+    echo "--mock-scenario must be standard, delayed-refresh, refresh-failure, merged-final-activity, quiet-access-loss, bot-notifications, comment-notifications, long-lists, new-review-request, review-teams, no-teams, draft-ready-for-review, pr-stacks, budget-stretched, budget-paused or ignored-authors" >&2
     exit 2
     ;;
 esac

@@ -13,7 +13,7 @@ final class GitHubHydrationGoldenTests: XCTestCase {
             "richThreads",
             pullRequests: [Self.richThreads()],
             discoveries: [Fixtures.discovery(id: "PR_RICH", isTeamRequested: true)],
-            hash: "bcefb6d2e289fc8567c1ee36d8f6d231cbe21d80522de70e6bd3c87df0af4bab"
+            hash: "8ce32afd53b24ca14f01b510e223b5d61fd769fc287389a1d7d644d54dbcc57e"
         )
     }
 
@@ -22,7 +22,7 @@ final class GitHubHydrationGoldenTests: XCTestCase {
             "longThread",
             pullRequests: [Self.longThread()],
             discoveries: [Fixtures.discovery(id: "PR_LONG")],
-            hash: "c4c119c4d00184450b23c616cba4c467c585f61c797d6036a5a4dd657197f444"
+            hash: "e0c02bc49cde6782fb14e73fc21ae887a34ae8767a3e0503c31b25b11b64dd89"
         )
     }
 
@@ -31,7 +31,7 @@ final class GitHubHydrationGoldenTests: XCTestCase {
             "manyThreads",
             pullRequests: [Self.manyThreads()],
             discoveries: [Fixtures.discovery(id: "PR_MANY")],
-            hash: "f3193c1a7b225181903034479c09166b92e61751782c531b4aef9fb5fd9207e3"
+            hash: "2c08dbd9d96bf8a06aea82df04582b58ca437e052c42816c7f5cc81b0c9f5bac"
         )
     }
 
@@ -40,7 +40,7 @@ final class GitHubHydrationGoldenTests: XCTestCase {
             "noThreads",
             pullRequests: [Self.noThreads()],
             discoveries: [Fixtures.discovery(id: "PR_NONE")],
-            hash: "fec83f4db758a2cd66319330161eeb8ab2821de782d86396951d1ebcfca7b5be"
+            hash: "8d112cf25b579edf6847976bd6e16f88bd57a0715973ececc427abe5efa53c2d"
         )
     }
 
@@ -50,7 +50,7 @@ final class GitHubHydrationGoldenTests: XCTestCase {
             "batch25",
             pullRequests: pullRequests,
             discoveries: pullRequests.map { Fixtures.discovery(id: $0["id"] as! String) },
-            hash: "b475761b66e1bceb355be9a6a3973da3661baf626fb9c538dde6764ca32be1ed"
+            hash: "2dd997513dd8c2cd6994ff69d2b22b9bffe524b22579fefe8d47fe6dd39ef46a"
         )
     }
 

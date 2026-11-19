@@ -177,7 +177,7 @@ final class GitHubRequestTests: XCTestCase {
         XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("commits("))
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("pageInfo"))
         XCTAssertFalse(GitHubPullRequestQueries.hydration.contains("author { id"))
-        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("author { login avatarUrl(size: 64) }"))
+        XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("author { login avatarUrl(size: 64) __typename }"))
         // Comments, reviews and latest opinionated reviews carry actors. Review threads select no comments here.
         XCTAssertEqual(GitHubPullRequestQueries.hydration.components(separatedBy: "author { login __typename }").count - 1, 3)
         XCTAssertTrue(GitHubPullRequestQueries.hydration.contains("assignees(last: 20)"))

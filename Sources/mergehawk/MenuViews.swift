@@ -1792,6 +1792,8 @@ struct PullRequestListView: View {
     @ViewBuilder
     private func stackListItem(_ row: PullRequestListItem) -> some View {
         if let group = row.stack, controller.isStackExpanded(group.stack.id) {
+            // Built once per stack. Stack entries carry no bot type, so a bot counts only when it is a known bot.
+            let ignored = controller.ignoredAuthors
             StackMemberContainer(group: group, isUnread: row.isUnread) { member, position in
                 let isFirst = member.pullRequestID == group.members.first?.pullRequestID
                 let control = isFirst ? stackControl(group, displayedPosition: group.topMemberPosition, isExpanded: true) : nil
@@ -1807,7 +1809,8 @@ struct PullRequestListView: View {
                         repo: row.representative.repo,
                         chrome: .containerRow,
                         stackControl: control,
-                        metadataAccessory: positionLabel
+                        metadataAccessory: positionLabel,
+                        isIgnored: ignored.ignores(author: entry.author, isBot: nil)
                     ) {
                         controller.openStackMember(member)
                     }
@@ -2500,6 +2503,7 @@ enum PullRequestCardPart: Hashable {
     case stackControl
     case draftBadge
     case stateBadge
+    case ignoredBadge
 }
 
 /// The frames of a card's parts. A list of cards reports the last card's parts.

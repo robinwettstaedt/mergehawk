@@ -284,6 +284,17 @@ final class DashboardController: ObservableObject {
             preferencesStore.hideArchivedRepositories = hideArchivedRepositories
         }
     }
+    @Published var ignoresBotPullRequests: Bool {
+        didSet {
+            preferencesStore.ignoresBotPullRequests = ignoresBotPullRequests
+        }
+    }
+    /// Cleaned logins in the order they were added. Change it through `addIgnoredAccount` and `removeIgnoredAccount`.
+    @Published private(set) var ignoredAccounts: [String] {
+        didSet {
+            preferencesStore.ignoredAccounts = ignoredAccounts
+        }
+    }
     @Published var sourceCatalog: SourceCatalog {
         didSet {
             preferencesStore.sourceCatalog = sourceCatalog
@@ -436,6 +447,8 @@ final class DashboardController: ObservableObject {
         self.turnedOffReviewTeamIDs = preferencesStore.turnedOffReviewTeamIDs
         self.sourcePreferences = preferencesStore.sourcePreferences
         self.hideArchivedRepositories = preferencesStore.hideArchivedRepositories
+        self.ignoresBotPullRequests = preferencesStore.ignoresBotPullRequests
+        self.ignoredAccounts = preferencesStore.ignoredAccounts
         self.sourceCatalog = preferencesStore.sourceCatalog
         self.sourceCatalogSyncedAt = preferencesStore.sourceCatalogSyncedAt
         self.sourceCatalogAccountLogin = preferencesStore.sourceCatalogAccountLogin
@@ -461,11 +474,48 @@ final class DashboardController: ObservableObject {
         visiblePullRequestNotifications.filter { !$0.read }.count
     }
 
+    /// Stored rows the Sources settings allow, without rows about ignored authors' PRs. Hidden rows stay stored.
     var visiblePullRequestNotifications: [PullRequestNotification] {
         let preferences = effectiveSourcePreferences
+        let ignored = ignoredAuthors
         return pullRequestNotificationHistory
-            .filter { preferences.allowsNotifications(for: $0.repo) }
+            .filter {
+                preferences.allowsNotifications(for: $0.repo)
+                    && !ignored.ignores(author: $0.prAuthor, isBot: $0.prAuthorIsBot)
+            }
             .sorted(by: Self.compareNotifications)
+    }
+
+    /// The ignore rule for the current settings. Read it once per computation, never per element.
+    var ignoredAuthors: IgnoredAuthors {
+        IgnoredAuthors(
+            ignoresBots: ignoresBotPullRequests,
+            accounts: ignoredAccounts,
+            knownBotLogins: IgnoredAuthors.knownBotLogins(
+                pullRequests: state.pullRequests,
+                notifications: pullRequestNotificationHistory
+            )
+        )
+    }
+
+    func canAddIgnoredAccount(_ input: String) -> Bool {
+        guard let login = IgnoredAuthors.cleanedLogin(input) else {
+            return false
+        }
+        return !ignoredAccounts.contains { $0.caseInsensitiveCompare(login) == .orderedSame }
+    }
+
+    @discardableResult
+    func addIgnoredAccount(_ input: String) -> Bool {
+        guard canAddIgnoredAccount(input), let login = IgnoredAuthors.cleanedLogin(input) else {
+            return false
+        }
+        ignoredAccounts.append(login)
+        return true
+    }
+
+    func removeIgnoredAccount(_ login: String) {
+        ignoredAccounts.removeAll { $0.caseInsensitiveCompare(login) == .orderedSame }
     }
 
     private var effectiveSourcePreferences: SourcePreferences {
@@ -500,8 +550,8 @@ final class DashboardController: ObservableObject {
     }
 
     private var hasGitHubAppVisiblePullRequestData: Bool {
-        !sourceFilteredMyPullRequests.isEmpty
-            || sourceFilteredReviewRequests.contains(where: Self.isRequestedPullRequest)
+        !sourcePreferenceMyPullRequests.isEmpty
+            || sourcePreferenceReviewRequests.contains(where: Self.isRequestedPullRequest)
     }
 
     var accountLabel: String {
@@ -523,15 +573,29 @@ final class DashboardController: ObservableObject {
         PreferencesStore.refreshIntervalMinuteOptions
     }
 
+    /// Authored PRs the Sources settings allow, without ignored authors.
     var sourceFilteredMyPullRequests: [PullRequest] {
+        let ignored = ignoredAuthors
+        return sourcePreferenceMyPullRequests.filter { !ignored.ignores(author: $0.author, isBot: $0.authorIsBot) }
+    }
+
+    /// Counted PRs the Sources settings allow, without ignored authors. A team request only counts for one of the
+    /// viewer's teams that is not turned off.
+    var sourceFilteredReviewRequests: [PullRequest] {
+        let ignored = ignoredAuthors
+        return sourcePreferenceReviewRequests.filter { !ignored.ignores(author: $0.author, isBot: $0.authorIsBot) }
+    }
+
+    /// Authored PRs the Sources settings allow, ignored authors included.
+    private var sourcePreferenceMyPullRequests: [PullRequest] {
         let preferences = effectiveSourcePreferences
         return state.pullRequests.filter { pr in
             pr.isMine && preferences.allowsMyPullRequests(for: pr.repo)
         }
     }
 
-    /// Counted PRs: a team request only counts for one of the viewer's teams that is not turned off.
-    var sourceFilteredReviewRequests: [PullRequest] {
+    /// Counted PRs the Sources settings allow, ignored authors included.
+    private var sourcePreferenceReviewRequests: [PullRequest] {
         let preferences = effectiveSourcePreferences
         let counting = teamReviewCounting
         return state.pullRequests.map(counting.applied(to:)).filter { pr in
@@ -1687,11 +1751,14 @@ final class DashboardController: ObservableObject {
                     .filter { $0.repositoryIsArchived == true }
                     .map(\.repo)
             )
+            // Read after the fetch too, so an ignore changed during a suspended refresh applies to it.
+            let ignored = ignoredAuthors
             let allowed = prepared.events.filter { value in
                 let mutedBotActivity = muteBotNotifications && value.event.actorIsBot == true
                 return !mutedBotActivity && preferences.allows(event: value.event, for: value.filteringContext)
                     && sourcePreferences.allowsNotifications(for: value.filteringContext.repo)
                     && (!hideArchivedRepositories || !archivedRepositories.contains(value.filteringContext.repo))
+                    && !ignored.ignores(author: value.filteringContext.author, isBot: value.filteringContext.authorIsBot)
             }
             let notifications = allowed.map { value in
                 PullRequestNotification(

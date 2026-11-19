@@ -13,6 +13,9 @@ issues, prompts, tests, UI copy, and implementation notes.
 | macOS local notification | A system notification delivered through macOS Notification Center. |
 | Notification payload | The title/body/update metadata MergeHawk would send to macOS Notification Center. |
 | PR / pull request | The app-level umbrella term for a provider-hosted code review/change request, including equivalent concepts from future version control platform integrations. |
+| Ignored PR | A PR opened by a bot while "Ignore PRs opened by bots" is on, or by an account in "Ignored accounts". It leaves the lists and counts, creates no notifications, and its existing notification rows are hidden. |
+| Hidden PR | A PR the user moved to the Hidden section with the manual per-PR Hide action. UI only: its notifications are unchanged. |
+| Muted bot activity | Comments and reviews by bots on PRs the user still sees, muted by "Mute bot comment and review notifications". |
 | Section | A collapsible group of PR cards under a heading in a PR tab (`Authored` or `Requested`). |
 | Pinned section | The section at the top of a PR tab holding every pinned PR or stack, shown while it holds one. |
 | Hidden section | The section at the bottom of a PR tab holding every hidden PR or stack, shown while it holds one, collapsed by default. |
@@ -109,6 +112,23 @@ Examples:
 When writing product docs, agent prompts, UI copy, tests, or task summaries,
 prefer `PR` or `pull request` unless a provider-native API term is required for
 accuracy.
+
+### Ignored PR
+
+A PR MergeHawk leaves out because of who opened it: a GitHub bot while "Ignore
+PRs opened by bots" is on, or an account in "Ignored accounts" (both in
+Settings › Sources). Ignoring is by author only. An ignored PR is not in the
+Authored or Requested lists, in any of their sections (Pinned and Hidden
+included), or in their counts, and it creates no in-app or macOS local
+notifications. Its existing notification rows
+are hidden until the ignore is lifted. Ignoring overrides the per-repository
+Sources checkboxes, and it keeps the PR's pinned and hidden state.
+
+Do not confuse it with a **Hidden PR**, which the user hides by hand and which
+still notifies, or with **muted bot activity**, which mutes bot comments and
+reviews on PRs the user still sees. "Hide archived repositories" and turned-off
+review teams also remove PRs and notifications, but they are separate filters,
+not ignoring.
 
 ### Section
 

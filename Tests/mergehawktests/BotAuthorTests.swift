@@ -83,6 +83,32 @@ final class BotAuthorTests: XCTestCase {
         XCTAssertFalse(oldReview.mentionsViewer)
     }
 
+    func testHydratedPullRequestCarriesTheAuthorBotType() async throws {
+        for (typename, expected) in [("Bot", true), ("User", false), (nil, nil) as (String?, Bool?)] {
+            var fixture = GitHubPaginationTests.pullRequest()
+            var author: [String: Any] = ["id": "USER_dependabot", "login": "dependabot"]
+            if let typename {
+                author["__typename"] = typename
+            }
+            fixture["author"] = author
+            let server = GitHubFixtureServer(pullRequests: [fixture])
+            let hydrated = try await server.fetcher.hydrate([GitHubPaginationTests.discovery()], login: "rw")
+            XCTAssertEqual(hydrated.first?.pullRequest.authorIsBot, expected, "typename \(typename ?? "nil")")
+        }
+    }
+
+    func testPullRequestAuthorBotTypeDecodesOldCacheAndRoundTrips() throws {
+        let pr = PullRequest(id: "PR", title: "PR", number: 1, url: URL(string: "https://example.com")!, repo: "acme/app", ciState: .passing, reviewDecision: .approved, commentCount: 0, reviewCount: 0, isMine: false, author: "dependabot", authorIsBot: true, mergeable: .mergeable, draft: false)
+        try check(pr, key: "authorIsBot") { XCTAssertNil($0.authorIsBot) }
+    }
+
+    func testNotificationRowKeepsThePullRequestAuthorBotType() throws {
+        let pr = PullRequest(id: "PR", title: "PR", number: 1, url: URL(string: "https://example.com")!, repo: "acme/app", ciState: .passing, reviewDecision: .approved, commentCount: 0, reviewCount: 0, isMine: false, author: "dependabot", authorIsBot: true, mergeable: .mergeable, draft: false)
+        let row = PullRequestNotification(event: PullRequestEvent(type: .relationshipAdded, prId: "PR", relationshipChanges: [.directReviewRequest]), pullRequest: pr, createdAt: Date(timeIntervalSince1970: 10))
+        XCTAssertEqual(row.prAuthorIsBot, true)
+        try check(row, key: "prAuthorIsBot") { XCTAssertNil($0.prAuthorIsBot) }
+    }
+
     private func check<T: Codable & Equatable>(_ value: T, key: String, old: (T) -> Void) throws {
         let data = try JSONEncoder().encode(value)
         XCTAssertEqual(try JSONDecoder().decode(T.self, from: data), value)

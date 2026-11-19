@@ -88,6 +88,17 @@ struct PreferencesStore {
         set { defaults.set(newValue, forKey: "sources.hideArchivedRepositories") }
     }
 
+    var ignoresBotPullRequests: Bool {
+        get { value(for: "sources.ignoresBotPullRequests", fallback: false) }
+        set { defaults.set(newValue, forKey: "sources.ignoresBotPullRequests") }
+    }
+
+    /// Cleaned GitHub logins in the order the user added them.
+    var ignoredAccounts: [String] {
+        get { defaults.stringArray(forKey: "sources.ignoredAccounts") ?? [] }
+        set { defaults.set(newValue, forKey: "sources.ignoredAccounts") }
+    }
+
     var sourceCatalog: SourceCatalog {
         get {
             decoded(for: "sources.catalog", fallback: .empty)

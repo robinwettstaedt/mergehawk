@@ -118,6 +118,26 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertNil(prepared.processedActivityByPullRequestID[retired.id])
     }
 
+    func testRetiringPRFilteringContextKeepsTheCurrentAuthorBotType() async throws {
+        let previousPR = Self.pullRequest(reviewRequestKind: .direct, isMine: false)
+        let previous = PullRequestSyncState(
+            account: GitHubAccount(login: "rw"),
+            dashboard: Self.dashboard([previousPR]),
+            processedActivityByPullRequestID: [
+                previousPR.id: ProcessedPullRequestActivity(pullRequestID: previousPR.id)
+            ]
+        )
+        let retired = Self.pullRequest(comments: [Self.comment("FINAL_COMMENT")], isMine: false, authorIsBot: true)
+
+        let prepared = try await Self.engine().prepare(
+            previousState: previous,
+            fetchResult: CompletePullRequestFetchResult(activePullRequests: [], retiringPullRequests: [retired])
+        )
+
+        XCTAssertFalse(prepared.events.isEmpty)
+        XCTAssertTrue(prepared.events.allSatisfy { $0.filteringContext.authorIsBot == true })
+    }
+
     func testCIAndRelationshipTransitionsUseCommittedPRIndependentlyOfProcessedIDs() async throws {
         let previousPR = Self.pullRequest(ci: .passing, isAssigned: false, isMine: false)
         let current = Self.pullRequest(ci: .failing, isAssigned: true, isMine: false)
@@ -912,6 +932,7 @@ final class SyncEngineTests: XCTestCase {
         requestedTeams: [TeamReference] = [],
         isAssigned: Bool = false,
         isMine: Bool = true,
+        authorIsBot: Bool? = nil,
         draft: Bool = false,
         stackID: String? = nil
     ) -> PullRequest {
@@ -934,6 +955,7 @@ final class SyncEngineTests: XCTestCase {
             isAssignedToViewer: isAssigned,
             isMine: isMine,
             author: isMine ? "rw" : "author",
+            authorIsBot: authorIsBot,
             mergeable: .mergeable,
             draft: draft,
             stackID: stackID

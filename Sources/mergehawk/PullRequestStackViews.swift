@@ -180,24 +180,25 @@ struct StackPositionLabelAnchorsKey: PreferenceKey {
     }
 }
 
-/// The badges after a context stack member's title, in display order: Draft first, then its state. Full members
-/// show only the ordinary Draft badge of a PR card.
+/// The badges after a context stack member's title, in display order: Draft first, then its state, then Ignored
+/// when its author is ignored. Full members show only the ordinary Draft badge of a PR card.
 enum StackMemberBadge: String, Equatable {
     case draft = "Draft"
     case open = "Open"
     case merged = "Merged"
     case closed = "Closed"
+    case ignored = "Ignored"
 
     var title: String { rawValue }
 
-    static func badges(for entry: PullRequestStackEntry) -> [StackMemberBadge] {
+    static func badges(for entry: PullRequestStackEntry, isIgnored: Bool = false) -> [StackMemberBadge] {
         (entry.isDraft ? [.draft] : []) + [{
             switch entry.state {
             case .open: .open
             case .merged: .merged
             case .closed: .closed
             }
-        }()]
+        }()] + (isIgnored ? [.ignored] : [])
     }
 }
 
@@ -215,6 +216,8 @@ struct StackMemberBadgeView: View {
             PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Merged PR", tint: .purple)
         case .closed:
             PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Closed PR", tint: .red)
+        case .ignored:
+            PullRequestTitleBadge(text: badge.title, accessibilityLabel: "Ignored author", tint: .secondary)
         }
     }
 }
@@ -323,6 +326,8 @@ struct StackContextCard: View {
     var stackControl: AnyView? = nil
     /// Shown at the end of the metadata line, after the PR number.
     var metadataAccessory: AnyView? = nil
+    /// Adds the Ignored badge after the state badge.
+    var isIgnored = false
     let action: () -> Void
 
     @Environment(\.menuMetrics) private var metrics
@@ -343,8 +348,16 @@ struct StackContextCard: View {
         )
     }
 
+    private static func cardPart(for badge: StackMemberBadge) -> PullRequestCardPart {
+        switch badge {
+        case .draft: .draftBadge
+        case .open, .merged, .closed: .stateBadge
+        case .ignored: .ignoredBadge
+        }
+    }
+
     private var badges: [StackMemberBadge] {
-        StackMemberBadge.badges(for: entry)
+        StackMemberBadge.badges(for: entry, isIgnored: isIgnored)
     }
 
     private var identity: some View {
@@ -360,7 +373,7 @@ struct StackContextCard: View {
                     // Badges keep their full width; only the title truncates.
                     StackMemberBadgeView(badge: badge)
                         .layoutPriority(1)
-                        .pullRequestCardPart(badge == .draft ? .draftBadge : .stateBadge)
+                        .pullRequestCardPart(Self.cardPart(for: badge))
                 }
             }
 
