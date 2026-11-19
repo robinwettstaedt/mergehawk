@@ -1707,7 +1707,7 @@ final class AtomicRefreshTests: XCTestCase {
 
         XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
         XCTAssertEqual(fixture.controller.state.viewerTeams, Self.viewerTeams)
-        XCTAssertEqual(fixture.controller.requestedSections.first { $0.section == .team }?.visible.map(\.id), [previousPR.id])
+        XCTAssertEqual(fixture.controller.requestedSections[.team(id: Self.developers.id)]?.items.map(\.representative.id), [previousPR.id])
         XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
     }
 
@@ -1729,7 +1729,7 @@ final class AtomicRefreshTests: XCTestCase {
 
         XCTAssertEqual(fixture.controller.state, fixture.previous.dashboard)
         XCTAssertEqual(fixture.controller.state.viewerTeams, Self.viewerTeams)
-        XCTAssertEqual(fixture.controller.requestedSections.first { $0.section == .team }?.visible.map(\.id), [previousPR.id])
+        XCTAssertEqual(fixture.controller.requestedSections[.team(id: Self.developers.id)]?.items.map(\.representative.id), [previousPR.id])
         XCTAssertEqual(fixture.preferences.pullRequestSyncState, fixture.previous)
     }
 
