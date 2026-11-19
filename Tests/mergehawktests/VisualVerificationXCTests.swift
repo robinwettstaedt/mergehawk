@@ -991,6 +991,17 @@ final class VisualVerificationXCTests: XCTestCase {
                     to: menuSizeURL(size, "my-prs-hidden-expanded")
                 )
             }
+            // Pinned, Active and Hidden together, Hidden collapsed and expanded.
+            controller.pinnedPullRequestIds = Set(controller.sourceFilteredMyPullRequests.prefix(1).map(\.id))
+            controller.hiddenPullRequestIds = Set(controller.sourceFilteredMyPullRequests.dropFirst().prefix(1).map(\.id))
+            precondition(controller.authoredSections.map(\.id) == [.pinned, .active, .hidden])
+            try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-my-prs-sections.png"))
+            try renderHiddenExpanded(
+                controller: controller,
+                tab: .myPRs,
+                to: outputURL.appendingPathComponent("menu-my-prs-sections-hidden-expanded.png")
+            )
+            controller.pinnedPullRequestIds = []
             controller.hiddenPullRequestIds = []
             let populatedSourcePreferences = controller.sourcePreferences
             controller.setOwnerPreferences(
@@ -1048,13 +1059,22 @@ final class VisualVerificationXCTests: XCTestCase {
             controller.reviewRequestSortOption = .createdDate
             controller.reviewRequestSortDirection = .descending
             controller.pinnedPullRequestIds = Set(controller.sourceFilteredReviewRequests.filter { $0.reviewRequestKind != .none }.prefix(1).map(\.id))
+            precondition(controller.requestedSections.first?.id == .pinned)
             try renderMenu(controller: controller, to: outputURL.appendingPathComponent("menu-review-requests-pinned.png"))
             controller.pinnedPullRequestIds = []
             controller.hiddenPullRequestIds = Set(controller.requestedSections.allItems.prefix(2).map(\.representative.id))
+            precondition(controller.requestedSections.last?.id == .hidden)
             try renderMenu(
                 controller: controller,
                 to: outputURL.appendingPathComponent("menu-review-requests-hidden-collapsed.png")
             )
+            for size in MenuSize.allCases {
+                try renderMenu(
+                    controller: controller,
+                    to: menuSizeURL(size, "review-requests-hidden-collapsed"),
+                    menuSize: size
+                )
+            }
             try renderHiddenExpanded(
                 controller: controller,
                 tab: .reviewRequests,
@@ -1990,7 +2010,9 @@ private enum MenuSizeCaptures {
         "sign-in-pending",
         "access-prompt"
     ]
-    static let fragments = ["my-prs-hidden-expanded", "review-requests-hidden-expanded", "header-tooltips"]
+    static let fragments = [
+        "my-prs-hidden-expanded", "review-requests-hidden-collapsed", "review-requests-hidden-expanded", "header-tooltips"
+    ]
     /// Review requests and Authored stacks are captured at the default and the largest menu size only.
     static let stackSizes: [MenuSize] = [.standard, .larger]
     static let stackStates = [
@@ -2123,6 +2145,8 @@ private struct VisualCaptureSelection {
         "menu-my-prs-pinned",
         "menu-my-prs-hidden-collapsed",
         "menu-my-prs-hidden-expanded",
+        "menu-my-prs-sections",
+        "menu-my-prs-sections-hidden-expanded",
         "menu-my-prs-empty",
         "menu-review-requests",
         "menu-review-requests-laptop",
