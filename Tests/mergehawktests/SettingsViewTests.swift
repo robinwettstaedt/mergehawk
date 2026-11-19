@@ -670,6 +670,44 @@ final class SettingsViewTests: XCTestCase {
         XCTAssertEqual(controller.appearance, .dark)
     }
 
+    func testIgnoredAccountsCountText() {
+        XCTAssertEqual(IgnoredAuthorSettingsCopy.countText(0), "None")
+        XCTAssertEqual(IgnoredAuthorSettingsCopy.countText(1), "1 account")
+        XCTAssertEqual(IgnoredAuthorSettingsCopy.countText(3), "3 accounts")
+    }
+
+    func testIgnoreSettingsCopyHasNoSemicolonsOrDashes() {
+        let strings = [
+            IgnoredAuthorSettingsCopy.botsTitle, IgnoredAuthorSettingsCopy.botsHelp,
+            IgnoredAuthorSettingsCopy.accountsTitle, IgnoredAuthorSettingsCopy.accountsHelp,
+            IgnoredAuthorSettingsCopy.placeholder, IgnoredAuthorSettingsCopy.add, IgnoredAuthorSettingsCopy.edit,
+            IgnoredAuthorSettingsCopy.emptyList, IgnoredAuthorSettingsCopy.muteBotNotificationsHelp,
+            IgnoredAuthorSettingsCopy.countText(0), IgnoredAuthorSettingsCopy.countText(1),
+            IgnoredAuthorSettingsCopy.countText(3), IgnoredAuthorSettingsCopy.removeLabel("platform-nora")
+        ]
+        for string in strings {
+            XCTAssertFalse(string.contains { [";", "\u{2014}", "\u{2013}"].contains($0) }, string)
+        }
+    }
+
+    @MainActor
+    func testSourcesHeaderShowsTheIgnoreRowsBelowHideArchivedSignedInAndOut() throws {
+        for scenario in [MockPullRequestScenario.standard, nil] {
+            let (controller, defaults, suite) = makeSettingsController(scenario: scenario)
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let (host, _) = hostSettings(controller: controller, selection: .sources)
+            defer { host.close() }
+            let label = scenario == nil ? "signed out" : "signed in"
+
+            let archived = try XCTUnwrap(accessibilityFrame(labeled: "Hide archived repositories", in: host), label)
+            let bots = try XCTUnwrap(accessibilityFrame(labeled: IgnoredAuthorSettingsCopy.botsTitle, in: host), label)
+            let edit = try XCTUnwrap(accessibilityFrame(labeled: IgnoredAuthorSettingsCopy.edit, in: host), label)
+            // Screen coordinates grow upward, so a lower row has a smaller y.
+            XCTAssertLessThan(bots.maxY, archived.minY + 0.5, label)
+            XCTAssertLessThan(edit.maxY, bots.minY + 0.5, label)
+        }
+    }
+
     /// The screen frame of the first accessibility element with this label, or nil once the timeout passes.
     @MainActor
     private func accessibilityFrame(labeled label: String, in host: OffScreenHost, timeout: TimeInterval = 2) -> CGRect? {

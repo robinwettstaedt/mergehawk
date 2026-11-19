@@ -692,7 +692,7 @@ private struct PATSignInProgressView: View {
 }
 
 struct NotificationSettingsView: View {
-    private static let muteBotNotificationsHelp = "Applies to new comments and reviews from accounts GitHub identifies as bots, across all repositories. Existing notifications remain."
+    private static let muteBotNotificationsHelp = IgnoredAuthorSettingsCopy.muteBotNotificationsHelp
 
     @ObservedObject var controller: DashboardController
 
@@ -1098,6 +1098,7 @@ private struct SourcesSettingsView: View {
                         .controlSize(.mini)
                         .accessibilityHint(Self.hideArchivedRepositoriesHelp)
                 }
+                IgnoredAuthorSettingsRows(controller: controller)
                 Divider()
 
                 if isSignedIn {
